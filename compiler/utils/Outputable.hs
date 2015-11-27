@@ -700,6 +700,11 @@ instance Outputable Bool where
     ppr True  = ptext (sLit "True")
     ppr False = ptext (sLit "False")
 
+instance Outputable Ordering where
+    ppr LT = text "LT"
+    ppr EQ = text "EQ"
+    ppr GT = text "GT"
+
 instance Outputable Int32 where
    ppr n = integer $ fromIntegral n
 

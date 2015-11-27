@@ -3,7 +3,7 @@
 (c) The GRASP/AQUA Project, Glasgow University, 1992-1998
 -}
 
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE CPP, TupleSections, ViewPatterns #-}
 
 module TcValidity (
   Rank, UserTypeCtxt(..), checkValidType, checkValidMonoType,
@@ -14,7 +14,8 @@ module TcValidity (
   ClsInfo, checkValidCoAxiom, checkValidCoAxBranch,
   checkValidTyFamEqn,
   checkConsistentFamInst,
-  arityErr, badATErr
+  arityErr, badATErr,
+  checkValidTelescope
   ) where
 
 #include "HsVersions.h"
@@ -1462,6 +1463,77 @@ famPatErr fam_tc tvs pats
           <+> pprQuotedList tvs)
        2 (hang (ptext (sLit "but the real LHS (expanding synonyms) is:"))
              2 (pprTypeApp fam_tc (map expandTypeSynonyms pats) <+> ptext (sLit "= ...")))
+
+{-
+************************************************************************
+*                                                                      *
+   Telescope checking
+*                                                                      *
+************************************************************************
+
+Note [Bad telescopes]
+~~~~~~~~~~~~~~~~~~~~~
+TODO (RAE): Write note. Include example from checkValidTelescope and
+talk about where to do telescope checking and where to do telescope
+reordering.
+
+Refer to dependent/should_fail/BadTelescope{,2,3}
+
+-}
+
+-- | Check a list of binders to see if they make a valid telescope.
+-- The key property we're checking for is scoping. For example:
+-- > data SameKind :: k -> k -> *
+-- > data X a k (b :: k) (c :: SameKind a b)
+-- Kind inference says that a's kind should be k. But that's impossible,
+-- because k isn't in scope when a is bound. This check has to come before
+-- general validity checking, because once we kind-generalise, this sort
+-- of problem is harder to spot (as we'll generalise over the unbound
+-- k in a's type.)
+checkValidTelescope :: LHsTyVarBndrs Name  -- the original user-written telescope
+                    -> [TyVar]             -- implicit vars
+                    -> [TyVar]             -- explicit vars
+                    -> TcM ()
+checkValidTelescope hs_tvs orig_kvs orig_tvs
+  = do { unless (go [] emptyVarSet orig_tvs) $
+         addErr $
+         hang (text "These kind and type variables:" <+> ppr hs_tvs $$
+               text "are out of dependency order. Perhaps try this ordering:")
+            2 (sep (map pprTvBndr tidy_tvs'))
+
+       ; let bad_pairs = [ (tv, kv)
+                         | kv <- orig_kvs
+                         , tv <- orig_tvs'
+                         , tv `elemVarSet` tyCoVarsOfType (tyVarKind kv) ]
+             report (tidyTyVarOcc env -> tv, tidyTyVarOcc env -> kv)
+               = addErr $
+                 text "The kind of implicitly-bound variable" <+>
+                 quotes (ppr kv) <> text ", namely" <+>
+                 quotes (ppr (tyVarKind kv)) <> comma $$
+                 text "depends on explicitly-bound variable" <+>
+                 quotes (ppr tv) $$
+                 text "Perhaps bind" <+> quotes (ppr kv) <+>
+                 text "explicitly sometime after binding" <+>
+                 quotes (ppr tv)
+       ; mapM_ report bad_pairs }
+
+  where
+    (env1, _) = tidyTyCoVarBndrs emptyTidyEnv orig_kvs
+    (env, _)  = tidyTyCoVarBndrs env1         orig_tvs
+
+    orig_tvs' = toposortTyVars orig_tvs
+    tidy_tvs' = map (tidyTyVarOcc env) orig_tvs'
+
+    go :: [TyVar]  -- misplaced variables
+       -> TyVarSet -> [TyVar] -> Bool
+    go errs in_scope [] = null (filter (`elemVarSet` in_scope) errs)
+        -- report an error only when the variable in the kind is brought
+        -- into scope later in the telescope. Otherwise, we'll just quantify
+        -- over it in kindGeneralize, as we should.
+
+    go errs in_scope  (tv:tvs)
+      = let bad_tvs = tyCoVarsOfType (tyVarKind tv) `minusVarSet` in_scope in
+        go (varSetElems bad_tvs ++ errs) (in_scope `extendVarSet` tv) tvs
 
 {-
 ************************************************************************

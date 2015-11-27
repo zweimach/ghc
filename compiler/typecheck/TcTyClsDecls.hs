@@ -21,7 +21,7 @@ module TcTyClsDecls (
 
 #include "HsVersions.h"
 
-import HsSyn hiding ( Implicit, Explicit )
+import HsSyn
 import HscTypes
 import BuildTyCl
 import TcRnMonad
@@ -378,7 +378,7 @@ getInitialKind :: TyClDecl Name -> TcM [(Name, TcTyThing)]
 
 getInitialKind decl@(ClassDecl { tcdLName = L _ name, tcdTyVars = ktvs, tcdATs = ats })
   = do { (cl_kind, inner_prs) <-
-           kcHsTyVarBndrs (hsDeclHasCusk decl) ktvs $
+           kcHsTyVarBndrs (hsDeclHasCusk decl) ktvs $ \_ _ ->
            do { inner_prs <- getFamDeclInitialKinds ats
               ; return (constraintKind, inner_prs) }
        ; cl_kind <- zonkTcType cl_kind
@@ -392,7 +392,7 @@ getInitialKind decl@(DataDecl { tcdLName = L _ name
   = let cons = cons' -- AZ list monad coming
     in
      do { (decl_kind, _) <-
-           kcHsTyVarBndrs (hsDeclHasCusk decl) ktvs $
+           kcHsTyVarBndrs (hsDeclHasCusk decl) ktvs $ \_ _ ->
            do { res_k <- case m_sig of
                            Just ksig -> tcLHsKind ksig
                            Nothing   -> return liftedTypeKind
@@ -422,7 +422,7 @@ getFamDeclInitialKind decl@(FamilyDecl { fdLName     = L _ name
                                        , fdTyVars    = ktvs
                                        , fdResultSig = L _ resultSig })
   = do { (fam_kind, _) <-
-           kcHsTyVarBndrs (famDeclHasCusk decl) ktvs $
+           kcHsTyVarBndrs (famDeclHasCusk decl) ktvs $ \_ _ ->
            do { res_k <- case resultSig of
                       KindSig ki                        -> tcLHsKind ki
                       TyVarSig (L _ (KindedTyVar _ ki)) -> tcLHsKind ki
@@ -457,10 +457,13 @@ kcSynDecl decl@(SynDecl { tcdTyVars = hs_tvs, tcdLName = L _ name
   -- Returns a possibly-unzonked kind
   = tcAddDeclCtxt decl $
     do { (syn_kind, _) <-
-           kcHsTyVarBndrs (hsDeclHasCusk decl) hs_tvs $
+           kcHsTyVarBndrs (hsDeclHasCusk decl) hs_tvs $ \kvs tvs ->
            do { traceTc "kcd1" (ppr name <+> brackets (ppr hs_tvs))
               ; (_, rhs_kind) <- tcLHsType rhs
               ; traceTc "kcd2" (ppr name)
+              ; kvs <- mapM zonkTyCoVarKind kvs
+              ; tvs <- mapM zonkTyCoVarKind tvs
+              ; checkValidTelescope hs_tvs kvs tvs
               ; return (rhs_kind, ()) }
        ; return (name, syn_kind) }
 kcSynDecl decl = pprPanic "kcSynDecl" (ppr decl)
@@ -488,31 +491,39 @@ kcTyClDecl (DataDecl { tcdLName = L _ name, tcdTyVars = hs_tvs, tcdDataDefn = de
     --    (b) dd_ctxt is not allowed for GADT-style decls, so we can ignore it
 
   | HsDataDefn { dd_ctxt = ctxt, dd_cons = cons } <- defn
-  = kcTyClTyVars name hs_tvs $
-    do  { _ <- tcHsContext ctxt
+  = tcTyClTyVars name hs_tvs $ \ kvs tvs _ _ ->
+    do  { checkValidTelescope hs_tvs kvs tvs
+        ; _ <- tcHsContext ctxt
         ; mapM_ (wrapLocM kcConDecl) cons }
 
 kcTyClDecl decl@(SynDecl {}) = pprPanic "kcTyClDecl" (ppr decl)
 
 kcTyClDecl (ClassDecl { tcdLName = L _ name, tcdTyVars = hs_tvs
                        , tcdCtxt = ctxt, tcdSigs = sigs })
-  = kcTyClTyVars name hs_tvs $
-    do  { _ <- tcHsContext ctxt
+  = tcTyClTyVars name hs_tvs $ \ kvs tvs _ _ ->
+    do  { checkValidTelescope hs_tvs kvs tvs
+        ; _ <- tcHsContext ctxt
         ; mapM_ (wrapLocM kc_sig)     sigs }
   where
     kc_sig (TypeSig _ op_ty _)  = discardResult (tcHsLiftedType op_ty)
     kc_sig (GenericSig _ op_ty) = discardResult (tcHsLiftedType op_ty)
     kc_sig _                    = return ()
 
--- closed type families look at their equations, but other families don't
--- do anything here
 kcTyClDecl (FamDecl (FamilyDecl { fdLName  = L _ fam_tc_name
                                 , fdTyVars = hs_tvs
-                                , fdInfo   = ClosedTypeFamily (Just eqns) }))
-  = do { tc_kind <- kcLookupKind fam_tc_name
-       ; let fam_tc_shape = ( fam_tc_name, length $ hsQTvExplicit hs_tvs, tc_kind )
-       ; mapM_ (kcTyFamInstEqn fam_tc_shape) eqns }
-kcTyClDecl (FamDecl {})    = return ()
+                                , fdInfo   = fd_info }))
+  = do { tcTyClTyVars fam_tc_name hs_tvs $ \ kvs tvs _ _ ->
+         checkValidTelescope hs_tvs kvs tvs
+-- closed type families look at their equations, but other families don't
+-- do anything here
+       ; case fd_info of
+            ClosedTypeFamily (Just eqns) ->
+              do { tc_kind <- kcLookupKind fam_tc_name
+                 ; let fam_tc_shape = ( fam_tc_name
+                                      , length $ hsQTvExplicit hs_tvs
+                                      , tc_kind )
+                 ; mapM_ (kcTyFamInstEqn fam_tc_shape) eqns }
+            _ -> return () }
 
 -------------------
 kcConDecl :: ConDecl Name -> TcM ()
@@ -523,11 +534,13 @@ kcConDecl (ConDecl { con_names = names, con_qvars = ex_tvs
          -- the 'False' says that the existentials don't have a CUSK, as the
          -- concept doesn't really apply here. We just need to bring the variables
          -- into scope!
-    do { _ <- kcHsTyVarBndrs False ex_tvs $
+    do { _ <- kcHsTyVarBndrs False ex_tvs $ \_ _ ->
               do { _ <- tcHsContext ex_ctxt
                  ; mapM_ (tcHsOpenType . getBangType) (hsConDeclArgTys details)
                  ; _ <- tcConRes res
                  ; return (panic "kcConDecl", ()) }
+              -- We don't need to check the telescope here, because that's
+              -- done in tcConDecl
        ; return () }
 
 {-
@@ -647,15 +660,15 @@ tcTyClDecl1 parent _rec_info (FamDecl { tcdFam = fd })
 tcTyClDecl1 _parent rec_info
             (SynDecl { tcdLName = L _ tc_name, tcdTyVars = tvs, tcdRhs = rhs })
   = ASSERT( isNothing _parent )
-    tcTyClTyVars tc_name tvs $ \ tvs' full_kind res_kind ->
-    tcTySynRhs rec_info tc_name tvs' full_kind res_kind rhs
+    tcTyClTyVars tc_name tvs $ \ kvs' tvs' full_kind res_kind ->
+    tcTySynRhs rec_info tc_name (kvs' ++ tvs') full_kind res_kind rhs
 
   -- "data/newtype" declaration
 tcTyClDecl1 _parent rec_info
             (DataDecl { tcdLName = L _ tc_name, tcdTyVars = tvs, tcdDataDefn = defn })
   = ASSERT( isNothing _parent )
-    tcTyClTyVars tc_name tvs $ \ tvs' tycon_kind res_kind ->
-    tcDataDefn rec_info tc_name tvs' tycon_kind res_kind defn
+    tcTyClTyVars tc_name tvs $ \ kvs' tvs' tycon_kind res_kind ->
+    tcDataDefn rec_info tc_name (kvs' ++ tvs') tycon_kind res_kind defn
 
 tcTyClDecl1 _parent rec_info
             (ClassDecl { tcdLName = L _ class_name, tcdTyVars = tvs
@@ -664,13 +677,13 @@ tcTyClDecl1 _parent rec_info
             , tcdATs = ats, tcdATDefs = at_defs })
   = ASSERT( isNothing _parent )
     do { (clas, tvs', gen_dm_env) <- fixM $ \ ~(clas,_,_) ->
-            tcTyClTyVars class_name tvs $ \ tvs' full_kind res_kind ->
+            tcTyClTyVars class_name tvs $ \ kvs' tvs' full_kind res_kind ->
             do { MASSERT( isConstraintKind res_kind )
                  -- This little knot is just so we can get
                  -- hold of the name of the class TyCon, which we
                  -- need to look up its recursiveness
-               ; traceTc "tcClassDecl 1" (ppr class_name $$ ppr tvs' $$
-                                          ppr full_kind)
+               ; traceTc "tcClassDecl 1" (ppr class_name $$ ppr kvs' $$
+                                          ppr tvs' $$ ppr full_kind)
                ; let tycon_name = tyConName (classTyCon clas)
                      tc_isrec = rti_is_rec rec_info tycon_name
                      roles = rti_roles rec_info tycon_name
@@ -683,10 +696,12 @@ tcTyClDecl1 _parent rec_info
                ; at_stuff <- tcClassATs class_name clas ats at_defs
                ; mindef <- tcClassMinimalDef class_name sigs sig_stuff
                ; clas <- buildClass
-                            class_name tvs' roles ctxt' full_kind fds' at_stuff
+                            class_name (kvs' ++ tvs') roles ctxt' full_kind
+                            fds' at_stuff
                             sig_stuff mindef tc_isrec
-               ; traceTc "tcClassDecl" (ppr fundeps $$ ppr tvs' $$ ppr fds')
-               ; return (clas, tvs', gen_dm_env) }
+               ; traceTc "tcClassDecl" (ppr fundeps $$ ppr kvs' $$
+                                        ppr tvs' $$ ppr fds')
+               ; return (clas, kvs' ++ tvs', gen_dm_env) }
 
        ; let { gen_dm_ids = [ AnId (mkExportedLocalId DefMethId gen_dm_name gen_dm_ty)
                             | (sel_id, GenDefMeth gen_dm_name) <- classOpItems clas
@@ -710,11 +725,12 @@ tcFamDecl1 :: Maybe Class -> FamilyDecl Name -> TcM [TyThing]
 tcFamDecl1 parent (FamilyDecl { fdInfo = OpenTypeFamily, fdLName = L _ tc_name
                               , fdTyVars = tvs, fdResultSig = L _ sig
                               , fdInjectivityAnn = inj })
-  = tcTyClTyVars tc_name tvs $ \ tvs' full_kind _res_kind -> do
+  = tcTyClTyVars tc_name tvs $ \ kvs' tvs' full_kind _res_kind -> do
   { traceTc "open type family:" (ppr tc_name)
   ; checkFamFlag tc_name
-  ; inj' <- tcInjectivity tvs' inj
-  ; let tycon = mkFamilyTyCon tc_name full_kind tvs'
+  ; let all_tvs = kvs' ++ tvs'
+  ; inj' <- tcInjectivity all_tvs inj
+  ; let tycon = mkFamilyTyCon tc_name full_kind all_tvs
                                (resultVariableName sig) OpenSynFamilyTyCon
                                parent inj'
   ; return [ATyCon tycon] }
@@ -729,9 +745,10 @@ tcFamDecl1 parent
          -- the variables in the header scope only over the injectivity
          -- declaration but this is not involved here
        ; (tvs', inj', kind) <- tcTyClTyVars tc_name tvs
-                               $ \ tvs' full_kind _res_kind ->
-                               do { inj' <- tcInjectivity tvs' inj
-                                  ; return (tvs', inj', full_kind) }
+                               $ \ kvs' tvs' full_kind _res_kind ->
+                               do { let all_tvs = kvs' ++ tvs'
+                                  ; inj' <- tcInjectivity all_tvs inj
+                                  ; return (all_tvs, inj', full_kind) }
 
        ; checkFamFlag tc_name -- make sure we have -XTypeFamilies
 
@@ -780,12 +797,12 @@ tcFamDecl1 parent
 tcFamDecl1 parent
            (FamilyDecl { fdInfo = DataFamily, fdLName = L _ tc_name
                        , fdTyVars = tvs, fdResultSig = L _ sig })
-  = tcTyClTyVars tc_name tvs $ \ tvs' tycon_kind res_kind -> do
+  = tcTyClTyVars tc_name tvs $ \ kvs' tvs' tycon_kind res_kind -> do
   { traceTc "data family:" (ppr tc_name)
   ; checkFamFlag tc_name
   ; extra_tvs   <- tcDataKindSig res_kind
   ; tc_rep_name <- newTyConRepName tc_name
-  ; let final_tvs = tvs' `chkAppend` extra_tvs    -- we may not need these
+  ; let final_tvs = (kvs' ++ tvs') `chkAppend` extra_tvs -- we may not need these
         tycon = mkFamilyTyCon tc_name tycon_kind final_tvs
                               (resultVariableName sig)
                               (DataFamilyTyCon tc_rep_name)
@@ -967,13 +984,13 @@ tcDefaultAssocDecl fam_tc [L loc (TyFamEqn { tfe_tycon = L _ tc_name
        ; ASSERT( fam_name == tc_name )
          checkTc (length (hsQTvExplicit hs_tvs) == fam_pat_arity)
                  (wrongNumberOfParmsErr fam_pat_arity)
-       ; tcTyClTyVars tc_name hs_tvs $ \ tvs _full_kind rhs_kind ->
+       ; tcTyClTyVars tc_name hs_tvs $ \ kvs tvs _full_kind rhs_kind ->
     do { traceTc "tcDefaultAssocDecl" (ppr tc_name)
        ; checkTc (isTypeFamilyTyCon fam_tc) (wrongKindOfFamily fam_tc)
        ; rhs_ty <- solveEqualities $ tcCheckLHsType rhs rhs_kind
        ; rhs_ty <- zonkTcTypeToType emptyZonkEnv rhs_ty
        ; let fam_tc_tvs = tyConTyVars fam_tc
-             subst = zipTopTCvSubst tvs (mkTyVarTys fam_tc_tvs)
+             subst = zipTopTCvSubst (kvs ++ tvs) (mkTyVarTys fam_tc_tvs)
        ; return $ Just (substTy subst rhs_ty, loc) } }
     -- We check for well-formedness and validity later, in checkValidClass
 
@@ -1098,7 +1115,7 @@ tc_fam_ty_pats (name, _, kind) mb_clsinfo
 
          -- Kind-check and quantify
          -- See Note [Quantifying over family patterns]
-       ; (res_kind, typats) <- tcHsTyVarBndrs hs_tvs $ \ _ ->
+       ; (_, (res_kind, typats)) <- tcHsTyVarBndrs Implicit TyFamEqnSkol hs_tvs $
          do { (res_kind, args, leftovers, n)
                 <- tcInferArgs True name kind (snd <$> mb_clsinfo) arg_pats 1
             ; case leftovers of
@@ -1339,14 +1356,14 @@ tcConDecl :: NewOrData
           -> TcM [DataCon]
 
 tcConDecl new_or_data rep_tycon tmpl_tvs res_tmpl
-          (ConDecl { con_names = names
+          (ConDecl { con_names = names, con_explicit = expflag
                    , con_qvars = hs_tvs, con_cxt = hs_ctxt
                    , con_details = hs_details, con_res = hs_res_ty })
   = addErrCtxt (dataConCtxtName names) $
     do { traceTc "tcConDecl 1" (ppr names)
-       ; (ctxt, arg_tys, res_ty, field_lbls, stricts)
+       ; (_tvs, (ctxt, arg_tys, res_ty, field_lbls, stricts))
            <- solveEqualities $
-              tcHsTyVarBndrs hs_tvs $ \ _ ->
+              tcHsTyVarBndrs expflag ConDeclSkol hs_tvs $
               do { ctxt    <- tcHsContext hs_ctxt
                  ; btys    <- tcConArgs new_or_data hs_details
                  ; res_ty  <- tcConRes hs_res_ty

@@ -115,7 +115,7 @@ module Type (
         splitDepVarsOfType, splitDepVarsOfTypes,
         splitVisVarsOfType, splitVisVarsOfTypes,
         expandTypeSynonyms,
-        typeSize, varSetElemsWellScoped,
+        typeSize, varSetElemsWellScoped, toposortTyVars,
 
         -- * Type comparison
         eqType, eqTypeX, eqTypes, cmpType, cmpTypes, cmpTypeX, cmpTypesX, cmpTc,
@@ -203,8 +203,8 @@ import Outputable
 import FastString
 import Pair
 import ListSetOps
+import Digraph
 
-import Data.List        ( partition, sortBy )
 import Maybes           ( orElse )
 import Data.Maybe       ( isJust )
 import Control.Monad    ( guard )
@@ -1700,42 +1700,19 @@ typeSize (TyConApp _ ts)  = 1 + sum (map typeSize ts)
 typeSize (CastTy ty co)   = typeSize ty + coercionSize co
 typeSize (CoercionTy co)  = coercionSize co
 
--- no promises that this is the most efficient, but it will do the job
--- TODO (RAE): make better.
--- Works on all kinds of Vars, including Ids.
-type DepEnv = VarEnv VarSet
+
+-- | Do a topological sort on a list of tyvars.
+toposortTyVars :: [TyVar] -> [TyVar]
+toposortTyVars tvs = reverse $
+                     [ tv | (_, tv, _) <- topologicalSortG $
+                                          graphFromEdgedVertices nodes ]
+  where
+    nodes = [ ((), tv, varSetElems (tyCoVarsOfType (tyVarKind tv)))
+            | tv <- tvs ]
 
 -- | Extract a well-scoped list of variables from a set of variables.
--- This prefers putting 'Id's after other vars, when it has the choice.
 varSetElemsWellScoped :: VarSet -> [Var]
-varSetElemsWellScoped set
-  = build_list [] (varSetElems set)
-  where
-    deps = foldVarSet add_dep emptyVarEnv set
-
-    add_dep :: Var -> DepEnv -> DepEnv
-    add_dep v env = extendVarEnv env v (dep_set v emptyVarSet)
-
-    dep_set :: Var -> VarSet -> VarSet
-    dep_set v s = let free_vars = tyCoVarsOfType (varType v) `intersectVarSet` set in
-                    foldVarSet dep_set free_vars free_vars `unionVarSet` s
-
-    get_deps :: Var -> VarSet
-    get_deps v = lookupVarEnv_NF deps v
-
-    build_list :: [TyCoVar] -- vars in scope
-               -> [TyCoVar] -- vars not yet sorted
-               -> [TyCoVar]
-    build_list scoped [] = scoped
-    build_list scoped unsorted
-      = let (new_scoped, unsorted') = partition (well_scoped scoped) unsorted in
-        ASSERT( not $ null new_scoped )
-        build_list (scoped ++ sortBy put_ids_later new_scoped) unsorted'
-
-    well_scoped scoped var = get_deps var `subVarSet` (mkVarSet scoped)
-    put_ids_later v1 v2
-      = (isId v1 `compare` isId v2) `thenCmp` (v1 `compare` v2)
-          -- NB: True > False!
+varSetElemsWellScoped = toposortTyVars . varSetElems
 
 {-
 ************************************************************************

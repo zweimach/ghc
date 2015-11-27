@@ -1296,7 +1296,7 @@ See also Note [HsBSig binder lists] in HsTypes
 
 data FreeKiTyVars = FKTV { fktv_kis    :: [Located RdrName]
                          , _fktv_k_set :: OccSet  -- for efficiency,
-                                                 -- only used internally
+                                                  -- only used internally
                          , _fktv_tys   :: [Located RdrName]
                          , _fktv_t_set :: OccSet
                          , fktv_all    :: [Located RdrName] }
@@ -1317,14 +1317,15 @@ freeKiTyVarsKindVars :: FreeKiTyVars -> [Located RdrName]
 freeKiTyVarsKindVars = fktv_kis
 
 filterInScope :: LocalRdrEnv -> FreeKiTyVars -> FreeKiTyVars
-filterInScope rdr_env (FKTV kis _ tys _ all)
+filterInScope rdr_env (FKTV kis k_set tys t_set all)
   = FKTV (filterOut in_scope kis)
-         (panic "filterInScope")
+         (filterOccSet (not . in_scope_occ) k_set)
          (filterOut in_scope tys)
-         (panic "filterInScope")
+         (filterOccSet (not . in_scope_occ) t_set)
          (filterOut in_scope all)
   where
     in_scope (L _ tv) = tv `elemLocalRdrEnv` rdr_env
+    in_scope_occ occ  = isJust $ lookupLocalRdrOcc rdr_env occ
 
 extractHsTyRdrTyVars :: LHsType RdrName -> RnM FreeKiTyVars
 -- extractHsTyRdrNames finds the free (kind, type) variables of a HsType
@@ -1332,17 +1333,17 @@ extractHsTyRdrTyVars :: LHsType RdrName -> RnM FreeKiTyVars
 -- It's used when making the for-alls explicit.
 -- See Note [Kind and type-variable binders]
 extractHsTyRdrTyVars ty
-  = do { FKTV kis _ tys _ all <- extract_lty TypeLevel ty emptyFKTV
-       ; return (FKTV (nubL kis) (panic "extractHsTyRdrTyVars")
-                      (nubL tys) (panic "extractHsTyRdrTyVars")
+  = do { FKTV kis k_set tys t_set all <- extract_lty TypeLevel ty emptyFKTV
+       ; return (FKTV (nubL kis) k_set
+                      (nubL tys) t_set
                       (nubL all)) }
 
 extractHsTysRdrTyVars :: [LHsType RdrName] -> RnM FreeKiTyVars
 -- See Note [Kind and type-variable binders]
 extractHsTysRdrTyVars tys
-  = do { FKTV kis _ tys _ all <- extract_ltys TypeLevel tys emptyFKTV
-       ; return (FKTV (nubL kis) (panic "extractHsTysRdrTyVars")
-                      (nubL tys) (panic "extractHsTysRdrTyVars")
+  = do { FKTV kis k_set tys t_set all <- extract_ltys TypeLevel tys emptyFKTV
+       ; return (FKTV (nubL kis) k_set
+                      (nubL tys) t_set
                       (nubL all)) }
 
 extractRdrKindSigVars :: LFamilyResultSig RdrName -> RnM [Located RdrName]

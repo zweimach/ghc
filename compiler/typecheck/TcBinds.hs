@@ -1631,14 +1631,15 @@ tcTySig (L loc (TypeSig names@(L _ name1 : _) hs_ty wcs))
              ; sig <- instTcTySig ctxt hs_ty sigma_ty (extra_cts hs_ty) wc_prs name
              ; return (TcIdSig sig) }
 
-tcTySig (L loc (PatSynSig (L _ name) (_, qtvs) req prov ty))
+tcTySig (L loc (PatSynSig (L _ name) (expflag, qtvs) req prov ty))
   = setSrcSpan loc $
     do { traceTc "tcTySig {" $ ppr name $$ ppr qtvs $$ ppr req $$ ppr prov $$ ppr ty
        ; let ctxt = PatSynCtxt name
-       ; tcHsTyVarBndrs qtvs $ \ qtvs' -> do
-       { ty' <- tcHsSigType ctxt ty
-       ; req' <- tcHsContext req
-       ; prov' <- tcHsContext prov
+       ; (qtvs', (ty', req', prov')) <- tcHsTyVarBndrs expflag PatSigSkol qtvs $
+         do { ty' <- tcHsSigType ctxt ty
+            ; req' <- tcHsContext req
+            ; prov' <- tcHsContext prov
+            ; return (ty', req', prov') }
 
        -- These are /signatures/ so we zonk to squeeze out any kind
        -- unification variables. Thta has happened automatically in tcHsSigType
@@ -1664,7 +1665,7 @@ tcTySig (L loc (PatSynSig (L _ name) (_, qtvs) req prov ty))
                           patsig_univ = univ_tvs,
                           patsig_prov = prov',
                           patsig_req = req' }
-       ; return [TcPatSynSig tpsi] }}
+       ; return [TcPatSynSig tpsi] }
 
 tcTySig _ = return []
 

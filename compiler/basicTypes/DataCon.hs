@@ -48,7 +48,7 @@ module DataCon (
         isNullarySrcDataCon, isNullaryRepDataCon, isTupleDataCon, isUnboxedTupleCon,
         isVanillaDataCon, classDataCon, dataConCannotMatch,
         isBanged, isMarkedStrict, eqHsBang, isSrcStrict, isSrcUnpacked,
-        isLegacyPromotableDataCon, isLegacyPromotableTyCon,
+        specialPromotedDc, isLegacyPromotableDataCon, isLegacyPromotableTyCon,
 
         -- ** Promotion related functions
         promoteDataCon
@@ -1116,6 +1116,13 @@ isUnboxedTupleCon (MkData {dcRepTyCon = tc}) = isUnboxedTupleTyCon tc
 -- | Vanilla 'DataCon's are those that are nice boring Haskell 98 constructors
 isVanillaDataCon :: DataCon -> Bool
 isVanillaDataCon dc = dcVanilla dc
+
+-- | Should this DataCon be allowed in a type even without -XDataKinds?
+-- Currently, only Lifted & Unlifted
+specialPromotedDc :: DataCon -> Bool
+specialPromotedDc dc
+  = dc `hasKey` liftedDataConKey ||
+    dc `hasKey` unliftedDataConKey
 
 -- | Was this datacon promotable before GHC 8.0? That is, is it promotable
 -- without -XTypeInType

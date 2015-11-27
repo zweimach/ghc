@@ -94,6 +94,7 @@ module OccName (
         extendOccSetList,
         unionOccSets, unionManyOccSets, minusOccSet, elemOccSet, occSetElts,
         foldOccSet, isEmptyOccSet, intersectOccSet, intersectsOccSet,
+        filterOccSet,
 
         -- * Tidying up
         TidyOccEnv, emptyTidyOccEnv, tidyOccName, initTidyOccEnv,
@@ -449,6 +450,7 @@ foldOccSet        :: (OccName -> b -> b) -> b -> OccSet -> b
 isEmptyOccSet     :: OccSet -> Bool
 intersectOccSet   :: OccSet -> OccSet -> OccSet
 intersectsOccSet  :: OccSet -> OccSet -> Bool
+filterOccSet      :: (OccName -> Bool) -> OccSet -> OccSet
 
 emptyOccSet       = emptyUniqSet
 unitOccSet        = unitUniqSet
@@ -464,6 +466,7 @@ foldOccSet        = foldUniqSet
 isEmptyOccSet     = isEmptyUniqSet
 intersectOccSet   = intersectUniqSets
 intersectsOccSet s1 s2 = not (isEmptyOccSet (s1 `intersectOccSet` s2))
+filterOccSet      = filterUniqSet
 
 {-
 ************************************************************************

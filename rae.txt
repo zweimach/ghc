@@ -1,11 +1,9 @@
 stack:
 
-- renamer bugs:
-  1. extract functions at bottom of RnTypes shouldn't report something in both
-     lists.
-  2. bindHsTyVars needs to work left-to-right in extracting undeclared
-     kind variables. If these kind variables are later declared as type
-     variables, we have an ill-scoped telescope.
+checkValidTelescope should accumulate errors and report them only
+when a kind variable is brought into scope later. If the kind variable
+is never brought into scope, then we're OK!
+
 
 - BUG: match_ty needs to be more delicate looking under TyConApps:
   match_ty (Just (x :: Age)) (Just 5 |> Maybe Int ~ Maybe Age) won't work

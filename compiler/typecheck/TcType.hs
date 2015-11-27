@@ -158,7 +158,7 @@ module TcType (
   pprType, pprParendType, pprTypeApp, pprTyThingCategory,
   pprTheta, pprThetaArrowTy, pprClassPred,
 
-  TypeSize, sizeType, sizeTypes
+  TypeSize, sizeType, sizeTypes, toposortTyVars
 
   ) where
 

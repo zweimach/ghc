@@ -1,3 +1,6 @@
 test('DepFail1', normal, compile_fail, [''])
 test('RAE_T32a', normal, compile_fail, [''])
 test('TypeSkolEscape', normal, compile_fail, [''])
+test('BadTelescope', normal, compile_fail, [''])
+test('BadTelescope2', normal, compile_fail, [''])
+test('BadTelescope3', normal, compile_fail, [''])

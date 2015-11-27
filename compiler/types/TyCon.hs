@@ -1597,7 +1597,9 @@ isKindTyCon :: TyCon -> Bool
 isKindTyCon tc = isLiftedTypeKindTyConName (tyConName tc) ||
                  tc `hasKey` constraintKindTyConKey ||
                  tc `hasKey` tYPETyConKey ||
-                 tc `hasKey` levityTyConKey
+                 tc `hasKey` levityTyConKey ||
+                 tc `hasKey` liftedDataConKey ||
+                 tc `hasKey` unliftedDataConKey
 
 isLiftedTypeKindTyConName :: Name -> Bool
 isLiftedTypeKindTyConName

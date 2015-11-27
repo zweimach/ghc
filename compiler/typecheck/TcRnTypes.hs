@@ -85,7 +85,7 @@ module TcRnTypes(
         ctLocDepth, bumpCtLocDepth,
         setCtLocOrigin, setCtLocEnv, setCtLocSpan,
         CtOrigin(..), ErrorThing(..), mkErrorThing, errorThingNumArgs_maybe,
-        TypeOrKind(..), isTypeLevel,
+        TypeOrKind(..), isTypeLevel, isKindLevel,
         pprCtOrigin, pprCtLoc,
         pushErrCtxt, pushErrCtxtSameOrigin,
 
@@ -2189,7 +2189,14 @@ data SkolemInfo
             Type                -- a programmer-supplied type signature
                                 -- Location of the binding site is on the TyVar
 
-        -- The rest are for non-scoped skolems
+  | PatSigSkol                  -- bound variables in a pattern type signature
+  | TypeSkol (HsType Name)      -- bound variables in a user-written type
+                                -- (when kind-checking the body of the forall)
+
+  | THReifySkol                 -- variables seen free in a TH reification call
+  | TyFamEqnSkol                -- variables bound in a type family equation
+  | ConDeclSkol                 -- constructor declaration
+
   | ClsSkol Class       -- Bound at a class decl
 
   | InstSkol            -- Bound at an instance decl
@@ -2234,6 +2241,11 @@ instance Outputable SkolemInfo where
 pprSkolInfo :: SkolemInfo -> SDoc
 -- Complete the sentence "is a rigid type variable bound by..."
 pprSkolInfo (SigSkol ctxt ty) = pprSigSkolInfo ctxt ty
+pprSkolInfo PatSigSkol        = text "the pattern type signature"
+pprSkolInfo (TypeSkol ty)     = text "the type" <+> quotes (ppr ty)
+pprSkolInfo THReifySkol       = text "a Template Haskell reification function"
+pprSkolInfo TyFamEqnSkol      = text "a type family equation"
+pprSkolInfo ConDeclSkol       = text "a data constructor declaration"
 pprSkolInfo (IPSkol ips)      = ptext (sLit "the implicit-parameter binding") <> plural ips <+> ptext (sLit "for")
                                 <+> pprWithCommas ppr ips
 pprSkolInfo (ClsSkol cls)     = ptext (sLit "the class declaration for") <+> quotes (ppr cls)
@@ -2383,6 +2395,10 @@ data TypeOrKind = TypeLevel | KindLevel
 isTypeLevel :: TypeOrKind -> Bool
 isTypeLevel TypeLevel = True
 isTypeLevel KindLevel = False
+
+isKindLevel :: TypeOrKind -> Bool
+isKindLevel TypeLevel = False
+isKindLevel KindLevel = True
 
 -- | Make an 'ErrorThing' that doesn't need tidying or zonking
 mkErrorThing :: Outputable a => a -> ErrorThing

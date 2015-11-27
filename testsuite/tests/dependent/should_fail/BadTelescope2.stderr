@@ -1,0 +1,15 @@
+
+BadTelescope2.hs:10:8: error:
+    These kind and type variables: a k (b :: k)
+    are out of dependency order. Perhaps try this ordering:
+      k (a :: k) (b :: k)
+    In the type signature for ‘foo’:
+      foo :: forall a k (b :: k). SameKind a b
+
+BadTelescope2.hs:13:8: error:
+    The kind of implicitly-bound variable ‘b’, namely ‘Proxy a’,
+    depends on explicitly-bound variable ‘a’
+    Perhaps bind ‘b’ explicitly sometime after binding ‘a’
+    In the type signature for ‘bar’:
+      bar :: forall a (c :: Proxy b) (d :: Proxy a).
+             Proxy c -> SameKind b d

@@ -553,7 +553,7 @@ data HsExplicitFlag
   | Implicit     -- No explicit forall, eg  f :: a -> a, or f :: Eq a => a -> a
   | Qualified    -- A *nested* occurrences of (ctxt => ty), with no explicit forall
                  -- e.g.  f :: (Eq a => a -> a) -> Int
- deriving (Data, Typeable)
+ deriving (Data, Typeable, Eq)
 
 type LConDeclField name = Located (ConDeclField name)
       -- ^ May have 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnComma' when

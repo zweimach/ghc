@@ -1,0 +1,5 @@
+
+BadTelescope3.hs:9:8: error:
+    The kind of variable ‘a’, namely ‘k’,
+    mentions out-of-scope variable ‘k’, bound at BadTelescope3.hs:9:10
+    In the type declaration for ‘S’

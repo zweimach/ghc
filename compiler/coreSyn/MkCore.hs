@@ -64,6 +64,7 @@ import PrelNames
 import HsUtils          ( mkChunkified, chunkify )
 import TcType           ( mkInvSigmaTy )
 import Type
+import Coercion         ( isCoVar )
 import TysPrim
 import DataCon          ( DataCon, dataConWorkId )
 import IdInfo           ( vanillaIdInfo, setStrictnessInfo,
@@ -75,9 +76,9 @@ import FastString
 import UniqSupply
 import BasicTypes
 import Util
-import VarSet
 import DynFlags
 
+import Data.List        ( partition )
 import Data.Char        ( ord )
 #if __GLASGOW_HASKELL__ < 709
 import Data.Word        ( Word )
@@ -94,8 +95,12 @@ infixl 4 `mkCoreApp`, `mkCoreApps`
 -}
 
 sortQuantVars :: [Var] -> [Var]
--- Sort the variables into scoped order
-sortQuantVars = varSetElemsWellScoped . mkVarSet
+-- Sort the variables, putting type and covars first, in scoped order,
+-- and then other Ids
+sortQuantVars vs = sorted_tcvs ++ ids
+  where
+    (tcvs, ids) = partition (isTyVar <||> isCoVar) vs
+    sorted_tcvs = toposortTyVars tcvs
 
 -- | Bind a binding group over an expression, using a @let@ or @case@ as
 -- appropriate (see "CoreSyn#let_app_invariant")

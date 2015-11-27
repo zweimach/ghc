@@ -114,7 +114,7 @@ tcCheckPatSynDecl PSB{ psb_id = lname@(L loc name), psb_args = details,
 
        ; req_dicts <- newEvVars req_theta
 
-       -- TODO: find a better SkolInfo
+       -- TODO: find a better SkolInfo  -- TODO (RAE): Do I have such a better one?
        ; let skol_info = SigSkol (PatSynCtxt name) (mkFunTys arg_tys pat_ty)
 
        ; let (arg_names, rec_fields, is_infix) = collectPatSynArgInfo details

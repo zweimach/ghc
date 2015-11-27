@@ -1724,7 +1724,7 @@ substTyVarBndr = substTyVarBndrCallback substTy
 substTyVarBndrCallback :: (TCvSubst -> Type -> Type)  -- ^ the subst function
                        -> TCvSubst -> TyVar -> (TCvSubst, TyVar)
 substTyVarBndrCallback subst_fn subst@(TCvSubst in_scope tenv cenv) old_var
-  = ASSERT2( _no_capture, ppr old_var $$ ppr subst )
+  = ASSERT2( _no_capture, pprTvBndr old_var $$ pprTvBndr new_var $$ ppr subst )
     ASSERT( isTyVar old_var )
     (TCvSubst (in_scope `extendInScopeSet` new_var) new_env cenv, new_var)
   where
