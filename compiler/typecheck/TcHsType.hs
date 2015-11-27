@@ -179,7 +179,7 @@ tcHsInstHead user_ctxt lhs_ty@(L loc hs_ty)
 
 tc_inst_head :: HsType Name -> TcM TcType
 tc_inst_head (HsForAllTy expflag _ hs_tvs hs_ctxt hs_ty)
-  = do { (tvs, (ctxt, ty)) <- tcHsTyVarBndrs expflag InstSkol hs_tvs $
+  = do { (tvs, (ctxt, ty)) <- tcHsTyVarBndrs expflag hs_tvs $
          do { ctxt <- tcHsContext hs_ctxt
             ; ty   <- tc_lhs_type typeLevelMode hs_ty constraintKind
             ; return (ctxt, ty) }
@@ -488,7 +488,7 @@ tc_hs_type mode hs_ty@(HsForAllTy expflag _ hs_tvs context ty) exp_kind
   = failWithTc (hang (ptext (sLit "Illegal constraint:")) 2 (ppr hs_ty))
 
   | null (unLoc context)
-  = do { (tvs', ty') <- tcHsTyVarBndrs expflag (TypeSkol hs_ty) hs_tvs $
+  = do { (tvs', ty') <- tcHsTyVarBndrs expflag hs_tvs $
                         tc_lhs_type mode ty exp_kind
                           -- Why exp_kind?  See Note [Body kind of forall]
        ; return (mkNakedInvSigmaTy tvs' [] ty') }
@@ -497,7 +497,7 @@ tc_hs_type mode hs_ty@(HsForAllTy expflag _ hs_tvs context ty) exp_kind
            -- If there is a context, then this forall is really a
            -- _function_, so the kind of the result really is *
            -- The body kind (result of the function) can be * or #, hence ekOpen
-  = do { (tvs', (ctxt', ty')) <- tcHsTyVarBndrs expflag (TypeSkol hs_ty) hs_tvs $
+  = do { (tvs', (ctxt', ty')) <- tcHsTyVarBndrs expflag hs_tvs $
          do { ctxt' <- tc_hs_context mode context
             ; ek  <- ekOpen
             ; ty' <- tc_lhs_type mode ty ek
@@ -1153,35 +1153,28 @@ kcHsTyVarBndrs cusk (HsQTvs { hsq_implicit = kv_ns
            ; return (n, kind) }
 
 tcHsTyVarBndrs :: HsExplicitFlag      -- ^ did the user choose the ordering of tvs?
-               -> SkolemInfo
                -> LHsTyVarBndrs Name
                -> TcM r               -- ^ kind-check the body
                -> TcM ([TcTyVar], r)  -- ^ zonked tyvars, with the body result
                                       -- (NB: not zonked *fully*)
 -- Bind the kind variables to fresh skolem variables
 -- and type variables to skolems, each with a meta-kind variable kind
-tcHsTyVarBndrs expflag skol_info
+tcHsTyVarBndrs expflag
                qtvs@(HsQTvs { hsq_implicit = kv_ns, hsq_explicit = hs_tvs })
                thing_inside
   | null kv_ns && null hs_tvs
   = do { traceTc "empty tcHsTyVarBndrs" empty
        ; ([], ) <$> thing_inside }
 
-    -- We wish to build an implication constraint, to avoid skolem capture.
-    -- This is quite like checkConstraints/buildImplication, but enough
-    -- of the details differ to force a reimplementation here.
   | otherwise
-  = do { ((kvs, tvs, result), tclvl, wanted) <- pushLevelAndCaptureConstraints $
-           go (map UserTyVar kv_ns) $ \kvs -> go (map unLoc hs_tvs) $ \tvs ->
-           do { traceTc "tcHsTyVarBndrs {" $
-                vcat [ text "Hs implicit vars:" <+> ppr kv_ns
-                     , text "Hs explicit vars:" <+> ppr hs_tvs
-                     , text "kvs:" <+> sep (map pprTvBndr kvs)
-                     , text "tvs:" <+> sep (map pprTvBndr tvs) ]
+  = go (map UserTyVar kv_ns) $ \kvs -> go (map unLoc hs_tvs) $ \tvs ->
+    do { traceTc "tcHsTyVarBndrs {" $
+           vcat [ text "Hs implicit vars:" <+> ppr kv_ns
+                , text "Hs explicit vars:" <+> ppr hs_tvs
+                , text "kvs:" <+> sep (map pprTvBndr kvs)
+                , text "tvs:" <+> sep (map pprTvBndr tvs) ]
 
-              ; result <- thing_inside
-
-              ; return (kvs, tvs, result) }
+       ; result <- thing_inside
 
        ; kvs <- mapM zonkTyCoVarKind kvs
        ; tvs <- mapM zonkTyCoVarKind tvs
@@ -1200,27 +1193,7 @@ tcHsTyVarBndrs expflag skol_info
                 , text "tvs:" <+> sep (map pprTvBndr tvs)
                 , text "final_tvs:" <+> sep (map pprTvBndr final_tvs) ]
 
-       ; if isEmptyWC wanted
-         then return (final_tvs, result)
-         else
-    do { env <- getLclEnv
-       ; let implic = Implic { ic_tclvl  = tclvl
-                             , ic_skols  = final_tvs
-                             , ic_no_eqs = True
-                             , ic_given  = []
-             -- Even if there are constraints specified by the user here,
-             -- we don't want them "in scope" when kind-checking the body
-             -- of a forall. Recall: constraints can be brought into scope
-             -- only in terms, never in types. This restriction might be lifted
-             -- someday.
-                             , ic_wanted = wanted
-                             , ic_status = IC_Unsolved
-                             , ic_binds  = Nothing
-                             , ic_env    = env
-                             , ic_info   = skol_info }
-
-       ; emitImplication implic
-       ; return (final_tvs, result) }}
+       ; return (final_tvs, result) }
 
   where go [] thing = thing []
         go (hs_tv : hs_tvs) thing

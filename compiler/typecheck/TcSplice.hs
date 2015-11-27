@@ -876,7 +876,7 @@ reifyInstances th_nm th_tys
                   ; return ((rn_tvbs, rn_ty), fvs) }
         ; (_tvs, (ty, _kind))
             <- solveEqualities $
-               tcHsTyVarBndrs Implicit THReifySkol rn_tvbs $
+               tcHsTyVarBndrs Implicit rn_tvbs $
                tcLHsType rn_ty
         ; ty <- zonkTcTypeToType emptyZonkEnv ty
                 -- Substitute out the meta type variables

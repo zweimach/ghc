@@ -1635,7 +1635,7 @@ tcTySig (L loc (PatSynSig (L _ name) (expflag, qtvs) req prov ty))
   = setSrcSpan loc $
     do { traceTc "tcTySig {" $ ppr name $$ ppr qtvs $$ ppr req $$ ppr prov $$ ppr ty
        ; let ctxt = PatSynCtxt name
-       ; (qtvs', (ty', req', prov')) <- tcHsTyVarBndrs expflag PatSigSkol qtvs $
+       ; (qtvs', (ty', req', prov')) <- tcHsTyVarBndrs expflag qtvs $
          do { ty' <- tcHsSigType ctxt ty
             ; req' <- tcHsContext req
             ; prov' <- tcHsContext prov

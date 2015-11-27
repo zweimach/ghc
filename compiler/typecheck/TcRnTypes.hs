@@ -2189,14 +2189,6 @@ data SkolemInfo
             Type                -- a programmer-supplied type signature
                                 -- Location of the binding site is on the TyVar
 
-  | PatSigSkol                  -- bound variables in a pattern type signature
-  | TypeSkol (HsType Name)      -- bound variables in a user-written type
-                                -- (when kind-checking the body of the forall)
-
-  | THReifySkol                 -- variables seen free in a TH reification call
-  | TyFamEqnSkol                -- variables bound in a type family equation
-  | ConDeclSkol                 -- constructor declaration
-
   | ClsSkol Class       -- Bound at a class decl
 
   | InstSkol            -- Bound at an instance decl
@@ -2241,11 +2233,6 @@ instance Outputable SkolemInfo where
 pprSkolInfo :: SkolemInfo -> SDoc
 -- Complete the sentence "is a rigid type variable bound by..."
 pprSkolInfo (SigSkol ctxt ty) = pprSigSkolInfo ctxt ty
-pprSkolInfo PatSigSkol        = text "the pattern type signature"
-pprSkolInfo (TypeSkol ty)     = text "the type" <+> quotes (ppr ty)
-pprSkolInfo THReifySkol       = text "a Template Haskell reification function"
-pprSkolInfo TyFamEqnSkol      = text "a type family equation"
-pprSkolInfo ConDeclSkol       = text "a data constructor declaration"
 pprSkolInfo (IPSkol ips)      = ptext (sLit "the implicit-parameter binding") <> plural ips <+> ptext (sLit "for")
                                 <+> pprWithCommas ppr ips
 pprSkolInfo (ClsSkol cls)     = ptext (sLit "the class declaration for") <+> quotes (ppr cls)

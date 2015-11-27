@@ -1115,7 +1115,7 @@ tc_fam_ty_pats (name, _, kind) mb_clsinfo
 
          -- Kind-check and quantify
          -- See Note [Quantifying over family patterns]
-       ; (_, (res_kind, typats)) <- tcHsTyVarBndrs Implicit TyFamEqnSkol hs_tvs $
+       ; (_, (res_kind, typats)) <- tcHsTyVarBndrs Implicit hs_tvs $
          do { (res_kind, args, leftovers, n)
                 <- tcInferArgs True name kind (snd <$> mb_clsinfo) arg_pats 1
             ; case leftovers of
@@ -1363,7 +1363,7 @@ tcConDecl new_or_data rep_tycon tmpl_tvs res_tmpl
     do { traceTc "tcConDecl 1" (ppr names)
        ; (_tvs, (ctxt, arg_tys, res_ty, field_lbls, stricts))
            <- solveEqualities $
-              tcHsTyVarBndrs expflag ConDeclSkol hs_tvs $
+              tcHsTyVarBndrs expflag hs_tvs $
               do { ctxt    <- tcHsContext hs_ctxt
                  ; btys    <- tcConArgs new_or_data hs_details
                  ; res_ty  <- tcConRes hs_res_ty
