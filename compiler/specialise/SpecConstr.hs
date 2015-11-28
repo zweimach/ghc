@@ -37,7 +37,7 @@ import Type             hiding ( substTy )
 import TyCon            ( isRecursiveTyCon, tyConName )
 import Id
 import PprCore          ( pprParendExpr )
-import MkCore           ( mkImpossibleExpr, sortQuantVars )
+import MkCore           ( mkImpossibleExpr )
 import Var
 import VarEnv
 import VarSet

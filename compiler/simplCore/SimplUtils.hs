@@ -37,7 +37,6 @@ module SimplUtils (
 
 import SimplEnv
 import CoreMonad        ( SimplifierMode(..), Tick(..) )
-import MkCore           ( sortQuantVars )
 import DynFlags
 import CoreSyn
 import qualified CoreSubst
