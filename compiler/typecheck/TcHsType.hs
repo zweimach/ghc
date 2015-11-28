@@ -1876,15 +1876,15 @@ tc_lhs_kind mode k
 
 promotionErr :: Name -> PromotionErr -> TcM a
 promotionErr name err
-  = failWithTc (hang (pprPECategory err <+> quotes (ppr name) <+> ptext (sLit "cannot be used here:"))
+  = failWithTc (hang (pprPECategory err <+> quotes (ppr name) <+> ptext (sLit "cannot be used here"))
                    2 (parens reason))
   where
     reason = case err of
-               FamDataConPE   -> text "It comes from a data family instance"
+               FamDataConPE   -> text "it comes from a data family instance"
                NoDataKinds    -> text "Perhaps you intended to use DataKinds"
                NoTypeInTypeTC -> text "Perhaps you intended to use TypeInType"
                NoTypeInTypeDC -> text "Perhaps you intended to use TypeInType"
-               _ -> text "It is defined and used in the same recursive group"
+               _ -> text "it is defined and used in the same recursive group"
 
 {-
 ************************************************************************

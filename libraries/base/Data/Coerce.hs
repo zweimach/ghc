@@ -85,7 +85,7 @@ import GHC.Types (HCoercible)
 --
 --      @since 4.7.0.0
 class HCoercible a b => Coercible (a :: k) (b :: k)
-instance HCoercible a b => Coercible a b
+instance {-# INCOHERENT #-} HCoercible a b => Coercible a b
 type role Coercible representational representational
 
 -- | The function 'coerce' allows you to safely convert between values of

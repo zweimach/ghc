@@ -1,16 +1,17 @@
-{-# LANGUAGE DeriveGeneric         #-}
-{-# LANGUAGE TypeOperators         #-}
-{-# LANGUAGE GADTs                 #-}
-{-# LANGUAGE FlexibleInstances     #-}
-{-# LANGUAGE StandaloneDeriving    #-}
-{-# LANGUAGE NoImplicitPrelude     #-}
-{-# LANGUAGE PolyKinds             #-}
-{-# LANGUAGE RankNTypes            #-}
-{-# LANGUAGE DataKinds             #-}
-{-# LANGUAGE TypeFamilies          #-}
-{-# LANGUAGE UndecidableInstances  #-}
-{-# LANGUAGE ExplicitNamespaces    #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE DeriveGeneric          #-}
+{-# LANGUAGE TypeOperators          #-}
+{-# LANGUAGE GADTs                  #-}
+{-# LANGUAGE FlexibleInstances      #-}
+{-# LANGUAGE StandaloneDeriving     #-}
+{-# LANGUAGE NoImplicitPrelude      #-}
+{-# LANGUAGE PolyKinds              #-}
+{-# LANGUAGE RankNTypes             #-}
+{-# LANGUAGE DataKinds              #-}
+{-# LANGUAGE TypeFamilies           #-}
+{-# LANGUAGE UndecidableInstances   #-}
+{-# LANGUAGE ExplicitNamespaces     #-}
+{-# LANGUAGE MultiParamTypeClasses  #-}
+{-# LANGUAGE FunctionalDependencies #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -53,10 +54,12 @@ import Data.Type.Bool
 -- | Lifted, homogeneous equality. By lifted, we mean that it can be
 -- bogus (deferred type error). By homogeneous, the two types @a@
 -- and @b@ must have the same kind.
-class a ~~ b => (a :: k) ~ (b :: k)
-instance a ~~ b => a ~ b
+class a ~~ b => (a :: k) ~ (b :: k) | a -> b, b -> a
   -- NB: Not exported, as (~) is magical syntax. That's also why there's
   -- no fixity.
+instance {-# INCOHERENT #-} a ~~ b => a ~ b
+  -- incoherent because we want to use this instance eagerly, even when
+  -- the tyvars are partially unknown.
 
 infix 4 :~:
 

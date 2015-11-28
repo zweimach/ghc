@@ -1786,6 +1786,7 @@ matchClassInst dflags inerts clas tys loc
 -- match this constraint.  In that case, do not use top-level
 -- instances.  See Note [Instance and Given overlap]
   | not (xopt Opt_IncoherentInstances dflags)
+  , not (naturallyCoherentClass clas)
   , let matchable_givens = matchableGivens loc pred inerts
   , not (isEmptyBag matchable_givens)
   = do { traceTcS "Delaying instance application" $

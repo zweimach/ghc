@@ -17,7 +17,8 @@ module Class (
         mkClass, classTyVars, classArity,
         classKey, className, classATs, classATItems, classTyCon, classMethods,
         classOpItems, classBigSig, classExtraBigSig, classTvsFds, classSCTheta,
-        classAllSelIds, classSCSelId, classMinimalDef, classHasFds
+        classAllSelIds, classSCSelId, classMinimalDef, classHasFds,
+        naturallyCoherentClass
     ) where
 
 #include "HsVersions.h"
@@ -30,6 +31,7 @@ import BasicTypes
 import Unique
 import Util
 import SrcLoc
+import PrelNames    ( eqTyConKey, coercibleTyConKey, typeableClassKey )
 import Outputable
 import FastString
 import BooleanFormula (BooleanFormula)
@@ -252,6 +254,14 @@ classExtraBigSig (Class {classTyVars = tyvars, classFunDeps = fundeps,
                          classSCTheta = sc_theta, classSCSels = sc_sels,
                          classATStuff = ats, classOpStuff = op_stuff})
   = (tyvars, fundeps, sc_theta, sc_sels, ats, op_stuff)
+
+-- | If a class is "naturally coherent", then we needn't worry at all, in any
+-- way, about overlapping/incoherent instances. Just solve the thing!
+naturallyCoherentClass :: Class -> Bool
+naturallyCoherentClass cls
+  = cls `hasKey` eqTyConKey ||
+    cls `hasKey` coercibleTyConKey ||
+    cls `hasKey` typeableClassKey
 
 {-
 ************************************************************************

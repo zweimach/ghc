@@ -6,18 +6,28 @@ T9222.hs:13:3: error:
         bound by the type of the constructor ‘Want’:
                    (a ~ '(b0, c0)) => Proxy b0
         at T9222.hs:13:3
-      ‘b’ is a rigid type variable bound by
-          the type of the constructor ‘Want’:
-            ((a ~ '(b, c)) => Proxy b) -> Want a
-          at T9222.hs:13:3
-    Expected type: '(b, c)
-      Actual type: a
+    ‘b’ is a rigid type variable bound by
+        the type of the constructor ‘Want’:
+          ((a ~ '(b, c)) => Proxy b) -> Want a
+        at T9222.hs:13:3
+       Expected type: Proxy b0
+         Actual type: Proxy b
     In the ambiguity check for the type of the constructor ‘Want’:
-      Want :: forall (k :: BOX)
-                     (k1 :: BOX)
-                     (a :: (,) k k1)
-                     (b :: k)
-                     (c :: k1).
+      Want :: forall i j (a :: (i, j)) (b :: i) (c :: j).
+              ((a ~ '(b, c)) => Proxy b) -> Want a
+    To defer the ambiguity check to use sites, enable AllowAmbiguousTypes
+    In the definition of data constructor ‘Want’
+    In the data type declaration for ‘Want’
+
+T9222.hs:13:3: error:
+    Could not deduce ('(b0, c0) ~~ '(b, c))
+    from the context: a ~ '(b0, c0)
+      bound by the type of the constructor ‘Want’:
+                 (a ~ '(b0, c0)) => Proxy b0
+      at T9222.hs:13:3
+    The type variables ‘b0’, ‘c0’ are ambiguous
+    In the ambiguity check for the type of the constructor ‘Want’:
+      Want :: forall i j (a :: (i, j)) (b :: i) (c :: j).
               ((a ~ '(b, c)) => Proxy b) -> Want a
     To defer the ambiguity check to use sites, enable AllowAmbiguousTypes
     In the definition of data constructor ‘Want’

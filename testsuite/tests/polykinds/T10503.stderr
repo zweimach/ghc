@@ -9,8 +9,8 @@ T10503.hs:8:6: error:
          the type signature for:
            h :: ((Proxy 'KProxy ~ Proxy 'KProxy) => r) -> r
          at T10503.hs:8:6
-       Expected kind: Proxy 'KProxy
-         Actual kind: Proxy 'KProxy
+       Expected type: ((Proxy 'KProxy ~ Proxy 'KProxy) => r) -> r
+         Actual type: ((Proxy 'KProxy ~ Proxy 'KProxy) => r) -> r
     In the ambiguity check for the type signature for ‘h’:
       h :: forall k k1 r. ((Proxy 'KProxy ~ Proxy 'KProxy) => r) -> r
     To defer the ambiguity check to use sites, enable AllowAmbiguousTypes

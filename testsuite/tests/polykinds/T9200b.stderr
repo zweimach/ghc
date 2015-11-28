@@ -1,15 +1,5 @@
 
-T9200b.hs:8:5:
+T9200b.hs:8:5: error:
     Expected kind ‘k’, but ‘'True’ has kind ‘Bool’
     In the first argument of ‘F’, namely ‘True’
-    In the type family declaration for ‘F’
-
-T9200b.hs:9:5:
-    Expected kind ‘k’, but ‘'False’ has kind ‘Bool’
-    In the first argument of ‘F’, namely ‘False’
-    In the type family declaration for ‘F’
-
-T9200b.hs:10:9:
-    Expected kind ‘Bool’, but ‘x’ has kind ‘k’
-    In the type ‘x’
     In the type family declaration for ‘F’

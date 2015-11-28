@@ -1037,7 +1037,7 @@ mkTyVarEqErr dflags ctxt extra ct oriented tv1 ty2
   , ctEqRel ct == NomEq || isTyVarUnderDatatype tv1 ty2
          -- See Note [Occurs check error] in TcCanonical
   = do { let occCheckMsg = addArising (ctOrigin ct) $
-                           hang (text "Occurs check: cannot construct the infinite type:")
+                           hang (text "Occurs check: cannot construct the infinite" <+> what <> colon)
                               2 (sep [ppr ty1, char '~', ppr ty2])
              extra2 = mkEqInfoMsg ct ty1 ty2
        ; mkErrorMsgFromCt ctxt ct (occCheckMsg $$ extra2 $$ extra) }
@@ -1045,7 +1045,7 @@ mkTyVarEqErr dflags ctxt extra ct oriented tv1 ty2
   | OC_Forall <- occ_check_expand
   = do { let msg = vcat [ ptext (sLit "Cannot instantiate unification variable")
                           <+> quotes (ppr tv1)
-                        , hang (ptext (sLit "with a type involving foralls:")) 2 (ppr ty2)
+                        , hang (text "with a" <+> what <+> text "involving foralls:") 2 (ppr ty2)
                         , nest 2 (ptext (sLit "GHC doesn't yet support impredicative polymorphism")) ]
        ; mkErrorMsgFromCt ctxt ct msg }
 
@@ -1066,15 +1066,17 @@ mkTyVarEqErr dflags ctxt extra ct oriented tv1 ty2
   , let esc_skols = filter (`elemVarSet` (tyCoVarsOfType ty2)) skols
   , not (null esc_skols)
   = do { let msg = misMatchMsg ct oriented ty1 ty2
-             esc_doc = sep [ ptext (sLit "because type variable") <> plural esc_skols
+             esc_doc = sep [ text "because" <+> what <+> text "variable" <> plural esc_skols
                              <+> pprQuotedList esc_skols
                            , ptext (sLit "would escape") <+>
                              if isSingleton esc_skols then ptext (sLit "its scope")
                                                       else ptext (sLit "their scope") ]
              tv_extra = vcat [ nest 2 $ esc_doc
                              , sep [ (if isSingleton esc_skols
-                                      then ptext (sLit "This (rigid, skolem) type variable is")
-                                      else ptext (sLit "These (rigid, skolem) type variables are"))
+                                      then text "This (rigid, skolem)" <+>
+                                           what <+> text "variable is"
+                                      else text "These (rigid, skolem)" <+>
+                                           what <+> text "variables are")
                                <+> ptext (sLit "bound by")
                              , nest 2 $ ppr skol_info
                              , nest 2 $ ptext (sLit "at") <+> ppr (tcl_loc env) ] ]
@@ -1104,6 +1106,10 @@ mkTyVarEqErr dflags ctxt extra ct oriented tv1 ty2
     k1     = tyVarKind tv1
     k2     = typeKind ty2
     ty1    = mkTyVarTy tv1
+
+    what = case ctLocTypeOrKind_maybe (ctLoc ct) of
+      Just KindLevel -> text "kind"
+      _              -> text "type"
 
 mkEqInfoMsg :: Ct -> TcType -> TcType -> SDoc
 -- Report (a) ambiguity if either side is a type function application
@@ -1282,6 +1288,7 @@ mkExpectedActualMsg :: Type -> Type -> CtOrigin -> Maybe TypeOrKind -> Bool
 mkExpectedActualMsg ty1 ty2 (TypeEqOrigin { uo_actual = act, uo_expected = exp
                                           , uo_thing = maybe_thing })
                     m_level printExpanded
+  | KindLevel <- level, occurs_check_error       = (True, Nothing, empty)
   | isUnliftedTypeKind act, isLiftedTypeKind exp = (False, Nothing, msg2)
   | isLiftedTypeKind act, isUnliftedTypeKind exp = (False, Nothing, msg3)
   | isLiftedTypeKind exp && not (isConstraintKind exp)
@@ -1293,6 +1300,16 @@ mkExpectedActualMsg ty1 ty2 (TypeEqOrigin { uo_actual = act, uo_expected = exp
   | otherwise                                    = (True, Nothing, msg1)
   where
     level = m_level `orElse` TypeLevel
+
+    occurs_check_error
+      | Just act_tv <- tcGetTyVar_maybe act
+      , act_tv `elemVarSet` tyCoVarsOfType exp
+      = True
+      | Just exp_tv <- tcGetTyVar_maybe exp
+      , exp_tv `elemVarSet` tyCoVarsOfType act
+      = True
+      | otherwise
+      = False
 
     sort = case level of
       TypeLevel -> text "type"

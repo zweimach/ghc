@@ -2144,20 +2144,7 @@ pprTcApp to_type p pp tc tys
     (tupleParens tup_sort $ pprWithCommas (pp TopPrec) ty_args)
 
   | otherwise
-  = sdocWithDynFlags $ \dflags ->
-     -- With the solver working in unlifted equality, it will want to
-     -- to print unlifted equality constraints sometimes. But these are
-     -- confusing to users. So fix them up here.
-    let tc_name | gopt Opt_PrintExplicitKinds dflags
-                = tyConName tc
-                | tc `hasKey` eqPrimTyConKey
-                = eqTyConName
-                | tc `hasKey` eqReprPrimTyConKey
-                = coercibleTyConName
-                | otherwise
-                = tyConName tc
-        tys_wo_kinds = suppressInvisibles to_type dflags tc tys
-    in pprTcApp_help p pp tc_name tys_wo_kinds
+  = sdocWithDynFlags $ pprTcApp_help to_type p pp tc tys
   where
 
 pprTupleApp :: TyPrec -> (TyPrec -> a -> SDoc)
@@ -2173,24 +2160,38 @@ pprTupleApp p pp tc sort tys
   = pprPromotionQuote tc <>
     tupleParens sort (pprWithCommas (pp TopPrec) tys)
 
-pprTcApp_help :: TyPrec -> (TyPrec -> a -> SDoc)
-              -> Name -> [a] -> SDoc
+pprTcApp_help :: (a -> Type) -> TyPrec -> (TyPrec -> a -> SDoc)
+              -> TyCon -> [a] -> DynFlags -> SDoc
 -- This one has accss to the DynFlags
-pprTcApp_help p pp tc_name tys_wo_kinds
+pprTcApp_help to_type p pp tc tys dflags
   | not (isSymOcc (nameOccName tc_name))
-  = pprPrefixApp p (ppr tc_name) (map (pp TyConPrec) tys_wo_kinds)
+  = pprPrefixApp p pp_tc (map (pp TyConPrec) tys_wo_kinds)
 
   | [ty1,ty2] <- tys_wo_kinds  -- Infix, two arguments;
                                -- we know nothing of precedence though
-  = pprInfixApp p pp (ppr tc_name) ty1 ty2
+  = pprInfixApp p pp pp_tc ty1 ty2
 
   |  tc_name `hasKey` starKindTyConKey
   || tc_name `hasKey` unicodeStarKindTyConKey
   || tc_name `hasKey` unliftedTypeKindTyConKey
-  = ppr tc_name   -- Do not wrap *, # in parens
+  = pp_tc   -- Do not wrap *, # in parens
 
   | otherwise
-  = pprPrefixApp p (parens (ppr tc_name)) (map (pp TyConPrec) tys_wo_kinds)
+  = pprPrefixApp p (parens pp_tc) (map (pp TyConPrec) tys_wo_kinds)
+  where
+     -- With the solver working in unlifted equality, it will want to
+     -- to print unlifted equality constraints sometimes. But these are
+     -- confusing to users. So fix them up here.
+    (tc_name, pp_tc)
+      | tc `hasKey` eqPrimTyConKey && not print_kinds
+      = (eqTyConName, text "~")
+      | tc `hasKey` eqReprPrimTyConKey && not print_kinds
+      = (coercibleTyConName, text "Coercible")
+      | otherwise
+      = (tyConName tc, ppr tc)
+
+    print_kinds  = gopt Opt_PrintExplicitKinds dflags
+    tys_wo_kinds = suppressInvisibles to_type dflags tc tys
 
 ------------------
 -- | Given a 'TyCon',and the args to which it is applied,
