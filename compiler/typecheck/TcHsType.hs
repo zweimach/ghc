@@ -589,8 +589,9 @@ tc_hs_type mode (HsIParamTy n ty) exp_kind
 tc_hs_type mode (HsEqTy ty1 ty2) exp_kind
   = do { (ty1', kind1) <- tc_infer_lhs_type mode ty1
        ; (ty2', kind2) <- tc_infer_lhs_type mode ty2
+       ; ty2'' <- checkExpectedKind ty2' kind2 kind1
        ; eq_tc <- tcLookupTyCon eqTyConName
-       ; let ty' = mkNakedTyConApp eq_tc [kind1, kind2, ty1', ty2']
+       ; let ty' = mkNakedTyConApp eq_tc [kind1, ty1', ty2'']
        ; checkExpectedKind ty' constraintKind exp_kind }
 
 --------- Literals
@@ -775,8 +776,9 @@ tcInferApps mode orig_ty ty ki args = go ty ki args 1
                 <- tc_infer_args False mode orig_ty fun_kind Nothing args n
            ; go (mkNakedAppTys fun args') res_kind leftover_args n' }
 
-    go fun fun_kind (arg:args) n
-      = do { (co, arg_k, res_k) <- matchExpectedFunKind fun fun_kind
+    go fun fun_kind all_args@(arg:args) n
+      = do { (co, arg_k, res_k) <- matchExpectedFunKind (length all_args)
+                                                        fun fun_kind
            ; arg' <- addErrCtxt (funAppCtxt orig_ty arg n) $
                      tc_lhs_type mode arg arg_k
            ; go (mkNakedAppTy (fun `mkNakedCastTy` co) arg')

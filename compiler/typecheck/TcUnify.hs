@@ -1283,11 +1283,12 @@ we return a made-up TcTyVarDetails, but I think it works smoothly.
 -}
 
 -- | Breaks apart a function kind into its pieces.
-matchExpectedFunKind :: TcType          -- ^ type, only for errors
+matchExpectedFunKind :: Arity           -- ^ # of args remaining, only for errors
+                     -> TcType          -- ^ type, only for errors
                      -> TcKind          -- ^ function kind
                      -> TcM (Coercion, TcKind, TcKind)
                                   -- ^ co :: old_kind ~ arg -> res
-matchExpectedFunKind ty = go
+matchExpectedFunKind num_args_remaining ty = go
   where
     go k | Just k' <- tcView k = go k'
 
@@ -1307,9 +1308,10 @@ matchExpectedFunKind ty = go
       = do { arg_kind <- new_flexi
            ; res_kind <- new_flexi
            ; let new_fun = mkFunTy arg_kind res_kind
+                 thing   = mkTypeErrorThingArgs ty num_args_remaining
                  origin  = TypeEqOrigin { uo_actual   = k
                                         , uo_expected = new_fun
-                                        , uo_thing    = Just $ mkTypeErrorThing ty
+                                        , uo_thing    = Just thing
                                         }
            ; co <- uType origin KindLevel k new_fun
            ; return (co, arg_kind, res_kind) }

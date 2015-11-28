@@ -2126,7 +2126,7 @@ mkGivenLoc tclvl skol_info env
 
 mkKindLoc :: TcType -> TcType   -- original *types* being compared
           -> CtLoc -> CtLoc
-mkKindLoc s1 s2 loc = setCtLocOrigin loc
+mkKindLoc s1 s2 loc = setCtLocOrigin (toKindLoc loc)
                         (KindEqOrigin s1 s2 (ctLocOrigin loc)
                                             (ctLocTypeOrKind_maybe loc))
 

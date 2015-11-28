@@ -925,12 +925,13 @@ repTy (HsForAllTy _ extra tvs ctxt ty)  =
 
 
 repTy (HsTyVar n)
-  | isTvOcc occ   = do tv1 <- lookupOcc n
-                       repTvar tv1
-  | isDataOcc occ = do tc1 <- lookupOcc n
-                       repPromotedDataCon tc1
-  | otherwise     = do tc1 <- lookupOcc n
-                       repNamedTyCon tc1
+  | isTvOcc occ      = do tv1 <- lookupOcc n
+                          repTvar tv1
+  | isDataOcc occ    = do tc1 <- lookupOcc n
+                          repPromotedDataCon tc1
+  | n == eqTyConName = repTequality
+  | otherwise        = do tc1 <- lookupOcc n
+                          repNamedTyCon tc1
   where
     occ = nameOccName n
 

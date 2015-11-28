@@ -55,7 +55,7 @@ module TcMType (
   --------------------------------
   -- Zonking and tidying
   zonkTidyTcType, zonkTidyOrigin,
-  mkTypeErrorThing,
+  mkTypeErrorThing, mkTypeErrorThingArgs,
   tidyEvVar, tidyCt, tidySkolemInfo,
   skolemiseUnboundMetaTyVar,
   zonkTcTyVar, zonkTcTyVars, zonkTyCoVarsAndFV, zonkTcTypeAndFV,
@@ -1119,6 +1119,12 @@ zonkTidyTcType env ty = do { ty' <- zonkTcType ty
 mkTypeErrorThing :: TcType -> ErrorThing
 mkTypeErrorThing ty = ErrorThing ty (Just $ length $ snd $ splitAppTys ty)
                                  zonkTidyTcType
+
+-- | Make an 'ErrorThing' storing a type, with some extra args known about
+mkTypeErrorThingArgs :: TcType -> Int -> ErrorThing
+mkTypeErrorThingArgs ty num_args
+  = ErrorThing ty (Just $ (length $ snd $ splitAppTys ty) + num_args)
+               zonkTidyTcType
 
 zonkTidyOrigin :: TidyEnv -> CtOrigin -> TcM (TidyEnv, CtOrigin)
 zonkTidyOrigin env (GivenOrigin skol_info)

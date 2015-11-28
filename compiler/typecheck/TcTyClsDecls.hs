@@ -269,7 +269,8 @@ kcTyClGroup (TyClGroup { group_tyclds = decls })
           --    4. Generalise the inferred kinds
           -- See Note [Kind checking for type and class decls]
 
-        ; lcl_env <- solveEqualities $
+        ; lcl_env <- checkNoErrs $
+                     solveEqualities $
                      tcExtendRecEnv bogusTyThingPairs $
               -- See Note [Kind checking recursive type and class declarations]
           do {
@@ -287,8 +288,6 @@ kcTyClGroup (TyClGroup { group_tyclds = decls })
                mapM_ kcLTyClDecl non_syn_decls
 
              ; return lcl_env }
-
-        ; failIfErrsM   -- if we take the second pass, we'll get duplicate errors
 
              -- Step 4: generalisation
              -- Kind checking done for this group
@@ -1143,10 +1142,9 @@ tcFamTyPats :: FamTyConShape
             -> TcM a
 tcFamTyPats fam_shape@(name,_,_) mb_clsinfo pats kind_checker thing_inside
   = do { (typats, res_kind)
-            <- solveEqualities $  -- See Note [Constraints in patterns]
+            <- checkNoErrs $ -- we'll get duplicate errors if we continue.
+               solveEqualities $  -- See Note [Constraints in patterns]
                tc_fam_ty_pats fam_shape mb_clsinfo pats kind_checker
-
-       ; failIfErrsM   -- we'll get duplicate errors if we continue.
 
           {- TODO (RAE): This should be cleverer. Consider this:
 

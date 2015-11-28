@@ -27,9 +27,11 @@ import TyCon
 import Class
 import DataCon
 import TcEvidence
+import Coercion  ( mkUnsafeCo )
 import Name
 import RdrName ( lookupGRE_Name, GlobalRdrEnv, mkRdrUnqual )
-import PrelNames( typeableClassName )
+import PrelNames ( typeableClassName, hasKey
+                 , liftedDataConKey, unliftedDataConKey )
 import Id
 import Var
 import VarSet
@@ -907,7 +909,17 @@ mkEqErr1 ctxt ct
           KindEqOrigin cty1 cty2 sub_o sub_t_or_k
             -> (True, Nothing, msg1 $$ msg2)
             where
-              msg1 = hang (ptext (sLit "When matching types"))
+              sub_what = case sub_t_or_k of Just KindLevel -> text "kinds"
+                                            _              -> text "types"
+              ki1 = typeKind cty1
+              ki2 = typeKind cty2
+              msg1 = sdocWithDynFlags $ \dflags ->
+                     if not (gopt Opt_PrintExplicitKinds dflags) &&
+                        ((cty1 `mkCastTy` mkUnsafeCo Nominal ki1 ki2) `eqType`
+                         cty2)
+                     then empty
+                     else
+                     hang (text "When matching" <+> sub_what)
                         2 (vcat [ ppr cty1 <+> dcolon <+> ppr (typeKind cty1)
                                 , ppr cty2 <+> dcolon <+> ppr (typeKind cty2) ])
               msg2 = case sub_o of
@@ -1247,6 +1259,13 @@ misMatchMsg :: Ct -> Maybe SwapFlag -> TcType -> TcType -> SDoc
 misMatchMsg ct oriented ty1 ty2
   | Just NotSwapped <- oriented
   = misMatchMsg ct (Just IsSwapped) ty2 ty1
+
+  | Just (tc1, []) <- splitTyConApp_maybe ty1
+  , Just (tc2, []) <- splitTyConApp_maybe ty2
+  , (tc1 `hasKey` liftedDataConKey && tc2 `hasKey` unliftedDataConKey) ||
+    (tc2 `hasKey` liftedDataConKey && tc1 `hasKey` unliftedDataConKey)
+  = addArising orig $
+    text "Couldn't match a lifted type with an unlifted type"
 
   | otherwise  -- So now we have Nothing or (Just IsSwapped)
                -- For some reason we treat Nothign like IsSwapped

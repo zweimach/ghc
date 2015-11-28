@@ -1093,7 +1093,7 @@ reifyTyCon tc
              resVar   = famTcResVar tc
 
              -- we need the *result kind* (see #8884)
-             (kvs, mono_kind) = splitForAllTys kind
+             (kvs, mono_kind) = splitNamedForAllTys kind
                                 -- tyConArity includes *kind* params
              (_, res_kind)    = splitFunTysN (tyConArity tc - length kvs)
                                              mono_kind
