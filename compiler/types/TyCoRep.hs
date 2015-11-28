@@ -1904,7 +1904,7 @@ ppr_type p ty@(ForAllTy {})   = ppr_forall_type p ty
 
 ppr_type p (AppTy t1 t2)
   = sdocWithDynFlags $ \dflags ->
-    if not (gopt Opt_PrintExplicitKinds dflags)
+    if not (gopt Opt_PrintExplicitCoercions dflags)
     then case t1 of
       CastTy (TyConApp arr_tc []) _ `AppTy` arg1
         |  arr_tc `hasKey` funTyConKey
@@ -1918,13 +1918,15 @@ ppr_type p (AppTy t1 t2)
 
 ppr_type p (CastTy ty co)
   = sdocWithDynFlags $ \dflags ->
-  -- TODO (RAE): PrintExplicitCoercions? PrintInvisibles?
-    if gopt Opt_PrintExplicitKinds dflags
+    if gopt Opt_PrintExplicitCoercions dflags
     then parens (ppr_type TopPrec ty <+> ptext (sLit "|>") <+> ppr co)
     else ppr_type p ty
 
 ppr_type _ (CoercionTy co)
-  = parens (ppr co) -- TODO (RAE): do we need these parens?
+  = sdocWithDynFlags $ \dflags ->
+    if gopt Opt_PrintExplicitCoercions dflags
+    then parens (ppr co)
+    else text "<>"
 
 ppr_forall_type :: TyPrec -> Type -> SDoc
 ppr_forall_type p ty
@@ -2109,7 +2111,7 @@ pprTyTcApp p tc tys
   , [_kind,ty1,ty2] <- tys
   = sdocWithDynFlags $ \dflags ->
     if gopt Opt_PrintExplicitKinds dflags then ppr_deflt
-                                   else pprTyList p ty1 ty2
+                                          else pprTyList p ty1 ty2
 
   | tc `hasKey` errorMessageTypeErrorFamKey = text "(TypeError ...)"
 
@@ -2194,14 +2196,14 @@ pprTcApp_help to_type p pp tc tys dflags
      -- to print unlifted equality constraints sometimes. But these are
      -- confusing to users. So fix them up here.
     (tc_name, pp_tc)
-      | tc `hasKey` eqPrimTyConKey && not print_kinds
+      | (tc `hasKey` eqPrimTyConKey || tc `hasKey` heqTyConKey) && not print_eqs
       = (eqTyConName, text "~")
-      | tc `hasKey` eqReprPrimTyConKey && not print_kinds
+      | tc `hasKey` eqReprPrimTyConKey && not print_eqs
       = (coercibleTyConName, text "Coercible")
       | otherwise
       = (tyConName tc, ppr tc)
 
-    print_kinds  = gopt Opt_PrintExplicitKinds dflags
+    print_eqs    = gopt Opt_PrintEqualityRelations dflags
     tys_wo_kinds = suppressInvisibles to_type dflags tc tys
 
 ------------------

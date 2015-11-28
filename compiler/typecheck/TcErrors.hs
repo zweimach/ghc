@@ -914,7 +914,7 @@ mkEqErr1 ctxt ct
               ki1 = typeKind cty1
               ki2 = typeKind cty2
               msg1 = sdocWithDynFlags $ \dflags ->
-                     if not (gopt Opt_PrintExplicitKinds dflags) &&
+                     if not (gopt Opt_PrintExplicitCoercions dflags) &&
                         ((cty1 `mkCastTy` mkUnsafeCo Nominal ki1 ki2) `eqType`
                          cty2)
                      then empty
@@ -1339,9 +1339,13 @@ mkExpectedActualMsg ty1 ty2 (TypeEqOrigin { uo_actual = act, uo_expected = exp
         | Just th <- maybe_thing
         -> msg5 th
 
-      _ -> vcat [ text "   Expected" <+> sort <> colon <+> ppr exp
+      _ | not (act `pickyEqType` exp)
+        -> vcat [ text "   Expected" <+> sort <> colon <+> ppr exp
                 , text "     Actual" <+> sort <> colon <+> ppr act
                 , if printExpanded then expandedTys else empty ]
+
+        | otherwise
+        -> empty
 
     thing_msg = case maybe_thing of
                   Just thing -> \_ -> quotes (ppr thing) <+> text "is"

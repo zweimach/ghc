@@ -1325,7 +1325,6 @@ tc_eq_type view_fun orig_ty1 orig_ty2 = go Visible orig_env orig_ty1 orig_ty2
 
 -- | Like 'pickyEqTypeVis', but returns a Bool for convenience
 pickyEqType :: TcType -> TcType -> Bool
--- TODO (RAE): Move to TcErrors
 -- Check when two types _look_ the same, _including_ synonyms.
 -- So (pickyEqType String [Char]) returns False
 -- This still ignores coercions, because this is used only for printing,

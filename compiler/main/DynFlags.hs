@@ -328,6 +328,8 @@ data GeneralFlag
 
    | Opt_PrintExplicitForalls
    | Opt_PrintExplicitKinds
+   | Opt_PrintExplicitCoercions
+   | Opt_PrintEqualityRelations
    | Opt_PrintUnicodeSyntax
    | Opt_PrintExpandedSynonyms
    | Opt_PrintPotentialInstances
@@ -3013,6 +3015,8 @@ fFlags = [
   flagGhciSpec "print-evld-with-show"         Opt_PrintEvldWithShow,
   flagSpec "print-explicit-foralls"           Opt_PrintExplicitForalls,
   flagSpec "print-explicit-kinds"             Opt_PrintExplicitKinds,
+  flagSpec "print-explicit-coercions"         Opt_PrintExplicitCoercions,
+  flagSpec "print-equality-relations"         Opt_PrintEqualityRelations,
   flagSpec "print-unicode-syntax"             Opt_PrintUnicodeSyntax,
   flagSpec "print-expanded-synonyms"          Opt_PrintExpandedSynonyms,
   flagSpec "print-potential-instances"        Opt_PrintPotentialInstances,

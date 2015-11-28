@@ -31,7 +31,8 @@ import BasicTypes
 import Unique
 import Util
 import SrcLoc
-import PrelNames    ( eqTyConKey, coercibleTyConKey, typeableClassKey )
+import PrelNames    ( eqTyConKey, coercibleTyConKey, typeableClassKey,
+                      heqTyConKey, hcoercibleTyConKey )
 import Outputable
 import FastString
 import BooleanFormula (BooleanFormula)
@@ -259,7 +260,9 @@ classExtraBigSig (Class {classTyVars = tyvars, classFunDeps = fundeps,
 -- way, about overlapping/incoherent instances. Just solve the thing!
 naturallyCoherentClass :: Class -> Bool
 naturallyCoherentClass cls
-  = cls `hasKey` eqTyConKey ||
+  = cls `hasKey` heqTyConKey ||
+    cls `hasKey` hcoercibleTyConKey ||
+    cls `hasKey` eqTyConKey ||
     cls `hasKey` coercibleTyConKey ||
     cls `hasKey` typeableClassKey
 

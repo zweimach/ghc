@@ -1,10 +1,5 @@
 
 T7368.hs:3:10: error:
-    Couldn't match kind ‘* -> *’ with ‘*’
-    When matching types
-      c0 :: (* -> *) -> *
-      (->) a0 :: * -> *
-    Expected type: a0 -> b0
-      Actual type: c0 Maybe
+    Couldn't match kind ‘*’ with ‘* -> *’
     In the first argument of ‘b’, namely ‘(l Nothing)’
     In the expression: b (l Nothing)
