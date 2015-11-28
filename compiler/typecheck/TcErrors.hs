@@ -910,16 +910,14 @@ mkEqErr1 ctxt ct
             where
               sub_what = case sub_t_or_k of Just KindLevel -> text "kinds"
                                             _              -> text "types"
-              ki1 = typeKind cty1
-              ki2 = typeKind cty2
               msg1 = sdocWithDynFlags $ \dflags ->
                      if not (gopt Opt_PrintExplicitCoercions dflags) &&
                         (cty1 `pickyEqType` cty2)
                      then empty
                      else
                      hang (text "When matching" <+> sub_what)
-                        2 (vcat [ ppr cty1 <+> dcolon <+> ppr ki1
-                                , ppr cty2 <+> dcolon <+> ppr ki2 ])
+                        2 (vcat [ ppr cty1 <+> dcolon <+> pprTypeKind cty1
+                                , ppr cty2 <+> dcolon <+> pprTypeKind cty2 ])
               msg2 = case sub_o of
                        TypeEqOrigin {} ->
                          thdOf3 (mkExpectedActualMsg cty1 cty2 sub_o sub_t_or_k
@@ -1110,8 +1108,6 @@ mkTyVarEqErr dflags ctxt extra ct oriented tv1 ty2
         -- Not an occurs check, because F is a type function.
   where
     occ_check_expand = occurCheckExpand dflags tv1 ty2
-    k1     = tyVarKind tv1
-    k2     = typeKind ty2
     ty1    = mkTyVarTy tv1
 
     what = case ctLocTypeOrKind_maybe (ctLoc ct) of
@@ -1729,7 +1725,7 @@ mk_dict_err ctxt (ct, (matches, unifiers, unsafe_overlapped))
                , Just (tc,_) <- tcSplitTyConApp_maybe ty
                , not (isTypeFamilyTyCon tc)
                = hang (ptext (sLit "GHC can't yet do polykinded"))
-                    2 (ptext (sLit "Typeable") <+> parens (ppr ty <+> dcolon <+> ppr (typeKind ty)))
+                    2 (ptext (sLit "Typeable") <+> parens (ppr ty <+> dcolon <+> pprTypeKind ty))
                | otherwise
                = empty
 
