@@ -1040,9 +1040,6 @@ mkTyVarEqErr dflags ctxt extra ct oriented tv1 ty2
   -- So tv is a meta tyvar (or started that way before we
   -- generalised it).  So presumably it is an *untouchable*
   -- meta tyvar or a SigTv, else it'd have been unified
-  | not (k2 `tcEqKind` k1)            -- Kind error
-  = mkErrorMsgFromCt ctxt ct $ (kindErrorMsg (mkTyVarTy tv1) ty2 $$ extra)
-
   | OC_Occurs <- occ_check_expand
   , ctEqRel ct == NomEq || isTyVarUnderDatatype tv1 ty2
          -- See Note [Occurs check error] in TcCanonical
@@ -1240,15 +1237,6 @@ suggestAddSig ctxt ty1 ty2
                = map fst prs
                | otherwise
                = []
-
-kindErrorMsg :: TcType -> TcType -> SDoc   -- Types are already tidy
-kindErrorMsg ty1 ty2
-  = vcat [ ptext (sLit "Kind incompatibility when matching types:")
-         , nest 2 (vcat [ ppr ty1 <+> dcolon <+> ppr k1
-                        , ppr ty2 <+> dcolon <+> ppr k2 ]) ]
-  where
-    k1 = typeKind ty1
-    k2 = typeKind ty2
 
 --------------------
 misMatchMsg :: Ct -> Maybe SwapFlag -> TcType -> TcType -> SDoc
