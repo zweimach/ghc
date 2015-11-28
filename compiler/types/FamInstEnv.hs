@@ -1542,7 +1542,7 @@ allTyVarsInTy = go
     go_prov (PhantomProv co)    = go_co co
     go_prov (ProofIrrelProv co) = go_co co
     go_prov (PluginProv _)      = emptyVarSet
-    go_prov (HoleProv h)        = pprPanic "allTyVarsInTy fell into a hole" (ppr h)
+    go_prov (HoleProv _)        = emptyVarSet
 
 mkFlattenFreshTyName :: Uniquable a => a -> Name
 mkFlattenFreshTyName unq

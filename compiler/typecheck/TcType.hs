@@ -1327,16 +1327,10 @@ tc_eq_type view_fun orig_ty1 orig_ty2 = go Visible orig_env orig_ty1 orig_ty2
 pickyEqType :: TcType -> TcType -> Bool
 -- Check when two types _look_ the same, _including_ synonyms.
 -- So (pickyEqType String [Char]) returns False
--- This still ignores coercions, because this is used only for printing,
--- and we omit coercions there.
+-- This ignores kinds and coercions, because this is used only for printing.
 pickyEqType ty1 ty2
   = isNothing $
-    tc_eq_type (const Nothing) ki1 ki2
-    <!>
     tc_eq_type (const Nothing) ty1 ty2
-  where
-    ki1 = typeKind ty1
-    ki2 = typeKind ty2
 
 {-
 Note [Occurs check expansion]

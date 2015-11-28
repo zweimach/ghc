@@ -26,7 +26,6 @@ import TcSimplify ( simplifyAmbiguityCheck )
 import TyCoRep
 import TcType hiding ( sizeType, sizeTypes )
 import TcMType
-import TysWiredIn ( hcoercibleClass, heqClass )
 import PrelNames
 import Type
 import Coercion
@@ -54,6 +53,7 @@ import SrcLoc
 import Outputable
 import FastString
 import BasicTypes
+import Module
 
 import Control.Monad
 import Data.Maybe
@@ -905,7 +905,9 @@ checkValidInstHead :: UserTypeCtxt -> Class -> [Type] -> TcM ()
 checkValidInstHead ctxt clas cls_args
   = do { dflags <- getDynFlags
 
-       ; checkTc (clas `notElem` abstractClasses)
+       ; mod <- getModule
+       ; checkTc (getUnique clas `notElem` abstractClassKeys ||
+                  nameModule (getName clas) == mod)
                  (instTypeErr clas cls_args abstract_class_msg)
 
            -- Check language restrictions;
@@ -961,8 +963,12 @@ checkValidInstHead ctxt clas cls_args
     abstract_class_msg =
                 text "Manual instances of this class are not permitted."
 
-abstractClasses :: [ Class ]
-abstractClasses = [ hcoercibleClass, heqClass ] -- See Note [Coercible Instances]
+abstractClassKeys :: [Unique]
+abstractClassKeys = [ hcoercibleTyConKey
+                    , heqTyConKey
+                    , eqTyConKey
+                    , coercibleTyConKey
+                    ] -- See Note [Equality class instances]
 
 instTypeErr :: Class -> [Type] -> SDoc -> SDoc
 instTypeErr cls tys msg
@@ -993,6 +999,13 @@ It checks for three things
     problems; in particular, it's hard to compare solutions for equality
     when finding the fixpoint, and that means the inferContext loop does
    not converge.  See Trac #5287.
+
+Note [Equality class instances]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+We can't have users writing instances for the equality classes. But we
+still need to be able to write instances for them ourselves. So we allow
+instances only in the defining module.
+
 -}
 
 validDerivPred :: TyVarSet -> PredType -> Bool

@@ -27,7 +27,6 @@ import TyCon
 import Class
 import DataCon
 import TcEvidence
-import Coercion  ( mkUnsafeCo )
 import Name
 import RdrName ( lookupGRE_Name, GlobalRdrEnv, mkRdrUnqual )
 import PrelNames ( typeableClassName, hasKey
@@ -915,13 +914,12 @@ mkEqErr1 ctxt ct
               ki2 = typeKind cty2
               msg1 = sdocWithDynFlags $ \dflags ->
                      if not (gopt Opt_PrintExplicitCoercions dflags) &&
-                        ((cty1 `mkCastTy` mkUnsafeCo Nominal ki1 ki2) `eqType`
-                         cty2)
+                        (cty1 `pickyEqType` cty2)
                      then empty
                      else
                      hang (text "When matching" <+> sub_what)
-                        2 (vcat [ ppr cty1 <+> dcolon <+> ppr (typeKind cty1)
-                                , ppr cty2 <+> dcolon <+> ppr (typeKind cty2) ])
+                        2 (vcat [ ppr cty1 <+> dcolon <+> ppr ki1
+                                , ppr cty2 <+> dcolon <+> ppr ki2 ])
               msg2 = case sub_o of
                        TypeEqOrigin {} ->
                          thdOf3 (mkExpectedActualMsg cty1 cty2 sub_o sub_t_or_k
