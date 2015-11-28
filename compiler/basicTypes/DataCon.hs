@@ -1172,8 +1172,10 @@ dataConCannotMatch tys con
 
     -- TODO: could gather equalities from superclasses too
     predEqs pred = case classifyPredType pred of
-                     EqPred NomEq ty1 ty2 -> [(ty1, ty2)]
-                     _                    -> []
+                     EqPred NomEq ty1 ty2       -> [(ty1, ty2)]
+                     ClassPred eq [_, ty1, ty2]
+                       | eq `hasKey` eqTyConKey -> [(ty1, ty2)]
+                     _                          -> []
 
 {-
 %************************************************************************

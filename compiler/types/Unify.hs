@@ -574,11 +574,11 @@ unify_ty ty1 ty2 _kco
         -- NB: we've already dealt with type variables,
         -- so if one type is an App the other one jolly well better be too
 unify_ty (AppTy ty1a ty1b) ty2 _kco
-  | Just (ty2a, ty2b) <- repSplitAppTy_maybe ty2
+  | Just (ty2a, ty2b) <- tcRepSplitAppTy_maybe ty2
   = unify_ty_app ty1a ty1b ty2a ty2b
 
 unify_ty ty1 (AppTy ty2a ty2b) _kco
-  | Just (ty1a, ty1b) <- repSplitAppTy_maybe ty1
+  | Just (ty1a, ty1b) <- tcRepSplitAppTy_maybe ty1
   = unify_ty_app ty1a ty1b ty2a ty2b
 
 unify_ty (LitTy x) (LitTy y) _kco | x == y = return ()
@@ -1006,6 +1006,7 @@ ty_co_match menv subst (AppTy ty1a ty1b) co _lkco _rkco
   = ty_co_match_app menv subst ty1a ty1b co2 arg2
 ty_co_match menv subst ty1 (AppCo co2 arg2) _lkco _rkco
   | Just (ty1a, ty1b) <- repSplitAppTy_maybe ty1
+       -- yes, the one from Type, not TcType; this is for coercion optimization
   = ty_co_match_app menv subst ty1a ty1b co2 arg2
 
 ty_co_match menv subst (TyConApp tc1 tys) (TyConAppCo _ tc2 cos) _lkco _rkco

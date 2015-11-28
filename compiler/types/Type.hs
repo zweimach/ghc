@@ -22,7 +22,7 @@ module Type (
         getCastedTyVar_maybe, tyVarKind,
 
         mkAppTy, mkAppTys, splitAppTy, splitAppTys,
-        splitAppTy_maybe, repSplitAppTy_maybe,
+        splitAppTy_maybe, repSplitAppTy_maybe, tcRepSplitAppTy_maybe,
 
         mkFunTy, mkFunTys, splitFunTy, splitFunTy_maybe,
         splitFunTys, splitFunTysN,
@@ -588,6 +588,7 @@ are the same, as are 'Constraint' and '*'.  But for now I've put
 the test in repSplitAppTy_maybe, which applies throughout, because
 the other calls to splitAppTy are in Unify, which is also used by
 the type checker (e.g. when matching type-function equations).
+
 -}
 
 -- | Applies a type to another, as in e.g. @k a@
@@ -622,14 +623,29 @@ repSplitAppTy_maybe :: Type -> Maybe (Type,Type)
 -- ^ Does the AppTy split as in 'splitAppTy_maybe', but assumes that
 -- any Core view stuff is already done
 repSplitAppTy_maybe (ForAllTy (Anon ty1) ty2)
-  | isConstraintKind (typeKind ty1)   = Nothing  -- See Note [Decomposing fat arrow c=>t]
-  | otherwise                         = Just (TyConApp funTyCon [ty1], ty2)
+                                      = Just (TyConApp funTyCon [ty1], ty2)
 repSplitAppTy_maybe (AppTy ty1 ty2)   = Just (ty1, ty2)
 repSplitAppTy_maybe (TyConApp tc tys)
   | mightBeUnsaturatedTyCon tc || tys `lengthExceeds` tyConArity tc
   , Just (tys', ty') <- snocView tys
   = Just (TyConApp tc tys', ty')    -- Never create unsaturated type family apps!
 repSplitAppTy_maybe _other = Nothing
+
+-- this one doesn't braek apart (c => t).
+-- See Note [Decomposing fat arrow c=>t]
+-- Defined here to avoid module loops between Unify and TcType.
+tcRepSplitAppTy_maybe :: Type -> Maybe (Type,Type)
+-- ^ Does the AppTy split as in 'tcSplitAppTy_maybe', but assumes that
+-- any tcView stuff is already done. Refuses to look through (c => t)
+tcRepSplitAppTy_maybe (ForAllTy (Anon ty1) ty2)
+  | isConstraintKind (typeKind ty1)     = Nothing  -- See Note [Decomposing fat arrow c=>t]
+  | otherwise                           = Just (TyConApp funTyCon [ty1], ty2)
+tcRepSplitAppTy_maybe (AppTy ty1 ty2)   = Just (ty1, ty2)
+tcRepSplitAppTy_maybe (TyConApp tc tys)
+  | mightBeUnsaturatedTyCon tc || tys `lengthExceeds` tyConArity tc
+  , Just (tys', ty') <- snocView tys
+  = Just (TyConApp tc tys', ty')    -- Never create unsaturated type family apps!
+tcRepSplitAppTy_maybe _other = Nothing
 -------------
 splitAppTy :: Type -> (Type, Type)
 -- ^ Attempts to take a type application apart, as in 'splitAppTy_maybe',

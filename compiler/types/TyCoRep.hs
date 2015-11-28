@@ -1902,8 +1902,19 @@ ppr_type p (TyConApp tc tys)  = pprTyTcApp p tc tys
 ppr_type p (LitTy l)          = ppr_tylit p l
 ppr_type p ty@(ForAllTy {})   = ppr_forall_type p ty
 
-ppr_type p (AppTy t1 t2) = maybeParen p TyConPrec $
-                           ppr_type FunPrec t1 <+> ppr_type TyConPrec t2
+ppr_type p (AppTy t1 t2)
+  = sdocWithDynFlags $ \dflags ->
+    if not (gopt Opt_PrintExplicitKinds dflags)
+    then case t1 of
+      CastTy (TyConApp arr_tc []) _ `AppTy` arg1
+        |  arr_tc `hasKey` funTyConKey
+        -> ppr_type p (mkFunTy arg1 t2)  -- don't print casted arrow funny
+                                         -- when we're not printing casts
+      _ -> ppr_app_ty
+    else ppr_app_ty
+  where
+    ppr_app_ty = maybeParen p TyConPrec $
+                 ppr_type FunPrec t1 <+> ppr_type TyConPrec t2
 
 ppr_type p (CastTy ty co)
   = sdocWithDynFlags $ \dflags ->

@@ -58,7 +58,7 @@ module TcType (
   tcSplitPhiTy, tcSplitPredFunTy_maybe,
   tcSplitFunTy_maybe, tcSplitFunTys, tcFunArgTy, tcFunResultTy, tcSplitFunTysN,
   tcSplitTyConApp, tcSplitTyConApp_maybe, tcTyConAppTyCon, tcTyConAppArgs,
-  tcSplitAppTy_maybe, tcSplitAppTy, tcSplitAppTys, repSplitAppTy_maybe,
+  tcSplitAppTy_maybe, tcSplitAppTy, tcSplitAppTys, tcRepSplitAppTy_maybe,
   tcInstHeadTyNotSynonym, tcInstHeadTyAppAllTyVars,
   tcGetTyVar_maybe, tcGetTyVar, nextRole,
   tcSplitSigmaTy, tcDeepSplitSigmaTy_maybe,
@@ -1140,7 +1140,7 @@ tcFunResultTy ty = snd (tcSplitFunTy ty)
 -----------------------
 tcSplitAppTy_maybe :: Type -> Maybe (Type, Type)
 tcSplitAppTy_maybe ty | Just ty' <- tcView ty = tcSplitAppTy_maybe ty'
-tcSplitAppTy_maybe ty = repSplitAppTy_maybe ty
+tcSplitAppTy_maybe ty = tcRepSplitAppTy_maybe ty
 
 tcSplitAppTy :: Type -> (Type, Type)
 tcSplitAppTy ty = case tcSplitAppTy_maybe ty of
@@ -1291,10 +1291,10 @@ tc_eq_type view_fun orig_ty1 orig_ty2 = go Visible orig_env orig_ty1 orig_ty2
 
       -- See Note [Equality on AppTys] in Type
     go vis env (AppTy s1 t1)        ty2
-      | Just (s2, t2) <- repSplitAppTy_maybe ty2
+      | Just (s2, t2) <- tcRepSplitAppTy_maybe ty2
       = go vis env s1 s2 <!> go vis env t1 t2
     go vis env ty1                  (AppTy s2 t2)
-      | Just (s1, t1) <- repSplitAppTy_maybe ty1
+      | Just (s1, t1) <- tcRepSplitAppTy_maybe ty1
       = go vis env s1 s2 <!> go vis env t1 t2
     go vis env (TyConApp tc1 ts1)   (TyConApp tc2 ts2)
       = check vis (tc1 == tc2) <!> gos (tc_vis tc1) env ts1 ts2
