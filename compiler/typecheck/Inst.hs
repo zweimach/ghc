@@ -39,7 +39,7 @@ import TcEnv
 import TcEvidence
 import InstEnv
 import DataCon     ( dataConWrapId )
-import TysWiredIn  ( eqBoxDataCon )
+import TysWiredIn  ( heqDataCon )
 import FunDeps
 import TcMType
 import Type
@@ -224,9 +224,9 @@ instCallConstraints orig preds
 
        -- Try short-cut #2
      | Just (tc, args@[_, _, ty1, ty2]) <- splitTyConApp_maybe pred
-     , tc `hasKey` eqTyConKey
+     , tc `hasKey` heqTyConKey
      = do { co <- unifyType noThing ty1 ty2
-          ; return (EvDFunApp (dataConWrapId eqBoxDataCon) args [EvCoercion co]) }
+          ; return (EvDFunApp (dataConWrapId heqDataCon) args [EvCoercion co]) }
 
      | otherwise
      = emitWanted orig pred

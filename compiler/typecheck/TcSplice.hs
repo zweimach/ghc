@@ -1469,9 +1469,9 @@ reify_tc_app tc tys
          | tc `hasKey` listTyConKey       = TH.ListT
          | tc `hasKey` nilDataConKey      = TH.PromotedNilT
          | tc `hasKey` consDataConKey     = TH.PromotedConsT
-         | tc `hasKey` eqTyConKey         = TH.EqualityT
+         | tc `hasKey` heqTyConKey        = TH.EqualityT
          | tc `hasKey` eqPrimTyConKey     = TH.EqualityT
-         | tc `hasKey` eqReprPrimTyConKey = TH.ConT (reifyName coercibleTyCon)
+         | tc `hasKey` eqReprPrimTyConKey = TH.ConT (reifyName hcoercibleTyCon)
          | otherwise                      = TH.ConT (reifyName tc)
 
     -- See Note [Kind annotations on TyConApps]

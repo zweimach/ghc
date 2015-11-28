@@ -26,7 +26,7 @@ import TcSimplify ( simplifyAmbiguityCheck )
 import TyCoRep
 import TcType hiding ( sizeType, sizeTypes )
 import TcMType
-import TysWiredIn ( coercibleClass, eqTyCon, eqBoxClass )
+import TysWiredIn ( hcoercibleClass, heqClass )
 import PrelNames
 import Type
 import Coercion
@@ -670,17 +670,19 @@ check_pred_help under_syn env dflags ctxt pred
         -> check_tuple_pred under_syn env dflags ctxt pred tys
            -- NB: this equality check must come first, because (~) is a class,
            -- too.
-        | tc `hasKey` eqTyConKey || tc `hasKey` eqPrimTyConKey
-        -> check_eq_pred env dflags pred tys
+        | tc `hasKey` heqTyConKey ||
+          tc `hasKey` eqTyConKey ||
+          tc `hasKey` eqPrimTyConKey
+        -> check_eq_pred env dflags pred tc tys
         | Just cls <- tyConClass_maybe tc
         -> check_class_pred env dflags ctxt pred cls tys  -- Includes Coercible
       _ -> check_irred_pred under_syn env dflags ctxt pred
 
-check_eq_pred :: TidyEnv -> DynFlags -> PredType -> [TcType] -> TcM ()
-check_eq_pred env dflags pred tys
+check_eq_pred :: TidyEnv -> DynFlags -> PredType -> TyCon -> [TcType] -> TcM ()
+check_eq_pred env dflags pred tc tys
   =         -- Equational constraints are valid in all contexts if type
             -- families are permitted
-    do { checkTc (length tys == 4) (tyConArityErr eqTyCon tys)
+    do { checkTc (length tys == tyConArity tc) (tyConArityErr tc tys)
        ; checkTcM (xopt Opt_TypeFamilies dflags || xopt Opt_GADTs dflags)
                   (eqPredTyErr env pred) }
 
@@ -960,7 +962,7 @@ checkValidInstHead ctxt clas cls_args
                 text "Manual instances of this class are not permitted."
 
 abstractClasses :: [ Class ]
-abstractClasses = [ coercibleClass, eqBoxClass ] -- See Note [Coercible Instances]
+abstractClasses = [ hcoercibleClass, heqClass ] -- See Note [Coercible Instances]
 
 instTypeErr :: Class -> [Type] -> SDoc -> SDoc
 instTypeErr cls tys msg
@@ -1628,8 +1630,9 @@ isTerminatingClass cls
   = isIPClass cls
     || cls `hasKey` typeableClassKey
     || cls `hasKey` coercibleTyConKey
+    || cls `hasKey` hcoercibleTyConKey
     || cls `hasKey` eqTyConKey
-
+    || cls `hasKey` heqTyConKey
 
 -- | Tidy before printing a type
 ppr_tidy :: TidyEnv -> Type -> SDoc

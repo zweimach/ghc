@@ -120,6 +120,7 @@ import GHC.Num
 import GHC.Read
 import GHC.Show
 import Text.Read( reads )
+import Data.Coerce
 
 -- Imports for the instances
 import Data.Int              -- So we can give Data instance for Int8, ...

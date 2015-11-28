@@ -78,6 +78,8 @@ import Util
 import Outputable
 import FastString
 
+import Data.List        ( nub )
+
 {-
 ************************************************************************
 *                                                                      *
@@ -994,19 +996,14 @@ abstractVars :: Level -> LevelEnv -> VarSet -> [OutVar]
         -- whose level is greater than the destination level
         -- These are the ones we are going to abstract out
 abstractVars dest_lvl (LE { le_subst = subst, le_lvl_env = lvl_env }) in_fvs
-  = map zap $ uniq $ sortQuantVars
+  =  -- NB: sortQuantVars might not put duplicates next to each other
+    map zap $ nub $ sortQuantVars
     [out_var | out_fv  <- varSetElems (substVarSet subst in_fvs)
              , out_var <- varSetElems (close out_fv)
              , abstract_me out_var ]
         -- NB: it's important to call abstract_me only on the OutIds the
         -- come from substVarSet (not on fv, which is an InId)
   where
-    uniq :: [Var] -> [Var]
-        -- Remove adjacent duplicates; the sort will have brought them together
-    uniq (v1:v2:vs) | v1 == v2  = uniq (v2:vs)
-                    | otherwise = v1 : uniq (v2:vs)
-    uniq vs = vs
-
     abstract_me v = case lookupVarEnv lvl_env v of
                         Just lvl -> dest_lvl `ltLvl` lvl
                         Nothing  -> False

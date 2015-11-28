@@ -1596,7 +1596,7 @@ abstractFloats main_tvs body_env body
                 -- If you ever want to be more selective, remember this bizarre case too:
                 --      x::a = x
                 -- Here, we must abstract 'x' over 'a'.
-         tvs_here = sortQuantVars main_tvs
+         tvs_here = toposortTyVars main_tvs
 
     mk_poly tvs_here var
       = do { uniq <- getUniqueM

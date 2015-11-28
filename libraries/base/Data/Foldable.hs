@@ -55,6 +55,7 @@ import Data.Maybe
 import Data.Monoid
 import Data.Ord
 import Data.Proxy
+import Data.Coerce
 
 import GHC.Arr  ( Array(..), elems, numElements,
                   foldlElems, foldrElems,

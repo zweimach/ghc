@@ -77,8 +77,8 @@ module TysWiredIn (
         parrTyCon_RDR, parrTyConName,
 
         -- * Equality predicates
-        eqTyCon_RDR, eqTyCon, eqTyConName, eqBoxClass, eqBoxDataCon,
-        coercibleTyCon, coercibleDataCon, coercibleClass,
+        heqTyCon, heqClass, heqDataCon,
+        hcoercibleTyCon, hcoercibleDataCon, hcoercibleClass,
 
         -- * Implicit Parameters
         ipTyCon, ipDataCon, ipClass,
@@ -176,8 +176,8 @@ wiredInTyCons = [ unitTyCon     -- Not treated like other tuples, because
               , listTyCon
               , maybeTyCon
               , parrTyCon
-              , eqTyCon
-              , coercibleTyCon
+              , heqTyCon
+              , hcoercibleTyCon
               , typeNatKindCon
               , typeSymbolKindCon
               , levityTyCon
@@ -211,17 +211,18 @@ mkWiredInIdName :: Module -> FastString -> Unique -> Id -> Name
 mkWiredInIdName mod fs uniq id
  = mkWiredInName mod (mkOccNameFS Name.varName fs) uniq (AnId id) UserSyntax
 
--- See Note [Kind-changing of (~) and Coercible] in libraries/ghc-prim/GHC/Types.hs
-eqTyConName, eqBoxDataConName, eqSCSelIdName :: Name
-eqTyConName      = mkWiredInTyConName   BuiltInSyntax gHC_TYPES (fsLit "~")   eqTyConKey      eqTyCon
-eqBoxDataConName = mkWiredInDataConName UserSyntax    gHC_TYPES (fsLit "Eq#") eqBoxDataConKey eqBoxDataCon
-eqSCSelIdName    = mkWiredInIdName gHC_TYPES (fsLit "Eq_sc") eqSCSelIdKey eqSCSelId
+-- See Note [Kind-changing of (~) and Coercible]
+-- in libraries/ghc-prim/GHC/Types.hs
+heqTyConName, heqDataConName, heqSCSelIdName :: Name
+heqTyConName   = mkWiredInTyConName   UserSyntax gHC_TYPES (fsLit "~~")   heqTyConKey      heqTyCon
+heqDataConName = mkWiredInDataConName UserSyntax gHC_TYPES (fsLit "Eq#")  heqDataConKey heqDataCon
+heqSCSelIdName = mkWiredInIdName gHC_TYPES (fsLit "HEq_sc") heqSCSelIdKey heqSCSelId
 
 -- See Note [Kind-changing of (~) and Coercible] in libraries/ghc-prim/GHC/Types.hs
-coercibleTyConName, coercibleDataConName, coercibleSCSelIdName :: Name
-coercibleTyConName   = mkWiredInTyConName   UserSyntax gHC_TYPES (fsLit "Coercible")  coercibleTyConKey   coercibleTyCon
-coercibleDataConName = mkWiredInDataConName UserSyntax gHC_TYPES (fsLit "MkCoercible") coercibleDataConKey coercibleDataCon
-coercibleSCSelIdName = mkWiredInIdName gHC_TYPES (fsLit "Coercible_sc") coercibleSCSelIdKey coercibleSCSelId
+hcoercibleTyConName, hcoercibleDataConName, hcoercibleSCSelIdName :: Name
+hcoercibleTyConName   = mkWiredInTyConName   UserSyntax gHC_TYPES (fsLit "HCoercible")  hcoercibleTyConKey   hcoercibleTyCon
+hcoercibleDataConName = mkWiredInDataConName UserSyntax gHC_TYPES (fsLit "MkCoercible") hcoercibleDataConKey hcoercibleDataCon
+hcoercibleSCSelIdName = mkWiredInIdName gHC_TYPES (fsLit "HCoercible_sc") hcoercibleSCSelIdKey hcoercibleSCSelId
 
 charTyConName, charDataConName, intTyConName, intDataConName :: Name
 charTyConName     = mkWiredInTyConName   UserSyntax gHC_TYPES (fsLit "Char") charTyConKey charTyCon
@@ -285,7 +286,7 @@ parrDataConName = mkWiredInDataConName UserSyntax
                     gHC_PARR' (fsLit "PArr") parrDataConKey parrDataCon
 
 boolTyCon_RDR, false_RDR, true_RDR, intTyCon_RDR, charTyCon_RDR,
-    intDataCon_RDR, listTyCon_RDR, consDataCon_RDR, parrTyCon_RDR, eqTyCon_RDR :: RdrName
+    intDataCon_RDR, listTyCon_RDR, consDataCon_RDR, parrTyCon_RDR :: RdrName
 boolTyCon_RDR   = nameRdrName boolTyConName
 false_RDR       = nameRdrName falseDataConName
 true_RDR        = nameRdrName trueDataConName
@@ -295,7 +296,6 @@ intDataCon_RDR  = nameRdrName intDataConName
 listTyCon_RDR   = nameRdrName listTyConName
 consDataCon_RDR = nameRdrName consDataConName
 parrTyCon_RDR   = nameRdrName parrTyConName
-eqTyCon_RDR     = nameRdrName eqTyConName
 
 {-
 ************************************************************************
@@ -616,10 +616,10 @@ unboxedUnitDataCon = tupleDataCon   Unboxed 0
 ************************************************************************
 -}
 
-eqTyCon, coercibleTyCon :: TyCon
-eqBoxClass, coercibleClass :: Class
-eqBoxDataCon, coercibleDataCon :: DataCon
-eqSCSelId, coercibleSCSelId :: Id
+heqTyCon, hcoercibleTyCon :: TyCon
+heqClass, hcoercibleClass :: Class
+heqDataCon, hcoercibleDataCon :: DataCon
+heqSCSelId, hcoercibleSCSelId :: Id
 
 mkEqualityDefns :: Role
                 -> Name  -- tycon
@@ -648,17 +648,17 @@ mkEqualityDefns role tc_name dc_name sc_sel_name tc_rep_name prim_tc
     sc_pred   = mkTyConApp prim_tc (mkTyVarTys tvs)
     sc_sel_id = mkDictSelId sc_sel_name klass
 
-(eqTyCon, eqBoxClass, eqBoxDataCon, eqSCSelId)
-  = mkEqualityDefns Nominal eqTyConName eqBoxDataConName
-                    eqSCSelIdName
-                    (mkSpecialTyConRepName (fsLit "tcEq") eqTyConName)
+(heqTyCon, heqClass, heqDataCon, heqSCSelId)
+  = mkEqualityDefns Nominal heqTyConName heqDataConName
+                    heqSCSelIdName
+                    (mkSpecialTyConRepName (fsLit "tcHEq") heqTyConName)
                     eqPrimTyCon
 
-(coercibleTyCon, coercibleClass, coercibleDataCon, coercibleSCSelId)
-  = mkEqualityDefns Representational coercibleTyConName
-                                     coercibleDataConName
-                                     coercibleSCSelIdName
-                                     (mkPrelTyConRepName coercibleTyConName)
+(hcoercibleTyCon, hcoercibleClass, hcoercibleDataCon, hcoercibleSCSelId)
+  = mkEqualityDefns Representational hcoercibleTyConName
+                                     hcoercibleDataConName
+                                     hcoercibleSCSelIdName
+                                     (mkPrelTyConRepName hcoercibleTyConName)
                                      eqReprPrimTyCon
 
 -- For information about the usage of the following type, see Note [TYPE]

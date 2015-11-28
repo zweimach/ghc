@@ -1,10 +1,5 @@
 stack:
 
-checkValidTelescope should accumulate errors and report them only
-when a kind variable is brought into scope later. If the kind variable
-is never brought into scope, then we're OK!
-
-
 - BUG: match_ty needs to be more delicate looking under TyConApps:
   match_ty (Just (x :: Age)) (Just 5 |> Maybe Int ~ Maybe Age) won't work
 
@@ -19,10 +14,6 @@ typecheck/should_compile/T6018:
     set, where we want to find s1 ~ s2. And, because we process deriveds last, the model doesn't get updated
     accordingly until the end, and then there isn't the right kick-out to re-process TF injectivity stuff.
     I would like Simon's advice.
-
-ghc-api/annotations/{T11018,exampleTest,parseTree}:
-  - I need Alan's help here. I think this has to do with the extra Rarrow bit
-    in the parser that is very confusing.
 
 
 

@@ -51,7 +51,10 @@ module GHC.Exts
         -- | These are available from the /Trustworthy/ module "Data.Coerce" as well
         --
         -- @since 4.7.0.0
-        Data.Coerce.coerce, Data.Coerce.Coercible,
+        Data.Coerce.coerce, Data.Coerce.Coercible, Data.Coerce.HCoercible,
+
+        -- * Equality
+        type (~~),
 
         -- * Transform comprehensions
         Down(..), groupWith, sortWith, the,
@@ -72,8 +75,8 @@ module GHC.Exts
         IsList(..)
        ) where
 
-import GHC.Prim hiding (coerce)
-import GHC.Base hiding (coerce) -- implicitly comes from GHC.Prim
+import GHC.Prim
+import GHC.Base
 import GHC.Word
 import GHC.Int
 import GHC.Ptr

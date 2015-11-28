@@ -371,6 +371,10 @@ basicKnownKeyNames
         , typeErrorVAppendDataConName
         , typeErrorShowTypeDataConName
 
+        -- homogeneous equality
+        , eqTyConName
+        , coercibleTyConName
+
     ] ++ case cIntegerLibraryType of
            IntegerGMP    -> [integerSDataConName]
            IntegerSimple -> []
@@ -411,7 +415,8 @@ gHC_PRIM, gHC_TYPES, gHC_GENERICS, gHC_MAGIC,
     tYPEABLE, tYPEABLE_INTERNAL, gENERICS,
     rEAD_PREC, lEX, gHC_INT, gHC_WORD, mONAD, mONAD_FIX, mONAD_ZIP, mONAD_FAIL,
     aRROW, cONTROL_APPLICATIVE, gHC_DESUGAR, rANDOM, gHC_EXTS,
-    cONTROL_EXCEPTION_BASE, gHC_TYPELITS :: Module
+    cONTROL_EXCEPTION_BASE, gHC_TYPELITS, dATA_TYPE_EQUALITY,
+    dATA_COERCE :: Module
 
 gHC_PRIM        = mkPrimModule (fsLit "GHC.Prim")   -- Primitive types and values
 gHC_TYPES       = mkPrimModule (fsLit "GHC.Types")
@@ -466,6 +471,8 @@ gHC_EXTS        = mkBaseModule (fsLit "GHC.Exts")
 cONTROL_EXCEPTION_BASE = mkBaseModule (fsLit "Control.Exception.Base")
 gHC_GENERICS    = mkBaseModule (fsLit "GHC.Generics")
 gHC_TYPELITS    = mkBaseModule (fsLit "GHC.TypeLits")
+dATA_TYPE_EQUALITY = mkBaseModule (fsLit "Data.Type.Equality")
+dATA_COERCE     = mkBaseModule (fsLit "Data.Coerce")
 
 gHC_PARR' :: Module
 gHC_PARR' = mkBaseModule (fsLit "GHC.PArr")
@@ -771,6 +778,9 @@ foldMap_RDR             = varQual_RDR dATA_FOLDABLE       (fsLit "foldMap")
 traverse_RDR            = varQual_RDR dATA_TRAVERSABLE    (fsLit "traverse")
 mempty_RDR              = varQual_RDR gHC_BASE            (fsLit "mempty")
 mappend_RDR             = varQual_RDR gHC_BASE            (fsLit "mappend")
+
+eqTyCon_RDR :: RdrName
+eqTyCon_RDR = tcQual_RDR dATA_TYPE_EQUALITY (fsLit "~")
 
 ----------------------
 varQual_RDR, tcQual_RDR, clsQual_RDR, dataQual_RDR
@@ -1326,6 +1336,11 @@ fingerprintDataConName :: Name
 fingerprintDataConName =
     dcQual gHC_FINGERPRINT_TYPE (fsLit "Fingerprint") fingerprintDataConKey
 
+-- homogeneous equality
+eqTyConName, coercibleTyConName :: Name
+eqTyConName        = tcQual dATA_TYPE_EQUALITY (fsLit "~")         eqTyConKey
+coercibleTyConName = tcQual dATA_COERCE        (fsLit "Coercible") coercibleTyConKey
+
 {-
 ************************************************************************
 *                                                                      *
@@ -1453,8 +1468,8 @@ addrPrimTyConKey, arrayPrimTyConKey, arrayArrayPrimTyConKey, boolTyConKey,
     weakPrimTyConKey, mutableArrayPrimTyConKey, mutableArrayArrayPrimTyConKey,
     mutableByteArrayPrimTyConKey, orderingTyConKey, mVarPrimTyConKey,
     ratioTyConKey, rationalTyConKey, realWorldTyConKey, stablePtrPrimTyConKey,
-    stablePtrTyConKey, anyTyConKey, eqTyConKey, smallArrayPrimTyConKey,
-    smallMutableArrayPrimTyConKey :: Unique
+    stablePtrTyConKey, anyTyConKey, eqTyConKey, heqTyConKey,
+    smallArrayPrimTyConKey, smallMutableArrayPrimTyConKey :: Unique
 addrPrimTyConKey                        = mkPreludeTyConUnique  1
 arrayPrimTyConKey                       = mkPreludeTyConUnique  3
 boolTyConKey                            = mkPreludeTyConUnique  4
@@ -1491,8 +1506,9 @@ stablePtrPrimTyConKey                   = mkPreludeTyConUnique 35
 stablePtrTyConKey                       = mkPreludeTyConUnique 36
 anyTyConKey                             = mkPreludeTyConUnique 37
 eqTyConKey                              = mkPreludeTyConUnique 38
-arrayArrayPrimTyConKey                  = mkPreludeTyConUnique 39
-mutableArrayArrayPrimTyConKey           = mkPreludeTyConUnique 40
+heqTyConKey                             = mkPreludeTyConUnique 39
+arrayArrayPrimTyConKey                  = mkPreludeTyConUnique 40
+mutableArrayArrayPrimTyConKey           = mkPreludeTyConUnique 41
 
 statePrimTyConKey, stableNamePrimTyConKey, stableNameTyConKey,
     mutVarPrimTyConKey, ioTyConKey,
@@ -1634,8 +1650,8 @@ errorMessageTypeErrorFamKey =  mkPreludeTyConUnique 173
 
 ntTyConKey:: Unique
 ntTyConKey = mkPreludeTyConUnique 174
-coercibleTyConKey :: Unique
-coercibleTyConKey = mkPreludeTyConUnique 175
+hcoercibleTyConKey :: Unique
+hcoercibleTyConKey = mkPreludeTyConUnique 175
 
 proxyPrimTyConKey :: Unique
 proxyPrimTyConKey = mkPreludeTyConUnique 176
@@ -1666,6 +1682,9 @@ ipTyConKey = mkPreludeTyConUnique 184
 ipCoNameKey :: Unique
 ipCoNameKey = mkPreludeTyConUnique 185
 
+-- homogeneous coercible
+coercibleTyConKey :: Unique
+coercibleTyConKey = mkPreludeTyConUnique 186
 
 ---------------- Template Haskell -------------------
 --      THNames.hs: USES TyConUniques 200-299
@@ -1688,8 +1707,8 @@ ipCoNameKey = mkPreludeTyConUnique 185
 charDataConKey, consDataConKey, doubleDataConKey, falseDataConKey,
     floatDataConKey, intDataConKey, integerSDataConKey, nilDataConKey,
     ratioDataConKey, stableNameDataConKey, trueDataConKey, wordDataConKey,
-    word8DataConKey, ioDataConKey, integerDataConKey, eqBoxDataConKey,
-    coercibleDataConKey, nothingDataConKey, justDataConKey :: Unique
+    word8DataConKey, ioDataConKey, integerDataConKey, heqDataConKey,
+    hcoercibleDataConKey, nothingDataConKey, justDataConKey :: Unique
 charDataConKey                          = mkPreludeDataConUnique  1
 consDataConKey                          = mkPreludeDataConUnique  2
 doubleDataConKey                        = mkPreludeDataConUnique  3
@@ -1707,7 +1726,7 @@ trueDataConKey                          = mkPreludeDataConUnique 15
 wordDataConKey                          = mkPreludeDataConUnique 16
 ioDataConKey                            = mkPreludeDataConUnique 17
 integerDataConKey                       = mkPreludeDataConUnique 18
-eqBoxDataConKey                         = mkPreludeDataConUnique 19
+heqDataConKey                           = mkPreludeDataConUnique 19
 
 -- Generic data constructors
 crossDataConKey, inlDataConKey, inrDataConKey, genUnitDataConKey :: Unique
@@ -1729,7 +1748,7 @@ ltDataConKey                            = mkPreludeDataConUnique 27
 eqDataConKey                            = mkPreludeDataConUnique 28
 gtDataConKey                            = mkPreludeDataConUnique 29
 
-coercibleDataConKey                     = mkPreludeDataConUnique 32
+hcoercibleDataConKey                    = mkPreludeDataConUnique 32
 
 staticPtrDataConKey :: Unique
 staticPtrDataConKey                     = mkPreludeDataConUnique 33
@@ -2056,9 +2075,9 @@ toDynIdKey            = mkPreludeMiscIdUnique 509
 bitIntegerIdKey :: Unique
 bitIntegerIdKey       = mkPreludeMiscIdUnique 510
 
-eqSCSelIdKey, coercibleSCSelIdKey :: Unique
-eqSCSelIdKey        = mkPreludeMiscIdUnique 511
-coercibleSCSelIdKey = mkPreludeMiscIdUnique 512
+heqSCSelIdKey, hcoercibleSCSelIdKey :: Unique
+heqSCSelIdKey        = mkPreludeMiscIdUnique 511
+hcoercibleSCSelIdKey = mkPreludeMiscIdUnique 512
 
 {-
 ************************************************************************

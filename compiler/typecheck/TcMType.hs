@@ -42,7 +42,6 @@ module TcMType (
 
   --------------------------------
   -- Instantiation
-  tcInstBinders, tcInstBindersX,
   tcInstTyVars, tcInstTyVarX,
   newSigTyVar,
   tcInstType,
@@ -73,7 +72,6 @@ module TcMType (
 #include "HsVersions.h"
 
 -- friends:
-import {-# SOURCE #-} TcUnify ( unifyKind, noThing )
 import TyCoRep ( CoercionHole(..) )
 import TcType
 import Type
@@ -98,7 +96,6 @@ import SrcLoc
 import Bag
 import Pair
 import DynFlags
-import BasicTypes    ( Boxity(..) )
 
 import Control.Monad
 import Maybes
@@ -644,70 +641,6 @@ tcInstTyVarX subst tyvar
               kind   = substTy subst (tyVarKind tyvar)
               new_tv = mkTcTyVar name kind details
         ; return (extendTCvSubst subst tyvar (mkTyVarTy new_tv), new_tv) }
-
--- | This is used to instantiate binders when type-checking *types* only.
--- Precondition: all binders are invisible.
-tcInstBinders :: [Binder] -> TcM (TCvSubst, [TcType])
-tcInstBinders = tcInstBindersX emptyTCvSubst Nothing
-
--- | This is used to instantiate binders when type-checking *types* only.
--- Precondition: all binders are invisible.
--- The @VarEnv Kind@ gives some known instantiations.
-tcInstBindersX :: TCvSubst -> Maybe (VarEnv Kind)
-               -> [Binder] -> TcM (TCvSubst, [TcType])
-tcInstBindersX subst mb_kind_info bndrs
-  = do { (subst, args) <- mapAccumLM (tcInstBinderX mb_kind_info) subst bndrs
-       ; traceTc "instantiating implicit dependent vars:"
-           (vcat $ zipWith (\bndr arg -> ppr bndr <+> text ":=" <+> ppr arg)
-                           bndrs args)
-       ; return (subst, args) }
-
--- | Used only in *types*
-tcInstBinderX :: Maybe (VarEnv Kind)
-              -> TCvSubst -> Binder -> TcM (TCvSubst, TcType)
-tcInstBinderX mb_kind_info subst binder
-  | Just tv <- binderVar_maybe binder
-  = case lookup_tv tv of
-      Just ki -> return (extendTCvSubst subst tv ki, ki)
-      Nothing -> do { (subst', tv') <- tcInstTyVarX subst tv
-                    ; return (subst', mkTyVarTy tv') }
-
-     -- This is the *only* constraint currently handled in types.
-  | let ty = substTy subst (binderType binder)
-  , Just (boxity, role, k1, k2) <- get_pred_tys_maybe ty
-  = do { let origin = TypeEqOrigin { uo_actual   = k1
-                                   , uo_expected = k2
-                                   , uo_thing    = Nothing }
-       ; co <- case role of
-                 Nominal          -> unifyKind noThing k1 k2
-                 Representational -> emitWantedEq origin KindLevel role k1 k2
-                 Phantom          -> pprPanic "tcInstBinderX Phantom" (ppr binder)
-       ; let arg' = case boxity of
-                      Unboxed -> mkCoercionTy co
-                      Boxed   -> mkEqBoxTy    co role k1 k2
-       ; return (subst, arg') }
-
-  | otherwise -- TODO (RAE): I don't think this should be a panic.
-              -- Try inst'ing a type with a silly kind.
-  = pprPanic "visible binder in tcInstBinderX" (ppr binder)
-
-  where
-    lookup_tv tv = do { env <- mb_kind_info   -- `Maybe` monad
-                      ; lookupVarEnv env tv }
-
-      -- handle boxed equality constraints, because it's so easy
-    get_pred_tys_maybe ty
-      | Just (r, k1, k2) <- getEqPredTys_maybe ty
-      = Just (Unboxed, r, k1, k2)
-      | Just (tc, [_, _, k1, k2]) <- splitTyConApp_maybe ty
-      = if | tc `hasKey` eqTyConKey
-             -> Just (Boxed, Nominal, k1, k2)
-           | tc `hasKey` coercibleTyConKey
-             -> Just (Boxed, Representational, k1, k2)
-           | otherwise
-             -> Nothing
-      | otherwise
-      = Nothing
 
 {- Note [Name of an instantiated type variable]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

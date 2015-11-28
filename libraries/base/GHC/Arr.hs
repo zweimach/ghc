@@ -48,6 +48,7 @@ import GHC.Base
 import GHC.List
 import GHC.Real( fromIntegral )
 import GHC.Show
+import Data.Coerce
 
 infixl 9  !, //
 

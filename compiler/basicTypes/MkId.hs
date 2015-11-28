@@ -1042,7 +1042,7 @@ voidPrimIdName    = mkWiredInIdName gHC_PRIM  (fsLit "void#")          voidPrimI
 lazyIdName        = mkWiredInIdName gHC_MAGIC (fsLit "lazy")           lazyIdKey          lazyId
 coercionTokenName = mkWiredInIdName gHC_PRIM  (fsLit "coercionToken#") coercionTokenIdKey coercionTokenId
 magicDictName     = mkWiredInIdName gHC_PRIM  (fsLit "magicDict")      magicDictKey       magicDictId
-coerceName        = mkWiredInIdName gHC_PRIM  (fsLit "coerce")         coerceKey          coerceId
+coerceName        = mkWiredInIdName gHC_PRIM  (fsLit "coerce#")        coerceKey          coerceId
 proxyName         = mkWiredInIdName gHC_PRIM  (fsLit "proxy#")         proxyHashKey       proxyHashId
 dollarName        = mkWiredInIdName gHC_BASE  (fsLit "$")              dollarIdKey        dollarId
 oneShotName       = mkWiredInIdName gHC_MAGIC (fsLit "oneShot")        oneShotKey         oneShotId
@@ -1196,7 +1196,7 @@ coerceId = pcMiscPrelId coerceName ty info
   where
     info = noCafIdInfo `setInlinePragInfo` alwaysInlinePragma
                        `setUnfoldingInfo`  mkCompulsoryUnfolding rhs
-    eqRTy     = mkTyConApp coercibleTyCon  [ liftedTypeKind
+    eqRTy     = mkTyConApp hcoercibleTyCon [ liftedTypeKind
                                            , liftedTypeKind
                                            , alphaTy, betaTy]
     eqRPrimTy = mkTyConApp eqReprPrimTyCon [ liftedTypeKind
@@ -1208,7 +1208,7 @@ coerceId = pcMiscPrelId coerceName ty info
     [eqR,x,eq] = mkTemplateLocals [eqRTy, alphaTy, eqRPrimTy]
     rhs = mkLams [alphaTyVar, betaTyVar, eqR, x] $
           mkWildCase (Var eqR) eqRTy betaTy $
-          [(DataAlt coercibleDataCon, [eq], Cast (Var x) (mkCoVarCo eq))]
+          [(DataAlt hcoercibleDataCon, [eq], Cast (Var x) (mkCoVarCo eq))]
 
 {-
 Note [dollarId magic]

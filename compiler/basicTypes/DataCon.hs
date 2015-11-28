@@ -822,14 +822,23 @@ dataConAllTyVars (MkData { dcUnivTyVars = univ_tvs, dcExTyVars = ex_tvs })
 dataConEqSpec :: DataCon -> [EqSpec]
 dataConEqSpec (MkData { dcEqSpec = eq_spec, dcOtherTheta = theta })
   = eq_spec ++
-    [ spec
+    [ spec   -- heterogeneous equality
     | Just (tc, [_k1, _k2, ty1, ty2]) <- map splitTyConApp_maybe theta
+    , tc `hasKey` heqTyConKey
+    , spec <- case (getTyVar_maybe ty1, getTyVar_maybe ty2) of
+                    (Just tv1, _) -> [mkEqSpec tv1 ty2]
+                    (_, Just tv2) -> [mkEqSpec tv2 ty1]
+                    _             -> []
+    ] ++
+    [ spec   -- homogeneous equality
+    | Just (tc, [_k, ty1, ty2]) <- map splitTyConApp_maybe theta
     , tc `hasKey` eqTyConKey
     , spec <- case (getTyVar_maybe ty1, getTyVar_maybe ty2) of
                     (Just tv1, _) -> [mkEqSpec tv1 ty2]
                     (_, Just tv2) -> [mkEqSpec tv2 ty1]
                     _             -> []
     ]
+
 
 -- | The *full* constraints on the constructor type, including dependent
 -- GADT equalities.

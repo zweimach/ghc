@@ -45,7 +45,7 @@ module Data.Typeable.Internal (
     tcOrdering, tc'LT, tc'EQ, tc'GT,
     tcChar, tcInt, tcWord, tcFloat, tcDouble, tcFun,
     tcIO, tcSPEC, tcTyCon, tcModule, tcTrName,
-    tcCoercible, tcList, tcEq,
+    tcHCoercible, tcList, tcHEq,
     tcConstraint,
     tcTYPE, tcLevity, tc'Lifted, tc'Unlifted,
 
@@ -405,7 +405,7 @@ tcBool, tc'True, tc'False,
   tcOrdering, tc'GT, tc'EQ, tc'LT,
   tcChar, tcInt, tcWord, tcFloat, tcDouble, tcFun,
   tcIO, tcSPEC, tcTyCon, tcModule, tcTrName,
-  tcCoercible, tcEq, tcList :: TyCon
+  tcHCoercible, tcHEq, tcList :: TyCon
 
 tcBool      = mkGhcTypesTyCon "Bool"#      -- Bool is promotable
 tc'True     = mkGhcTypesTyCon "'True"#
@@ -416,21 +416,21 @@ tc'EQ       = mkGhcTypesTyCon "'EQ"#
 tc'LT       = mkGhcTypesTyCon "'LT"#
 
 -- None of the rest are promotable (see TysWiredIn)
-tcChar      = mkGhcTypesTyCon "Char"#
-tcInt       = mkGhcTypesTyCon "Int"#
-tcWord      = mkGhcTypesTyCon "Word"#
-tcFloat     = mkGhcTypesTyCon "Float"#
-tcDouble    = mkGhcTypesTyCon "Double"#
-tcSPEC      = mkGhcTypesTyCon "SPEC"#
-tcIO        = mkGhcTypesTyCon "IO"#
-tcTyCon     = mkGhcTypesTyCon "TyCon"#
-tcModule    = mkGhcTypesTyCon "Module"#
-tcTrName    = mkGhcTypesTyCon "TrName"#
-tcCoercible = mkGhcTypesTyCon "Coercible"#
+tcChar       = mkGhcTypesTyCon "Char"#
+tcInt        = mkGhcTypesTyCon "Int"#
+tcWord       = mkGhcTypesTyCon "Word"#
+tcFloat      = mkGhcTypesTyCon "Float"#
+tcDouble     = mkGhcTypesTyCon "Double"#
+tcSPEC       = mkGhcTypesTyCon "SPEC"#
+tcIO         = mkGhcTypesTyCon "IO"#
+tcTyCon      = mkGhcTypesTyCon "TyCon"#
+tcModule     = mkGhcTypesTyCon "Module"#
+tcTrName     = mkGhcTypesTyCon "TrName"#
+tcHCoercible = mkGhcTypesTyCon "HCoercible"#
 
 tcFun       = mkGhcTypesTyCon "->"#
 tcList      = mkGhcTypesTyCon "[]"#   -- Type rep for the list type constructor
-tcEq        = mkGhcTypesTyCon "~"#    -- Type rep for the (~) type constructor
+tcHEq       = mkGhcTypesTyCon "~~"#   -- Type rep for the (~~) type constructor
 
 tcConstraint, tcTYPE, tcLevity, tc'Lifted, tc'Unlifted :: TyCon
 tcConstraint   = mkGhcTypesTyCon "Constraint"#

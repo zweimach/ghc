@@ -1,6 +1,5 @@
 module TysWiredIn where
 
-import TyCon
 import {-# SOURCE #-} TyCoRep    (Type, Kind)
 
 
@@ -10,5 +9,3 @@ mkBoxedTupleTy :: [Type] -> Type
 levityTy, unliftedDataConTy :: Type
 
 liftedTypeKind :: Kind
-
-coercibleTyCon :: TyCon

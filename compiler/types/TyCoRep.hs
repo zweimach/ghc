@@ -112,7 +112,6 @@ import {-# SOURCE #-} Type( isPredTy, isCoercionTy, mkAppTy
    -- Transitively pulls in a LOT of stuff, better to break the loop
 
 import {-# SOURCE #-} Coercion
-import {-# SOURCE #-} TysWiredIn ( coercibleTyCon )
 import {-# SOURCE #-} ConLike ( ConLike(..) )
 
 -- friends:
@@ -2177,7 +2176,7 @@ pprTcApp_help to_type p pp tc tys dflags
               | tc `hasKey` eqPrimTyConKey
               = text "~"
               | tc `hasKey` eqReprPrimTyConKey
-              = ppr coercibleTyCon
+              = text "Coercible"
               | otherwise
               = ppr tc
     in pprInfixApp p pp pp_tc ty1 ty2

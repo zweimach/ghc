@@ -699,10 +699,6 @@ deriveTyData tvs tc tc_args (L loc deriv_pred)
               final_tc_args   = substTys subst tc_args_to_keep
               final_cls_tys   = substTys subst cls_tys
 
-        ; traceTc "RAE1" (ppr kind_subst $$ sep (map pprTvBndr unmapped_tkvs)
-                         $$ ppr inst_ty_kind $$ ppr cls_arg_kind )
-        ; traceTc "RAE2" (ppr subst $$ sep (map pprTvBndr tkvs))
-
         ; traceTc "derivTyData1" (vcat [ pprTvBndrs tvs, ppr tc, ppr tc_args, ppr deriv_pred
                                        , pprTvBndrs (varSetElems $ tyCoVarsOfTypes tc_args)
                                        , ppr n_args_to_keep, ppr n_args_to_drop

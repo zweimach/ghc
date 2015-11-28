@@ -21,8 +21,8 @@ import Var
 import TcType
 import Name
 import PrelNames ( knownNatClassName, knownSymbolClassName,
-                   callStackTyConKey, typeableClassName, coercibleTyConKey,
-                   eqTyConKey )
+                   callStackTyConKey, typeableClassName, hcoercibleTyConKey,
+                   heqTyConKey )
 import TysWiredIn ( ipClass, typeNatKind, typeSymbolKind )
 import Id( idType )
 import CoAxiom ( Eqn, CoAxiom(..), CoAxBranch(..), fromBranches )
@@ -1803,13 +1803,13 @@ matchClassInst dflags _ clas tys loc
 
 match_class_inst :: DynFlags -> Class -> [Type] -> CtLoc -> TcS LookupInstResult
 match_class_inst dflags clas tys loc
-  | cls_name == knownNatClassName    = matchKnownNat       clas tys
-  | cls_name == knownSymbolClassName = matchKnownSymbol    clas tys
-  | isCTupleClass clas               = matchCTuple         clas tys
-  | cls_name == typeableClassName    = matchTypeable       clas tys
-  |  clas `hasKey` eqTyConKey
-  || clas `hasKey` coercibleTyConKey = matchLiftedEquality clas tys
-  | otherwise                        = matchInstEnv dflags clas tys loc
+  | cls_name == knownNatClassName     = matchKnownNat       clas tys
+  | cls_name == knownSymbolClassName  = matchKnownSymbol    clas tys
+  | isCTupleClass clas                = matchCTuple         clas tys
+  | cls_name == typeableClassName     = matchTypeable       clas tys
+  |  clas `hasKey` heqTyConKey
+  || clas `hasKey` hcoercibleTyConKey = matchLiftedEquality clas tys
+  | otherwise                         = matchInstEnv dflags clas tys loc
   where
     cls_name = className clas
 

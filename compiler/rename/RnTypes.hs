@@ -37,8 +37,7 @@ import TcRnMonad
 import RdrName
 import PrelNames
 import TysPrim          ( funTyConName )
-import TysWiredIn       ( starKindTyConName, unicodeStarKindTyConName,
-                          eqTyConName )
+import TysWiredIn       ( starKindTyConName, unicodeStarKindTyConName )
 import Name
 import SrcLoc
 import NameSet
@@ -449,7 +448,7 @@ rnHsTyOp isType overall_ty (L loc op)
        ; unless (ops_ok
                  || op' == starKindTyConName
                  || op' == unicodeStarKindTyConName
-                 || op' == eqTyConName) $
+                 || op' `hasKey` eqTyConKey) $
            addErr (opTyErr op overall_ty)
        ; let l_op' = L loc op'
        ; return (l_op', unitFV op') }

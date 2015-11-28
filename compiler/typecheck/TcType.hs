@@ -84,7 +84,6 @@ module TcType (
   orphNamesOfTypes, orphNamesOfCoCon,
   getDFunTyKey,
   evVarPred_maybe, evVarPred,
-  mkEqBoxTy,
 
   ---------------------------------
   -- Predicate types
@@ -185,7 +184,6 @@ import NameSet
 import VarEnv
 import PrelNames
 import TysWiredIn
-import DataCon     ( promoteDataCon )
 import BasicTypes
 import Util
 import Maybes
@@ -1618,20 +1616,6 @@ evVarPred var
  | otherwise
   = varType var
 
--------------------------------
--- | This takes @a ~# b@ (or @a ~R# b@) and returns @a ~ b@ (or @Coercible a b@).
-mkEqBoxTy :: Coercion -> Role -> Type -> Type -> Type
--- NB: Defined here to avoid module loops with DataCon
-mkEqBoxTy co role ty1 ty2
-  = mkTyConApp (promoteDataCon datacon) [k1, k2, ty1, ty2, mkCoercionTy co]
-  where k1 = typeKind ty1
-        k2 = typeKind ty2
-        datacon = case role of
-            Nominal ->          eqBoxDataCon
-            Representational -> coercibleDataCon
-            Phantom ->
-              pprPanic "mkEqBoxTy phantom" (ppr co)
-
 ------------------
 -- | When inferring types, should we quantify over a given predicate?
 -- Generally true of classes; generally false of equality constraints.
@@ -1656,7 +1640,7 @@ pickQuantifiablePreds qtvs theta
              | isIPClass cls    -> True -- See note [Inheriting implicit parameters]
              | otherwise        -> pick_cls_pred flex_ctxt cls tys
 
-          EqPred ReprEq ty1 ty2 -> pick_cls_pred flex_ctxt coercibleClass [ty1, ty2]
+          EqPred ReprEq ty1 ty2 -> pick_cls_pred flex_ctxt hcoercibleClass [ty1, ty2]
             -- representational equality is like a class constraint
 
           EqPred NomEq ty1 ty2  -> quant_fun ty1 || quant_fun ty2

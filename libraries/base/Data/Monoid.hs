@@ -48,6 +48,7 @@ import GHC.Num
 import GHC.Read
 import GHC.Show
 import GHC.Generics
+import Data.Coerce
 
 {-
 -- just for testing
@@ -235,4 +236,3 @@ prop_mconcatLast x =
         where listLastToMaybe [] = Nothing
               listLastToMaybe lst = Just (last lst)
 -- -}
-

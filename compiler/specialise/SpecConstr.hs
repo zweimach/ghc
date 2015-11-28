@@ -1844,7 +1844,7 @@ callToPats env bndr_occs (Call _ args con_env)
                 -- See Note [Shadowing] at the top
 
               (ktvs, ids)   = partition isTyVar qvars
-              qvars'        = sortQuantVars ktvs ++ map sanitise ids
+              qvars'        = toposortTyVars ktvs ++ map sanitise ids
                 -- Order into kind variables, type variables, term variables
                 -- The kind of a type variable may mention a kind variable
                 -- and the type of a term variable may mention a type variable

@@ -80,8 +80,7 @@ import TysWiredIn       ( cTupleTyConName, tupleTyCon, tupleDataCon,
                           listTyConName, listTyConKey,
                           starKindTyConName, unicodeStarKindTyConName )
 import ForeignCall
-import PrelNames        ( forall_tv_RDR, allNameStrings )
-import TysWiredIn       ( eqTyCon_RDR )
+import PrelNames        ( forall_tv_RDR, eqTyCon_RDR, allNameStrings )
 import DynFlags
 import SrcLoc
 import Unique           ( hasKey )

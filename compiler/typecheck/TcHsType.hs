@@ -5,7 +5,7 @@
 \section[TcMonoType]{Typechecking user-specified @MonoTypes@}
 -}
 
-{-# LANGUAGE CPP, TupleSections #-}
+{-# LANGUAGE CPP, TupleSections, MultiWayIf #-}
 
 module TcHsType (
         tcHsSigType, tcTopHsSigType, tcHsDeriv, tcHsVectInst,
@@ -77,7 +77,7 @@ import Util
 import UniqSupply
 import Outputable
 import FastString
-import PrelNames ( funTyConKey, allNameStrings )
+import PrelNames hiding ( wildCardName )
 import Pair
 
 import Data.Maybe
@@ -589,7 +589,8 @@ tc_hs_type mode (HsIParamTy n ty) exp_kind
 tc_hs_type mode (HsEqTy ty1 ty2) exp_kind
   = do { (ty1', kind1) <- tc_infer_lhs_type mode ty1
        ; (ty2', kind2) <- tc_infer_lhs_type mode ty2
-       ; let ty' = mkNakedTyConApp eqTyCon [kind1, kind2, ty1', ty2']
+       ; eq_tc <- tcLookupTyCon eqTyConName
+       ; let ty' = mkNakedTyConApp eq_tc [kind1, kind2, ty1', ty2']
        ; checkExpectedKind ty' constraintKind exp_kind }
 
 --------- Literals
@@ -780,6 +781,148 @@ tcInferApps mode orig_ty ty ki args = go ty ki args 1
                      tc_lhs_type mode arg arg_k
            ; go (mkNakedAppTy (fun `mkNakedCastTy` co) arg')
                 res_k args (n+1) }
+
+---------------------------
+-- | This is used to instantiate binders when type-checking *types* only.
+-- Precondition: all binders are invisible.
+tcInstBinders :: [Binder] -> TcM (TCvSubst, [TcType])
+tcInstBinders = tcInstBindersX emptyTCvSubst Nothing
+
+-- | This is used to instantiate binders when type-checking *types* only.
+-- Precondition: all binders are invisible.
+-- The @VarEnv Kind@ gives some known instantiations.
+tcInstBindersX :: TCvSubst -> Maybe (VarEnv Kind)
+               -> [Binder] -> TcM (TCvSubst, [TcType])
+tcInstBindersX subst mb_kind_info bndrs
+  = do { (subst, args) <- mapAccumLM (tcInstBinderX mb_kind_info) subst bndrs
+       ; traceTc "instantiating implicit dependent vars:"
+           (vcat $ zipWith (\bndr arg -> ppr bndr <+> text ":=" <+> ppr arg)
+                           bndrs args)
+       ; return (subst, args) }
+
+-- | Used only in *types*
+tcInstBinderX :: Maybe (VarEnv Kind)
+              -> TCvSubst -> Binder -> TcM (TCvSubst, TcType)
+tcInstBinderX mb_kind_info subst binder
+  | Just tv <- binderVar_maybe binder
+  = case lookup_tv tv of
+      Just ki -> return (extendTCvSubst subst tv ki, ki)
+      Nothing -> do { (subst', tv') <- tcInstTyVarX subst tv
+                    ; return (subst', mkTyVarTy tv') }
+
+     -- This is the *only* constraint currently handled in types.
+  | let ty = substTy subst (binderType binder)
+  , Just (mk, role, k1, k2) <- get_pred_tys_maybe ty
+  = do { let origin = TypeEqOrigin { uo_actual   = k1
+                                   , uo_expected = k2
+                                   , uo_thing    = Nothing }
+       ; co <- case role of
+                 Nominal          -> unifyKind noThing k1 k2
+                 Representational -> emitWantedEq origin KindLevel role k1 k2
+                 Phantom          -> pprPanic "tcInstBinderX Phantom" (ppr binder)
+       ; arg' <- mk co k1 k2
+       ; return (subst, arg') }
+
+  | otherwise -- TODO (RAE): I don't think this should be a panic.
+              -- Try inst'ing a type with a silly kind.
+  = pprPanic "visible binder in tcInstBinderX" (ppr binder)
+
+  where
+    lookup_tv tv = do { env <- mb_kind_info   -- `Maybe` monad
+                      ; lookupVarEnv env tv }
+
+      -- handle boxed equality constraints, because it's so easy
+    get_pred_tys_maybe ty
+      | Just (r, k1, k2) <- getEqPredTys_maybe ty
+      = Just (\co _ _ -> return $ mkCoercionTy co, r, k1, k2)
+      | Just (tc, [_, _, k1, k2]) <- splitTyConApp_maybe ty
+      = if | tc `hasKey` heqTyConKey
+             -> Just (mkHEqBoxTy heqDataCon, Nominal, k1, k2)
+           | tc `hasKey` hcoercibleTyConKey
+             -> Just (mkHEqBoxTy hcoercibleDataCon, Representational, k1, k2)
+           | otherwise
+             -> Nothing
+      | Just (tc, [_, k1, k2]) <- splitTyConApp_maybe ty
+      = if | tc `hasKey` eqTyConKey
+             -> Just (mkEqBoxTy eqTyConName, Nominal, k1, k2)
+           | tc `hasKey` coercibleTyConKey
+             -> Just (mkEqBoxTy coercibleTyConName, Representational, k1, k2)
+           | otherwise
+             -> Nothing
+      | otherwise
+      = Nothing
+
+-------------------------------
+-- | This takes @a ~# b@ (or @a ~R# b@) and returns @a ~~ b@ (or @HCoercible a b@).
+mkHEqBoxTy :: DataCon -> TcCoercion -> Type -> Type -> TcM Type
+-- monadic just for convenience with mkEqBoxTy
+mkHEqBoxTy datacon co ty1 ty2
+  = return $
+    mkTyConApp (promoteDataCon datacon) [k1, k2, ty1, ty2, mkCoercionTy co]
+  where k1 = typeKind ty1
+        k2 = typeKind ty2
+
+-- | This takes @a ~# b@ (or @a ~R# b@) and returns @a ~ b@ (or @Coercible a b@).
+mkEqBoxTy :: Name -> TcCoercion -> Type -> Type -> TcM Type
+-- NB: Defined here to avoid module loops with DataCon
+mkEqBoxTy tc_name co ty1 ty2
+  = do { eq_tc <- tcLookupTyCon tc_name
+       ; let [datacon] = tyConDataCons eq_tc
+       ; return $
+         mkTyConApp (promoteDataCon datacon) [k, ty1, ty2, mkCoercionTy co] }
+  where k = typeKind ty1
+
+--------------------------
+checkExpectedKind :: TcType               -- the type whose kind we're checking
+                  -> TcKind               -- the known kind of that type, k
+                  -> TcKind               -- the expected kind, exp_kind
+                  -> TcM TcType    -- a possibly-inst'ed, casted type :: exp_kind
+-- Instantiate a kind (if necessary) and then call unifyType
+--      (checkExpectedKind ty act_kind exp_kind)
+-- checks that the actual kind act_kind is compatible
+--      with the expected kind exp_kind
+checkExpectedKind ty act_kind exp_kind
+ = do { (ty', act_kind') <- instantiate ty act_kind exp_kind
+      ; let origin = TypeEqOrigin { uo_actual   = act_kind'
+                                  , uo_expected = exp_kind
+                                  , uo_thing    = Just $ mkTypeErrorThing ty'
+                                  }
+      ; co_k <- uType origin KindLevel act_kind' exp_kind
+      ; traceTc "checkExpectedKind" (vcat [ ppr act_kind
+                                          , ppr exp_kind
+                                          , ppr co_k ])
+      ; let result_ty = ty' `mkNakedCastTy` co_k
+      ; return result_ty }
+  where
+    -- we need to make sure that both kinds have the same number of implicit
+    -- foralls out front. If the actual kind has more, instantiate accordingly.
+    -- Otherwise, just pass the type & kind through -- the errors are caught
+    -- in unifyType.
+    instantiate :: TcType    -- the type
+                -> TcKind    -- of this kind
+                -> TcKind   -- but expected to be of this one
+                -> TcM ( TcType   -- the inst'ed type
+                       , TcKind ) -- its new kind
+    instantiate ty act_ki exp_ki
+      = let (exp_bndrs, _) = splitForAllTysInvisible exp_ki in
+        instantiateTyN (length exp_bndrs) ty act_ki
+
+-- | Instantiate a type to have at most @n@ invisible arguments.
+instantiateTyN :: Int    -- ^ @n@
+               -> TcType -- ^ the type
+               -> TcKind -- ^ its kind
+               -> TcM (TcType, TcKind)   -- ^ The inst'ed type with kind
+instantiateTyN n ty ki
+  = let (bndrs, inner_ki)            = splitForAllTysInvisible ki
+        num_to_inst                  = length bndrs - n
+           -- NB: splitAt is forgiving with invalid numbers
+        (inst_bndrs, leftover_bndrs) = splitAt num_to_inst bndrs
+    in
+    if num_to_inst <= 0 then return (ty, ki) else
+    do { (subst, inst_args) <- tcInstBinders inst_bndrs
+       ; let rebuilt_ki = mkForAllTys leftover_bndrs inner_ki
+             ki'        = substTy subst rebuilt_ki
+       ; return (mkNakedAppTys ty inst_args, ki') }
 
 ---------------------------
 tcHsContext :: LHsContext Name -> TcM [PredType]
@@ -1147,7 +1290,8 @@ kcHsTyVarBndrs cusk (HsQTvs { hsq_implicit = kv_ns
                                      -- we only need the side effects;
                                      -- no need for coercion
                Just (ATyVar _ tv) -> discardResult $
-                                     unifyKind (Just n) kind (tyVarKind tv)
+                                     unifyKind (Just (mkTyVarTy tv)) kind
+                                               (tyVarKind tv)
                Just thing         -> pprPanic "check_in_scope" (ppr thing)
            ; kind <- zonkTcType kind
            ; return (n, kind) }

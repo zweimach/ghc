@@ -248,7 +248,7 @@ tcLookupDataFamInst_maybe fam_inst_envs tc tc_args
 -- potentially looking through newtype instances.
 --
 -- It is only used by the type inference engine (specifically, when
--- soliving 'Coercible' instances), and hence it is careful to unwrap
+-- solving representational equality), and hence it is careful to unwrap
 -- only if the relevant data constructor is in scope.  That's why
 -- it get a GlobalRdrEnv argument.
 --
