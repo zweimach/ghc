@@ -104,7 +104,7 @@ module Type (
         Kind,
 
         -- ** Finding the kind of a type
-        typeKind, pprTypeKind,
+        typeKind,
 
         -- ** Common Kind
         liftedTypeKind, unliftedTypeKind,
@@ -2039,18 +2039,6 @@ typeLiteralKind l =
 -- | Print a tyvar with its kind
 pprTyVar :: TyVar -> SDoc
 pprTyVar tv = ppr tv <+> dcolon <+> ppr (tyVarKind tv)
-
--- | Print a type's kind. But if there is a bogus tycon in there, don't!
--- NB: Bogus tycons are sometimes necessary in a type/class type-checking
--- knot. They might get printed if there are errors.
-pprTypeKind :: Type -> SDoc
-pprTypeKind ty
-  | bogus_tycon
-  = text "<<unknown>>"
-  | otherwise
-  = ppr (typeKind ty)
-  where
-    bogus_tycon = any isBogusTyCon (tyConsOfType ty)
 
 {-
 %************************************************************************

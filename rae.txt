@@ -1,4 +1,5 @@
 stack:
+  - mkBogusTyCon
 
 - BUG: match_ty needs to be more delicate looking under TyConApps:
   match_ty (Just (x :: Age)) (Just 5 |> Maybe Int ~ Maybe Age) won't work
@@ -46,6 +47,11 @@ result ty, or (3) do something else. I want SPJ's input, as both (1)
 and (2) are terrible.
 
 fix:
+  - Make better use of TcTyCon. It could be used to remove AThing, for example.
+    Also: zonking a type could replace a TcTyCon with the same-named TyCon from
+    the monad. We'd still need a knot, but the knot would only have to surround
+    the final zonks, *not* constraint generation/solving. Vast improvement.
+
   - Parser improvement ideas:
      1. Have HsAppsTy contain alternating non-symbolic regions and symbols.
      2. Change the _no_ops versions only to exclude dataconops, allowing * to appear.

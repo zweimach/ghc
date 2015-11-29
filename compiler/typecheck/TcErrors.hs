@@ -913,11 +913,11 @@ mkEqErr1 ctxt ct
               msg1 = sdocWithDynFlags $ \dflags ->
                      if not (gopt Opt_PrintExplicitCoercions dflags) &&
                         (cty1 `pickyEqType` cty2)
-                     then empty
+                     then text "When matching the kind of" <+> quotes (ppr cty1)
                      else
                      hang (text "When matching" <+> sub_what)
-                        2 (vcat [ ppr cty1 <+> dcolon <+> pprTypeKind cty1
-                                , ppr cty2 <+> dcolon <+> pprTypeKind cty2 ])
+                        2 (vcat [ ppr cty1 <+> dcolon <+> ppr (typeKind cty1)
+                                , ppr cty2 <+> dcolon <+> ppr (typeKind cty2) ])
               msg2 = case sub_o of
                        TypeEqOrigin {} ->
                          thdOf3 (mkExpectedActualMsg cty1 cty2 sub_o sub_t_or_k
@@ -1725,7 +1725,8 @@ mk_dict_err ctxt (ct, (matches, unifiers, unsafe_overlapped))
                , Just (tc,_) <- tcSplitTyConApp_maybe ty
                , not (isTypeFamilyTyCon tc)
                = hang (ptext (sLit "GHC can't yet do polykinded"))
-                    2 (ptext (sLit "Typeable") <+> parens (ppr ty <+> dcolon <+> pprTypeKind ty))
+                    2 (ptext (sLit "Typeable") <+>
+                       parens (ppr ty <+> dcolon <+> ppr (typeKind ty)))
                | otherwise
                = empty
 

@@ -1905,16 +1905,19 @@ ppr_type p ty@(ForAllTy {})   = ppr_forall_type p ty
 ppr_type p (AppTy t1 t2)
   = sdocWithDynFlags $ \dflags ->
     if not (gopt Opt_PrintExplicitCoercions dflags)
-    then case t1 of
-      CastTy (TyConApp arr_tc []) _ `AppTy` arg1
-        |  arr_tc `hasKey` funTyConKey
-        -> ppr_type p (mkFunTy arg1 t2)  -- don't print casted arrow funny
-                                         -- when we're not printing casts
-      _ -> ppr_app_ty
+    then case split_app_tys t1 [t2] of
+      (CastTy head _, args) -> ppr_type p (mk_app_tys head args)
+      _                     -> ppr_app_ty
     else ppr_app_ty
   where
     ppr_app_ty = maybeParen p TyConPrec $
                  ppr_type FunPrec t1 <+> ppr_type TyConPrec t2
+
+    split_app_tys (AppTy ty1 ty2) args = split_app_tys ty1 (ty2:args)
+    split_app_tys head            args = (head, args)
+
+    mk_app_tys (TyConApp tc tys1) tys2 = TyConApp tc (tys1 ++ tys2)
+    mk_app_tys ty1                tys2 = foldl AppTy ty1 tys2
 
 ppr_type p (CastTy ty co)
   = sdocWithDynFlags $ \dflags ->
@@ -2127,7 +2130,8 @@ pprTyTcApp p tc tys
     ppr_deflt = pprTcAppTy p ppr_type tc tys
 
 pprTcAppTy :: TyPrec -> (TyPrec -> Type -> SDoc) -> TyCon -> [Type] -> SDoc
-pprTcAppTy = pprTcApp id
+pprTcAppTy p pp tc tys = pprTrace "RAE2" (ppr tc $$ ppr tys) $
+                         pprTcApp id p pp tc tys
 
 pprTcAppCo :: TyPrec -> (TyPrec -> Coercion -> SDoc)
            -> TyCon -> [Coercion] -> SDoc
@@ -2142,7 +2146,8 @@ pprTcApp _ _ pp tc [ty]
 pprTcApp to_type p pp tc tys
   | Just sort <- tyConTuple_maybe tc
   , let arity = tyConArity tc
-  , arity == length tys
+  , pprTrace "RAE1" (ppr tc $$ ppr (length tys) $$ ppr arity) $
+    arity == length tys
   , let num_to_drop = case sort of UnboxedTuple -> arity `div` 2
                                    _            -> 0
   = pprTupleApp p pp tc sort (drop num_to_drop tys)

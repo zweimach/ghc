@@ -30,7 +30,7 @@ module TyCon(
         mkSynonymTyCon,
         mkFamilyTyCon,
         mkPromotedDataCon,
-        mkBogusTyCon,
+        mkTcTyCon,
 
         -- ** Predicates on TyCons
         isAlgTyCon, isVanillaAlgTyCon,
@@ -57,7 +57,7 @@ module TyCon(
         isRecursiveTyCon,
         isImplicitTyCon,
         isTyConWithSrcDataCons,
-        isBogusTyCon,
+        isTcTyCon,
 
         -- ** Extracting information out of TyCons
         tyConName,
@@ -590,11 +590,11 @@ data TyCon
         tcRepName   :: TyConRepName
     }
 
-  -- | A "bogus" type constructor. These exist only during a recursive
-  -- type/class type-checking knot.
-  | BogusTyCon {
+  -- | These exist only during a recursive type/class type-checking knot.
+  | TcTyCon {
       tyConUnique :: Unique,
-      tyConName   :: Name
+      tyConName   :: Name,
+      tyConKind   :: Kind
       }
   deriving Typeable
 
@@ -1181,15 +1181,17 @@ mkTupleTyCon name kind arity tyvars con sort parent
         algTcGadtSyntax  = False
     }
 
--- | Makes a bogus tycon. This tycon is good for precisely one purpose:
--- pretty-printing. Anything else causes a panic. It is necessary during
--- the recursive type-checking knot for producing error messages.
+-- | Makes a tycon suitable for use during type-checking.
+-- The only real need for this is for printing error messages during
+-- a recursive type/class type-checking knot. It has a kind because
+-- TcErrors sometimes calls typeKind.
 -- See also Note [Kind checking recursive type and class declarations]
 -- in TcTyClsDecls.
-mkBogusTyCon :: Name -> TyCon
-mkBogusTyCon name
-  = BogusTyCon { tyConUnique  = getUnique name
-               , tyConName    = name }
+mkTcTyCon :: Name -> Kind -> TyCon
+mkTcTyCon name kind
+  = TcTyCon { tyConUnique  = getUnique name
+            , tyConName    = name
+            , tyConKind    = kind }
 
 -- | Create an unlifted primitive 'TyCon', such as @Int#@
 mkPrimTyCon :: Name  -> Kind -> [Role] -> PrimRep -> TyCon
@@ -1351,8 +1353,8 @@ isInjectiveTyCon (FamilyTyCon { famTcInj = Injective inj }) _   = and inj
 isInjectiveTyCon (FamilyTyCon {})              _                = False
 isInjectiveTyCon (PrimTyCon {})                _                = True
 isInjectiveTyCon (PromotedDataCon {})          _                = True
-isInjectiveTyCon tc@(BogusTyCon {})            _
-  = pprPanic "isInjectiveTyCon sees a bogus tycon" (ppr tc)
+isInjectiveTyCon tc@(TcTyCon {})               _
+  = pprPanic "isInjectiveTyCon sees a TcTyCon" (ppr tc)
 
 -- | 'isGenerativeTyCon' is true of 'TyCon's for which this property holds
 -- (where X is the role passed in):
@@ -1632,17 +1634,17 @@ isImplicitTyCon (AlgTyCon { algTcRhs = rhs, tyConName = name })
   | otherwise                        = False
 isImplicitTyCon (FamilyTyCon { famTcParent = parent }) = isJust parent
 isImplicitTyCon (SynonymTyCon {})    = False
-isImplicitTyCon tc@(BogusTyCon {})
-  = pprPanic "isImplicitTyCon sees a bogus tycon" (ppr tc)
+isImplicitTyCon tc@(TcTyCon {})
+  = pprPanic "isImplicitTyCon sees a TcTyCon" (ppr tc)
 
 tyConCType_maybe :: TyCon -> Maybe CType
 tyConCType_maybe tc@(AlgTyCon {}) = tyConCType tc
 tyConCType_maybe _ = Nothing
 
--- | Is this a bogus tycon? (That is, one only used during type-checking?)
-isBogusTyCon :: TyCon -> Bool
-isBogusTyCon (BogusTyCon {}) = True
-isBogusTyCon _               = False
+-- | Is this a TcTyCon? (That is, one only used during type-checking?)
+isTcTyCon :: TyCon -> Bool
+isTcTyCon (TcTyCon {}) = True
+isTcTyCon _            = False
 
 {-
 -----------------------------------------------
@@ -1770,7 +1772,7 @@ tyConRoles tc
     ; FamilyTyCon {}                      -> const_role Nominal
     ; PrimTyCon { tcRoles = roles }       -> roles
     ; PromotedDataCon { tcRoles = roles } -> roles
-    ; BogusTyCon {} -> pprPanic "tyConRoles sees a bogus tycon" (ppr tc)
+    ; TcTyCon {} -> pprPanic "tyConRoles sees a TcTyCon" (ppr tc)
     }
   where
     const_role r = replicate (tyConArity tc) r
@@ -1926,8 +1928,8 @@ tyConFlavour (SynonymTyCon {})    = "type synonym"
 tyConFlavour (FunTyCon {})        = "built-in type"
 tyConFlavour (PrimTyCon {})       = "built-in type"
 tyConFlavour (PromotedDataCon {}) = "promoted data constructor"
-tyConFlavour tc@(BogusTyCon {})
-  = pprPanic "tyConFlavour sees a bogus tycon" (ppr tc)
+tyConFlavour tc@(TcTyCon {})
+  = pprPanic "tyConFlavour sees a TcTyCon" (ppr tc)
 
 pprPromotionQuote :: TyCon -> SDoc
 -- Promoted data constructors already have a tick in their OccName

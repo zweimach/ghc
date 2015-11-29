@@ -271,8 +271,6 @@ kcTyClGroup (TyClGroup { group_tyclds = decls })
 
         ; lcl_env <- checkNoErrs $
                      solveEqualities $
-                     tcExtendRecEnv bogusTyThingPairs $
-              -- See Note [Kind checking recursive type and class declarations]
           do {
                -- Step 1: Bind kind variables for non-synonyms
                let (syn_decls, non_syn_decls) = partition (isSynDecl . unLoc) decls
@@ -285,6 +283,8 @@ kcTyClGroup (TyClGroup { group_tyclds = decls })
 
              -- Step 3: Set extended envt, kind-check the non-synonyms
              ; setLclEnv lcl_env $
+               tcExtendRecEnv (tcTyConPairs initial_kinds) $
+              -- See Note [Kind checking recursive type and class declarations]
                mapM_ kcLTyClDecl non_syn_decls
 
              ; return lcl_env }
@@ -298,11 +298,10 @@ kcTyClGroup (TyClGroup { group_tyclds = decls })
         ; return res }
 
   where
-    bogusTyThingPairs :: [(Name,TyThing)]
-    bogusTyThingPairs = [ (name, ATyCon bogus_tc)
-                        | L _ decl <- decls
-                        , let name     = tcdName decl
-                              bogus_tc = mkBogusTyCon name ]
+    tcTyConPairs :: [(Name,TcTyThing)] -> [(Name,TyThing)]
+    tcTyConPairs initial_kinds = [ (name, ATyCon tc)
+                                 | (name, AThing kind) <- initial_kinds
+                                 , let tc = mkTcTyCon name kind ]
 
     generalise :: TcTypeEnv -> Name -> TcM (Name, Kind)
     -- For polymorphic things this is a no-op
@@ -627,9 +626,10 @@ discard the result of kind-checking, we sometimes need to produce error
 messages. These error messages will want to refer to the tycons being
 checked, except that they don't exist yet, and it would be Terribly
 Annoying to get the error messages to refer back to HsSyn. So we
-create a "bogus" tycon and put it in the global env. This tycon can
-print out its name, but any other action taken on it will panic. Note
-that bogus tycons are *not* knot-tied, unlike the rather valid but
+create a TcTyCon and put it in the global env. This tycon can
+print out its name and knows its kind,
+but any other action taken on it will panic. Note
+that TcTyCons are *not* knot-tied, unlike the rather valid but
 knot-tied ones that occur during type-checking.
 
 Note [Declarations for wired-in things]
