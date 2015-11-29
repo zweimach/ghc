@@ -184,7 +184,6 @@ tc_inst_head (HsForAllTy expflag _ hs_tvs hs_ctxt hs_ty)
             ; ty   <- tc_lhs_type typeLevelMode hs_ty constraintKind
             ; return (ctxt, ty) }
                   -- Body for forall has kind Constraint
-                  -- TODO (RAE): This will be changed with "forall ->" syntax
        ; return (mkInvSigmaTy tvs ctxt ty) }
 
 tc_inst_head hs_ty
@@ -313,12 +312,8 @@ check_and_gen :: Bool   -- should generalize?
               -> TcM Type
 check_and_gen should_gen hs_ty kind
   = do { traceTc "tcCheckHsTypeAndGen" (ppr should_gen $$ ppr hs_ty $$ ppr kind)
-       ; ty <- -- checkNoErrs $
-               solveEqualities $
+       ; ty <- solveEqualities $
                tc_hs_type typeLevelMode hs_ty kind
-           -- TODO (RAE): Does this abort too often? If the type
-           -- has kind errors, then unbound coercions in the type
-           -- cause endless trouble as we go forward. See #21.
        ; traceTc "tcCheckHsTypeAndGen" (ppr hs_ty)
        ; kvs <- if should_gen
                 then kindGeneralize (tyCoVarsOfType ty)
@@ -356,7 +351,7 @@ kindLevel :: TcTyMode -> TcTyMode
 kindLevel mode = mode { mode_level = KindLevel }
 
 {-
-Note [Bidirectional type checking]   -- TODO (RAE): Refer to this Note more often.
+Note [Bidirectional type checking]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 In expressions, whenever we see a polymorphic identifier, say `id`, we are
 free to instantiate it with metavariables, knowing that we can always
@@ -373,7 +368,7 @@ metavariable.
 In types, however, we're not so lucky, because *we cannot re-generalize*!
 There is no lambda. So, we must be careful only to instantiate at the last
 possible moment, when we're sure we're never going to want the lost polymorphism
-again. -- TODO (RAE): Connect to code.
+again. This is done in calls to tcInstBinders and tcInstBindersX.
 
 To implement this behavior, we use bidirectional type checking, where we
 explicitly think about whether we know the kind of the type we're checking
@@ -456,6 +451,7 @@ tc_fun_type mode ty1 ty2 exp_kind
        ; checkExpectedKind (mkNakedFunTy ty1' ty2') liftedTypeKind exp_kind }
 
 ------------------------------------------
+-- See also Note [Bidirectional type checking]
 tc_hs_type :: TcTyMode -> HsType Name -> TcKind -> TcM TcType
 tc_hs_type mode (HsParTy ty)   exp_kind = tc_lhs_type mode ty exp_kind
 tc_hs_type mode (HsDocTy ty _) exp_kind = tc_lhs_type mode ty exp_kind
@@ -505,7 +501,6 @@ tc_hs_type mode hs_ty@(HsForAllTy expflag _ hs_tvs context ty) exp_kind
 
        ; checkExpectedKind (mkNakedInvSigmaTy tvs' ctxt' ty')
                            liftedTypeKind exp_kind }
-         -- TODO (RAE): Change this when "forall ->" syntax exists
 
 --------- Lists, arrays, and tuples
 tc_hs_type mode (HsListTy elt_ty) exp_kind
@@ -786,13 +781,14 @@ tcInferApps mode orig_ty ty ki args = go ty ki args 1
 
 ---------------------------
 -- | This is used to instantiate binders when type-checking *types* only.
--- Precondition: all binders are invisible.
+-- Precondition: all binders are invisible. See also Note [Bidirectional type checking]
 tcInstBinders :: [Binder] -> TcM (TCvSubst, [TcType])
 tcInstBinders = tcInstBindersX emptyTCvSubst Nothing
 
 -- | This is used to instantiate binders when type-checking *types* only.
 -- Precondition: all binders are invisible.
 -- The @VarEnv Kind@ gives some known instantiations.
+-- See also Note [Bidirectional type checking]
 tcInstBindersX :: TCvSubst -> Maybe (VarEnv Kind)
                -> [Binder] -> TcM (TCvSubst, [TcType])
 tcInstBindersX subst mb_kind_info bndrs

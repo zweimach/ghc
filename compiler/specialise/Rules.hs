@@ -785,9 +785,6 @@ match _ _ _e1 _e2 = -- pprTrace "Failing at" ((text "e1:" <+> ppr _e1) $$ (text 
                     Nothing
 
 -------------
--- TODO (RAE): This is bad. It's looking at the structure of a coercion.
--- Instead, is it possible to just have variables as the top level of
--- every coercion made in a RULE? Then, we don't look at structure.
 match_co :: RuleMatchEnv
          -> RuleSubst
          -> Coercion

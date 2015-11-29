@@ -1535,23 +1535,6 @@ canUnifyWithPolyType dflags details
           -- We can have non-meta tyvars in given constraints
 
 {-
-Note [OpenTypeKind accepts foralls]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Here is a common paradigm:
-   foo :: (forall a. a -> a) -> Int
-   foo = error "urk"
-To make this work we need to instantiate 'error' with a polytype.
-A similar case is
-   bar :: Bool -> (forall a. a->a) -> Int
-   bar True = \x. (x 3)
-   bar False = error "urk"
-Here we need to instantiate 'error' with a polytype.
-
-But 'error' has an OpenTypeKind type variable, precisely so that
-we can instantiate it with Int#.  So we also allow such type variables
-to be instantiated with foralls.  It's a bit of a hack, but seems
-straightforward.
-
 ************************************************************************
 *                                                                      *
 \subsection{Predicate types}

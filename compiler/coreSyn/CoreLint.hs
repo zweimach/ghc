@@ -1011,6 +1011,10 @@ lintInTy ty
         ; lintKind k
         ; return (ty', k) }
 
+checkTyCon :: TyCon -> LintM ()
+checkTyCon tc
+  = checkL (not (isTcTyCon tc)) (text "Found TcTyCon:" <+> ppr tc)
+
 -------------------
 lintType :: OutType -> LintM LintedKind
 -- The returned Kind has itself been linted
@@ -1042,7 +1046,8 @@ lintType ty@(TyConApp tc tys)
   = failWithL (hang (ptext (sLit "Un-saturated type application")) 2 (ppr ty))
 
   | otherwise
-  = do { ks <- mapM lintType tys
+  = do { checkTyCon tc
+       ; ks <- mapM lintType tys
        ; lint_ty_app ty (tyConKind tc) (tys `zip` ks) }
 
 -- arrows can related *unlifted* kinds, so this has to be separate from
@@ -1245,7 +1250,8 @@ lintCoercion co@(TyConAppCo r tc cos)
   = failWithL (ptext (sLit "Synonym in TyConAppCo:") <+> ppr co)
 
   | otherwise
-  = do { (k's, ks, ss, ts, rs) <- mapAndUnzip5M lintCoercion cos
+  = do { checkTyCon tc
+       ; (k's, ks, ss, ts, rs) <- mapAndUnzip5M lintCoercion cos
        ; k' <- lint_co_app co (tyConKind tc) (ss `zip` k's)
        ; k <- lint_co_app co (tyConKind tc) (ts `zip` ks)
        ; _ <- zipWith3M lintRole cos (tyConRolesX r tc) rs

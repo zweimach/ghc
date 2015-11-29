@@ -1,5 +1,6 @@
 stack:
-  - mkBogusTyCon
+  - zonkSigType
+  - ImpossibleOrigin
 
 - BUG: match_ty needs to be more delicate looking under TyConApps:
   match_ty (Just (x :: Age)) (Just 5 |> Maybe Int ~ Maybe Age) won't work
@@ -45,6 +46,8 @@ original, unsubsted result ty in the DataCon for just this reason, or
 (2) install lots of ugly plumbing in TcTyClsDecls to carry the unsubsted
 result ty, or (3) do something else. I want SPJ's input, as both (1)
 and (2) are terrible.
+
+- I'm deeply disturbed by match_co. It's looking into coercions! Can we fix?
 
 fix:
   - Make better use of TcTyCon. It could be used to remove AThing, for example.

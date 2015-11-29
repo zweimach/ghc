@@ -2927,8 +2927,6 @@ newWantedEvVar loc pty
               | not (isDerived ctev)
               -> do { traceTcS "newWantedEvVar/cache hit" $ ppr ctev
                     ; return $ Cached (ctEvTerm ctev) }
-                      -- TODO (RAE): Could this have a problem with
-                      -- ~ vs ~#?
             _ -> do { ctev <- newWantedEvVarNC loc pty
                     ; return (Fresh ctev) } }
 

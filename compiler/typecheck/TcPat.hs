@@ -154,8 +154,6 @@ data TcIdSigInfo
   = TISI {
         sig_bndr   :: TcIdSigBndr,
 
-          -- TODO (RAE): Understand this better. I have a nagging feeling we
-          -- need visibility information around here.
         sig_tvs    :: [(Maybe Name, TcTyVar)],
                            -- Instantiated type and kind variables
                            -- Just n <=> this skolem is lexically in scope with name n
@@ -191,7 +189,7 @@ data TcPatSynInfo
   = TPSI {
         patsig_name  :: Name,
         patsig_tau   :: TcSigmaType,
-        patsig_ex    :: [TcTyVar],   -- TODO (RAE): allow covars here?
+        patsig_ex    :: [TcTyVar],
         patsig_prov  :: TcThetaType,
         patsig_univ  :: [TcTyVar],
         patsig_req   :: TcThetaType
@@ -969,7 +967,6 @@ matchExpectedPatTy inner_match pat_ty
        ; (wrap2, arg_tys) <- matchExpectedPatTy inner_match (TcType.substTy subst tau)
        ; return (wrap2 <.> wrap1, arg_tys) }
   where
-      -- TODO (RAE): This cares about visibility.
     (tvs, theta, tau) = tcSplitSigmaTy pat_ty
 
 ----------------------------

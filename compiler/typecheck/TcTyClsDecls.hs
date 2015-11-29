@@ -311,7 +311,6 @@ kcTyClGroup (TyClGroup { group_tyclds = decls })
                                _ -> pprPanic "kcTyClGroup" (ppr name $$ ppr kind_env)
            ; kvs <- kindGeneralize (tyCoVarsOfType kc_kind)
            ; kc_kind' <- zonkTcTypeToType emptyZonkEnv kc_kind
-                         -- TODO (RAE): but the kvs aren't fully zonked to Type
 
                       -- Make sure kc_kind' has the final, zonked kind variables
            ; traceTc "Generalise kind" (vcat [ ppr name, ppr kc_kind, ppr kvs, ppr kc_kind' ])
@@ -1171,7 +1170,7 @@ tcFamTyPats fam_shape@(name,_,_) mb_clsinfo pats kind_checker thing_inside
                                  splitDepVarsOfTypes typats
 
        ; MASSERT( isEmptyVarSet $ coVarsOfTypes typats )
-           -- This should be the case, because otherwise the solveEqualities.
+           -- This should be the case, because otherwise the solveEqualities
            -- above would fail. TODO (RAE): Update once the solveTopConstraints
            -- bit is cleverer.
 
@@ -1391,7 +1390,6 @@ tcConDecl new_or_data rep_tycon tmpl_tvs res_tmpl
                       ResTyH98        -> return ResTyH98
                       ResTyGADT ls ty -> ResTyGADT ls <$> zonkTcTypeToType ze ty
 
-                    -- TODO (RAE): Make sure that the types are of kind *!
        ; let (univ_tvs, ex_tvs, eq_preds, res_ty', arg_subst)
                = rejigConRes tmpl_tvs res_tmpl qtkvs res_ty
              -- NB: this is a /lazy/ binding, so we pass four thunks to buildDataCon
@@ -1489,7 +1487,6 @@ For example:
 
 Note [Checking GADT return types]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-TODO (RAE): Check note.
 There is a delicacy around checking the return types of a datacon. The
 central problem is dealing with a declaration like
 
@@ -1507,8 +1504,8 @@ defined yet.
 
 So, we want to make rejigConRes lazy and then check the validity of
 the return type in checkValidDataCon.  To do this we /always/ return a
-4-tuple from rejigConRes (so that we can extract ret_ty from it, which
-checkValidDataCon needs), but the first three fields may be bogus if
+5-tuple from rejigConRes (so that we can extract ret_ty from it, which
+checkValidDataCon needs), but the first four fields may be bogus if
 the return type isn't valid (the last equation for rejigConRes).
 
 This is better than an earlier solution which reduced the number of
@@ -1608,71 +1605,63 @@ becomes
 
 We start off by matching (T k1 k2 a b) with (T x1 * (Proxy x1 y, z) z). We
 know this match will succeed because of the validity check (actually done
-later, but laziness saves us -- see Note [Checking GADT return types]
-in TcTyClsDecls). Thus, we get
+later, but laziness saves us -- see Note [Checking GADT return types]).
+Thus, we get
 
   subst := { k1 |-> x1, k2 |-> *, a |-> (Proxy x1 y, z), b |-> z }
 
 Now, we need to figure out what the GADT equalities should be. In this case,
 we *don't* want (k1 ~ x1) to be a GADT equality: it should just be a
-renaming. The others should be GADT equalities, but they need to be
-homogeneous so that the solver can make sense of them. We also need to make
+renaming. The others should be GADT equalities. We also need to make
 sure that the universally-quantified variables of the datacon match up
 with the tyvars of the tycon, as required for Core context well-formedness.
 (This last bit is why we have to rejig at all!)
 
 `choose` walks down the tycon tyvars, figuring out what to do with each one.
-It carries three substitutions:
+It carries two substitutions:
   - t_sub's domain is *template* or *tycon* tyvars, mapping them to variables
     mentioned in the datacon signature.
   - r_sub's domain is *result* tyvars, names written by the programmer in
     the datacon signature. The final rejigged type will use these names, but
     the subst is still needed because sometimes the kind of these variables
     is different than what the user wrote.
-  - lc is a lifting context -- that is, a mapping from type variables to
-    coercions -- that maps from *tycon* tyvars to coercion variables witnessing
-    the relevant GADT equality.
 
 Before explaining the details of `choose`, let's just look at its operation
 on our example:
 
-  choose [] [] {} {} {} [k1, k2, a, b]
+  choose [] [] {} {} [k1, k2, a, b]
   -->          -- first branch of `case` statement
   choose
     univ_tvs: [x1 :: *]
-    covars:   []
+    eq_spec:  []
     t_sub:    {k1 |-> x1}
-    r_sub:    {x1 |-> x1 |> <*>}
-    lc:       {}
+    r_sub:    {x1 |-> x1}
     t_tvs:    [k2, a, b]
   -->          -- second branch of `case` statement
   choose
     univ_tvs: [k2 :: *, x1 :: *]
-    covars:   [c1 :: k2 ~# (* |> sym <*>)]
+    eq_spec:  [k2 ~ *]
     t_sub:    {k1 |-> x1, k2 |-> k2}
-    r_sub:    {x1 |-> x1 |> <*>}
-    lc:       {k2 |-> c1}
+    r_sub:    {x1 |-> x1}
     t_tvs:    [a, b]
   -->          -- second branch of `case` statement
   choose
     univ_tvs: [a :: k2, k2 :: *, x1 :: *]
-    covars:   [ c2 :: a ~# ((Proxy x1 y, z) |> sym c1)
-              , c1 :: k2 ~# (* |> sym <*>) ]
+    eq_spec:  [ a ~ (Proxy x1 y, z)
+              , k2 ~# * ]
     t_sub:    {k1 |-> x1, k2 |-> k2, a |-> a}
-    r_sub:    {x1 |-> x1 |> <*>}
-    lc:       {k2 |-> c1, a |-> c2}
+    r_sub:    {x1 |-> x1}
     t_tvs:    [b]
   -->          -- first branch of `case` statement
   choose
-    univ_tvs: [z :: k2, a :: k2, k2 :: *, x1 :: *]
-    covars:   [ c2 :: a ~# ((Proxy x1 y, z |> c1) |> sym c1)
-              , c1 :: k2 ~# (* |> sym <*>) ]
+    univ_tvs: [z :: k2, a :: k2, k2 :: *, x1 :: *] -- TODO (RAE): Finish updating note.
+    eq_spec:  [ a ~ (Proxy x1 y, z)
+              , k2 ~ * ]
     t_sub:    {k1 |-> x1, k2 |-> k2, a |-> a, b |-> z}
-    r_sub:    {x1 |-> x1 |> <*>, z |-> z |> c1}
-    lc:       {k2 |-> c1, a |-> c2}
+    r_sub:    {x1 |-> x1, z |-> z}
     t_tvs:    []
   -->          -- end of recursion
-  ([x1, k2, a, z], [c1, c2], {x1 |-> x1 |> <*>, z |-> z |> c1})
+  ([x1, k2, a, z], [k2 ~ *, a ~ (Proxy x1 y, z)], {x1 |-> x1, z |-> z |> c1})
 
 `choose` looks up each tycon tyvar in the matching (it *must* be matched!). If
 it finds a bare result tyvar (the first branch of the `case` statement), it
@@ -1681,9 +1670,9 @@ If it is in that list, then we have a repeated variable in the return type,
 and we in fact need a GADT equality. Assuming no repeated variables, we wish
 to use the variable name given in the datacon signature (that is, `x1` not
 `k1` and `z` not `b`), not the tycon signature (which may have been made up by
-GHC!). So, we add a mapping from the tycon tyvar to the result tyvar to t_sub.
+GHC). So, we add a mapping from the tycon tyvar to the result tyvar to t_sub.
 But, it's essential that the kind of the result tyvar (which is now becoming a
-proper universally- quantified variable) match the tycon tyvar. Thus, the
+proper universally-quantified variable) match the tycon tyvar. Thus, the
 setTyVarKind in the definition of r_tv'. This last step is necessary in
 fixing the kind of the universally-quantified `z`.
 
@@ -1715,8 +1704,6 @@ certainly degrade error messages a bit, though.
 
 -- ^ From information about a source datacon definition, extract out
 -- what the universal variables and the GADT equalities should be.
--- Called from TcTyClsDecls.rejigConRes, but it gets so involved with
--- lifting and coercions that it seemed to belong here.
 -- See Note [mkGADTVars].   TODO (RAE): Update note to remove LCs
 mkGADTVars :: [TyVar]    -- ^ The tycon vars
            -> [TyVar]    -- ^ The datacon vars

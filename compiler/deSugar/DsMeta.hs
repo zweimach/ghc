@@ -401,6 +401,7 @@ mk_extra_tvs tc tvs defn
   where
     -- TODO (RAE): Fix this. It doesn't handle as many cases as it should.
     -- TODO (RAE): Really, TH syntax should support kind signatures.
+    -- TODO (RAE): Actually, this should all get much better with D1465.
     go :: LHsKind Name -> DsM [LHsTyVarBndr Name]
     go (L loc (HsFunTy kind rest))
       = do { uniq <- newUnique
@@ -509,13 +510,6 @@ repDataFamInstD (DataFamInstDecl { dfid_tycon = tc_name
                              , hsq_explicit = [] }   -- Yuk
        ; addTyClTyVarBinds hs_tvs $ \ bndrs ->
          do { tys1 <- repList typeQTyConName repLTy tys
-                -- TODO (RAE): The GADT case below here is terribly, horribly
-                -- broken, but it was before I got here. Fix. Example quote
-                -- to witness brokenness:
-                --
-                -- > data family Fuggle x y
-                -- > [d| data instance Fuggle Int (Maybe (a,b)) where
-                -- >       MkFuggle :: Fuggle Int (Maybe Bool) |]
             ; repDataDefn tc bndrs (Just tys1) var_names defn } }
 
 repForD :: Located (ForeignDecl Name) -> DsM (SrcSpan, Core TH.DecQ)
@@ -1013,7 +1007,6 @@ repNonArrowLKind (L _ ki) = repNonArrowKind ki
 
 repNonArrowKind :: HsKind Name -> DsM (Core TH.Kind)
 repNonArrowKind (HsTyVar name)
-    -- TODO (RAE): Change TH to use 'TYPE v' syntax.
   | isLiftedTypeKindTyConName name       = repKStar
   | name `hasKey` constraintKindTyConKey = repKConstraint
   | isTvOcc (nameOccName name)      = lookupOcc name >>= repKVar

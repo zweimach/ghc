@@ -629,9 +629,7 @@ tcInstTyVarX :: TCvSubst -> TyVar -> TcM (TCvSubst, TcTyVar)
 -- an existing TyVar. We substitute kind variables in the kind.
 tcInstTyVarX subst tyvar
   = do  { uniq <- newUnique
-               -- See Note [    -- TODO (RAE): Finish this line of comment!
-               -- TODO (RAE): See Note [OpenTypeKind accepts foralls] in TcType,
-               -- but then delete that note
+               -- See Note [Levity polymorphic variables accept foralls]
         ; let info = if isLevityPolymorphic (tyVarKind tyvar)
                      then ReturnTv
                      else TauTv
@@ -647,6 +645,23 @@ tcInstTyVarX subst tyvar
 At the moment we give a unification variable a System Name, which
 influences the way it is tidied; see TypeRep.tidyTyVarBndr.
 
+Note [Levity polymorphic variables accept foralls]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Here is a common paradigm:
+   foo :: (forall a. a -> a) -> Int
+   foo = error "urk"
+To make this work we need to instantiate 'error' with a polytype.
+A similar case is
+   bar :: Bool -> (forall a. a->a) -> Int
+   bar True = \x. (x 3)
+   bar False = error "urk"
+Here we need to instantiate 'error' with a polytype.
+
+But 'error' has a levity polymorphic type variable, precisely so that
+we can instantiate it with Int#.  So we also allow such type variables
+to be instantiated with foralls.  It's a bit of a hack, but seems
+straightforward.
+
 ************************************************************************
 *                                                                      *
              Quantification
@@ -655,22 +670,25 @@ influences the way it is tidied; see TypeRep.tidyTyVarBndr.
 
 Note [quantifyTyVars]
 ~~~~~~~~~~~~~~~~~~~~~
-TODO (RAE): Update Note.
-quantifyTyVars is give the free vars of a type that we
+quantifyTyVars is given the free vars of a type that we
 are about to wrap in a forall.
 
-It takes these free type/kind variables and
-  1. Zonks them and remove globals
-  2. Partitions into type and kind variables (kvs1, tvs) (removing covars)
-  3. Extends kvs1 with free kind vars in the kinds of tvs (removing globals)
-  4. Calls zonkQuantifiedTyVar on each
+It takes these free type/kind variables (partitioned into dependent and
+non-dependent variables) and
+  1. Zonks them and remove globals and covars
+  2. Extends kvs1 with free kind vars in the kinds of tvs (removing globals)
+  3. Calls zonkQuantifiedTyVar on each
 
-Step (3) is often unimportant, because the kind variable is often
+Step (2) is often unimportant, because the kind variable is often
 also free in the type.  Eg
      Typeable k (a::k)
 has free vars {k,a}.  But the type (see Trac #7916)
     (f::k->*) (a::k)
 has free vars {f,a}, but we must add 'k' as well! Hence step (3).
+
+This function bothers to distinguish between dependent and non-dependent
+variables only to keep correct defaulting behavior with -XNoPolyKinds.
+With -XPolyKinds, it treats both classes of variables identically.
 
 Note that this function can accept covars, but will never return them.
 This is because we never want to infer a quantified covar!
