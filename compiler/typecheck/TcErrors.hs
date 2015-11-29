@@ -1364,8 +1364,8 @@ mkExpectedActualMsg ty1 ty2 (TypeEqOrigin { uo_actual = act, uo_expected = exp
                    Just num_act_args -> num_act_args >= -n
                      -- don't report to strip off args that aren't there
                -> Just $ text "Expecting" <+> speakN (abs n) <+>
-                         more_or_fewer <+> plural_n (abs n) (text "argument to")
-                         <+> quotes (ppr thing)
+                         more_or_fewer <+> plural_n (abs n) (text "argument")
+                                       <+> text "to" <+> quotes (ppr thing)
                where
                  more_or_fewer | n < 0     = text "fewer"
                                | otherwise = text "more"

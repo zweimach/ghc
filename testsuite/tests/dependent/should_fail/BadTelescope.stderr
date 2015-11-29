@@ -1,5 +1,6 @@
 
-BadTelescope.hs:9:8: error:
-    The kind of variable ‘a’, namely ‘k’,
-    mentions out-of-scope variable ‘k’, bound at BadTelescope.hs:9:10
+BadTelescope.hs:9:1: error:
+    These kind and type variables: a k (b :: k) (c :: SameKind a b)
+    are out of dependency order. Perhaps try this ordering:
+      k (a :: k) (b :: k) (c :: SameKind a b)
     In the data declaration for ‘X’

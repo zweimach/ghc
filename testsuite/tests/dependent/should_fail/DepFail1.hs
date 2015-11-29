@@ -1,4 +1,4 @@
-{-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE TypeInType #-}
 
 module DepFail1 where
 
