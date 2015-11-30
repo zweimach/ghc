@@ -685,9 +685,6 @@ deriveTyData tvs tc tc_args (L loc deriv_pred)
               -- to the types.  See Note [Unify kinds in deriving]
               -- We are assuming the tycon tyvars and the class tyvars are distinct
               mb_match        = tcUnifyTy inst_ty_kind cls_arg_kind
-                    -- TODO (RAE): This is bogus. We should use the impure unifier
-                    -- here to account for the possibility of kind families.
-
               Just kind_subst = mb_match
 
               all_tkvs        = varSetElemsWellScoped $

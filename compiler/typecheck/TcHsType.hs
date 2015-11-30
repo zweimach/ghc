@@ -680,45 +680,62 @@ bigConstraintTuple arity
 -- This takes an optional @VarEnv Kind@ which maps kind variables to kinds.
 -- These kinds should be used to instantiate invisible kind variables;
 -- they come from an enclosing class for an associated type/data family.
+-- This version will instantiate all invisible arguments left over after
+-- the visible ones.
 tcInferArgs :: Outputable fun
-            => Bool                     -- ^ True => inst. all invis. args
-            -> fun                      -- ^ the function
+            => fun                      -- ^ the function
             -> TcKind                   -- ^ function kind (zonked)
             -> Maybe (VarEnv Kind)      -- ^ possibly, kind info (see above)
             -> [LHsType Name]           -- ^ args
-            -> Int                      -- ^ number to start arg counter at
             -> TcM (TcKind, [TcType], [LHsType Name], Int)
                -- ^ (result kind, typechecked args, untypechecked args, n)
-tcInferArgs keep_insting = tc_infer_args keep_insting typeLevelMode
+tcInferArgs fun fun_kind mb_kind_info args
+  = do { (res_kind, args', leftovers, n)
+           <- tc_infer_args typeLevelMode fun fun_kind mb_kind_info args 1
+        -- now, we need to instantiate any remaining invisible arguments
+       ; let (invis_bndrs, really_res_kind) = splitForAllTysInvisible res_kind
+       ; (subst, invis_args)
+           <- tcInstBindersX emptyTCvSubst mb_kind_info invis_bndrs
+       ; return ( substTy subst really_res_kind, args' `chkAppend` invis_args
+                , leftovers, n ) }
 
--- | See comments for 'tcInferArgs'
+-- | See comments for 'tcInferArgs'. But this version does not instantiate
+-- any remaining invisible arguments.
 tc_infer_args :: Outputable fun
-              => Bool                     -- ^ True => inst. all invis. args
-              -> TcTyMode
+              => TcTyMode
               -> fun                      -- ^ the function
               -> TcKind                   -- ^ function kind (zonked)
               -> Maybe (VarEnv Kind)      -- ^ possibly, kind info (see above)
               -> [LHsType Name]           -- ^ args
               -> Int                      -- ^ number to start arg counter at
               -> TcM (TcKind, [TcType], [LHsType Name], Int)
-tc_infer_args keep_insting mode orig_ty ki mb_kind_info args n0
-    -- TODO (RAE): move keep_insting behavior to a separate
-    -- function, called from tc_fam_ty_pats.
-    -- This could just be checkExpectedKind
+tc_infer_args mode orig_ty ki mb_kind_info args n0
   = do { traceTc "tcInferApps" (ppr ki $$ ppr args)
        ; go emptyTCvSubst ki args n0 [] }
   where
     go subst fun_kind []   n acc
-      | not keep_insting
       = return ( substTy subst fun_kind, reverse acc, [], n )
     -- when we call this when checking type family patterns, we really
     -- do want to instantiate all invisible arguments. During other
     -- typechecking, we don't.
 
-    go subst fun_kind (arg:args) n acc
+    go subst fun_kind all_args n acc
+      | Just fun_kind' <- tcView fun_kind
+      = go subst fun_kind' all_args n acc
+
+      | Just tv <- getTyVar_maybe fun_kind
+      , Just fun_kind' <- lookupTyVar subst tv
+      = go subst fun_kind' all_args n acc
+
+      | (inv_bndrs, res_k) <- splitForAllTysInvisible fun_kind
+      , not (null inv_bndrs)
+      = do { (subst', args') <- tcInstBindersX subst mb_kind_info inv_bndrs
+           ; go subst' res_k all_args n (reverse args' ++ acc) }
+
       | Just (bndr, res_k) <- splitForAllTy_maybe fun_kind
-      , isVisibleBinder bndr
-      = do { let mode' | isNamedBinder bndr = kindLevel mode
+      , arg:args <- all_args  -- this actually has to succeed
+      = ASSERT( isVisibleBinder bndr )
+        do { let mode' | isNamedBinder bndr = kindLevel mode
                        | otherwise          = mode
            ; arg' <- addErrCtxt (funAppCtxt orig_ty arg n) $
                      tc_lhs_type mode' arg (substTy subst $ binderType bndr)
@@ -726,21 +743,6 @@ tc_infer_args keep_insting mode orig_ty ki mb_kind_info args n0
                    Just tv -> extendTCvSubst subst tv arg'
                    Nothing -> subst
            ; go subst' res_k args (n+1) (arg' : acc) }
-
-    -- TODO (RAE): move tcView case to the top
-    go subst fun_kind args n acc
-      | Just fun_kind' <- tcView fun_kind
-      = go subst fun_kind' args n acc
-
-       -- TODO (RAE): Move up.
-      | Just tv <- getTyVar_maybe fun_kind
-      , Just fun_kind' <- lookupTyVar subst tv
-      = go subst fun_kind' args n acc
-
-      | (inv_bndrs, res_k) <- splitForAllTysInvisible fun_kind
-      , not (null inv_bndrs)
-      = do { (subst', args') <- tcInstBindersX subst mb_kind_info inv_bndrs
-           ; go subst' res_k args n (reverse args' ++ acc) }
 
       | otherwise
       = return (substTy subst fun_kind, reverse acc, args, n)
@@ -763,7 +765,7 @@ tcInferApps mode orig_ty ty ki args = go ty ki args 1
 
       | isForAllTy fun_kind
       = do { (res_kind, args', leftover_args, n')
-                <- tc_infer_args False mode orig_ty fun_kind Nothing args n
+                <- tc_infer_args mode orig_ty fun_kind Nothing args n
            ; go (mkNakedAppTys fun args') res_kind leftover_args n' }
 
     go fun fun_kind all_args@(arg:args) n
@@ -804,8 +806,7 @@ tcInstBinderX mb_kind_info subst binder
                     ; return (subst', mkTyVarTy tv') }
 
      -- This is the *only* constraint currently handled in types.
-  | let ty = substTy subst (binderType binder)
-  , Just (mk, role, k1, k2) <- get_pred_tys_maybe ty
+  | Just (mk, role, k1, k2) <- get_pred_tys_maybe substed_ty
   = do { let origin = TypeEqOrigin { uo_actual   = k1
                                    , uo_expected = k2
                                    , uo_thing    = Nothing }
@@ -816,11 +817,18 @@ tcInstBinderX mb_kind_info subst binder
        ; arg' <- mk co k1 k2
        ; return (subst, arg') }
 
-  | otherwise -- TODO (RAE): I don't think this should be a panic.
-              -- Try inst'ing a type with a silly kind.
-  = pprPanic "visible binder in tcInstBinderX" (ppr binder)
+  | otherwise
+  = do { let (env, tidy_ty) = tidyOpenType emptyTidyEnv substed_ty
+       ; addErrTcM (env, text "Illegal constraint in a type:" <+> ppr tidy_ty)
+
+         -- just invent a new variable so that we can continue
+       ; u <- newUnique
+       ; let name = mkSysTvName u (fsLit "dict")
+       ; return (subst, mkTyVarTy $ mkTyVar name substed_ty) }
 
   where
+    substed_ty = substTy subst (binderType binder)
+
     lookup_tv tv = do { env <- mb_kind_info   -- `Maybe` monad
                       ; lookupVarEnv env tv }
 

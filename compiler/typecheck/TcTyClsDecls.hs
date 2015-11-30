@@ -1115,7 +1115,7 @@ tc_fam_ty_pats (name, _, kind) mb_clsinfo
          -- See Note [Quantifying over family patterns]
        ; (_, (res_kind, typats)) <- tcHsTyVarBndrs Implicit hs_tvs $
          do { (res_kind, args, leftovers, n)
-                <- tcInferArgs True name kind (snd <$> mb_clsinfo) arg_pats 1
+                <- tcInferArgs name kind (snd <$> mb_clsinfo) arg_pats
             ; case leftovers of
                 hs_ty:_ -> addErrTc $ too_many_args hs_ty n
                 _       -> return ()
