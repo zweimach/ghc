@@ -611,9 +611,6 @@ newOpenReturnTyVar
        ; tv <- newReturnTyVar k
        ; return (tv, k) }
 
--- TODO (RAE): This, and all call sites, will need to be updated when
--- there's more visibility stuff. Should probably take a list of binders
--- and args. Or something.
 tcInstTyVars :: [TyVar] -> TcM (TCvSubst, [TcTyVar])
 -- Instantiate with META type variables
 -- Note that this works for a sequence of kind, type, and coercion variables

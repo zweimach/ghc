@@ -200,7 +200,8 @@ data Type
   | CoercionTy
         Coercion    -- ^ Injection of a Coercion into a type
                     -- This should only ever be used in the RHS of an AppTy,
-                    -- in the list of a TyConApp, or in a FunTy -- TODO (RAE): example
+                    -- in the list of a TyConApp, when applying a promoted
+                    -- GADT data constructor
 
   deriving (Data.Data, Data.Typeable)
 
@@ -281,21 +282,6 @@ use the kind of (PromotedDataCon Right) to know if its arguments are
 kinds or types.
 
 This kind instantiation only happens in TyConApp currently.
-
-Note [Type abstraction over coercions]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Types can be abstracted over coercions, and thus in many places where we used
-to consider only tyvars, we must now also consider the possibility of covars.
-But where, really, can these covars appear? In precisely these locations:
-  - the kind of a promoted GADT data constructor
-  - the existential variables of a data constructor (TODO (RAE): Really?? ~ vs ~#)
-  - the type of the constructor Eq# (in type (~))
-  - the quantified vars for an axiom branch
-  - the type of an id
-
-That's it. In particular, coercion variables MAY NOT appear in the quantified
-tyvars of a TyCon (other than a promoted data constructor), of a class, of a
-type synonym (regular or family).
 
 Note [Pushing down casts]
 ~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -1389,12 +1389,12 @@ zonkEvBind env bind@(EvBind { eb_lhs = var, eb_rhs = term })
          -- TODO (RAE): Restore this optimization. It fails because it inspects
          -- a zonked type, which is a bad idea inside a knot. See also Note
          -- [Small optimization in zonking]
-{-
+
        ; term <- case getEqPredTys_maybe (idType var') of
            Just (r, ty1, ty2) | ty1 `eqType` ty2
                   -> return (EvCoercion (mkTcReflCo r ty1))
-           _other -> do  -}
-       ; term' <- zonkEvTerm env term
+           _other -> zonkEvTerm env term
+
        ; return (bind { eb_lhs = var', eb_rhs = term' }) }
 
 {-
@@ -1495,7 +1495,7 @@ zonkTyVarOcc env@(ZonkEnv zonk_unbound_tyvar _ tv_env _) tv
                                           -- TODO (RAE): Perhaps re-enable this optimization,
                                           -- but see Note [Small optimization in zonking]
                                           -- first.
-                                        ; -- writeMutVar ref (Indirect zty)
+                                        ; writeMutVar ref (Indirect zty)
                                         ; return zty } }
   | otherwise
   = lookup_in_env

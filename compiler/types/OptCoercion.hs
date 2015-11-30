@@ -50,7 +50,6 @@ opt_co2.
 
 Note [Optimising InstCo]
 ~~~~~~~~~~~~~~~~~~~~~~~~
-TODO (RAE): Update note.
 When we have (InstCo (ForAllCo tv h g) g2), we want to optimise.
 
 Let's look at the typing rules.
@@ -287,8 +286,6 @@ opt_co4 env sym rep r (CoherenceCo co1 co2)
   | TransCo col1 cor1 <- co1
   = opt_co4_wrap env sym rep r (mkTransCo (mkCoherenceCo col1 co2) cor1)
 
--- TODO (RAE): This looks inefficient. We're computing co1', but not always
--- using it.
   | TransCo col1' cor1' <- co1'
   = if sym then opt_trans in_scope col1'
                   (optCoercion (zapTCvSubst (lcTCvSubst env))

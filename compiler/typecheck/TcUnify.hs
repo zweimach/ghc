@@ -480,7 +480,6 @@ tc_sub_type_ds origin ctxt ty_actual ty_expected
            -- arg_wrap :: exp_arg ~ act_arg
            -- res_wrap :: act-res ~ exp_res
 
-     -- TODO (RAE): Does this work with contravariance in forall types?
   | (tvs, theta, in_rho) <- tcSplitSigmaTy ty_actual
   , not (null tvs && null theta)
   = do { (subst, tvs') <- tcInstTyVars tvs

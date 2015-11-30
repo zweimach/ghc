@@ -910,7 +910,6 @@ mkInstCo co arg = let result = InstCo co arg
                   then Refl (coercionRole co) ty1
                   else result
 
--- See Note [Don't optimize mkCoherenceCo]
 -- TODO (RAE): This seems inefficient, if repeated.
 mkCoherenceCo :: Coercion -> Coercion -> Coercion
 mkCoherenceCo co1 (Refl {}) = co1

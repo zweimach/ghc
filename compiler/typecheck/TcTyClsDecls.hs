@@ -1972,7 +1972,7 @@ checkValidDataCon dflags existential_ok tc con
               [ ppr con, ppr tc, ppr tc_tvs
               , ppr res_ty_tmpl <+> dcolon <+> ppr (typeKind res_ty_tmpl)
               , ppr orig_res_ty <+> dcolon <+> ppr (typeKind orig_res_ty)])
--- TODO (RAE): This is still broken. HELP!
+
         ; checkTc (isJust (tcMatchTy (mkVarSet tc_tvs)
                                      res_ty_tmpl
                                      orig_res_ty))
@@ -2283,9 +2283,9 @@ checkValidRoles tc
       =  check_ty_roles env role ty1
       >> check_ty_roles env role ty2
 
-      -- TODO (RAE): Is this right??
     check_ty_roles env role (ForAllTy (Named tv _) ty)
-      = check_ty_roles (extendVarEnv env tv Nominal) role ty
+      =  check_ty_roles env Nominal (tyVarKind tv)
+      >> check_ty_roles (extendVarEnv env tv Nominal) role ty
 
     check_ty_roles _   _    (LitTy {}) = return ()
 

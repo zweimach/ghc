@@ -59,6 +59,9 @@ fix:
 
   - Refactor noThing
 
+  - Change OccurrenceOf to take a list of instantiating types. Perhaps
+    easier after visible types.
+
   - pattern synonyms
 
   - break out NthCo into ForAllKindCo

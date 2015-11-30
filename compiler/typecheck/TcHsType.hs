@@ -708,7 +708,6 @@ tc_infer_args keep_insting mode orig_ty ki mb_kind_info args n0
   = do { traceTc "tcInferApps" (ppr ki $$ ppr args)
        ; go emptyTCvSubst ki args n0 [] }
   where
-    -- TODO (RAE): Update when updating tcInstTyVars
     go subst fun_kind []   n acc
       | not keep_insting
       = return ( substTy subst fun_kind, reverse acc, [], n )
