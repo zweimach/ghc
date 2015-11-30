@@ -495,9 +495,9 @@ simplifyInfer rhs_tclvl apply_mr sig_qtvs name_taus wanteds
                       ; mapM_ def_tyvar meta_tvs
                       ; mapM_ (promoteTyVar rhs_tclvl) meta_tvs
 
-                      ; (WC { wc_simple = simples }, _ev_binds)
+                      ; WC { wc_simple = simples }
                            <- setTcLevel rhs_tclvl $
-                              runTcS               $
+                              runTcSDeriveds       $
                               solveSimpleWanteds $ mapBag toDerivedCt quant_cand
                                 -- NB: we don't want evidence, so used
                                 -- Derived constraints
