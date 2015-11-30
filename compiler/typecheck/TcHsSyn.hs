@@ -214,11 +214,16 @@ emptyZonkEnv = mkEmptyZonkEnv zonkTypeZapping
 mkEmptyZonkEnv :: UnboundTyVarZonker -> ZonkEnv
 mkEmptyZonkEnv zonker = ZonkEnv zonker emptyVarEnv emptyVarEnv emptyVarEnv
 
--- | Extend the knot-tied environment. No coercion variables here.
+-- | Extend the knot-tied environment.
 extendIdZonkEnvRec :: ZonkEnv -> [Var] -> ZonkEnv
 extendIdZonkEnvRec (ZonkEnv zonk_ty ty_env id_env kt_env) ids
-  = ASSERT( not (any isCoVar ids) )
-    ZonkEnv zonk_ty ty_env id_env (extendVarEnvList kt_env [(id,id) | id <- ids])
+  = ZonkEnv zonk_ty ty_env id_env (extendVarEnvList kt_env [(id,id) | id <- ids])
+  -- Given coercion variables will actually end up here. That's OK though:
+  -- coercion variables are never looked up in the knot-tied env't, so zonking
+  -- them simply doesn't get optimised. No one gets hurt. An improvement (?)
+  -- would be to do SCC analysis in zonkEvBinds and then only knot-tie the
+  -- recursive groups. But perhaps the time it takes to do the analysis is
+  -- more than the savings.
 
 extendIdZonkEnv :: ZonkEnv -> [Var] -> ZonkEnv
 extendIdZonkEnv (ZonkEnv zonk_ty ty_env id_env kt_env) ids
@@ -1401,9 +1406,6 @@ zonkEvBind env bind@(EvBind { eb_lhs = var, eb_rhs = term })
          -- Optimise the common case of Refl coercions
          -- See Note [Optimise coercion zonking]
          -- This has a very big effect on some programs (eg Trac #5030)
-         -- TODO (RAE): Restore this optimization. It fails because it inspects
-         -- a zonked type, which is a bad idea inside a knot. See also Note
-         -- [Small optimization in zonking]
 
        ; term' <- case getEqPredTys_maybe (idType var') of
            Just (r, ty1, ty2) | ty1 `eqType` ty2
@@ -1478,17 +1480,6 @@ use Refl on the right, ignoring the actual coercion on the RHS.
 This can have a very big effect, because the constraint solver sometimes does go
 to a lot of effort to prove Refl!  (Eg when solving  10+3 = 10+3; cf Trac #5030)
 
-Note [Small optimization in zonking]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-This optimization is bogus when there are Ids within types. This is because
-zonking is sometimes run from within knots (search for fixM in this file)
-and ids in the ZonkEnv are knot-tied. So, writing to meta-tyvars succeeds, but
-the next time the tyvar is encountered, the zonked type is read back, and zonking
-hangs.
-
-A way to proceed is to add a Bool to the Indirect constructor saying whether or
-not the contained type is zonked. Then, after the type is zonked, don't zonk again,
-and you're safe.
 -}
 
 zonkTyVarOcc :: ZonkEnv -> TyVar -> TcM TcType
@@ -1507,9 +1498,6 @@ zonkTyVarOcc env@(ZonkEnv zonk_unbound_tyvar tv_env _ _) tv
                       Indirect ty -> do { zty <- zonkTcTypeToType env ty
                                         -- Small optimisation: shortern-out indirect steps
                                         -- so that the old type may be more easily collected.
-                                          -- TODO (RAE): Perhaps re-enable this optimization,
-                                          -- but see Note [Small optimization in zonking]
-                                          -- first.
                                         ; writeMutVar ref (Indirect zty)
                                         ; return zty } }
   | otherwise

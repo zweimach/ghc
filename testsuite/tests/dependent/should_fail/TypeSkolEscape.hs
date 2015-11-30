@@ -1,4 +1,4 @@
-{-# LANGUAGE RankNTypes, PolyKinds #-}
+{-# LANGUAGE RankNTypes, PolyKinds, TypeInType #-}
 
 module TypeSkolEscape where
 

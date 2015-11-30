@@ -205,7 +205,7 @@ tcHsDeriv hs_ty
        ; ty <- tcCheckHsTypeAndGen hs_ty $
                mkFunTy arg_kind constraintKind
           -- ty is already zonked
-       ; arg_kind <- zonkTcTypeToType emptyZonkEnv arg_kind
+       ; arg_kind <- zonkTcType arg_kind
        ; let (tvs, pred) = splitNamedForAllTys ty
        ; case getClassPredTys_maybe pred of
            Just (cls, tys) -> return (tvs, cls, tys, arg_kind)
@@ -318,7 +318,7 @@ check_and_gen should_gen hs_ty kind
        ; kvs <- if should_gen
                 then kindGeneralize (tyCoVarsOfType ty)
                 else return []
-       ; zonkTcTypeToType emptyZonkEnv (mkInvForAllTys kvs ty) }
+       ; zonkTcType (mkInvForAllTys kvs ty) }
 
 {-
 ************************************************************************
@@ -1705,7 +1705,8 @@ tcHsPatSigType ctxt (HsWB { hswb_cts = hs_ty, hswb_vars = sig_vars
         ; sig_ty <- solveEqualities $
                     tcExtendTyVarEnv2 ktv_binds $
                     tcHsLiftedType hs_ty
-        ; sig_ty <- zonkTcTypeToType emptyZonkEnv sig_ty
+        ; sig_ty <- zonkTcType sig_ty
+              -- don't use zonkTcTypeToType; it mistreats wildcards
         ; checkValidType ctxt sig_ty
         ; return (sig_ty, ktv_binds, nwc_binds) }
   where
