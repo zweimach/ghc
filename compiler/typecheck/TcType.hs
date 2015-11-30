@@ -914,16 +914,16 @@ mkPhiTy :: [PredType] -> Type -> Type
 mkPhiTy = mkFunTys
 
 mkNakedSigmaTy :: [Binder] -> [PredType] -> Type -> Type
--- See Note [Zonking inside the knot] in TcHsType
+-- See Note [Type-checking inside the knot] in TcHsType
 mkNakedSigmaTy bndrs theta tau = mkForAllTys bndrs (mkNakedPhiTy theta tau)
 
 mkNakedInvSigmaTy :: [TyVar] -> [PredType] -> Type -> Type
--- See Note [Zonking inside the knot] in TcHsType
+-- See Note [Type-checking inside the knot] in TcHsType
 mkNakedInvSigmaTy tyvars
   = mkNakedSigmaTy (zipWith mkNamedBinder tyvars (repeat Invisible))
 
 mkNakedPhiTy :: [PredType] -> Type -> Type
--- See Note [Zonking inside the knot] in TcHsType
+-- See Note [Type-checking inside the knot] in TcHsType
 mkNakedPhiTy = flip $ foldr mkNakedFunTy
 
 -- @isTauTy@ tests if a type is "simple"..
@@ -967,21 +967,21 @@ mkNakedTyConApp :: TyCon -> [Type] -> Type
 --   * without being strict in TyCon,
 --   * without satisfying the invariants of TyConApp
 -- A subsequent zonking will establish the invariants
--- See Note [Zonking inside the knot] in TcHsType
+-- See Note [Type-checking inside the knot] in TcHsType
 mkNakedTyConApp tc tys = TyConApp tc tys
 
 mkNakedAppTys :: Type -> [Type] -> Type
--- See Note [Zonking inside the knot] in TcHsType
+-- See Note [Type-checking inside the knot] in TcHsType
 mkNakedAppTys ty1                []   = ty1
 mkNakedAppTys (TyConApp tc tys1) tys2 = mkNakedTyConApp tc (tys1 ++ tys2)
 mkNakedAppTys ty1                tys2 = foldl AppTy ty1 tys2
 
 mkNakedAppTy :: Type -> Type -> Type
--- See Note [Zonking inside the knot] in TcHsType
+-- See Note [Type-checking inside the knot] in TcHsType
 mkNakedAppTy ty1 ty2 = mkNakedAppTys ty1 [ty2]
 
 mkNakedFunTy :: Type -> Type -> Type
--- See Note [Zonking inside the knot] in TcHsType
+-- See Note [Type-checking inside the knot] in TcHsType
 mkNakedFunTy arg res = ForAllTy (Anon arg) res
 
 mkNakedCastTy :: Type -> Coercion -> Type
@@ -1616,7 +1616,7 @@ pickQuantifiablePreds qtvs theta
              | isIPClass cls    -> True -- See note [Inheriting implicit parameters]
              | otherwise        -> pick_cls_pred flex_ctxt cls tys
 
-          EqPred ReprEq ty1 ty2 -> pick_cls_pred flex_ctxt hcoercibleClass [ty1, ty2]
+          EqPred ReprEq ty1 ty2 -> pick_cls_pred flex_ctxt coercibleClass [ty1, ty2]
             -- representational equality is like a class constraint
 
           EqPred NomEq ty1 ty2  -> quant_fun ty1 || quant_fun ty2

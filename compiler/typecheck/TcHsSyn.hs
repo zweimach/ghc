@@ -1538,7 +1538,7 @@ zonkCoHole env h r t1 t2
 zonk_tycomapper :: TyCoMapper ZonkEnv TcM
 zonk_tycomapper = TyCoMapper
   { tcm_smart = True   -- Establish type invariants
-                       -- See Note [Zonking inside the knot] in TcHsType
+                       -- See Note [Type-checking inside the knot] in TcHsType
   , tcm_tyvar = zonkTyVarOcc
   , tcm_covar = zonkCoVarOcc
   , tcm_hole  = zonkCoHole

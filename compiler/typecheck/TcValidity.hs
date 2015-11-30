@@ -964,8 +964,7 @@ checkValidInstHead ctxt clas cls_args
                 text "Manual instances of this class are not permitted."
 
 abstractClassKeys :: [Unique]
-abstractClassKeys = [ hcoercibleTyConKey
-                    , heqTyConKey
+abstractClassKeys = [ heqTyConKey
                     , eqTyConKey
                     , coercibleTyConKey
                     ] -- See Note [Equality class instances]
@@ -1643,7 +1642,6 @@ isTerminatingClass cls
   = isIPClass cls
     || cls `hasKey` typeableClassKey
     || cls `hasKey` coercibleTyConKey
-    || cls `hasKey` hcoercibleTyConKey
     || cls `hasKey` eqTyConKey
     || cls `hasKey` heqTyConKey
 

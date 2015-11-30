@@ -1062,7 +1062,6 @@ zonkId id
 -- before all metavars are filled in.
 zonkTcTypeMapper :: TyCoMapper () TcM
 zonkTcTypeMapper = TyCoMapper
--- TODO (RAE): Remove zonkSigType.
   { tcm_smart = True
   , tcm_tyvar = const zonkTcTyVar
   , tcm_covar = const (\cv -> mkCoVarCo <$> zonkTyCoVarKind cv)

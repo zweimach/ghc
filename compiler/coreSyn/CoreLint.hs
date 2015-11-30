@@ -1146,7 +1146,7 @@ lint_app doc kfn kas
 
     go_app (ForAllTy (Anon kfa) kfb) (_,ka)
       = do { unless (ka `eqType` kfa
-                    || (isStarKind kfa && isUnliftedTypeKind ka) -- TODO (RAE): Remove this horrible hack
+                    -- || (isStarKind kfa && isUnliftedTypeKind ka) -- TODO (RAE): Remove this horrible hack
                     ) (addErrL fail_msg)
            ; return kfb }
 

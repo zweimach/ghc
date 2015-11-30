@@ -1650,8 +1650,8 @@ errorMessageTypeErrorFamKey =  mkPreludeTyConUnique 173
 
 ntTyConKey:: Unique
 ntTyConKey = mkPreludeTyConUnique 174
-hcoercibleTyConKey :: Unique
-hcoercibleTyConKey = mkPreludeTyConUnique 175
+coercibleTyConKey :: Unique
+coercibleTyConKey = mkPreludeTyConUnique 175
 
 proxyPrimTyConKey :: Unique
 proxyPrimTyConKey = mkPreludeTyConUnique 176
@@ -1708,7 +1708,7 @@ charDataConKey, consDataConKey, doubleDataConKey, falseDataConKey,
     floatDataConKey, intDataConKey, integerSDataConKey, nilDataConKey,
     ratioDataConKey, stableNameDataConKey, trueDataConKey, wordDataConKey,
     word8DataConKey, ioDataConKey, integerDataConKey, heqDataConKey,
-    hcoercibleDataConKey, nothingDataConKey, justDataConKey :: Unique
+    coercibleDataConKey, nothingDataConKey, justDataConKey :: Unique
 charDataConKey                          = mkPreludeDataConUnique  1
 consDataConKey                          = mkPreludeDataConUnique  2
 doubleDataConKey                        = mkPreludeDataConUnique  3
@@ -1748,7 +1748,7 @@ ltDataConKey                            = mkPreludeDataConUnique 27
 eqDataConKey                            = mkPreludeDataConUnique 28
 gtDataConKey                            = mkPreludeDataConUnique 29
 
-hcoercibleDataConKey                    = mkPreludeDataConUnique 32
+coercibleDataConKey                     = mkPreludeDataConUnique 32
 
 staticPtrDataConKey :: Unique
 staticPtrDataConKey                     = mkPreludeDataConUnique 33
@@ -2075,9 +2075,9 @@ toDynIdKey            = mkPreludeMiscIdUnique 509
 bitIntegerIdKey :: Unique
 bitIntegerIdKey       = mkPreludeMiscIdUnique 510
 
-heqSCSelIdKey, hcoercibleSCSelIdKey :: Unique
-heqSCSelIdKey        = mkPreludeMiscIdUnique 511
-hcoercibleSCSelIdKey = mkPreludeMiscIdUnique 512
+heqSCSelIdKey, coercibleSCSelIdKey :: Unique
+heqSCSelIdKey       = mkPreludeMiscIdUnique 511
+coercibleSCSelIdKey = mkPreludeMiscIdUnique 512
 
 {-
 ************************************************************************

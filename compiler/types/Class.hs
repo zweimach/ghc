@@ -32,7 +32,7 @@ import Unique
 import Util
 import SrcLoc
 import PrelNames    ( eqTyConKey, coercibleTyConKey, typeableClassKey,
-                      heqTyConKey, hcoercibleTyConKey )
+                      heqTyConKey )
 import Outputable
 import FastString
 import BooleanFormula (BooleanFormula)
@@ -261,7 +261,6 @@ classExtraBigSig (Class {classTyVars = tyvars, classFunDeps = fundeps,
 naturallyCoherentClass :: Class -> Bool
 naturallyCoherentClass cls
   = cls `hasKey` heqTyConKey ||
-    cls `hasKey` hcoercibleTyConKey ||
     cls `hasKey` eqTyConKey ||
     cls `hasKey` coercibleTyConKey ||
     cls `hasKey` typeableClassKey

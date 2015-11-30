@@ -21,7 +21,7 @@ import Var
 import TcType
 import Name
 import PrelNames ( knownNatClassName, knownSymbolClassName,
-                   callStackTyConKey, typeableClassName, hcoercibleTyConKey,
+                   callStackTyConKey, typeableClassName, coercibleTyConKey,
                    heqTyConKey )
 import TysWiredIn ( ipClass, typeNatKind, typeSymbolKind )
 import Id( idType )
@@ -1804,12 +1804,12 @@ matchClassInst dflags _ clas tys loc
 
 match_class_inst :: DynFlags -> Class -> [Type] -> CtLoc -> TcS LookupInstResult
 match_class_inst dflags clas tys loc
-  | cls_name == knownNatClassName     = matchKnownNat       clas tys
-  | cls_name == knownSymbolClassName  = matchKnownSymbol    clas tys
-  | isCTupleClass clas                = matchCTuple         clas tys
-  | cls_name == typeableClassName     = matchTypeable       clas tys
-  |  clas `hasKey` heqTyConKey
-  || clas `hasKey` hcoercibleTyConKey = matchLiftedEquality clas tys
+  | cls_name == knownNatClassName     = matchKnownNat        clas tys
+  | cls_name == knownSymbolClassName  = matchKnownSymbol     clas tys
+  | isCTupleClass clas                = matchCTuple          clas tys
+  | cls_name == typeableClassName     = matchTypeable        clas tys
+  | clas `hasKey` heqTyConKey         = matchLiftedEquality       tys
+  | clas `hasKey` coercibleTyConKey   = matchLiftedCoercible      tys
   | otherwise                         = matchInstEnv dflags clas tys loc
   where
     cls_name = className clas
@@ -2107,13 +2107,16 @@ a TypeRep for them.  For qualified but not polymorphic types, like
 *                                                                     *
 ***********************************************************************-}
 
-matchLiftedEquality :: Class -> [Type] -> TcS LookupInstResult
-matchLiftedEquality clas args
-  = return (GenInst { lir_new_theta = [ mkTyConApp prim_tc args ]
-                    , lir_mk_ev     = EvDFunApp (dataConWrapId datacon) args
+matchLiftedEquality :: [Type] -> TcS LookupInstResult
+matchLiftedEquality args
+  = return (GenInst { lir_new_theta = [ mkTyConApp eqPrimTyCon args ]
+                    , lir_mk_ev     = EvDFunApp (dataConWrapId heqDataCon) args
+                    , lir_safe_over = True })
+
+matchLiftedCoercible :: [Type] -> TcS LookupInstResult
+matchLiftedCoercible args@[k, t1, t2]
+  = return (GenInst { lir_new_theta = [ mkTyConApp eqReprPrimTyCon args ]
+                    , lir_mk_ev     = EvDFunApp (dataConWrapId coercibleDataCon) args
                     , lir_safe_over = True })
   where
-    [unlifted_pred] = classSCTheta clas
-    prim_tc         = tyConAppTyCon unlifted_pred
-
-    [datacon]       = tyConDataCons (classTyCon clas)
+    args' = [k, k, t1, t2]

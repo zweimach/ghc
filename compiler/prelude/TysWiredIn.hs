@@ -78,7 +78,7 @@ module TysWiredIn (
 
         -- * Equality predicates
         heqTyCon, heqClass, heqDataCon,
-        hcoercibleTyCon, hcoercibleDataCon, hcoercibleClass,
+        coercibleTyCon, coercibleDataCon, coercibleClass,
 
         -- * Implicit Parameters
         ipTyCon, ipDataCon, ipClass,
@@ -177,7 +177,7 @@ wiredInTyCons = [ unitTyCon     -- Not treated like other tuples, because
               , maybeTyCon
               , parrTyCon
               , heqTyCon
-              , hcoercibleTyCon
+              , coercibleTyCon
               , typeNatKindCon
               , typeSymbolKindCon
               , levityTyCon
@@ -219,10 +219,10 @@ heqDataConName = mkWiredInDataConName UserSyntax gHC_TYPES (fsLit "Eq#")  heqDat
 heqSCSelIdName = mkWiredInIdName gHC_TYPES (fsLit "HEq_sc") heqSCSelIdKey heqSCSelId
 
 -- See Note [Kind-changing of (~) and Coercible] in libraries/ghc-prim/GHC/Types.hs
-hcoercibleTyConName, hcoercibleDataConName, hcoercibleSCSelIdName :: Name
-hcoercibleTyConName   = mkWiredInTyConName   UserSyntax gHC_TYPES (fsLit "HCoercible")  hcoercibleTyConKey   hcoercibleTyCon
-hcoercibleDataConName = mkWiredInDataConName UserSyntax gHC_TYPES (fsLit "MkCoercible") hcoercibleDataConKey hcoercibleDataCon
-hcoercibleSCSelIdName = mkWiredInIdName gHC_TYPES (fsLit "HCoercible_sc") hcoercibleSCSelIdKey hcoercibleSCSelId
+coercibleTyConName, coercibleDataConName, coercibleSCSelIdName :: Name
+coercibleTyConName   = mkWiredInTyConName   UserSyntax gHC_TYPES (fsLit "Coercible")  coercibleTyConKey   coercibleTyCon
+coercibleDataConName = mkWiredInDataConName UserSyntax gHC_TYPES (fsLit "MkCoercible") coercibleDataConKey coercibleDataCon
+coercibleSCSelIdName = mkWiredInIdName gHC_TYPES (fsLit "Coercible_sc") coercibleSCSelIdKey coercibleSCSelId
 
 charTyConName, charDataConName, intTyConName, intDataConName :: Name
 charTyConName     = mkWiredInTyConName   UserSyntax gHC_TYPES (fsLit "Char") charTyConKey charTyCon
@@ -616,25 +616,19 @@ unboxedUnitDataCon = tupleDataCon   Unboxed 0
 ************************************************************************
 -}
 
-heqTyCon, hcoercibleTyCon :: TyCon
-heqClass, hcoercibleClass :: Class
-heqDataCon, hcoercibleDataCon :: DataCon
-heqSCSelId, hcoercibleSCSelId :: Id
+heqTyCon, coercibleTyCon :: TyCon
+heqClass, coercibleClass :: Class
+heqDataCon, coercibleDataCon :: DataCon
+heqSCSelId, coercibleSCSelId :: Id
 
-mkEqualityDefns :: Role
-                -> Name  -- tycon
-                -> Name  -- datacon
-                -> Name  -- superclass selector
-                -> Name  -- tycon rep name
-                -> TyCon -- primitive (unboxed) version
-                -> (TyCon, Class, DataCon, Id)
-mkEqualityDefns role tc_name dc_name sc_sel_name tc_rep_name prim_tc
+(heqTyCon, heqClass, heqDataCon, heqSCSelId)
   = (tycon, klass, datacon, sc_sel_id)
   where
-    tycon     = mkClassTyCon tc_name kind tvs roles
-                             rhs klass NonRecursive tc_rep_name
+    tycon     = mkClassTyCon heqTyConName kind tvs roles
+                             rhs klass NonRecursive
+                             (mkSpecialTyConRepName (fsLit "tcHEq") heqTyConName)
     klass     = mkClass tvs [] [sc_pred] [sc_sel_id] [] [] (mkAnd []) tycon
-    datacon   = pcDataCon dc_name tvs [sc_pred] tycon
+    datacon   = pcDataCon heqDataConName tvs [sc_pred] tycon
 
     kind      = mkInvForAllTys [kv1, kv2] $ mkFunTys [k1, k2] constraintKind
     kv1:kv2:_ = drop 9 alphaTyVars -- gets "j" and "k"
@@ -642,24 +636,30 @@ mkEqualityDefns role tc_name dc_name sc_sel_name tc_rep_name prim_tc
     k2        = mkTyVarTy kv2
     [av,bv]   = mkTemplateTyVars [k1, k2]
     tvs       = [kv1, kv2, av, bv]
-    roles     = [Nominal, Nominal, role, role]
+    roles     = [Nominal, Nominal, Nominal, Nominal]
     rhs       = DataTyCon { data_cons = [datacon], is_enum = False }
 
-    sc_pred   = mkTyConApp prim_tc (mkTyVarTys tvs)
-    sc_sel_id = mkDictSelId sc_sel_name klass
+    sc_pred   = mkTyConApp eqPrimTyCon (mkTyVarTys tvs)
+    sc_sel_id = mkDictSelId heqSCSelIdName klass
 
-(heqTyCon, heqClass, heqDataCon, heqSCSelId)
-  = mkEqualityDefns Nominal heqTyConName heqDataConName
-                    heqSCSelIdName
-                    (mkSpecialTyConRepName (fsLit "tcHEq") heqTyConName)
-                    eqPrimTyCon
+(coercibleTyCon, coercibleClass, coercibleDataCon, coercibleSCSelId)
+  = (tycon, klass, datacon, sc_sel_id)
+  where
+    tycon     = mkClassTyCon coercibleTyConName kind tvs roles
+                             rhs klass NonRecursive
+                             (mkPrelTyConRepName coercibleTyConName)
+    klass     = mkClass tvs [] [sc_pred] [sc_sel_id] [] [] (mkAnd []) tycon
+    datacon   = pcDataCon coercibleDataConName tvs [sc_pred] tycon
 
-(hcoercibleTyCon, hcoercibleClass, hcoercibleDataCon, hcoercibleSCSelId)
-  = mkEqualityDefns Representational hcoercibleTyConName
-                                     hcoercibleDataConName
-                                     hcoercibleSCSelIdName
-                                     (mkPrelTyConRepName hcoercibleTyConName)
-                                     eqReprPrimTyCon
+    kind      = mkInvForAllTys [kKiVar] $ mkFunTys [k, k] constraintKind
+    k         = mkTyVarTy kKiVar
+    [av,bv]   = mkTemplateTyVars [k, k]
+    tvs       = [kKiVar, av, bv]
+    roles     = [Nominal, Representational, Representational]
+    rhs       = DataTyCon { data_cons = [datacon], is_enum = False }
+
+    sc_pred   = mkTyConApp eqReprPrimTyCon [k, k, mkTyVarTy av, mkTyVarTy bv]
+    sc_sel_id = mkDictSelId coercibleSCSelIdName klass
 
 -- For information about the usage of the following type, see Note [TYPE]
 -- in module Kind

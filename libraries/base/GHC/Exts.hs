@@ -51,7 +51,7 @@ module GHC.Exts
         -- | These are available from the /Trustworthy/ module "Data.Coerce" as well
         --
         -- @since 4.7.0.0
-        Data.Coerce.coerce, Data.Coerce.Coercible, Data.Coerce.HCoercible,
+        Data.Coerce.coerce, Data.Coerce.Coercible,
 
         -- * Equality
         type (~~),

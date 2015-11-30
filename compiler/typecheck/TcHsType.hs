@@ -205,7 +205,7 @@ tcHsDeriv hs_ty
        ; ty <- tcCheckHsTypeAndGen hs_ty $
                mkFunTy arg_kind constraintKind
           -- ty is already zonked
-       ; arg_kind <- zonkSigType arg_kind
+       ; arg_kind <- zonkTcTypeToType arg_kind
        ; let (tvs, pred) = splitNamedForAllTys ty
        ; case getClassPredTys_maybe pred of
            Just (cls, tys) -> return (tvs, cls, tys, arg_kind)
@@ -318,7 +318,7 @@ check_and_gen should_gen hs_ty kind
        ; kvs <- if should_gen
                 then kindGeneralize (tyCoVarsOfType ty)
                 else return []
-       ; zonkSigType (mkInvForAllTys kvs ty) }
+       ; zonkTcTypeToType (mkInvForAllTys kvs ty) }
 
 {-
 ************************************************************************
@@ -439,10 +439,6 @@ tc_lhs_type mode (L span ty) exp_kind
 
 ------------------------------------------
 tc_fun_type :: TcTyMode -> LHsType Name -> LHsType Name -> TcKind -> TcM TcType
--- We need to recognise (->) so that we can construct a FunTy,
--- *and* we need to do by looking at the Name, not the TyCon
--- (see Note [Zonking inside the knot]).  For example,
--- consider  f :: (->) Int Int  (Trac #7312)
 tc_fun_type mode ty1 ty2 exp_kind
   = do { arg_lev <- newFlexiTyVarTy levityTy
        ; res_lev <- newFlexiTyVarTy levityTy
@@ -835,9 +831,7 @@ tcInstBinderX mb_kind_info subst binder
       = Just (\co _ _ -> return $ mkCoercionTy co, r, k1, k2)
       | Just (tc, [_, _, k1, k2]) <- splitTyConApp_maybe ty
       = if | tc `hasKey` heqTyConKey
-             -> Just (mkHEqBoxTy heqDataCon, Nominal, k1, k2)
-           | tc `hasKey` hcoercibleTyConKey
-             -> Just (mkHEqBoxTy hcoercibleDataCon, Representational, k1, k2)
+             -> Just (mkHEqBoxTy, Nominal, k1, k2)
            | otherwise
              -> Nothing
       | Just (tc, [_, k1, k2]) <- splitTyConApp_maybe ty
@@ -851,12 +845,12 @@ tcInstBinderX mb_kind_info subst binder
       = Nothing
 
 -------------------------------
--- | This takes @a ~# b@ (or @a ~R# b@) and returns @a ~~ b@ (or @HCoercible a b@).
-mkHEqBoxTy :: DataCon -> TcCoercion -> Type -> Type -> TcM Type
+-- | This takes @a ~# b@ and returns @a ~~ b@.
+mkHEqBoxTy :: TcCoercion -> Type -> Type -> TcM Type
 -- monadic just for convenience with mkEqBoxTy
-mkHEqBoxTy datacon co ty1 ty2
+mkHEqBoxTy co ty1 ty2
   = return $
-    mkTyConApp (promoteDataCon datacon) [k1, k2, ty1, ty2, mkCoercionTy co]
+    mkTyConApp (promoteDataCon heqDataCon) [k1, k2, ty1, ty2, mkCoercionTy co]
   where k1 = typeKind ty1
         k2 = typeKind ty2
 
@@ -948,7 +942,7 @@ tcTyVar mode name         -- Could be a tyvar, a tycon, or a datacon
                                promotionErr name NoDataKinds
                              ; tc <- get_loopy_tc name
                              ; return (mkNakedTyConApp tc [], kind) }
-                             -- mkNakedTyConApp: see Note [Zonking inside the knot]
+                             -- mkNakedTyConApp: see Note [Type-checking inside the knot]
                  -- NB: we really should check if we're at the kind level
                  -- and if the tycon is promotable if -XNoTypeInType is set.
                  -- But this is a terribly large amount of work! Not worth it.
@@ -1008,7 +1002,7 @@ aThingErr :: String -> Name -> b
 aThingErr str x = pprPanic "AThing evaluated unexpectedly" (text str <+> ppr x)
 
 {-
-Note [Zonking inside the knot]
+Note [Type-checking inside the knot]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Suppose we are checking the argument types of a data constructor.  We
 must zonk the types before making the DataCon, because once built we
@@ -1023,31 +1017,19 @@ look at the TyCon or Class involved.
     the invariants (for example that we use (ForAllTy (Anon s) t) rather
     than (TyConApp (->) [s,t])).
 
-  * Ditto in zonkTcType (which may be applied more than once, eg to
-    squeeze out kind meta-variables), we are careful not to look at
-    the TyCon.
-
-  * We arrange to call zonkSigType *once* right at the end, and it
-    does establish the invariants.  But in exchange we can't look
-    at the result (not even its structure) until we have emerged
-    from the "knot".
+  * The zonking functions establish invariants (even zonkTcType, a change from
+    previous behaviour). So we must never inspect the result of a
+    zonk that might mention a knot-tied TyCon. This is generally OK
+    because we zonk *kinds* while kind-checking types. And the TyCons
+    in kinds shouldn't be knot-tied, because they come from a previous
+    mutually recursive group.
 
   * TcHsSyn.zonkTcTypeToType also can safely check/establish
     invariants.
 
 This is horribly delicate.  I hate it.  A good example of how
 delicate it is can be seen in Trac #7903.
--}
 
-zonkSigType :: TcType -> TcM TcType
--- Zonk the result of type-checking a user-written type signature
--- It may have kind variables in it, but no meta type variables
--- Because of knot-typing (see Note [Zonking inside the knot])
--- it may need to establish the Type invariants;
--- hence the use of mkTyConApp and mkAppTy
-zonkSigType = mapType zonkTcTypeMapper ()  -- TODO (RAE): do we need this??
-
-{-
 Note [Body kind of a forall]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 The body of a forall is usually a type, but in principle
@@ -1715,7 +1697,7 @@ tcHsPatSigType ctxt (HsWB { hswb_cts = hs_ty, hswb_vars = sig_vars
         ; sig_ty <- solveEqualities $
                     tcExtendTyVarEnv2 ktv_binds $
                     tcHsLiftedType hs_ty
-        ; sig_ty <- zonkSigType sig_ty
+        ; sig_ty <- zonkTcTypeToType sig_ty
         ; checkValidType ctxt sig_ty
         ; return (sig_ty, ktv_binds, nwc_binds) }
   where

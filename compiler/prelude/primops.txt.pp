@@ -2691,15 +2691,14 @@ primop  TraceMarkerOp "traceMarker#" GenPrimOp
 section "Safe coercions"
 ------------------------------------------------------------------------
 
-pseudoop   "coerce#"
-   HCoercible a b => a -> b
-   { The function {\tt coerce#} allows you to safely convert between values of
+pseudoop   "coerce"
+   Coercible a b => a -> b
+   { The function {\tt coerce} allows you to safely convert between values of
      types that have the same representation with no run-time overhead. In the
      simplest case you can use it instead of a newtype constructor, to go from
      the newtype's concrete type to the abstract type. But it also works in
      more complicated settings, e.g. converting a list of newtypes to a list of
-     concrete types. This is entirely equivalent to {\tt coerce}, but with
-     a slightly more unusual type.
+     concrete types.
    }
 
 ------------------------------------------------------------------------

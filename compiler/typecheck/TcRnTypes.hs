@@ -2362,8 +2362,6 @@ data CtOrigin
   | UnboundOccurrenceOf RdrName
   | ListOrigin          -- An overloaded list
   | StaticOrigin        -- A static form
-  | ImpossibleOrigin    -- An origin that should never be printed to
-                        -- the user  (TODO (RAE): Remove?)
   | FailablePattern (LPat TcId) -- A failable pattern in do-notation for the
                                 -- MonadFail Proposal (MFP). Obsolete when
                                 -- actual desugaring to MonadFail.fail is live.
@@ -2503,11 +2501,6 @@ pprCtO AnnOrigin             = ptext (sLit "an annotation")
 pprCtO HoleOrigin            = ptext (sLit "a use of") <+> quotes (ptext $ sLit "_")
 pprCtO ListOrigin            = ptext (sLit "an overloaded list")
 pprCtO StaticOrigin          = ptext (sLit "a static form")
-
--- don't panic here, so that we can print debugging output
-pprCtO ImpossibleOrigin      = ptext (sLit "a check that should never fail") $$
-  ptext (sLit "Please report this as a GHC bug:  http://www.haskell.org/ghc/reportabug")
-
 pprCtO _                     = panic "pprCtOrigin"
 
 {-

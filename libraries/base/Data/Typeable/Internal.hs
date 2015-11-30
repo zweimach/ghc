@@ -45,7 +45,7 @@ module Data.Typeable.Internal (
     tcOrdering, tc'LT, tc'EQ, tc'GT,
     tcChar, tcInt, tcWord, tcFloat, tcDouble, tcFun,
     tcIO, tcSPEC, tcTyCon, tcModule, tcTrName,
-    tcHCoercible, tcList, tcHEq,
+    tcCoercible, tcList, tcHEq,
     tcConstraint,
     tcTYPE, tcLevity, tc'Lifted, tc'Unlifted,
 
@@ -405,7 +405,7 @@ tcBool, tc'True, tc'False,
   tcOrdering, tc'GT, tc'EQ, tc'LT,
   tcChar, tcInt, tcWord, tcFloat, tcDouble, tcFun,
   tcIO, tcSPEC, tcTyCon, tcModule, tcTrName,
-  tcHCoercible, tcHEq, tcList :: TyCon
+  tcCoercible, tcHEq, tcList :: TyCon
 
 tcBool      = mkGhcTypesTyCon "Bool"#      -- Bool is promotable
 tc'True     = mkGhcTypesTyCon "'True"#
@@ -426,7 +426,7 @@ tcIO         = mkGhcTypesTyCon "IO"#
 tcTyCon      = mkGhcTypesTyCon "TyCon"#
 tcModule     = mkGhcTypesTyCon "Module"#
 tcTrName     = mkGhcTypesTyCon "TrName"#
-tcHCoercible = mkGhcTypesTyCon "HCoercible"#
+tcCoercible  = mkGhcTypesTyCon "Coercible"#
 
 tcFun       = mkGhcTypesTyCon "->"#
 tcList      = mkGhcTypesTyCon "[]"#   -- Type rep for the list type constructor
