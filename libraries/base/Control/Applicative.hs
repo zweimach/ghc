@@ -56,7 +56,6 @@ import Data.Eq
 import Data.Ord
 import Data.Foldable (Foldable(..))
 import Data.Functor ((<$>))
-import Data.Coerce
 
 import GHC.Base
 import GHC.Generics

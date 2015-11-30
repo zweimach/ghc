@@ -1197,7 +1197,6 @@ coerceId = pcMiscPrelId coerceName ty info
     info = noCafIdInfo `setInlinePragInfo` alwaysInlinePragma
                        `setUnfoldingInfo`  mkCompulsoryUnfolding rhs
     eqRTy     = mkTyConApp coercibleTyCon [ liftedTypeKind
-                                          , liftedTypeKind
                                           , alphaTy, betaTy ]
     eqRPrimTy = mkTyConApp eqReprPrimTyCon [ liftedTypeKind
                                            , liftedTypeKind

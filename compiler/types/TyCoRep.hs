@@ -2116,8 +2116,7 @@ pprTyTcApp p tc tys
     ppr_deflt = pprTcAppTy p ppr_type tc tys
 
 pprTcAppTy :: TyPrec -> (TyPrec -> Type -> SDoc) -> TyCon -> [Type] -> SDoc
-pprTcAppTy p pp tc tys = pprTrace "RAE2" (ppr tc $$ ppr tys) $
-                         pprTcApp id p pp tc tys
+pprTcAppTy = pprTcApp id
 
 pprTcAppCo :: TyPrec -> (TyPrec -> Coercion -> SDoc)
            -> TyCon -> [Coercion] -> SDoc
@@ -2132,8 +2131,7 @@ pprTcApp _ _ pp tc [ty]
 pprTcApp to_type p pp tc tys
   | Just sort <- tyConTuple_maybe tc
   , let arity = tyConArity tc
-  , pprTrace "RAE1" (ppr tc $$ ppr (length tys) $$ ppr arity) $
-    arity == length tys
+  , arity == length tys
   , let num_to_drop = case sort of UnboxedTuple -> arity `div` 2
                                    _            -> 0
   = pprTupleApp p pp tc sort (drop num_to_drop tys)
@@ -2168,7 +2166,7 @@ pprTcApp_help :: (a -> Type) -> TyPrec -> (TyPrec -> a -> SDoc)
               -> TyCon -> [a] -> DynFlags -> SDoc
 -- This one has accss to the DynFlags
 pprTcApp_help to_type p pp tc tys dflags
-  | not (isSymOcc (nameOccName tc_name))
+  | print_prefix
   = pprPrefixApp p pp_tc (map (pp TyConPrec) tys_wo_kinds)
 
   | [ty1,ty2] <- tys_wo_kinds  -- Infix, two arguments;
@@ -2183,16 +2181,18 @@ pprTcApp_help to_type p pp tc tys dflags
   | otherwise
   = pprPrefixApp p (parens pp_tc) (map (pp TyConPrec) tys_wo_kinds)
   where
+    tc_name = tyConName tc
+
      -- With the solver working in unlifted equality, it will want to
      -- to print unlifted equality constraints sometimes. But these are
      -- confusing to users. So fix them up here.
-    (tc_name, pp_tc)
+    (print_prefix, pp_tc)
       | (tc `hasKey` eqPrimTyConKey || tc `hasKey` heqTyConKey) && not print_eqs
-      = (eqTyConName, text "~")
+      = (False, text "~")
       | tc `hasKey` eqReprPrimTyConKey && not print_eqs
-      = (coercibleTyConName, text "Coercible")
+      = (True, text "Coercible")
       | otherwise
-      = (tyConName tc, ppr tc)
+      = (not (isSymOcc (nameOccName tc_name)), ppr tc)
 
     print_eqs    = gopt Opt_PrintEqualityRelations dflags
     tys_wo_kinds = suppressInvisibles to_type dflags tc tys

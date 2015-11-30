@@ -31,7 +31,6 @@ import Coercion hiding ( getCvSubstEnv )
 import TyCon
 import TyCoRep hiding ( getTvSubstEnv, getCvSubstEnv )
 import Util
-import Pair
 import Outputable
 
 import Control.Monad
@@ -67,22 +66,6 @@ Unification is much tricker than you might think.
    where x is the template type variable.  Then we do not want to
    bind x to a/b!  This is a kind of occurs check.
    The necessary locals accumulate in the RnEnv2.
-
-Note [Kind coercions in Unify]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-We wish to match/unify while ignoring casts. But, we can't just ignore
-them completely, or we'll end up with ill-kinded substitutions. For example,
-say we're matching `a` with `ty |> co`. If we just drop the cast, we'll
-return [a |-> ty], but `a` and `ty` might have different kinds. We can't
-just match/unify their kinds, either, because this might gratuitously
-fail. After all, `co` is the witness that the kinds are the same -- they
-may look nothing alike.
-
-So, we pass a kind coercion to the match/unify worker. This coercion witnesses
-the equality between the substed kind of the left-hand type and the substed
-kind of the right-hand type. To get this coercion, we first have to match/unify
-the kinds before looking at the types. Happily, we need look only one level
-up, as all kinds are guaranteed to have kind *.
 
 -}
 
@@ -385,12 +368,8 @@ tc_unify_tys :: (TyVar -> BindFlag)
              -> UnifyResultM (TvSubstEnv, CvSubstEnv)
 tc_unify_tys bind_fn unif rn_env tv_env cv_env tys1 tys2
   = initUM bind_fn unif rn_env tv_env cv_env $
-    do { unify_tys kis1 kis2
-       ; unify_tys tys1 tys2
+    do { unify_tys tys1 tys2
        ; (,) <$> getTvSubstEnv <*> getCvSubstEnv }
-  where
-    kis1 = map typeKind tys1
-    kis2 = map typeKind tys2
 
 instance Outputable a => Outputable (UnifyResultM a) where
   ppr SurelyApart    = text "SurelyApart"
@@ -527,27 +506,22 @@ all bets are off.
 
 -}
 
-unify_ty :: Type -> Type -> Coercion   -- Types to be unified and a co
-                                       -- between their kinds
-                                       -- See Note [Kind coercions in Unify]
+unify_ty :: Type -> Type   -- Types to be unified
          -> UM ()
 -- Respects newtypes, PredTypes
 
-unify_ty ty1 ty2 kco
-  | Just ty1' <- tcView ty1 = unify_ty ty1' ty2 kco
-  | Just ty2' <- tcView ty2 = unify_ty ty1 ty2' kco
-  | CastTy ty1' co <- ty1                = unify_ty ty1' ty2 (co `mkTransCo` kco)
-  | CastTy ty2' co <- ty2                = unify_ty ty1 ty2'
-                                                    (kco `mkTransCo` mkSymCo co)
+unify_ty ty1 ty2
+  | Just ty1' <- tcView ty1 = unify_ty ty1' ty2
+  | Just ty2' <- tcView ty2 = unify_ty ty1 ty2'
 
-unify_ty (TyVarTy tv1) ty2 kco = uVar tv1 ty2 kco
-unify_ty ty1 (TyVarTy tv2) kco
+unify_ty (TyVarTy tv1) ty2 = uVar tv1 ty2
+unify_ty ty1 (TyVarTy tv2)
   = do { unif <- amIUnifying
        ; if unif
-         then umSwapRn $ uVar tv2 ty1 (mkSymCo kco)
+         then umSwapRn $ uVar tv2 ty1
          else surelyApart }  -- non-tv on left; tv on right: can't match.
 
-unify_ty ty1 ty2 _kco
+unify_ty ty1 ty2
   | Just (tc1, tys1) <- splitTyConApp_maybe ty1
   , Just (tc2, tys2) <- splitTyConApp_maybe ty2
   = if tc1 == tc2 || (isStarKind ty1 && isStarKind ty2)
@@ -573,22 +547,26 @@ unify_ty ty1 ty2 _kco
         -- They can match FunTy and TyConApp, so use splitAppTy_maybe
         -- NB: we've already dealt with type variables,
         -- so if one type is an App the other one jolly well better be too
-unify_ty (AppTy ty1a ty1b) ty2 _kco
+unify_ty (AppTy ty1a ty1b) ty2
   | Just (ty2a, ty2b) <- tcRepSplitAppTy_maybe ty2
   = unify_ty_app ty1a ty1b ty2a ty2b
 
-unify_ty ty1 (AppTy ty2a ty2b) _kco
+unify_ty ty1 (AppTy ty2a ty2b)
   | Just (ty1a, ty1b) <- tcRepSplitAppTy_maybe ty1
   = unify_ty_app ty1a ty1b ty2a ty2b
 
-unify_ty (LitTy x) (LitTy y) _kco | x == y = return ()
+unify_ty (LitTy x) (LitTy y) | x == y = return ()
 
-unify_ty (ForAllTy (Named tv1 _) ty1) (ForAllTy (Named tv2 _) ty2) kco
-  = do { unify_ty (tyVarKind tv1) (tyVarKind tv2) (mkNomReflCo liftedTypeKind)
-       ; umRnBndr2 tv1 tv2 $ unify_ty ty1 ty2 kco }
+unify_ty (ForAllTy (Named tv1 _) ty1) (ForAllTy (Named tv2 _) ty2)
+  = do { unify_ty (tyVarKind tv1) (tyVarKind tv2)
+       ; umRnBndr2 tv1 tv2 $ unify_ty ty1 ty2 }
+
+unify_ty (CastTy ty1 co1) (CastTy ty2 co2)
+  | co1 `eqCoercion` co2   -- checks that their kinds are the same
+  = unify_ty ty1 ty2
 
 -- See Note [Matching coercion variables]
-unify_ty (CoercionTy co1) (CoercionTy co2) kco
+unify_ty (CoercionTy co1) (CoercionTy co2)
   = do { unif <- amIUnifying
        ; c_subst <- getCvSubstEnv
        ; case co1 of
@@ -598,39 +576,27 @@ unify_ty (CoercionTy co1) (CoercionTy co2) kco
              -> do { b <- tvBindFlagL cv
                    ; if b == BindMe
                        then do { checkRnEnvRCo co2
-                               ; let [_, _, co_l, co_r] = decomposeCo 4 kco
-                                  -- cv :: t1 ~ t2
-                                  -- co2 :: s1 ~ s2
-                                  -- co_l :: t1 ~ s1
-                                  -- co_r :: t2 ~ s2
-                               ; extendCvEnv cv (co_l `mkTransCo`
-                                                 co2 `mkTransCo`
-                                                 mkSymCo co_r) }
+                               ; extendCvEnv cv co2 }
                        else return () }
            _ -> return () }
 
-unify_ty ty1 _ _
+unify_ty ty1 _
   | Just (tc1, _) <- splitTyConApp_maybe ty1
   , not (isGenerativeTyCon tc1 Nominal)
   = maybeApart
 
-unify_ty _ ty2 _
+unify_ty _ ty2
   | Just (tc2, _) <- splitTyConApp_maybe ty2
   , not (isGenerativeTyCon tc2 Nominal)
   = do { unif <- amIUnifying
        ; if unif then maybeApart else surelyApart }
 
-unify_ty _ _ _ = surelyApart
+unify_ty _ _ = surelyApart
 
 unify_ty_app :: Type -> Type -> Type -> Type -> UM ()
 unify_ty_app ty1a ty1b ty2a ty2b
-  = do { -- TODO (RAE): Remove this exponential behavior.
-         let ki1a = typeKind ty1a
-             ki2a = typeKind ty2a
-       ; unify_ty ki1a ki2a (mkNomReflCo liftedTypeKind)
-       ; let kind_co = mkNomReflCo ki1a
-       ; unify_ty ty1a ty2a kind_co
-       ; unify_ty ty1b ty2b (mkNthCo 0 kind_co) }
+  = do { unify_ty ty1a ty2a
+       ; unify_ty ty1b ty2b }
 
 unify_tys :: [Type] -> [Type] -> UM ()
 unify_tys orig_xs orig_ys
@@ -638,41 +604,39 @@ unify_tys orig_xs orig_ys
   where
     go []     []     = return ()
     go (x:xs) (y:ys)
-      = do { unify_ty x y (mkNomReflCo $ typeKind x)
+      = do { unify_ty x y
            ; go xs ys }
     go _ _ = maybeApart  -- See Note [Lists of different lengths are MaybeApart]
 
 ---------------------------------
 uVar :: TyVar           -- Variable to be unified
      -> Type            -- with this Type
-     -> Coercion        -- :: kind tv ~N kind ty
      -> UM ()
 
-uVar tv1 ty kco
+uVar tv1 ty
  = do { -- Check to see whether tv1 is refined by the substitution
         subst <- getTvSubstEnv
       ; case (lookupVarEnv subst tv1) of
           Just ty' -> do { unif <- amIUnifying
                          ; if unif
-                           then unify_ty ty' ty kco   -- Yes, call back into unify
+                           then unify_ty ty' ty   -- Yes, call back into unify
                            else -- when *matching*, we don't want to just recur here.
                                 -- this is because the range of the subst is the target
                                 -- type, not the template type. So, just check for
                                 -- normal type equality.
                                 guard (ty' `eqType` ty) }
-          Nothing  -> uUnrefined tv1 ty ty kco } -- No, continue
+          Nothing  -> uUnrefined tv1 ty ty } -- No, continue
 
 uUnrefined :: TyVar             -- variable to be unified
            -> Type              -- with this Type
            -> Type              -- (version w/ expanded synonyms)
-           -> Coercion          -- :: kind tv ~N kind ty
            -> UM ()
 
 -- We know that tv1 isn't refined
 
-uUnrefined tv1 ty2 ty2' kco
+uUnrefined tv1 ty2 ty2'
   | Just ty2'' <- tcView ty2'
-  = uUnrefined tv1 ty2 ty2'' kco    -- Unwrap synonyms
+  = uUnrefined tv1 ty2 ty2''    -- Unwrap synonyms
                 -- This is essential, in case we have
                 --      type Foo a = a
                 -- and then unify a ~ Foo a
@@ -686,9 +650,10 @@ uUnrefined tv1 ty2 ty2' kco
        { subst <- getTvSubstEnv
           -- Check to see whether tv2 is refined
        ; case lookupVarEnv subst tv2 of
-         {  Just ty' | unif -> uUnrefined tv1 ty' ty' kco
+         {  Just ty' | unif -> uUnrefined tv1 ty' ty'
          ;  _               -> do
-       {   -- So both are unrefined
+       {   -- So both are unrefined; unify the kinds
+         unify_ty (tyVarKind tv1) (tyVarKind tv2)
 
            -- And then bind one or the other,
            -- depending on which is bindable
@@ -697,9 +662,9 @@ uUnrefined tv1 ty2 ty2' kco
        ; let ty1 = mkTyVarTy tv1
        ; case (b1, b2) of
            (BindMe, _)        -> do { checkRnEnvR ty2 -- make sure ty2 is not a local
-                                    ; extendTvEnv tv1 (ty2 `mkCastTy` mkSymCo kco) }
+                                    ; extendTvEnv tv1 ty2 }
            (_, BindMe) | unif -> do { checkRnEnvL ty1 -- ditto for ty1
-                                    ; extendTvEnv tv2 (ty1 `mkCastTy` kco) }
+                                    ; extendTvEnv tv2 ty1 }
 
            _ | tv1' == tv2' -> return ()
              -- How could this happen? If we're only matching and if
@@ -708,12 +673,13 @@ uUnrefined tv1 ty2 ty2' kco
            _ -> maybeApart -- See Note [Unification with skolems]
   }}}}
 
-uUnrefined tv1 ty2 ty2' kco -- ty2 is not a type variable
+uUnrefined tv1 ty2 ty2' -- ty2 is not a type variable
   = do { occurs <- elemNiSubstSet tv1 (tyCoVarsOfType ty2')
        ; unif   <- amIUnifying
        ; if unif && occurs  -- See Note [Self-substitution when matching]
          then maybeApart       -- Occurs check, see Note [Fine-grained unification]
-         else do bindTv tv1 (ty2 `mkCastTy` mkSymCo kco) }
+         else do { unify_ty (tyVarKind tv1) (typeKind ty2')
+                 ; bindTv tv1 ty2 }}
             -- Bind tyvar to the synonym if poss
 
 elemNiSubstSet :: TyVar -> TyCoVarSet -> UM Bool
@@ -926,32 +892,22 @@ data MatchEnv = ME { me_tmpls :: TyVarSet
 -- nominal coercions where it can do so.
 liftCoMatch :: TyCoVarSet -> Type -> Coercion -> Maybe LiftingContext
 liftCoMatch tmpls ty co
-  = do { cenv1 <- ty_co_match menv emptyVarEnv ki ki_co ki_ki_co ki_ki_co
-       ; cenv2 <- ty_co_match menv cenv1       ty co
-                              (mkNomReflCo co_lkind) (mkNomReflCo co_rkind)
-       ; return (LC (mkEmptyTCvSubst in_scope) cenv2) }
+  = do { cenv <- ty_co_match menv emptyVarEnv ty co
+       ; return (LC (mkEmptyTCvSubst in_scope) cenv) }
   where
     menv     = ME { me_tmpls = tmpls, me_env = mkRnEnv2 in_scope }
     in_scope = mkInScopeSet (tmpls `unionVarSet` tyCoVarsOfCo co)
     -- Like tcMatchTy, assume all the interesting variables
     -- in ty are in tmpls
 
-    ki       = typeKind ty
-    ki_co    = promoteCoercion co
-    ki_ki_co = mkNomReflCo liftedTypeKind
-
-    Pair co_lkind co_rkind = coercionKind ki_co
-
 -- | 'ty_co_match' does all the actual work for 'liftCoMatch'.
 ty_co_match :: MatchEnv   -- ^ ambient helpful info
             -> LiftCoEnv  -- ^ incoming subst
             -> Type       -- ^ ty, type to match
             -> Coercion   -- ^ co, coercion to match against
-            -> Coercion   -- ^ :: kind of L type of substed ty ~N L kind of co
-            -> Coercion   -- ^ :: kind of R type of substed ty ~N R kind of co
             -> Maybe LiftCoEnv
-ty_co_match menv subst ty co lkco rkco
-  | Just ty' <- coreViewOneStarKind ty = ty_co_match menv subst ty' co lkco rkco
+ty_co_match menv subst ty co
+  | Just ty' <- coreViewOneStarKind ty = ty_co_match menv subst ty' co
 
   -- handle Refl case:
   | tyCoVarsOfType ty `isNotInDomainOf` subst
@@ -967,28 +923,21 @@ ty_co_match menv subst ty co lkco rkco
     noneSet :: (Var -> Bool) -> VarSet -> Bool
     noneSet f = foldVarSet (\v rest -> rest && (not $ f v)) True
 
-ty_co_match menv subst ty co lkco rkco
-  | CastTy ty' co' <- ty
-  = ty_co_match menv subst ty' co (co' `mkTransCo` lkco) (co' `mkTransCo` rkco)
-
-  | CoherenceCo co1 co2 <- co
-  = ty_co_match menv subst ty co1 (lkco `mkTransCo` mkSymCo co2) rkco
-
+ty_co_match menv subst ty co
   | SymCo co' <- co
-  = swapLiftCoEnv <$> ty_co_match menv (swapLiftCoEnv subst) ty co' rkco lkco
+  = swapLiftCoEnv <$> ty_co_match menv (swapLiftCoEnv subst) ty co'
 
   -- Match a type variable against a non-refl coercion
-ty_co_match menv subst (TyVarTy tv1) co lkco rkco
+ty_co_match menv subst (TyVarTy tv1) co
   | Just co1' <- lookupVarEnv subst tv1' -- tv1' is already bound to co1
   = if eqCoercionX (nukeRnEnvL rn_env) co1' co
     then Just subst
     else Nothing       -- no match since tv1 matches two different coercions
 
   | tv1' `elemVarSet` me_tmpls menv           -- tv1' is a template var
-  = if any (inRnEnvR rn_env) (varSetElems (tyCoVarsOfCo co))
-    then Nothing      -- occurs check failed
-    else Just $ extendVarEnv subst tv1' $
-                castCoercionKind co (mkSymCo lkco) (mkSymCo rkco)
+  , not (any (inRnEnvR rn_env) (varSetElems (tyCoVarsOfCo co)))
+  = do { subst' <- ty_co_match menv subst (tyVarKind tv1') (mkKindCo co)
+       ; return $ extendVarEnv subst' tv1' co }
 
   | otherwise
   = Nothing
@@ -998,39 +947,41 @@ ty_co_match menv subst (TyVarTy tv1) co lkco rkco
     tv1' = rnOccL rn_env tv1
 
   -- just look through SubCo's. We don't really care about roles here.
-ty_co_match menv subst ty (SubCo co) lkco rkco
-  = ty_co_match menv subst ty co lkco rkco
+ty_co_match menv subst ty (SubCo co)
+  = ty_co_match menv subst ty co
 
-ty_co_match menv subst (AppTy ty1a ty1b) co _lkco _rkco
+ty_co_match menv subst (AppTy ty1a ty1b) co
   | Just (co2, arg2) <- splitAppCo_maybe co     -- c.f. Unify.match on AppTy
   = ty_co_match_app menv subst ty1a ty1b co2 arg2
-ty_co_match menv subst ty1 (AppCo co2 arg2) _lkco _rkco
+ty_co_match menv subst ty1 (AppCo co2 arg2)
   | Just (ty1a, ty1b) <- repSplitAppTy_maybe ty1
        -- yes, the one from Type, not TcType; this is for coercion optimization
   = ty_co_match_app menv subst ty1a ty1b co2 arg2
 
-ty_co_match menv subst (TyConApp tc1 tys) (TyConAppCo _ tc2 cos) _lkco _rkco
+ty_co_match menv subst (TyConApp tc1 tys) (TyConAppCo _ tc2 cos)
   = ty_co_match_tc menv subst tc1 tys tc2 cos
-ty_co_match menv subst (ForAllTy (Anon ty1) ty2) (TyConAppCo _ tc cos) _lkco _rkco
+ty_co_match menv subst (ForAllTy (Anon ty1) ty2) (TyConAppCo _ tc cos)
   = ty_co_match_tc menv subst funTyCon [ty1, ty2] tc cos
 
 ty_co_match menv subst (ForAllTy (Named tv1 _) ty1)
                        (ForAllCo tv2 kind_co2 co2)
-                       lkco rkco
   = do { subst1 <- ty_co_match menv subst (tyVarKind tv1) kind_co2
-                               ki_ki_co ki_ki_co
        ; let rn_env0 = me_env menv
              rn_env1 = rnBndr2 rn_env0 tv1 tv2
              menv'   = menv { me_env = rn_env1 }
-       ; ty_co_match menv' subst1 ty1 co2 lkco rkco }
-  where
-    ki_ki_co = mkNomReflCo liftedTypeKind
+       ; ty_co_match menv' subst1 ty1 co2 }
 
-ty_co_match _ subst (CoercionTy {}) _ _ _
+-- don't have a cast for CastTy. It's too hard. But there was once a more
+-- complicated implementation of this algorithm that could handle CastTy,
+-- if it later becomes necessary. It was last seen at
+-- github.com/goldfirere/ghc.git, commit
+-- 79bddfd4a4403f62a4cbad8c813b09cccf3209cc
+
+ty_co_match _ subst (CoercionTy {}) _
   = Just subst -- don't inspect coercions
 
-ty_co_match menv subst ty co lkco rkco
-  | Just co' <- pushRefl co = ty_co_match menv subst ty co' lkco rkco
+ty_co_match menv subst ty co
+  | Just co' <- pushRefl co = ty_co_match menv subst ty co'
   | otherwise               = Nothing
 
 ty_co_match_tc :: MatchEnv -> LiftCoEnv
@@ -1039,33 +990,23 @@ ty_co_match_tc :: MatchEnv -> LiftCoEnv
                -> Maybe LiftCoEnv
 ty_co_match_tc menv subst tc1 tys1 tc2 cos2
   = do { guard (tc1 == tc2)
-       ; ty_co_match_args menv subst tys1 cos2 lkcos rkcos }
-  where
-    Pair lkcos rkcos
-      = traverse (fmap mkNomReflCo . coercionKind) cos2
+       ; ty_co_match_args menv subst tys1 cos2 }
 
 ty_co_match_app :: MatchEnv -> LiftCoEnv
                 -> Type -> Type -> Coercion -> Coercion
                 -> Maybe LiftCoEnv
 ty_co_match_app menv subst ty1a ty1b co2a co2b
-  = do { -- TODO (RAE): Remove this exponential behavior.
-         subst1 <- ty_co_match menv subst  ki1a ki2a ki_ki_co ki_ki_co
-       ; let Pair lkco rkco = mkNomReflCo <$> coercionKind ki2a
-       ; subst2 <- ty_co_match menv subst1 ty1a co2a lkco rkco
-       ; ty_co_match menv subst2 ty1b co2b (mkNthCo 0 lkco) (mkNthCo 0 rkco) }
-  where
-    ki1a = typeKind ty1a
-    ki2a = promoteCoercion co2a
-    ki_ki_co = mkNomReflCo liftedTypeKind
+  = do { subst' <- ty_co_match menv subst ty1a co2a
+       ; ty_co_match menv subst' ty1b co2b }
 
 ty_co_match_args :: MatchEnv -> LiftCoEnv -> [Type]
-                 -> [Coercion] -> [Coercion] -> [Coercion]
+                 -> [Coercion]
                  -> Maybe LiftCoEnv
-ty_co_match_args _    subst []       []         _ _ = Just subst
-ty_co_match_args menv subst (ty:tys) (arg:args) (lkco:lkcos) (rkco:rkcos)
-  = do { subst' <- ty_co_match menv subst ty arg lkco rkco
-       ; ty_co_match_args menv subst' tys args lkcos rkcos }
-ty_co_match_args _    _     _        _          _ _ = Nothing
+ty_co_match_args _    subst []       []         = Just subst
+ty_co_match_args menv subst (ty:tys) (arg:args)
+  = do { subst' <- ty_co_match menv subst ty arg
+       ; ty_co_match_args menv subst' tys args }
+ty_co_match_args _    _     _        _          = Nothing
 
 pushRefl :: Coercion -> Maybe Coercion
 pushRefl (Refl Nominal (AppTy ty1 ty2))

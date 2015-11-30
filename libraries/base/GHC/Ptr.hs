@@ -30,7 +30,6 @@ import GHC.Show
 import GHC.Num
 import GHC.List ( length, replicate )
 import Numeric          ( showHex )
-import Data.Coerce ( coerce )
 
 #include "MachDeps.h"
 

@@ -75,8 +75,8 @@ module GHC.Exts
         IsList(..)
        ) where
 
-import GHC.Prim
-import GHC.Base
+import GHC.Prim hiding ( coerce )
+import GHC.Base hiding ( coerce )
 import GHC.Word
 import GHC.Int
 import GHC.Ptr

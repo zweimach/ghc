@@ -373,7 +373,6 @@ basicKnownKeyNames
 
         -- homogeneous equality
         , eqTyConName
-        , coercibleTyConName
 
     ] ++ case cIntegerLibraryType of
            IntegerGMP    -> [integerSDataConName]
@@ -1337,9 +1336,8 @@ fingerprintDataConName =
     dcQual gHC_FINGERPRINT_TYPE (fsLit "Fingerprint") fingerprintDataConKey
 
 -- homogeneous equality
-eqTyConName, coercibleTyConName :: Name
+eqTyConName :: Name
 eqTyConName        = tcQual dATA_TYPE_EQUALITY (fsLit "~")         eqTyConKey
-coercibleTyConName = tcQual dATA_COERCE        (fsLit "Coercible") coercibleTyConKey
 
 {-
 ************************************************************************
@@ -1681,10 +1679,6 @@ ipTyConKey = mkPreludeTyConUnique 184
 
 ipCoNameKey :: Unique
 ipCoNameKey = mkPreludeTyConUnique 185
-
--- homogeneous coercible
-coercibleTyConKey :: Unique
-coercibleTyConKey = mkPreludeTyConUnique 186
 
 ---------------- Template Haskell -------------------
 --      THNames.hs: USES TyConUniques 200-299

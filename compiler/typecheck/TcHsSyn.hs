@@ -24,7 +24,7 @@ module TcHsSyn (
 
         zonkTopDecls, zonkTopExpr, zonkTopLExpr,
         zonkTopBndrs, zonkTyBndrsX,
-        emptyZonkEnv, mkEmptyZonkEnv, mkZonkEnv,
+        emptyZonkEnv, mkEmptyZonkEnv,
         zonkTcTypeToType, zonkTcTypeToTypes, zonkTyVarOcc,
         zonkCoToCo
   ) where
@@ -178,11 +178,24 @@ type UnboundTyVarZonker = TcTyVar -> TcM Type
         -- How to zonk an unbound type variable
         -- Note [Zonking the LHS of a RULE]
 
+-- | A ZonkEnv carries around several bits.
+-- The UnboundTyVarZonker just zaps unbouned meta-tyvars to Any (as
+-- defined in zonkTypeZapping), except on the LHS of rules. See
+-- Note [Zonking the LHS of a RULE]. The (TyVarEnv TyVar) is just
+-- an optimisation: when binding a tyvar, we zonk the kind right away
+-- and add a mapping to the env. This prevent re-zonking the kind at
+-- every occurrence. But this is *just* an optimisation. The first
+-- (IdEnv Var) behaves quite similarly. It is used only for non-recursive
+-- binding sites (like lambdas and case expressions), and is simply
+-- an optimisation. The final (IdEnv Var) optimises zonking for *recursive*
+-- Ids. It is knot-tied. We must be careful never to put coercion variables
+-- (which are Ids, after all) in the knot-tied env, because coercions can
+-- appear in types, and we sometimes inspect a zonked type in this module.
 data ZonkEnv
   = ZonkEnv
       UnboundTyVarZonker
-      CvSubstEnv
       (TyVarEnv TyVar)          --
+      (IdEnv    Var)            --
       (IdEnv    Var)            -- What variables are in scope
         -- Maps an Id or EvVar to its zonked version; both have the same Name
         -- Note that all evidence (coercion variables as well as dictionaries)
@@ -191,7 +204,7 @@ data ZonkEnv
         -- Is only consulted lazily; hence knot-tying
 
 instance Outputable ZonkEnv where
-  ppr (ZonkEnv _ _co_env _ty_env var_env) = vcat (map ppr (varEnvElts var_env))
+  ppr (ZonkEnv _ _ty_env var_env _kt_env) = vcat (map ppr (varEnvElts var_env))
 
 
 -- The EvBinds have to already be zonked, but that's usually the case.
@@ -201,29 +214,30 @@ emptyZonkEnv = mkEmptyZonkEnv zonkTypeZapping
 mkEmptyZonkEnv :: UnboundTyVarZonker -> ZonkEnv
 mkEmptyZonkEnv zonker = ZonkEnv zonker emptyVarEnv emptyVarEnv emptyVarEnv
 
--- | Make a ZonkEnv using the given CvSubstEnv
-mkZonkEnv :: CvSubstEnv -> ZonkEnv
-mkZonkEnv co_env
-  = ZonkEnv zonkTypeZapping co_env emptyVarEnv emptyVarEnv
+-- | Extend the knot-tied environment. No coercion variables here.
+extendIdZonkEnvRec :: ZonkEnv -> [Var] -> ZonkEnv
+extendIdZonkEnvRec (ZonkEnv zonk_ty ty_env id_env kt_env) ids
+  = ASSERT( not (any isCoVar ids) )
+    ZonkEnv zonk_ty ty_env id_env (extendVarEnvList kt_env [(id,id) | id <- ids])
 
 extendIdZonkEnv :: ZonkEnv -> [Var] -> ZonkEnv
-extendIdZonkEnv (ZonkEnv zonk_ty subst ty_env id_env) ids
-  = ZonkEnv zonk_ty subst ty_env (extendVarEnvList id_env [(id,id) | id <- ids])
+extendIdZonkEnv (ZonkEnv zonk_ty ty_env id_env kt_env) ids
+  = ZonkEnv zonk_ty ty_env (extendVarEnvList id_env [(id,id) | id <- ids]) kt_env
 
 extendIdZonkEnv1 :: ZonkEnv -> Var -> ZonkEnv
-extendIdZonkEnv1 (ZonkEnv zonk_ty subst ty_env id_env) id
-  = ZonkEnv zonk_ty subst ty_env (extendVarEnv id_env id id)
+extendIdZonkEnv1 (ZonkEnv zonk_ty ty_env id_env kt_env) id
+  = ZonkEnv zonk_ty ty_env (extendVarEnv id_env id id) kt_env
 
 extendTyZonkEnv1 :: ZonkEnv -> TyVar -> ZonkEnv
-extendTyZonkEnv1 (ZonkEnv zonk_ty subst ty_env id_env) ty
-  = ZonkEnv zonk_ty subst (extendVarEnv ty_env ty ty) id_env
+extendTyZonkEnv1 (ZonkEnv zonk_ty ty_env id_env kt_env) ty
+  = ZonkEnv zonk_ty (extendVarEnv ty_env ty ty) id_env kt_env
 
 setZonkType :: ZonkEnv -> UnboundTyVarZonker -> ZonkEnv
-setZonkType (ZonkEnv _ subst ty_env id_env) zonk_ty
-  = ZonkEnv zonk_ty subst ty_env id_env
+setZonkType (ZonkEnv _ ty_env id_env kt_env) zonk_ty
+  = ZonkEnv zonk_ty ty_env id_env kt_env
 
 zonkEnvIds :: ZonkEnv -> [Id]
-zonkEnvIds (ZonkEnv _ _ _ id_env) = varEnvElts id_env
+zonkEnvIds (ZonkEnv _ _ id_env kt_env) = varEnvElts id_env ++ varEnvElts kt_env
 
 zonkIdOcc :: ZonkEnv -> TcId -> Id
 -- Ids defined in this module should be in the envt;
@@ -241,8 +255,10 @@ zonkIdOcc :: ZonkEnv -> TcId -> Id
 --
 -- Even without template splices, in module Main, the checking of
 -- 'main' is done as a separate chunk.
-zonkIdOcc (ZonkEnv _zonk_ty _cv_env _ty_env env) id
-  | isLocalVar id = lookupVarEnv env id `orElse` id
+zonkIdOcc (ZonkEnv _zonk_ty _ty_env id_env kt_env) id
+  | isLocalVar id = lookupVarEnv id_env id `orElse`
+                    lookupVarEnv kt_env id `orElse`
+                    id
   | otherwise     = id
 
 zonkIdOccs :: ZonkEnv -> [TcId] -> [Id]
@@ -253,9 +269,7 @@ zonkIdOccs env ids = map (zonkIdOcc env) ids
 zonkIdBndr :: ZonkEnv -> TcId -> TcM Id
 zonkIdBndr env id
   = do ty' <- zonkTcTypeToType env (idType id)
-       return (setVarType id ty')
-         -- NB: setVarType, *not* setIdType. We must be lazy in types,
-         --     which may contain knot-tied coercions.
+       return (setIdType id ty')
 
 zonkIdBndrs :: ZonkEnv -> [TcId] -> TcM [Id]
 zonkIdBndrs env ids = mapM (zonkIdBndr env) ids
@@ -384,7 +398,7 @@ zonkLocalBinds env (HsIPBinds (IPBinds binds dict_binds)) = do
 zonkRecMonoBinds :: ZonkEnv -> SigWarn -> LHsBinds TcId -> TcM (ZonkEnv, LHsBinds Id)
 zonkRecMonoBinds env sig_warn binds
  = fixM (\ ~(_, new_binds) -> do
-        { let env1 = extendIdZonkEnv env (collectHsBindsBinders new_binds)
+        { let env1 = extendIdZonkEnvRec env (collectHsBindsBinders new_binds)
         ; binds' <- zonkMonoBinds env1 sig_warn binds
         ; return (env1, binds') })
 
@@ -482,7 +496,8 @@ zonk_bind env sig_warn (AbsBinds { abs_tvs = tyvars, abs_ev_vars = evs
        ; (env1, new_evs) <- zonkEvBndrsX env0 evs
        ; (env2, new_ev_binds) <- zonkTcEvBinds_s env1 ev_binds
        ; (new_val_bind, new_exports) <- fixM $ \ ~(new_val_binds, _) ->
-         do { let env3 = extendIdZonkEnv env2 (collectHsBindsBinders new_val_binds)
+         do { let env3 = extendIdZonkEnvRec env2
+                           (collectHsBindsBinders new_val_binds)
             ; new_val_binds <- zonkMonoBinds env3 noSigWarn val_binds
             ; new_exports   <- mapM (zonkExport env3) exports
             ; return (new_val_binds, new_exports) }
@@ -1371,7 +1386,7 @@ zonkEvBinds :: ZonkEnv -> Bag EvBind -> TcM (ZonkEnv, Bag EvBind)
 zonkEvBinds env binds
   = {-# SCC "zonkEvBinds" #-}
     fixM (\ ~( _, new_binds) -> do
-         { let env1 = extendIdZonkEnv env (collect_ev_bndrs new_binds)
+         { let env1 = extendIdZonkEnvRec env (collect_ev_bndrs new_binds)
          ; binds' <- mapBagM (zonkEvBind env1) binds
          ; return (env1, binds') })
   where
@@ -1390,7 +1405,7 @@ zonkEvBind env bind@(EvBind { eb_lhs = var, eb_rhs = term })
          -- a zonked type, which is a bad idea inside a knot. See also Note
          -- [Small optimization in zonking]
 
-       ; term <- case getEqPredTys_maybe (idType var') of
+       ; term' <- case getEqPredTys_maybe (idType var') of
            Just (r, ty1, ty2) | ty1 `eqType` ty2
                   -> return (EvCoercion (mkTcReflCo r ty1))
            _other -> zonkEvTerm env term
@@ -1477,7 +1492,7 @@ and you're safe.
 -}
 
 zonkTyVarOcc :: ZonkEnv -> TyVar -> TcM TcType
-zonkTyVarOcc env@(ZonkEnv zonk_unbound_tyvar _ tv_env _) tv
+zonkTyVarOcc env@(ZonkEnv zonk_unbound_tyvar tv_env _ _) tv
   | isTcTyVar tv
   = case tcTyVarDetails tv of
          SkolemTv {}    -> lookup_in_env
@@ -1502,14 +1517,15 @@ zonkTyVarOcc env@(ZonkEnv zonk_unbound_tyvar _ tv_env _) tv
   where
     lookup_in_env    -- Look up in the env just as we do for Ids
       = case lookupVarEnv tv_env tv of
-          Nothing  -> return (mkTyVarTy tv)
+          Nothing  -> mkTyVarTy <$> updateTyVarKindM (zonkTcTypeToType env) tv
           Just tv' -> return (mkTyVarTy tv')
 
 zonkCoVarOcc :: ZonkEnv -> CoVar -> TcM Coercion
-zonkCoVarOcc (ZonkEnv _ co_env _ id_env) cv
-  = return $
-    lookupVarEnv co_env cv `orElse`
-    mkCoVarCo (lookupVarEnv id_env cv `orElse` cv)
+zonkCoVarOcc env@(ZonkEnv _ _ id_env _) cv
+  | Just cv' <- lookupVarEnv id_env cv  -- don't look in the knot-tied env
+  = return $ mkCoVarCo cv'
+  | otherwise
+  = mkCoVarCo <$> updateVarTypeM (zonkTcTypeToType env) cv
 
 zonkCoHole :: ZonkEnv -> CoercionHole
            -> Role -> Type -> Type  -- these are all redundant with

@@ -205,7 +205,7 @@ tcHsDeriv hs_ty
        ; ty <- tcCheckHsTypeAndGen hs_ty $
                mkFunTy arg_kind constraintKind
           -- ty is already zonked
-       ; arg_kind <- zonkTcTypeToType arg_kind
+       ; arg_kind <- zonkTcTypeToType emptyZonkEnv arg_kind
        ; let (tvs, pred) = splitNamedForAllTys ty
        ; case getClassPredTys_maybe pred of
            Just (cls, tys) -> return (tvs, cls, tys, arg_kind)
@@ -318,7 +318,7 @@ check_and_gen should_gen hs_ty kind
        ; kvs <- if should_gen
                 then kindGeneralize (tyCoVarsOfType ty)
                 else return []
-       ; zonkTcTypeToType (mkInvForAllTys kvs ty) }
+       ; zonkTcTypeToType emptyZonkEnv (mkInvForAllTys kvs ty) }
 
 {-
 ************************************************************************
@@ -835,9 +835,9 @@ tcInstBinderX mb_kind_info subst binder
              -> Nothing
       | Just (tc, [_, k1, k2]) <- splitTyConApp_maybe ty
       = if | tc `hasKey` eqTyConKey
-             -> Just (mkEqBoxTy eqTyConName, Nominal, k1, k2)
+             -> Just (mkEqBoxTy, Nominal, k1, k2)
            | tc `hasKey` coercibleTyConKey
-             -> Just (mkEqBoxTy coercibleTyConName, Representational, k1, k2)
+             -> Just (mkCoercibleBoxTy, Representational, k1, k2)
            | otherwise
              -> Nothing
       | otherwise
@@ -853,15 +853,24 @@ mkHEqBoxTy co ty1 ty2
   where k1 = typeKind ty1
         k2 = typeKind ty2
 
--- | This takes @a ~# b@ (or @a ~R# b@) and returns @a ~ b@ (or @Coercible a b@).
-mkEqBoxTy :: Name -> TcCoercion -> Type -> Type -> TcM Type
--- NB: Defined here to avoid module loops with DataCon
-mkEqBoxTy tc_name co ty1 ty2
-  = do { eq_tc <- tcLookupTyCon tc_name
+-- | This takes @a ~# b@ and returns @a ~ b@.
+mkEqBoxTy :: TcCoercion -> Type -> Type -> TcM Type
+mkEqBoxTy co ty1 ty2
+  = do { eq_tc <- tcLookupTyCon eqTyConName
        ; let [datacon] = tyConDataCons eq_tc
-       ; return $
-         mkTyConApp (promoteDataCon datacon) [k, ty1, ty2, mkCoercionTy co] }
+       ; hetero <- mkHEqBoxTy co ty1 ty2
+       ; return $ mkTyConApp (promoteDataCon datacon) [k, ty1, ty2, hetero] }
   where k = typeKind ty1
+
+-- | This takes @a ~R# b@ and returns @Coercible a b@.
+mkCoercibleBoxTy :: TcCoercion -> Type -> Type -> TcM Type
+-- monadic just for convenience with mkEqBoxTy
+mkCoercibleBoxTy co ty1 ty2
+  = do { return $
+         mkTyConApp (promoteDataCon coercibleDataCon)
+                    [k, ty1, ty2, mkCoercionTy co] }
+  where k = typeKind ty1
+
 
 --------------------------
 checkExpectedKind :: TcType               -- the type whose kind we're checking
@@ -1696,7 +1705,7 @@ tcHsPatSigType ctxt (HsWB { hswb_cts = hs_ty, hswb_vars = sig_vars
         ; sig_ty <- solveEqualities $
                     tcExtendTyVarEnv2 ktv_binds $
                     tcHsLiftedType hs_ty
-        ; sig_ty <- zonkTcTypeToType sig_ty
+        ; sig_ty <- zonkTcTypeToType emptyZonkEnv sig_ty
         ; checkValidType ctxt sig_ty
         ; return (sig_ty, ktv_binds, nwc_binds) }
   where

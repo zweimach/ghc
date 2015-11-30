@@ -126,8 +126,6 @@ import GHC.Prim
 import GHC.Err
 import {-# SOURCE #-} GHC.IO (failIO,mplusIO)
 
-import Data.Coerce ( coerce )
-
 import GHC.Tuple ()     -- Note [Depend on GHC.Tuple]
 import GHC.Integer ()   -- Note [Depend on GHC.Integer]
 

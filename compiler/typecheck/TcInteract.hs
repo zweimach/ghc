@@ -23,7 +23,9 @@ import Name
 import PrelNames ( knownNatClassName, knownSymbolClassName,
                    callStackTyConKey, typeableClassName, coercibleTyConKey,
                    heqTyConKey )
-import TysWiredIn ( ipClass, typeNatKind, typeSymbolKind )
+import TysWiredIn ( ipClass, typeNatKind, typeSymbolKind, heqDataCon,
+                    coercibleDataCon )
+import TysPrim    ( eqPrimTyCon, eqReprPrimTyCon )
 import Id( idType )
 import CoAxiom ( Eqn, CoAxiom(..), CoAxBranch(..), fromBranches )
 import Class
@@ -2115,8 +2117,10 @@ matchLiftedEquality args
 
 matchLiftedCoercible :: [Type] -> TcS LookupInstResult
 matchLiftedCoercible args@[k, t1, t2]
-  = return (GenInst { lir_new_theta = [ mkTyConApp eqReprPrimTyCon args ]
-                    , lir_mk_ev     = EvDFunApp (dataConWrapId coercibleDataCon) args
+  = return (GenInst { lir_new_theta = [ mkTyConApp eqReprPrimTyCon args' ]
+                    , lir_mk_ev     = EvDFunApp (dataConWrapId coercibleDataCon)
+                                                args
                     , lir_safe_over = True })
   where
     args' = [k, k, t1, t2]
+matchLiftedCoercible args = pprPanic "matchLiftedCoercible" (ppr args)

@@ -37,7 +37,6 @@ import GHC.Enum
 import GHC.Show
 import GHC.Read
 import GHC.Base
-import Data.Coerce
 
 -- | Representational equality. If @Coercion a b@ is inhabited by some terminating
 -- value, then the type @a@ has the same underlying representation as the type @b@.
