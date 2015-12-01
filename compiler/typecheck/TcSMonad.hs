@@ -1366,8 +1366,8 @@ kickOutRewritable new_fr new_tv (IC { inert_eqs      = tv_eqs
     (tv_eqs_out, tv_eqs_in) = foldVarEnv kick_out_eqs ([], emptyVarEnv) tv_eqs
     (feqs_out,   feqs_in)   = partitionFunEqs  kick_out_fe funeqmap
     (dicts_out,  dicts_in)  = partitionDicts   kick_out_ct dictmap
-    (irs_out,    irs_in)    = partitionBag     kick_out_irred irreds
-    (insols_out, insols_in) = partitionBag     kick_out_ct    insols
+    (irs_out,    irs_in)    = partitionBag     kick_out_ct irreds
+    (insols_out, insols_in) = partitionBag     kick_out_ct insols
       -- Kick out even insolubles; see Note [Kick out insolubles]
 
     can_rewrite :: CtEvidence -> Bool
@@ -1385,11 +1385,6 @@ kickOutRewritable new_fr new_tv (IC { inert_eqs      = tv_eqs
     kick_out_ctev ev =  can_rewrite ev
                      && new_tv `elemVarSet` tyCoVarsOfType (ctEvPred ev)
          -- See Note [Kicking out inert constraints]
-
-    kick_out_irred :: Ct -> Bool
-    kick_out_irred ct =  can_rewrite (cc_ev ct)
-                      && new_tv `elemVarSet` TcM.tyCoVarsOfCt ct
-          -- See Note [Kicking out Irreds]
 
     kick_out_eqs :: EqualCtList -> ([Ct], TyVarEnv EqualCtList)
                  -> ([Ct], TyVarEnv EqualCtList)
@@ -1478,22 +1473,7 @@ the kind variables/ that are directly visible in the type. Hence we
 will have exposed all the rewriting we care about to make the most
 precise kinds visible for matching classes etc. No need to kick out
 constraints that mention type variables whose kinds contain this
-variable!  (Except see Note [Kicking out Irreds].)
-
-Note [Kicking out Irreds]
-~~~~~~~~~~~~~~~~~~~~~~~~~
-There is an awkward special case for Irreds.  When we have a
-kind-mis-matched equality constraint (a:k1) ~ (ty:k2), we turn it into
-an Irred (see Note [Equalities with incompatible kinds] in
-TcCanonical). So in this case the free kind variables of k1 and k2
-are not visible.  More precisely, the type looks like
-   (~) k1 (a:k1) (ty:k2)
-because (~) has kind forall k. k -> k -> Constraint.  So the constraint
-itself is ill-kinded.  We can "see" k1 but not k2.  That's why we use
-tyCoVarsOfCt to make sure we see k2.
-
-This is not pretty. Maybe (~) should have kind
-   (~) :: forall k1 k1. k1 -> k2 -> Constraint
+variable!
 
 Note [Kick out insolubles]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
