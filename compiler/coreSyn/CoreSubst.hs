@@ -56,7 +56,8 @@ import Coercion hiding ( substCo, substCoVarBndr )
 
 import TyCon       ( tyConArity )
 import DataCon
-import PrelNames   ( unpackCStringIdKey, unpackCStringUtf8IdKey )
+import PrelNames   ( heqDataConKey, coercibleDataConKey, unpackCStringIdKey
+                   , unpackCStringUtf8IdKey )
 import OptCoercion ( optCoercion )
 import PprCore     ( pprCoreBindings, pprRules )
 import Module      ( Module )
@@ -790,6 +791,70 @@ InlVanilla.  The WARN is just so I can see if it happens a lot.
 *                                                                      *
 ************************************************************************
 
+Note [Getting the map/coerce RULE to work]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+TODO (RAE): Update note.
+
+We wish to allow the "map/coerce" RULE to fire:
+
+  {-# RULES "map/coerce" map coerce = coerce #-}
+
+The naive core produced for this is
+
+  forall a b (dict :: Coercible * a b).
+    map @a @b (coerce @a @b @dict) = coerce @[a] @[b] @dict'
+
+  where dict' :: Coercible [a] [b]
+        dict' = ...
+
+This matches literal uses of `map coerce` in code, but that's not what we
+want. We want it to match, say, `map MkAge` (where newtype Age = MkAge Int)
+too. Some of this is addressed by compulsorily unfolding coerce on the LHS,
+yielding
+
+  forall a b (dict :: Coercible * a b).
+    map @a @b (\(x :: a) -> case dict of
+      MkCoercible (co :: a ~R# b) -> x |> co) = ...
+
+Getting better. But this isn't exactly what gets produced. This is because
+Coercible essentially has ~R# as a superclass, and superclasses get eagerly
+extracted during solving. So we get this:
+
+  forall a b (dict :: Coercible * a b).
+    case Coercible_SCSel @* @a @b dict of
+      _ [Dead] -> map @a @b (\(x :: a) -> case dict of
+                               MkCoercible (co :: a ~R# b) -> x |> co) = ...
+
+Unfortunately, this still abstracts over a Coercible dictionary. We really
+want it to abstract over the ~R# evidence. So, we have Desugar.unfold_coerce,
+which transforms the above to (see also Note [Desugaring coerce as cast] in
+Desugar)
+
+  forall a b (co :: a ~R# b).
+    let dict = MkCoercible @* @a @b co in
+    case Coercible_SCSel @* @a @b dict of
+      _ [Dead] -> map @a @b (\(x :: a) -> case dict of
+         MkCoercible (co :: a ~R# b) -> x |> co) = let dict = ... in ...
+
+Now, we need simpleOptExpr to fix this up. It does so by taking three
+separate actions:
+  1. Inline certain non-recursive bindings. The choice whether to inline
+     is made in maybe_substitute. Note the rather specific check for
+     MkCoercible in there.
+
+  2. Stripping silly case expressions, like the Coercible_SCSel one.
+     A case expression is silly if its binder is dead, it has only one,
+     DEFAULT, alternative, and the scrutinee is unlifted. (This last bit
+     is to make sure we're not changing laziness properties.)
+     See the `Case` case of simple_opt_expr's `go` function.
+
+  3. Look for case expressions that unpack something that was
+     just packed and inline them. This is also done in simple_opt_expr's
+     `go` function.
+
+This is all a fair amount of special-purpose hackery, but it's all for
+a good cause. And it won't hurt other RULES and such that it comes across.
+
 -}
 
 simpleOptExpr :: CoreExpr -> CoreExpr
@@ -797,6 +862,9 @@ simpleOptExpr :: CoreExpr -> CoreExpr
 -- The optimisation is very straightforward: just
 -- inline non-recursive bindings that are used only once,
 -- or where the RHS is trivial
+--
+-- We also inline bindings that bind a Eq# box: see
+-- See Note [Getting the map/coerce RULE to work].
 --
 -- The result is NOT guaranteed occurrence-analysed, because
 -- in  (let x = y in ....) we substitute for x; so y's occ-info
@@ -873,6 +941,7 @@ simple_opt_expr subst expr
 
     go lam@(Lam {})     = go_lam [] subst lam
     go (Case e b ty as)
+       -- See Note [Getting the map/coerce RULE to work]
       | isDeadBinder b
       , Just (con, _tys, es) <- exprIsConApp_maybe in_scope_env e'
       , Just (altcon, bs, rhs) <- findAlt (DataAlt con) as
@@ -881,6 +950,12 @@ simple_opt_expr subst expr
           _       -> mkLets (catMaybes mb_binds) $ simple_opt_expr subst' rhs
             where (subst', mb_binds) = mapAccumL simple_opt_out_bind subst
                                                  (zipEqual "simpleOptExpr" bs es)
+
+         -- Note [Getting the map/coerce RULE to work]
+      | isDeadBinder b
+      , [(DEFAULT, _, rhs)] <- as
+      , isUnLiftedType (varType b)
+      = go rhs
 
       | otherwise
       = Case e' b' (substTy subst ty)
@@ -1000,6 +1075,11 @@ maybe_substitute subst b r
     safe_to_inline NoOccInfo                = trivial
 
     trivial | exprIsTrivial r = True
+            | (Var fun, args) <- collectArgs r
+            , Just dc <- isDataConWorkId_maybe fun
+            , dc `hasKey` heqDataConKey || dc `hasKey` coercibleDataConKey
+            , all exprIsTrivial args = True
+                     -- See Note [Getting the map/coerce RULE to work]
             | otherwise = False
 
 ----------------------
