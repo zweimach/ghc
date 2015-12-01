@@ -592,7 +592,7 @@ mkAppCo (TyConAppCo r tc args) arg
 mkAppCo co arg = AppCo co  arg
 -- Note, mkAppCo is careful to maintain invariants regarding
 -- where Refl constructors appear; see the comments in the definition
--- of Coercion and the Note [Refl invariant] in types/TyCoRep.hs.
+-- of Coercion and the Note [Refl invariant] in TyCoRep.
 
 -- | Applies multiple 'Coercion's to another 'Coercion', from left to right.
 -- See also 'mkAppCo'.
@@ -910,16 +910,13 @@ mkInstCo co arg = let result = InstCo co arg
                   then Refl (coercionRole co) ty1
                   else result
 
--- TODO (RAE): This seems inefficient, if repeated.
+-- This could work harder to produce Refl coercions, but that would be
+-- quite inefficient. Seems better not to try.
 mkCoherenceCo :: Coercion -> Coercion -> Coercion
 mkCoherenceCo co1 (Refl {}) = co1
 mkCoherenceCo (CoherenceCo co1 co2) co3
   = CoherenceCo co1 (co2 `mkTransCo` co3)
-mkCoherenceCo co1 co2     = let result = CoherenceCo co1 co2
-                                Pair ty1 ty2 = coercionKind result in
-                            if ty1 `eqType` ty2
-                            then Refl (coercionRole co1) ty1
-                            else result
+mkCoherenceCo co1 co2     = CoherenceCo co1 co2
 
 -- | A CoherenceCo c1 c2 applies the coercion c2 to the left-hand type
 -- in the kind of c1. This function uses sym to get the coercion on the
@@ -1120,7 +1117,8 @@ promoteCoercion co = case co of
       -> mkKindCo co
 
     AppCo co1 arg
-      | Just co' <- instCoercion (promoteCoercion co1) arg
+      | Just co' <- instCoercion (coercionKind (mkKindCo co1))
+                                 (promoteCoercion co1) arg
       -> co'
       | otherwise
       -> mkKindCo co
@@ -1198,23 +1196,30 @@ promoteCoercion co = case co of
 -- fails if this is not possible, if @g@ coerces between a forall and an ->
 -- or if second parameter has a representational role and can't be used
 -- with an InstCo. The result role matches is representational.
-instCoercion :: Coercion  -- ^ must be nominal
+instCoercion :: Pair Type -- type of the first coercion
+             -> Coercion  -- ^ must be nominal
              -> Coercion
              -> Maybe Coercion
-instCoercion g w
-  | isNamedForAllTy ty1 && isNamedForAllTy ty2
+instCoercion (Pair lty rty) g w
+  | isNamedForAllTy lty && isNamedForAllTy rty
   , Just w' <- setNominalRole_maybe w
   = Just $ mkInstCo g w'
-  | isFunTy ty1 && isFunTy ty2
+  | isFunTy lty && isFunTy rty
   = Just $ mkNthCo 1 g -- extract result type, which is the 2nd argument to (->)
   | otherwise -- one forall, one funty...
   = Nothing
   where
-    -- TODO (RAE): This is inefficient.
-    Pair ty1 ty2 = coercionKind g
 
 instCoercions :: Coercion -> [Coercion] -> Maybe Coercion
-instCoercions = foldM instCoercion
+instCoercions g ws
+  = let arg_ty_pairs = map coercionKind ws in
+    snd <$> foldM go (coercionKind g, g) (zip arg_ty_pairs ws)
+  where
+    go :: (Pair Type, Coercion) -> (Pair Type, Coercion)
+       -> Maybe (Pair Type, Coercion)
+    go (g_tys, g) (w_tys, w)
+      = do { g' <- instCoercion g_tys g w
+           ; return (piResultTy <$> g_tys <*> w_tys, g') }
 
 -- | Creates a new coercion with both of its types casted by different casts
 -- castCoercionKind g h1 h2, where g :: t1 ~ t2, has type (t1 |> h1) ~ (t2 |> h2)
@@ -1499,9 +1504,6 @@ extendLiftingContext :: LiftingContext  -- ^ original LC
                      -> TyVar           -- ^ new variable to map...
                      -> Coercion        -- ^ ...to this lifted version
                      -> LiftingContext
-  -- TODO (RAE): This seems utterly wrong. But I think it will go away soon
-  -- anyway. Why wrong? It doesn't take kind changes into account. Compare
-  -- extendLiftingContextEx
 extendLiftingContext (LC subst env) tv arg
   = ASSERT( isTyVar tv )
     LC subst (extendVarEnv env tv arg)
@@ -1512,6 +1514,9 @@ extendLiftingContext (LC subst env) tv arg
 extendLiftingContextEx :: LiftingContext    -- ^ original lifting context
                        -> [(TyVar,Type)]    -- ^ ex. var / value pairs
                        -> LiftingContext
+-- Note that this is more involved than extendLiftingContext. That function
+-- takes a coercion to extend with, so it's assumed that the caller has taken
+-- into account any of the kind-changing stuff worried about here.
 extendLiftingContextEx lc [] = lc
 extendLiftingContextEx lc@(LC subst env) ((v,ty):rest)
 -- This function adds bindings for *Nominal* coercions. Why? Because it

@@ -981,7 +981,7 @@ mkCastTy ty co = -- NB: don't check if the coercion "from" type matches here;
       -- if kind contains any dependent quantifications, we can't push.
       -- apply arguments until it doesn't
       = let (bndrs, _inner_ki) = splitForAllTys kind
-            (some_dep_bndrs, no_dep_bndrs) = span_from_end isAnonBinder bndrs
+            (some_dep_bndrs, no_dep_bndrs) = spanEnd isAnonBinder bndrs
             (some_dep_args, rest_args) = splitAtList some_dep_bndrs args
             dep_subst = zipOpenTCvSubstBinders some_dep_bndrs some_dep_args
             used_no_dep_bndrs = takeList rest_args no_dep_bndrs
@@ -994,11 +994,6 @@ mkCastTy ty co = -- NB: don't check if the coercion "from" type matches here;
 
     no_double_casts (CastTy ty co1) co2 = CastTy ty (co1 `mkTransCo` co2)
     no_double_casts ty              co  = CastTy ty co
-
-    -- TODO (RAE): Make more efficient
-    span_from_end :: (a -> Bool) -> [a] -> ([a], [a])
-    span_from_end p as = let (xs, ys) = span p (reverse as) in
-                         (reverse ys, reverse xs)
 
 {-
 --------------------------------------------------------------------
@@ -1178,7 +1173,6 @@ mkVisForAllTys :: [TyVar] -> Type -> Type
 mkVisForAllTys tvs = ASSERT( all isTyVar tvs )
                      mkForAllTys (map (flip Named Visible) tvs)
 
-  -- TODO (RAE): should these ever produce Explicit?
 mkPiType  :: Var -> Type -> Type
 -- ^ Makes a @(->)@ type or an implicit forall type, depending
 -- on whether it is given a type variable or a term variable.
@@ -1195,7 +1189,6 @@ mkPiTypes vs ty = foldr mkPiType ty vs
 -- | Given a list of type-level vars, makes ForAllTys, preferring
 -- anonymous binders if the variable is, in fact, not dependent.
 -- All binders are /visible/.
--- This used to be @mkPiKinds@.
 mkPiTypesPreferFunTy :: [TyVar] -> Type -> Type
 mkPiTypesPreferFunTy vars inner_ty = fst $ go vars inner_ty
   where
@@ -1313,7 +1306,6 @@ splitForAllTysInvisible ty = split ty ty []
        | Just ty' <- coreView ty = split orig_ty ty' bndrs
      split _       (ForAllTy bndr ty) bndrs
        |  isInvisibleBinder bndr
-       || isPredTy (binderType bndr)
        = split ty ty (bndr:bndrs)
 
      split orig_ty _ bndrs
@@ -1409,13 +1401,22 @@ isIdLikeBinder (Anon {})  = True
 -- a visible argument? This checks to see if the kind of the type
 -- is constraint.
 isVisibleType :: Type -> Bool
-isVisibleType = not . isConstraintKind . typeKind
+isVisibleType = not . isPredTy
 
 binderVisibility :: Binder -> VisibilityFlag
 binderVisibility (Named _ vis) = vis
 binderVisibility (Anon ty)
   | isVisibleType ty = Visible
   | otherwise        = Invisible
+
+-- | Does this binder bind an invisible argument?
+isInvisibleBinder :: Binder -> Bool
+isInvisibleBinder (Named _ vis) = vis == Invisible
+isInvisibleBinder (Anon ty)     = isPredTy ty
+
+-- | Does this binder bind a visible argument?
+isVisibleBinder :: Binder -> Bool
+isVisibleBinder = not . isInvisibleBinder
 
 -- | Extract a bound variable in a binder, if any
 binderVar_maybe :: Binder -> Maybe Var

@@ -40,7 +40,7 @@ module TyCoRep (
         isCoercionType, isLevityTy, isLevityVar,
 
         -- Functions over binders
-        binderType, delBinderVar, isInvisibleBinder, isVisibleBinder,
+        binderType, delBinderVar,
 
         -- Functions over coercions
         pickLR,
@@ -389,17 +389,6 @@ delBinderVar :: VarSet -> Binder -> VarSet
 delBinderVar vars (Named tv _) = vars `delVarSet` tv
 delBinderVar vars (Anon {})    = vars
 
--- | Does this binder bind an invisible argument?
-isInvisibleBinder :: Binder -> Bool
-isInvisibleBinder (Named _ Invisible) = True
-isInvisibleBinder _                   = False
-  -- TODO (RAE): Shouldn't this check the kind of an Anon?
-  -- If this changes, change splitForAllTysInvisible as well
-
--- | Does this binder bind a visible argument?
-isVisibleBinder :: Binder -> Bool
-isVisibleBinder = not . isInvisibleBinder
-
 -- | Create the plain type constructor type which has been applied to no type arguments at all.
 mkTyConTy :: TyCon -> Type
 mkTyConTy tycon = TyConApp tycon []
@@ -665,11 +654,6 @@ But that's not quite true because of coercion variables.  Consider
      Left h    where h :: Maybe Int ~ Maybe Int
 etc.  So the consequence is only true of coercions that
 have no coercion variables.
-
-Invariant 2:
-
-All coercions other than Refl are guaranteed to coerce between two
-*distinct* types.
 
 Note [Coercion axioms applied to coercions]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

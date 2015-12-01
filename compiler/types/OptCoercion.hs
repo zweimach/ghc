@@ -616,7 +616,6 @@ opt_trans_rule is co1 co2
         lhs  = coAxNthLHS con1 ind1
         rhs  = coAxBranchRHS branch
         pivot_tvs = exactTyCoVarsOfType (if sym2 then rhs else lhs)
-  , [] <- coAxBranchCoVars branch  -- TODO (RAE): improve?
   , all (`elemVarSet` pivot_tvs) qtvs
   = fireTransRule "TrPushAxSym" co1 co2 $
     if sym2

@@ -22,7 +22,7 @@ module Util (
         mapAndUnzip, mapAndUnzip3, mapAccumL2,
         nOfThem, filterOut, partitionWith, splitEithers,
 
-        dropWhileEndLE,
+        dropWhileEndLE, spanEnd,
 
         foldl1', foldl2, count, all2,
 
@@ -48,9 +48,6 @@ module Util (
 
         -- * For loop
         nTimes,
-
-        -- * Functions
-        uncurry2,
 
         -- * Sorting
         sortWith, minWith, nubSort,
@@ -500,18 +497,6 @@ isn'tIn msg x ys
 {-
 ************************************************************************
 *                                                                      *
-\subsubsection{Functions}
-*                                                                      *
-************************************************************************
--}
-
--- TODO (RAE): Rename this. See uncurry3 in same file.
-uncurry2 :: (a -> b -> c -> d) -> a -> (b, c) -> d
-uncurry2 f a (b, c) = f a b c
-
-{-
-************************************************************************
-*                                                                      *
 \subsubsection{Sort utils}
 *                                                                      *
 ************************************************************************
@@ -629,6 +614,17 @@ dropTail n xs
 -- difference between dropWhileEnd and dropWhileEndLE.
 dropWhileEndLE :: (a -> Bool) -> [a] -> [a]
 dropWhileEndLE p = foldr (\x r -> if null r && p x then [] else x:r) []
+
+-- | @spanEnd p l == reverse (span p (reverse l))@. The first list
+-- returns actually comes after the second list (when you look at the
+-- input list).
+spanEnd :: (a -> Bool) -> [a] -> ([a], [a])
+spanEnd p l = go l [] [] l
+  where go yes _rev_yes rev_no [] = (yes, reverse rev_no)
+        go yes rev_yes  rev_no (x:xs)
+          | p x       = go yes (x : rev_yes) rev_no                  xs
+          | otherwise = go xs  []            (x : rev_yes ++ rev_no) xs
+
 
 snocView :: [a] -> Maybe ([a],a)
         -- Split off the last element

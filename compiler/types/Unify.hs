@@ -276,10 +276,10 @@ tcUnifyTyWithTFs :: Bool  -- ^ True <=> do two-way unification;
                           --   False <=> do one-way matching.
                           --   See end of sec 5.2 from the paper
                  -> Type -> Type -> Maybe TCvSubst
--- This algorithm is a direct implementation of the "Algorithm U" presented in
--- the paper "Injective type families for Haskell", Figures 2 and 3.  Equation
--- numbers in the comments refer to equations from the paper.
--- TODO (RAE): Update this comment.
+-- This algorithm is an implementation of the "Algorithm U" presented in
+-- the paper "Injective type families for Haskell", Figures 2 and 3.
+-- The code is incorporated with the standard unifier for convenience, but
+-- its operation should match the specification in the paper.
 tcUnifyTyWithTFs twoWay t1 t2
   = case tc_unify_tys (const BindMe) twoWay rn_env emptyTvSubstEnv emptyCvSubstEnv
                          [t1] [t2] of

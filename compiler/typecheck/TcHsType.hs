@@ -709,9 +709,9 @@ tc_infer_args :: Outputable fun
               -> [LHsType Name]           -- ^ args
               -> Int                      -- ^ number to start arg counter at
               -> TcM (TcKind, [TcType], [LHsType Name], Int)
-tc_infer_args mode orig_ty ki mb_kind_info args n0
-  = do { traceTc "tcInferApps" (ppr ki $$ ppr args)
-       ; go emptyTCvSubst ki args n0 [] }
+tc_infer_args mode orig_ty ki mb_kind_info orig_args n0
+  = do { traceTc "tcInferApps" (ppr ki $$ ppr orig_args)
+       ; go emptyTCvSubst ki orig_args n0 [] }
   where
     go subst fun_kind []   n acc
       = return ( substTy subst fun_kind, reverse acc, [], n )
@@ -745,7 +745,7 @@ tc_infer_args mode orig_ty ki mb_kind_info args n0
            ; go subst' res_k args (n+1) (arg' : acc) }
 
       | otherwise
-      = return (substTy subst fun_kind, reverse acc, args, n)
+      = return (substTy subst fun_kind, reverse acc, all_args, n)
 
 -- | Applies a type to a list of arguments. Always consumes all the
 -- arguments.
