@@ -173,7 +173,7 @@ tcHsInstHead :: UserTypeCtxt -> LHsType Name -> TcM ([TyVar], ThetaType, Class, 
 tcHsInstHead user_ctxt lhs_ty@(L loc hs_ty)
   = setSrcSpan loc $    -- The "In the type..." context comes from the caller
     do { inst_ty <- solveEqualities $ tc_inst_head hs_ty
-       ; kvs     <- kindGeneralize (tyCoVarsOfType inst_ty)
+       ; kvs     <- kindGeneralize inst_ty
        ; inst_ty <- zonkTcTypeToType emptyZonkEnv $ mkInvForAllTys kvs inst_ty
        ; checkValidInstance user_ctxt lhs_ty inst_ty }
 
@@ -316,7 +316,7 @@ check_and_gen should_gen hs_ty kind
                tc_hs_type typeLevelMode hs_ty kind
        ; traceTc "tcCheckHsTypeAndGen" (ppr hs_ty)
        ; kvs <- if should_gen
-                then kindGeneralize (tyCoVarsOfType ty)
+                then do kindGeneralize ty
                 else return []
        ; zonkTcType (mkInvForAllTys kvs ty) }
 
@@ -1369,10 +1369,11 @@ new_skolem_tv :: Name -> Kind -> TcTyVar
 new_skolem_tv n k = mkTcTyVar n k vanillaSkolemTv
 
 ------------------
-kindGeneralize :: TyVarSet -> TcM [KindVar]
-kindGeneralize tkvs
+kindGeneralize :: TcType -> TcM [KindVar]
+kindGeneralize ty
   = do { gbl_tvs <- tcGetGlobalTyCoVars -- Already zonked
-       ; quantifyTyVars gbl_tvs (Pair tkvs emptyVarSet) }
+       ; kvs <- zonkTcTypeAndFV ty
+       ; quantifyTyVars gbl_tvs (Pair kvs emptyVarSet) }
 
 {-
 Note [Kind generalisation]

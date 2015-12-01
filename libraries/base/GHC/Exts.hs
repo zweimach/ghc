@@ -56,6 +56,9 @@ module GHC.Exts
         -- * Equality
         type (~~),
 
+        -- * Levity polymorphism
+        GHC.Prim.TYPE, Levity(..),
+
         -- * Transform comprehensions
         Down(..), groupWith, sortWith, the,
 
@@ -75,7 +78,8 @@ module GHC.Exts
         IsList(..)
        ) where
 
-import GHC.Prim hiding ( coerce )
+import GHC.Prim hiding ( coerce, TYPE )
+import qualified GHC.Prim
 import GHC.Base hiding ( coerce )
 import GHC.Word
 import GHC.Int

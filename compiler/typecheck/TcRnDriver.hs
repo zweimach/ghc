@@ -1863,7 +1863,7 @@ tcRnType hsc_env normalise rdr_type
                        tcLHsType rn_type
 
        -- Do kind generalisation; see Note [Kind-generalise in tcRnType]
-       ; kvs <- kindGeneralize (tyCoVarsOfType kind)
+       ; kvs <- kindGeneralize kind
        ; ty  <- zonkTcTypeToType emptyZonkEnv ty
 
        ; ty' <- if normalise

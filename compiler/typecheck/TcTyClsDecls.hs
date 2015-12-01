@@ -309,7 +309,7 @@ kcTyClGroup (TyClGroup { group_tyclds = decls })
       = do { let kc_kind = case lookupNameEnv kind_env name of
                                Just (AThing k) -> k
                                _ -> pprPanic "kcTyClGroup" (ppr name $$ ppr kind_env)
-           ; kvs <- kindGeneralize (tyCoVarsOfType kc_kind)
+           ; kvs <- kindGeneralize kc_kind
            ; kc_kind' <- zonkTcTypeToType emptyZonkEnv kc_kind
 
                       -- Make sure kc_kind' has the final, zonked kind variables
