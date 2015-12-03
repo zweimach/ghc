@@ -111,12 +111,16 @@ module Type (
 
         -- * Type free variables
         tyCoVarsOfType, tyCoVarsOfTypes, tyCoVarsOfTypeAcc,
+        dTyCoVarsOfType,
         coVarsOfType,
         coVarsOfTypes, closeOverKinds,
         splitDepVarsOfType, splitDepVarsOfTypes,
         splitVisVarsOfType, splitVisVarsOfTypes,
         expandTypeSynonyms,
-        typeSize, varSetElemsWellScoped, toposortTyVars,
+        typeSize,
+
+        -- * Well-scoped lists of variables
+        varSetElemsWellScoped, toposortTyVars, tyCoVarsOfTypeWellScoped,
 
         -- * Type comparison
         eqType, eqTypeX, eqTypes, cmpType, cmpTypes, cmpTypeX, cmpTypesX, cmpTc,
@@ -1718,19 +1722,36 @@ typeSize (TyConApp _ ts)  = 1 + sum (map typeSize ts)
 typeSize (CastTy ty co)   = typeSize ty + coercionSize co
 typeSize (CoercionTy co)  = coercionSize co
 
+{-
+%************************************************************************
+%*                                                                      *
+         Well-scoped tyvars
+*                                                                      *
+************************************************************************
+-}
 
--- | Do a topological sort on a list of tyvars.
+-- | Do a topological sort on a list of tyvars. This is a deterministic
+-- sorting operation (that is, doesn't depend on Uniques).
 toposortTyVars :: [TyVar] -> [TyVar]
 toposortTyVars tvs = reverse $
-                     [ tv | (_, tv, _) <- topologicalSortG $
+                     [ tv | (tv, _, _) <- topologicalSortG $
                                           graphFromEdgedVertices nodes ]
   where
-    nodes = [ ((), tv, dVarSetElems (dTyCoVarsOfType (tyVarKind tv)))
+    var_ids = mkVarEnv (zip tvs [1..])
+
+    nodes = [ ( tv
+              , lookupVarEnv_NF var_ids tv
+              , mapMaybe (lookupVarEnv var_ids)
+                         (tyCoVarsOfTypeList (tyVarKind tv)) )
             | tv <- tvs ]
 
 -- | Extract a well-scoped list of variables from a set of variables.
 varSetElemsWellScoped :: VarSet -> [Var]
 varSetElemsWellScoped = toposortTyVars . varSetElems
+
+-- | Get the free vars of a type in scoped order
+tyCoVarsOfTypeWellScoped :: Type -> [TyVar]
+tyCoVarSOfTypeWellScoped = toposortTyVars . tyCoVarsOfTypeListx
 
 {-
 ************************************************************************

@@ -1735,23 +1735,26 @@ tcUserTypeSig hs_sig_ty mb_name
               , sig_loc   = loc } }
 
   -- Partial sig with wildcards
-  | HsIB { hsib_kvs = kvs, hsib_tvs = tvs, hsib_body = wc_ty }   <- hs_sig_ty
+  | HsIB { hsib_vars = vars, hsib_body = wc_ty } <- hs_sig_ty
   , HsWC { hswc_wcs = wcs, hswc_ctx = extra, hswc_body = hs_ty } <- wc_ty
   , (hs_tvs, L _ hs_ctxt, hs_tau) <- splitLHsSigmaTy hs_ty
-  = pushTcLevelM_  $  -- When instantiating the signature, do so "one level in"
-                      -- so that they can be unified under the forall
-    tcImplicitTKBndrs kvs tvs $ \ kvs1 tvs1 ->
-    tcWildCardBinders wcs     $ \ wcs ->
-    tcHsTyVarBndrs hs_tvs     $ \ tvs2 ->
-    do { -- Instantiate the type-class context; but if there
-         -- is an extra-constraints wildcard, just discard it here
-         traceTc "tcPartial" (ppr name $$ ppr tvs $$ ppr tvs1 $$ ppr wcs)
-       ; theta <- mapM tcLHsPredType $
-                  case extra of
-                    Nothing -> hs_ctxt
-                    Just _  -> dropTail 1 hs_ctxt
+  = do { (vars1, (wcs, tvs2, theta, tau))
+           <- pushTcLevelM_  $
+                  -- When instantiating the signature, do so "one level in"
+                  -- so that they can be unified under the forall
+              tcImplicitTKBndrs vars $
+              tcWildCardBinders wcs  $ \ wcs ->
+              tcHsTyVarBndrs hs_tvs  $ \ tvs2 ->
+         do { -- Instantiate the type-class context; but if there
+              -- is an extra-constraints wildcard, just discard it here
+              traceTc "tcPartial" (ppr name $$ ppr vars $$ ppr vars1 $$ ppr wcs)
+            ; theta <- mapM tcLHsPredType $
+                       case extra of
+                         Nothing -> hs_ctxt
+                         Just _  -> dropTail 1 hs_ctxt
 
-       ; tau <- tcHsOpenType hs_tau
+            ; tau <- tcHsOpenType hs_tau
+            ; return (wcs, tvs2, theta, tau) }
 
          -- Check for validity (eg rankN etc)
          -- The ambiguity check will happen (from checkValidType),
@@ -1764,7 +1767,7 @@ tcUserTypeSig hs_sig_ty mb_name
        ; return $
          TISI { sig_bndr  = PartialSig { sig_name = name, sig_hs_ty = hs_ty
                                        , sig_cts = extra, sig_wcs = wcs }
-              , sig_skols = [ (tyVarName tv, tv) | tv <- kvs1 ++ tvs1 ++ tvs2 ]
+              , sig_skols = [ (tyVarName tv, tv) | tv <- vars1 ++ tvs2 ]
               , sig_theta = theta
               , sig_tau   = tau
               , sig_ctxt  = ctxt_F

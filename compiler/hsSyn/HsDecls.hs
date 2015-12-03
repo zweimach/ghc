@@ -1165,7 +1165,7 @@ ppr_con_forall :: OutputableBndr name => Bool -> LHsQTyVars name
                                       -> LHsContext name -> SDoc
 ppr_con_forall explicit_forall qtvs (L _ ctxt)
   | explicit_forall
-  = pprHsForAllTvs (hsQTvBndrs qtvs) <+> pprHsContext ctxt
+  = pprHsForAllTvs (hsQTvExplicit qtvs) <+> pprHsContext ctxt
   | otherwise
   = pprHsContext ctxt
 

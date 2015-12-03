@@ -766,7 +766,7 @@ rep_wc_ty_sig :: Name -> SrcSpan -> LHsSigWcType Name -> Located Name
     -- We must special-case the top-level explicit for-all of a TypeSig
     -- See Note [Scoped type variables in bindings]
 rep_wc_ty_sig mk_sig loc sig_ty nm
-  | HsIB { hsib_tvs  = implicit_tvs, hsib_body = sig1 } <- sig_ty
+  | HsIB { hsib_vars = implicit_tvs, hsib_body = sig1 } <- sig_ty
   , (explicit_tvs, ctxt, ty) <- splitLHsSigmaTy (hswc_body sig1)
   = do { nm1 <- lookupLOcc nm
        ; let rep_in_scope_tv tv = do { name <- lookupBinder (hsLTyVarName tv)
@@ -873,7 +873,7 @@ addTyClTyVarBinds :: LHsQTyVars Name
 --      type W (T a) = blah
 -- The 'a' in the type instance is the one bound by the instance decl
 addTyClTyVarBinds tvs m
-  = do { let tv_names = hsLKiTyVarNames tvs
+  = do { let tv_names = hsAllLTyVarNames tvs
        ; env <- dsGetMetaEnv
        ; freshNames <- mkGenSyms (filterOut (`elemNameEnv` env) tv_names)
             -- Make fresh names for the ones that are not already in scope
@@ -918,13 +918,11 @@ repHsSigType :: LHsSigType Name -> DsM (Core TH.TypeQ)
 repHsSigType ty = repLTy (hsSigType ty)
 
 repHsSigWcType :: LHsSigWcType Name -> DsM (Core TH.TypeQ)
-repHsSigWcType (HsIB { hsib_kvs  = implicit_kvs
-                     , hsib_tvs  = implicit_tvs
+repHsSigWcType (HsIB { hsib_vars = implicit_vars
                      , hsib_body = sig1 })
   | (explicit_tvs, ctxt, ty) <- splitLHsSigmaTy (hswc_body sig1)
-  = addTyVarBinds (HsQTvs { hsq_kvs = implicit_kvs
-                          , hsq_tvs = map (noLoc . UserTyVar . noLoc) implicit_tvs
-                                      ++ explicit_tvs })
+  = addTyVarBinds (HsQTvs { hsq_implicit = implicit_vars
+                          , hsq_explicit = explicit_tvs })
                   $ \ th_tvs ->
     do { th_ctxt <- repLContext ctxt
        ; th_ty   <- repLTy ty

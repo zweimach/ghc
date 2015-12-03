@@ -56,7 +56,7 @@ module TyCoRep (
         pprDataCons,
 
         -- Free variables
-        tyCoVarsOfType, tyCoVarsOfTypes,
+        tyCoVarsOfType, dTyCoVarsOfType, tyCoVarsOfTypes,
         tyCoVarsOfTypeAcc, tyCoVarsOfTypeList,
         tyCoVarsOfTypesAcc, tyCoVarsOfTypesList,
         coVarsOfType, coVarsOfTypes,
@@ -959,13 +959,17 @@ in nominal ways. If not, having w be representational is OK.
 tyCoVarsOfType :: Type -> TyCoVarSet
 -- ^ NB: for type synonyms tyCoVarsOfType does /not/ expand the synonym
 -- tyVarsOfType returns free variables of a type, including kind variables.
-tyCoVarsOfType = runFVSet . tyCoVarsOfTypeAcc
+tyCoVarsOfType ty = runFVSet $ tyCoVarsOfTypeAcc ty
+
+-- | Get a deterministic set of the vars free in a type
+dTyCoVarsOfType :: Type -> DTyCoVarSet
+dTyCoVarsOfType ty = runFVDSet $ tyCoVarsOfTypeAcc ty
 
 -- | `tyVarsOfType` that returns free variables of a type in deterministic
 -- order. For explanation of why using `VarSet` is not deterministic see
 -- Note [Deterministic UniqFM] in UniqDFM.
 tyCoVarsOfTypeList :: Type -> [TyCoVar]
-tyCoVarsOfTypeList = runFVList . tyCoVarsOfTypeAcc
+tyCoVarsOfTypeList ty = runFVList $ tyCoVarsOfTypeAcc ty
 
 -- | The worker for `tyVarsOfType` and `tyVarsOfTypeList`.
 -- The previous implementation used `unionVarSet` which is O(n+m) and can

@@ -49,7 +49,7 @@ module HsTypes (
         mkEmptyImplicitBndrs, mkEmptyWildCardBndrs,
         mkHsQTvs, hsQTvExplicit, isHsKindedTyVar, hsTvbAllKinded,
         hsScopedTvs, hsWcScopedTvs, dropWildCards,
-        hsTyVarName, hsLKiTyVarNames,
+        hsTyVarName, hsAllLTyVarNames,
         hsLTyVarName, hsLTyVarLocName,
         splitLHsInstDeclTy, getLHsInstDeclClass_maybe,
         splitLHsPatSynTy,
@@ -59,7 +59,6 @@ module HsTypes (
         mkHsAppTys, mkHsOpTy,
         ignoreParens, hsSigType, hsSigWcType,
         hsLTyVarBndrsToTypes,
-        ftvLHsType, ftvHsType,
 
         -- Printing
         pprParendHsType, pprHsForAll, pprHsForAllTvs, pprHsForAllExtra,
@@ -291,8 +290,7 @@ A HsSigType is just a HsImplicitBndrs wrapping a LHsType.
 E.g. For a signature like
    f :: forall (a::k). blah
 we get
-   HsIB { hsib_kvs = [k]
-        , hsib_tvs = []
+   HsIB { hsib_vars = [k]
         , hsib_body = HsForAllTy { hst_bndrs = [(a::*)]
                                  , hst_body = blah }
 The implicit kind variable 'k' is bound by the HsIB;
@@ -301,8 +299,7 @@ the explictly forall'd tyvar 'a' is bounnd by the HsForAllTy
 
 mkHsImplicitBndrs :: thing -> HsImplicitBndrs RdrName thing
 mkHsImplicitBndrs x = HsIB { hsib_body = x
-                           , hsib_kvs = PlaceHolder
-                           , hsib_tvs = PlaceHolder }
+                           , hsib_vars = PlaceHolder }
 
 mkHsWildCardBndrs :: thing -> HsWildCardBndrs RdrName thing
 mkHsWildCardBndrs x = HsWC { hswc_body = x
@@ -769,17 +766,17 @@ hsWcScopedTvs :: LHsSigWcType Name -> [Name]
 --  - the named wildcars; see Note [Scoping of named wildcards]
 -- because they scope in the same way
 hsWcScopedTvs sig_ty
-  | HsIB { hsib_kvs = kvs,  hsib_body = sig_ty1 } <- sig_ty
+  | HsIB { hsib_vars = vars, hsib_body = sig_ty1 } <- sig_ty
   , HsWC { hswc_wcs = nwcs, hswc_body = sig_ty2 } <- sig_ty1
   , (tvs, _) <- splitLHsForAllTy sig_ty2
-  = kvs ++ nwcs ++ map hsLTyVarName tvs
+  = vars ++ nwcs ++ map hsLTyVarName tvs
 
 hsScopedTvs :: LHsSigType Name -> [Name]
 -- Same as hsWcScopedTvs, but for a LHsSigType
 hsScopedTvs sig_ty
-  | HsIB { hsib_kvs = kvs,  hsib_body = sig_ty2 } <- sig_ty
+  | HsIB { hsib_vars = vars,  hsib_body = sig_ty2 } <- sig_ty
   , (tvs, _) <- splitLHsForAllTy sig_ty2
-  = kvs ++ map hsLTyVarName tvs
+  = vars ++ map hsLTyVarName tvs
 
 {- Note [Scoping of named wildcards]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -801,9 +798,6 @@ hsTyVarName (KindedTyVar (L _ n) _) = n
 
 hsLTyVarName :: LHsTyVarBndr name -> name
 hsLTyVarName = hsTyVarName . unLoc
-
-hsLTyVarNames :: [LHsTyVarBndr name] -> [name]
-hsLTyVarNames = map (hsTyVarName . unLoc)
 
 hsExplicitLTyVarNames :: LHsQTyVars name -> [name]
 -- Explicit variables only
@@ -911,9 +905,9 @@ splitLHsInstDeclTy
     :: LHsSigType Name
     -> ([Name], LHsContext Name, LHsType Name)
         -- Split up an instance decl type, returning the pieces
-splitLHsInstDeclTy (HsIB { hsib_kvs = ikvs, hsib_tvs = itvs
+splitLHsInstDeclTy (HsIB { hsib_vars = itkvs,
                          , hsib_body = inst_ty })
-  = (ikvs ++ itvs, cxt, body_ty)
+  = (itkvs, cxt, body_ty)
          -- Return implicitly bound type and kind vars
          -- For an instance decl, all of them are in scope
   where
@@ -969,50 +963,6 @@ splitHsFunType orig_ty@(L _ (HsAppTy t1 t2))
     go _                     _   = ([], orig_ty)  -- Failure to match
 
 splitHsFunType other = ([], other)
-
--- | Get the free Names of type variables in a renamed HsType
-ftvLHsType :: LHsType Name -> NameSet
-ftvLHsType (L _ ty) = ftvHsType ty
-
--- | Get the free Names of type variables in a renamed HsType
-ftvHsType :: HsType Name -> NameSet
-ftvHsType (HsForAllTy _ _ tvbs ctxt ty)
-  = (ftvLHsContext ctxt `unionNameSet` ftvLHsType ty)
-    `delListFromNameSet` hsLKiTyVarNames tvbs
-ftvHsType (HsTyVar n)               = ftvName n
-ftvHsType (HsAppsTy ts)             = unionNameSets $ map ftvHsAppType ts
-ftvHsType (HsAppTy t1 t2)           = ftvLHsType t1 `unionNameSet` ftvLHsType t2
-ftvHsType (HsFunTy t1 t2)           = ftvLHsType t1 `unionNameSet` ftvLHsType t2
-ftvHsType (HsListTy t)              = ftvLHsType t
-ftvHsType (HsPArrTy t)              = ftvLHsType t
-ftvHsType (HsTupleTy _ tys)         = unionNameSets $ map ftvLHsType tys
-ftvHsType (HsOpTy t1 (L _ op) t2)
-  = unionNameSets (ftvName op : map ftvLHsType [t1, t2])
-ftvHsType (HsParTy t)               = ftvLHsType t
-ftvHsType (HsIParamTy _ t)          = ftvLHsType t
-ftvHsType (HsEqTy t1 t2)            = ftvLHsType t1 `unionNameSet` ftvLHsType t2
-ftvHsType (HsKindSig t1 t2)         = ftvLHsType t1 `unionNameSet` ftvLHsType t2
-ftvHsType (HsSpliceTy {})           = panic "ftvHsType HsSpliceTy"
-ftvHsType (HsDocTy t _)             = ftvLHsType t
-ftvHsType (HsBangTy _ t)            = ftvLHsType t
-ftvHsType (HsRecTy {})              = panic "ftvHsType HsRecTy"
-ftvHsType (HsCoreTy ty)             = mapUFM varName $ tyCoVarsOfType ty
-ftvHsType (HsExplicitListTy _ tys)  = unionNameSets $ map ftvLHsType tys
-ftvHsType (HsExplicitTupleTy _ tys) = unionNameSets $ map ftvLHsType tys
-ftvHsType (HsTyLit {})              = emptyNameSet
-ftvHsType (HsWildCardTy wc)         = ftvName (wildCardName wc)
-
-ftvHsAppType :: HsAppType Name -> NameSet
-ftvHsAppType (HsAppInfix (L _ n)) = unitNameSet n
-ftvHsAppType (HsAppPrefix t)      = ftvLHsType t
-
-ftvLHsContext :: LHsContext Name -> NameSet
-ftvLHsContext (L _ ctxt) = unionNameSets $ map ftvLHsType ctxt
-
-ftvName :: Name -> NameSet
-ftvName n
-  | isTyVarName n = unitNameSet n
-  | otherwise     = emptyNameSet
 
 ignoreParens :: LHsType name -> LHsType name
 ignoreParens (L _ (HsParTy ty))                = ignoreParens ty

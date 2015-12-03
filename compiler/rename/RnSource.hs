@@ -1131,7 +1131,7 @@ rnTyClDecl (ClassDecl { tcdCtxt = context, tcdLName = lcls,
         -- we want to name both "x" tyvars with the same unique, so that they are
         -- easy to group together in the typechecker.
         ; (mbinds', sigs', meth_fvs)
-            <- rnMethodBinds True cls' (hsLKiTyVarNames tyvars') mbinds sigs
+            <- rnMethodBinds True cls' (hsAllLTyVarNames tyvars') mbinds sigs
                 -- No need to check for duplicate method signatures
                 -- since that is done by RnNames.extendGlobalRdrEnvRn
                 -- and the methods are already in scope
@@ -1378,7 +1378,7 @@ rnInjectivityAnn tvBndrs (L _ (TyVarSig resTv))
                 ; injTo'   <- mapM rnLTyVar injTo
                 ; return $ L srcSpan (InjectivityAnn injFrom' injTo') }
 
-   ; let tvNames  = Set.fromList $ hsLKiTyVarNames tvBndrs
+   ; let tvNames  = Set.fromList $ hsAllLTyVarNames tvBndrs
          resName  = hsLTyVarName resTv
          -- See Note [Renaming injectivity annotation]
          lhsValid = EQ == (stableNameCmp resName (unLoc injFrom'))
@@ -1564,7 +1564,7 @@ rnConDecl decl@(ConDecl { con_names = names, con_qvars = qtvs
              , text "qtvs:" <+> ppr qtvs
              , text "qtvs':" <+> ppr qtvs' ])
         ; let all_fvs = fvs1 `plusFV` fvs2 `plusFV` fvs3
-        ; warnUnusedForAlls (inHsDocContext doc) (hsQTvBndrs new_tyvars) all_fvs
+        ; warnUnusedForAlls (inHsDocContext doc) (hsQTvExplicit new_tyvars) all_fvs
         ; return (decl { con_names = new_names, con_qvars = new_tyvars
                        , con_cxt = new_context, con_details = new_details'
                        , con_res = new_res_ty, con_doc = mb_doc' },

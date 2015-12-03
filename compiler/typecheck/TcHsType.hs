@@ -164,11 +164,10 @@ tcHsSigWcType ctxt sig_ty = tcHsSigType ctxt (dropWildCards sig_ty)
 
 kcClassSigType :: [Located Name] -> LHsSigType Name -> TcM ()
 kcClassSigType names (HsIB { hsib_body = hs_ty
-                           , hsib_kvs  = sig_kvs
-                           , hsib_tvs  = sig_tvs })
+                           , hsib_vars = sig_vars })
   = addSigCtxt (funsSigCtxt names) hs_ty $
-    do { tcImplicitTKBndrs sig_kvs sig_tvs $ \ _ _ ->
-         void $ tc_lhs_type typeLevelMode hs_ty liftedTypeKind }
+    void $ tcImplicitTKBndrs sig_vars $
+           tc_lhs_type typeLevelMode hs_ty liftedTypeKind
 
 tcClassSigType :: [Located Name] -> LHsSigType Name -> TcM Type
 -- Does not do validity checking; this must be done outside
@@ -505,13 +504,6 @@ tc_hs_type mode hs_ty@(HsForAllTy { hst_bndrs = hs_tvs, hst_body = ty }) exp_kin
     -- Do not kind-generalise here!  See Note [Kind generalisation]
     -- Why exp_kind?  See Note [Body kind of forall]
     do { ty' <- tc_lhs_type mode ty exp_kind
-       ; return (mkNakedInvSigmaTy tvs' [] ty') }
-
-
-  | null (unLoc context)
-  = do { (tvs', ty') <- tcHsTyVarBndrs hs_tvs $
-                        tc_lhs_type mode ty exp_kind
-
        ; return (mkNakedInvSigmaTy tvs' [] ty') }
 
 tc_hs_type mode hs_ty@(HsQualTy { hst_ctxt = ctxt, hst_body = ty }) exp_kind
@@ -1358,7 +1350,7 @@ tcHsQTyVars qtvs@(HsQTvs { hsq_implicit = kv_ns, hsq_explicit = hs_tvs })
 
        ; checkValidInferredKinds kvs tvs
 
-       ; traceTc "tcHsTyVarBndrs }" $
+       ; traceTc "tcHsQTyVars }" $
            vcat [ text "Hs implicit vars:" <+> ppr kv_ns
                 , text "Hs explicit vars:" <+> ppr hs_tvs
                 , text "kvs:" <+> sep (map pprTvBndr kvs)
@@ -1457,6 +1449,10 @@ tcHsTyVarName name
            Just (ATyVar _ tv) -> return (tv, True)
            _ -> do { kind <- newMetaKindVar
                    ; return (mkTcTyVar name kind vanillaSkolemTv, False) }}
+
+-- makes a new skolem tv
+new_skolem_tv :: Name -> Kind -> TcTyVar
+new_skolem_tv n k = mkTcTyVar n k vanillaSkolemTv
 
 ------------------
 kindGeneralizeType :: Type -> TcM Type

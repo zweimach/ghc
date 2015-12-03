@@ -23,7 +23,7 @@ module CoreFVs (
         -- * Free variables of Rules, Vars and Ids
         varTypeTyCoVars,
         varTypeTyCoVarsAcc,
-        idUnfoldingVars, idFreeVars, idRuleAndUnfoldingVars,
+        idUnfoldingVars, idFreeVars, dIdFreeVars, idRuleAndUnfoldingVars,
         idFreeVarsAcc,
         idRuleVars, idRuleRhsVars, stableUnfoldingVars,
         ruleRhsFreeVars, ruleFreeVars, rulesFreeVars,
@@ -444,6 +444,9 @@ varTypeTyCoVarsAcc var = tyCoVarsOfTypeAcc (varType var)
 
 idFreeVars :: Id -> VarSet
 idFreeVars id = ASSERT( isId id) runFVSet $ idFreeVarsAcc id
+
+dIdFreeVars :: Id -> DVarSet
+dIdFreeVars id = runFVDSet $ idFreeVarsAcc id
 
 idFreeVarsAcc :: Id -> FV
 -- Type variables, rule variables, and inline variables

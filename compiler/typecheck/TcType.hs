@@ -47,7 +47,7 @@ module TcType (
   -- Builders
   mkPhiTy, mkInvSigmaTy, mkSigmaTy,
   mkNakedTyConApp, mkNakedAppTys, mkNakedAppTy, mkNakedFunTy,
-  mkNakedInvSigmaTy, mkNakedCastTy,
+  mkNakedInvSigmaTy, mkNakedCastTy, mkNakedPhiTy,
 
   --------------------------------
   -- Splitters

@@ -624,13 +624,13 @@ decideQuantification
          , [PredType] )    -- and this context (fully zonked)
 -- See Note [Deciding quantification]
 decideQuantification apply_mr sigs name_taus constraints
-                     (Pair zonked_tau_kvs zonked_tau_tvs)
+                     zonked_pair@(Pair zonked_tau_kvs zonked_tau_tvs)
   | apply_mr     -- Apply the Monomorphism restriction
   = do { gbl_tvs <- tcGetGlobalTyCoVars
        ; let constrained_tvs = tyCoVarsOfTypes constraints `unionVarSet`
                                filterVarSet isCoVar zonked_tkvs
              mono_tvs = gbl_tvs `unionVarSet` constrained_tvs
-       ; qtvs <- quantify_tvs sigs mono_tvs zonked_tau_kvs zonked_tau_tvs
+       ; qtvs <- quantify_tvs sigs mono_tvs zonked_pair
 
            -- Warn about the monomorphism restriction
        ; warn_mono <- woptM Opt_WarnMonomorphism
@@ -651,7 +651,7 @@ decideQuantification apply_mr sigs name_taus constraints
   = do { gbl_tvs <- tcGetGlobalTyCoVars
        ; let mono_tvs     = growThetaTyVars equality_constraints gbl_tvs
              tau_tvs_plus = growThetaTyVars constraints zonked_tau_tvs
-       ; qtvs <- quantify_tvs sigs mono_tvs zonked_tau_kvs tau_tvs_plus
+       ; qtvs <- quantify_tvs sigs mono_tvs (Pair zonked_tau_kvs tau_tvs_plus)
           -- We don't grow the kvs, as there's no real need to. Recall
           -- that quantifyTyVars uses the separation between kvs and tvs
           -- only for defaulting, and we don't want (ever) to default a tv
@@ -682,11 +682,10 @@ decideQuantification apply_mr sigs name_taus constraints
 
 quantify_tvs :: [TcIdSigInfo]
              -> TcTyVarSet   -- the monomorphic tvs
-             -> TcTyVarSet   -- kvs to quantify
-             -> TcTyVarSet   -- tvs to quantify
+             -> Pair TcTyVarSet   -- kvs, tvs to quantify
              -> TcM [TcTyVar]
 -- See Note [Which type variables to quantify]
-quantify_tvs sigs mono_tvs tau_kvs tau_tvs
+quantify_tvs sigs mono_tvs (Pair tau_kvs tau_tvs)
   = quantifyTyVars (mono_tvs `delVarSetList` sig_qtvs)
                    (Pair tau_kvs
                          (tau_tvs `extendVarSetList` sig_qtvs

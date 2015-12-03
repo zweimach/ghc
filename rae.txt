@@ -1,43 +1,5 @@
 stack:
- - sortQuantVars has subtly changed spec, because of the unique determinism thing.
- - add dTyCoVarsOfType
- - add dIdFreeVars
- - add tyCoVarsOfTypeWellScoped
-
-HsTypes:
- - hsQTvBndrs --> hsQTvExplicit
- - removed hsLTyVarNames
- - removed hsTyGetAppHEad_maybe, mkHsAppTys
- - added ftvLHsType, ftvHsType
- - hsib_kvs/hsib_tvs --> hsib_vars
- - hsLTyVarNames --> hsExplicitLTyVarNames
- - hsLKiTyVarNames --> hsAllLTyVarNames
-
-removed tcTopHsSigType
-remove new_skolem_tv?
-
-FIX FIX: extractHsRdrTyVars needs to propagate kind variables
-
-unifyKinds type check
-
-Look for HsParTy to see if I need to add HsAppsTy cases
-rnImplicitBndrs callback takes one list now (naturally)
-bindHsQTyVars
-bindLHsTyVarBndrs
-need mkNakedPhiTy
-
-quantify_tvs in TcSimplify
-
-I think sig_wcs needs to distinguish kind-level ones from type-level ones;
-then TcSimplify.quantify_tvs (and other places) take this distinction into
-account.
-
-tcImplicitTKBndrs now deals with one list instead of two,
-  returns the tyvars instead of passing them on
-tcHsTyVarBndrs type check
-
-tcHsQTyVars no longer passes in vars, because no one needs that
-
+ 
 - BUG: match_ty needs to be more delicate looking under TyConApps:
   match_ty (Just (x :: Age)) (Just 5 |> Maybe Int ~ Maybe Age) won't work
 

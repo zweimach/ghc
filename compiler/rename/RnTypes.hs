@@ -100,10 +100,9 @@ rn_hs_sig_wc_type :: Bool   -- see rnImplicitBndrs
 -- rn_hs_sig_wc_type is used for source-language type signatures
 rn_hs_sig_wc_type no_implicit_if_forall ctxt
                   (HsIB { hsib_body = wc_ty }) thing_inside
-  = rnImplicitBndrs no_implicit_if_forall (hswc_body wc_ty) $ \ kvs tvs ->
+  = rnImplicitBndrs no_implicit_if_forall (hswc_body wc_ty) $ \ vars ->
     rn_hs_wc_type ctxt wc_ty $ \ wc_ty' ->
-    thing_inside (HsIB { hsib_kvs  = kvs
-                       , hsib_tvs  = tvs
+    thing_inside (HsIB { hsib_vars = vars
                        , hsib_body = wc_ty' })
 
 rnHsWcType :: HsDocContext -> LHsWcType RdrName -> RnM (LHsWcType Name, FreeVars)
@@ -135,7 +134,7 @@ rnWcSigTy :: HsDocContext -> LHsType RdrName
 -- on a qualified type, and return info on any extra-constraints
 -- wildcard.  Some code duplication, but no big deal.
 rnWcSigTy ctxt (L loc hs_ty@(HsForAllTy { hst_bndrs = tvs, hst_body = hs_tau }))
-  = bindLHsTyVarBndrs ctxt Nothing tvs $ \ tvs' ->
+  = bindLHsTyVarBndrs ctxt Nothing [] tvs $ \ _ tvs' ->
     do { (hs_tau', fvs) <- rnWcSigTy ctxt hs_tau
        ; warnUnusedForAlls (inTypeDoc hs_ty) tvs' fvs
        ; let hs_ty' = HsForAllTy { hst_bndrs = tvs', hst_body = hswc_body hs_tau' }
@@ -192,10 +191,9 @@ rnHsSigType :: HsDocContext -> LHsSigType RdrName
 -- Used for source-language type signatures
 -- that cannot have wildcards
 rnHsSigType ctx (HsIB { hsib_body = hs_ty })
-  = rnImplicitBndrs True hs_ty $ \ kvs tvs ->
+  = rnImplicitBndrs True hs_ty $ \ vars ->
     do { (body', fvs) <- rnLHsType ctx hs_ty
-       ; return (HsIB { hsib_kvs  = kvs
-                      , hsib_tvs  = tvs
+       ; return (HsIB { hsib_vars = vars
                       , hsib_body = body' }, fvs) }
 
 rnImplicitBndrs :: Bool    -- True <=> no implicit quantification
@@ -352,7 +350,7 @@ rnHsTyKi :: RnTyKiWhat -> HsDocContext -> HsType RdrName -> RnM (HsType Name, Fr
 
 rnHsTyKi what doc ty@(HsForAllTy { hst_bndrs = tyvars, hst_body  = tau })
   = do { checkTypeInType what ty
-       ; bindLHsTyVarBndrs doc Nothing tyvars $ \ tyvars' ->
+       ; bindLHsTyVarBndrs doc Nothing [] tyvars $ \ _ tyvars' ->
     do { (tau',  fvs) <- rnLHsType doc tau
        ; warnUnusedForAlls (inTypeDoc ty) tyvars' fvs
        ; return ( HsForAllTy { hst_bndrs = tyvars', hst_body =  tau' }
@@ -746,16 +744,17 @@ bindHsQTyVars :: forall a b.
 -- (b) Bring type variables into scope
 bindHsQTyVars doc mb_assoc kv_bndrs tv_bndrs thing_inside
   = do { bindLHsTyVarBndrs doc mb_assoc kv_bndrs (hsQTvExplicit tv_bndrs) $
-         \ rn_kvs rn_bndrs -> thing_inside (HsQTvs { hsq_implicit = all_rn_kvs
-                                                   , hsq_explicit = rn_bndrs })
+         \ rn_kvs rn_bndrs ->
+         thing_inside (HsQTvs { hsq_implicit = rn_kvs
+                              , hsq_explicit = rn_bndrs })
 
 bindLHsTyVarBndrs :: forall a b.
                      HsDocContext
                   -> Maybe a            -- Just _  => an associated type decl
-                  -> [Located RdrName]  -- Kind variables from scope, in l-to-r
-                                        -- order, but not from ...
+                  -> [Located RdrName]  -- Unbound kind variables from scope,
+                                        -- in l-to-r order, but not from ...
                   -> [LHsTyVarBndr RdrName]  -- ... these user-written tyvars
-                  -> (   [Name]  -- kv names encountered in the LHsTyVarBndrs
+                  -> (   [Name]  -- all kv names
                       -> [LHsTyVarBndr Name]
                       -> RnM (b, FreeVars))
                   -> RnM (b, FreeVars)
@@ -1306,7 +1305,7 @@ warnUnusedForAlls in_doc bound mentioned_rdrs
          mapM_ add_warn (bound_but_not_used all_mentioned) }
 
   where
-    bound_tv_kinds     = [ k | L _ (KindedTyVar _ k) <- hsQTvExplicit bound ]
+    bound_tv_kinds     = [ k | L _ (KindedTyVar _ k) <- bound ]
 
     bound_names        = map hsLTyVarLocName bound
     bound_but_not_used all_mentioned
@@ -1446,7 +1445,7 @@ extractDataDefnKindVars (HsDataDefn { dd_ctxt = ctxt, dd_kindSig = ksig
     extract_con (ConDecl { con_res = ResTyGADT {} }) acc = return acc
     extract_con (ConDecl { con_res = ResTyH98, con_qvars = qvs
                          , con_cxt = ctxt, con_details = details }) acc
-      = extract_hs_tv_bndrs (hsQTvBndrs qvs) acc =<<
+      = extract_hs_tv_bndrs (hsQTvExplicit qvs) acc =<<
         extract_lctxt TypeLevel ctxt =<<
         extract_ltys TypeLevel (hsConDeclArgTys details) emptyFKTV
 
@@ -1536,17 +1535,16 @@ extract_hs_tv_bndrs tvs
          (body_tvs ++ acc_tvs) (body_t_set `unionOccSets` acc_t_set)
          (body_all ++ acc_all)
   | otherwise
-  = do { FKTV _ local_all_ks _ _ _ <- foldrM extract_lkind emptyFKTV
-                                             [k | L _ (KindedTyVar _ k) <- tvs]
-       -- These kind variables are bound here if not bound further out
-       ; let locals = local_all_ks `extendOccSetList`
-                      map (rdrNameOcc . hsLTyVarName) tvs
+  = do { FKTV bndr_kvs bndr_k_set _ _ _
+           <- foldrM extract_lkind emptyFKTV [k | L _ (KindedTyVar _ k) <- tvs]
+
+       ; let locals = mkOccSet $ map (rdrNameOcc . hsLTyVarName) tvs
        ; return $
-         FKTV (filterOut ((`elemOccSet` locals) . rdrNameOcc . unLoc) body_kvs ++ acc_kvs)
-              ((body_k_set `minusOccSet` locals) `unionOccSets` acc_k_set)
+         FKTV (filterOut ((`elemOccSet` locals) . rdrNameOcc . unLoc) (bndr_kvs ++ body_kvs) ++ acc_kvs)
+              ((body_k_set `minusOccSet` locals) `unionOccSets` acc_k_set `unionOccSets` bndr_k_set)
               (filterOut ((`elemOccSet` locals) . rdrNameOcc . unLoc) body_tvs ++ acc_tvs)
               ((body_t_set `minusOccSet` locals) `unionOccSets` acc_t_set)
-              (filterOut ((`elemOccSet` locals) . rdrNameOcc . unLoc) body_all ++ acc_all) }
+              (filterOut ((`elemOccSet` locals) . rdrNameOcc . unLoc) (bndr_kvs ++ body_all) ++ acc_all) }
 
 extract_tv :: TypeOrKind -> Located RdrName -> FreeKiTyVars -> RnM FreeKiTyVars
 extract_tv t_or_k ltv@(L _ tv) acc
