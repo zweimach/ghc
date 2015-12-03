@@ -15,7 +15,7 @@ module TcValidity (
   checkValidTyFamEqn,
   checkConsistentFamInst,
   arityErr, badATErr,
-  checkValidTelescope
+  checkValidTelescope, checkValidInferredKinds
   ) where
 
 #include "HsVersions.h"
@@ -192,37 +192,38 @@ so we can take their type variables into account as part of the
 
 checkAmbiguity :: UserTypeCtxt -> Type -> TcM ()
 checkAmbiguity ctxt ty
-  | GhciCtxt <- ctxt    -- Allow ambiguous types in GHCi's :kind command
-  = return ()           -- E.g.   type family T a :: *  -- T :: forall k. k -> *
-                        -- Then :k T should work in GHCi, not complain that
-                        -- (T k) is ambiguous!
-
-  | InfSigCtxt {} <- ctxt  -- See Note [Validity of inferred types] in TcBinds
-  = return ()
-
-  | otherwise
+  | wantAmbiguityCheck ctxt
   = do { traceTc "Ambiguity check for" (ppr ty)
          -- Solve the constraints eagerly because an ambiguous type
          -- can cause a cascade of further errors.  Since the free
          -- tyvars are skolemised, we can safely use tcSimplifyTop
-       ; (_wrap, wanted) <- addErrCtxtM (mk_msg ty) $
+       ; allow_ambiguous <- xoptM Opt_AllowAmbiguousTypes
+       ; (_wrap, wanted) <- addErrCtxt (mk_msg allow_ambiguous) $
                             captureConstraints $
                             tcSubType_NC ctxt ty ty
-       ; whenNoErrs $  -- only run the simplifier if we have a clean
-                       -- environment. Otherwise we might trip.
-                       -- example: indexed-types/should_fail/BadSock
-                       -- fails in DEBUG mode without this
-         simplifyAmbiguityCheck ty wanted
+       ; simplifyAmbiguityCheck ty wanted
 
        ; traceTc "Done ambiguity check for" (ppr ty) }
+
+  | otherwise
+  = return ()
  where
-   mk_msg ty tidy_env
-     = do { allow_ambiguous <- xoptM Opt_AllowAmbiguousTypes
-          ; (tidy_env', tidy_ty) <- zonkTidyTcType tidy_env ty
-          ; return (tidy_env', mk_msg tidy_ty $$ ppWhen (not allow_ambiguous) ambig_msg) }
-     where
-       mk_msg ty = pprSigCtxt ctxt (ptext (sLit "the ambiguity check for")) (ppr ty)
-       ambig_msg = ptext (sLit "To defer the ambiguity check to use sites, enable AllowAmbiguousTypes")
+   mk_msg allow_ambiguous
+     = vcat [ ptext (sLit "In the ambiguity check for") <+> what
+            , ppUnless allow_ambiguous ambig_msg ]
+   ambig_msg = ptext (sLit "To defer the ambiguity check to use sites, enable AllowAmbiguousTypes")
+   what | Just n <- isSigMaybe ctxt = quotes (ppr n)
+        | otherwise                 = pprUserTypeCtxt ctxt
+
+wantAmbiguityCheck :: UserTypeCtxt -> Bool
+wantAmbiguityCheck ctxt
+  = case ctxt of
+      GhciCtxt -> False  -- Allow ambiguous types in GHCi's :kind command
+                         -- E.g.   type family T a :: *  -- T :: forall k. k -> *
+                         -- Then :k T should work in GHCi, not complain that
+                         -- (T k) is ambiguous!
+--      InfSigCtxt {} -> False   -- See Note [Validity of inferred types] in TcBinds
+      _ -> True
 
 
 checkUserTypeError :: Type -> TcM ()
@@ -271,6 +272,7 @@ This might not necessarily show up in kind checking.
 
 checkValidType :: UserTypeCtxt -> Type -> TcM ()
 -- Checks that the type is valid for the given context
+-- Assumes arguemt is fully zonked
 -- Not used for instance decls; checkValidInstance instead
 checkValidType ctxt ty
   = do { traceTc "checkValidType" (ppr ty <+> text "::" <+> ppr (typeKind ty))
@@ -297,7 +299,7 @@ checkValidType ctxt ty
                  FunSigCtxt {}   -> rank1
                  InfSigCtxt _    -> ArbitraryRank        -- Inferred type
                  ConArgCtxt _    -> rank1 -- We are given the type of the entire
-                                         -- constructor, hence rank 1
+                                          -- constructor, hence rank 1
 
                  ForSigCtxt _   -> rank1
                  SpecInstCtxt   -> rank1
@@ -326,6 +328,7 @@ checkValidType ctxt ty
        ; traceTc "checkValidType done" (ppr ty <+> text "::" <+> ppr (typeKind ty)) }
 
 checkValidMonoType :: Type -> TcM ()
+-- Assumes arguemt is fully zonked
 checkValidMonoType ty
   = do { env <- tcInitOpenTidyEnv (tyCoVarsOfType ty)
        ; check_type env SigmaCtxt MustBeMonoType ty }
@@ -626,6 +629,7 @@ applying the instance decl would show up two uses of ?x.  Trac #8912.
 -}
 
 checkValidTheta :: UserTypeCtxt -> ThetaType -> TcM ()
+-- Assumes arguemt is fully zonked
 checkValidTheta ctxt theta
   = do { env <- tcInitOpenTidyEnv (tyCoVarsOfTypes theta)
        ; addErrCtxtM (checkThetaCtxt ctxt theta) $
@@ -1033,7 +1037,7 @@ validDerivPred tv_set pred
 ************************************************************************
 -}
 
-checkValidInstance :: UserTypeCtxt -> LHsType Name -> Type
+checkValidInstance :: UserTypeCtxt -> LHsSigType Name -> Type
                    -> TcM ([TyVar], ThetaType, Class, [Type])
 checkValidInstance ctxt hs_type ty
   | Just (clas,inst_tys) <- getClassPredTys_maybe tau
@@ -1052,6 +1056,7 @@ checkValidInstance ctxt hs_type ty
         --   the termination condition, because 'a' appears more often
         --   in the constraint than in the head
         ; undecidable_ok <- xoptM Opt_UndecidableInstances
+        ; traceTc "cvi" (ppr undecidable_ok $$ ppr ty)
         ; if undecidable_ok
           then checkAmbiguity ctxt ty
           else checkInstTermination inst_tys theta
@@ -1068,9 +1073,8 @@ checkValidInstance ctxt hs_type ty
     (tvs, theta, tau) = tcSplitSigmaTy ty
 
         -- The location of the "head" of the instance
-    head_loc = case hs_type of
-                 L _ (HsForAllTy _ _ _ _ (L loc _)) -> loc
-                 L loc _                            -> loc
+    head_loc = case splitLHsInstDeclTy hs_type of
+                 (_, _, L loc _) -> loc
 
 {-
 Note [Paterson conditions]
@@ -1504,18 +1508,43 @@ Refer to dependent/should_fail/BadTelescope{,2,3}
 -- general validity checking, because once we kind-generalise, this sort
 -- of problem is harder to spot (as we'll generalise over the unbound
 -- k in a's type.)
-checkValidTelescope :: LHsTyVarBndrs Name  -- the original user-written telescope
-                    -> [TyVar]             -- implicit vars
-                    -> [TyVar]             -- explicit vars
-                    -> TcM ()
-checkValidTelescope hs_tvs orig_kvs orig_tvs
-  = do { unless (go [] emptyVarSet orig_tvs) $
+checkValidTelescope :: Outputable tele
+                    => tele        -- the original user-written telescope
+                    -> [TyVar]     -- explicit vars (not necessarily zonked)
+                    -> TcM [TyVar] -- returns zonked tyvars
+checkValidTelescope hs_tvs orig_tvs
+  = do { orig_tvs <- mapM zonkTyCoVarKind orig_tvs
+       ; let (_, sorted_tidied_tvs) = tidyTyCoVarBndrs emptyTidyEnv $
+                                      toposortTyVars orig_tvs
+       ; unless (go [] emptyVarSet orig_tvs) $
          addErr $
          hang (text "These kind and type variables:" <+> ppr hs_tvs $$
                text "are out of dependency order. Perhaps try this ordering:")
-            2 (sep (map pprTvBndr tidy_tvs'))
+            2 (sep (map pprTvBndr sorted_tidied_tvs))
+       ; return orig_tvs }
 
-       ; let bad_pairs = [ (tv, kv)
+  where
+    go :: [TyVar]  -- misplaced variables
+       -> TyVarSet -> [TyVar] -> Bool
+    go errs in_scope [] = null (filter (`elemVarSet` in_scope) errs)
+        -- report an error only when the variable in the kind is brought
+        -- into scope later in the telescope. Otherwise, we'll just quantify
+        -- over it in kindGeneralize, as we should.
+
+    go errs in_scope  (tv:tvs)
+      = let bad_tvs = tyCoVarsOfType (tyVarKind tv) `minusVarSet` in_scope in
+        go (varSetElems bad_tvs ++ errs) (in_scope `extendVarSet` tv) tvs
+
+-- | After inferring kinds of an HsQTyVars, check to make sure that the
+-- inferred kinds of the implicitly declared variables (what once were always
+-- just kinds) don't mention any of the type variables. This is a special
+-- case of skolem escape. We might need a more general approach (see #11142),
+-- but this catches an easy case.
+checkValidInferredKinds :: [TyVar]     -- implicit vars
+                        -> [TyVar]     -- explicit vars
+                        -> TcM ()
+checkValidInferredKinds orig_kvs orig_tvs
+  = do { let bad_pairs = [ (tv, kv)
                          | kv <- orig_kvs
                          , tv <- orig_tvs'
                          , tv `elemVarSet` tyCoVarsOfType (tyVarKind kv) ]
@@ -1537,17 +1566,6 @@ checkValidTelescope hs_tvs orig_kvs orig_tvs
 
     orig_tvs' = toposortTyVars orig_tvs
     tidy_tvs' = map (tidyTyVarOcc env) orig_tvs'
-
-    go :: [TyVar]  -- misplaced variables
-       -> TyVarSet -> [TyVar] -> Bool
-    go errs in_scope [] = null (filter (`elemVarSet` in_scope) errs)
-        -- report an error only when the variable in the kind is brought
-        -- into scope later in the telescope. Otherwise, we'll just quantify
-        -- over it in kindGeneralize, as we should.
-
-    go errs in_scope  (tv:tvs)
-      = let bad_tvs = tyCoVarsOfType (tyVarKind tv) `minusVarSet` in_scope in
-        go (varSetElems bad_tvs ++ errs) (in_scope `extendVarSet` tv) tvs
 
 {-
 ************************************************************************

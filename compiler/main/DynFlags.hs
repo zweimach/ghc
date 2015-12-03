@@ -211,10 +211,10 @@ import GHC.Foreign (withCString, peekCString)
 -- described in the User's Guide. Usually at least two sections need to be
 -- updated:
 --
---  * Flag Reference section in docs/users-guide/flags.xml lists all available
---    flags together with a short description
+--  * Flag Reference section generated from the modules in
+--    utils/mkUserGuidePart/Options
 --
---  * Flag description in docs/users_guide/using.xml provides a detailed
+--  * Flag description in docs/users_guide/using.rst provides a detailed
 --    explanation of flags' usage.
 
 -- Note [Supporting CLI completion]
@@ -472,9 +472,6 @@ data GeneralFlag
    | Opt_DistrustAllPackages
    | Opt_PackageTrust
 
-   -- debugging flags
-   | Opt_Debug
-
    deriving (Eq, Show, Enum)
 
 data WarningFlag =
@@ -507,7 +504,8 @@ data WarningFlag =
    | Opt_WarnWarningsDeprecations
    | Opt_WarnDeprecatedFlags
    | Opt_WarnAMP -- Introduced in GHC 7.8, obsolete since 7.10
-   | Opt_WarnMissingMonadFailInstance
+   | Opt_WarnMissingMonadFailInstance -- since 8.0
+   | Opt_WarnSemigroup -- since 8.0
    | Opt_WarnDodgyExports
    | Opt_WarnDodgyImports
    | Opt_WarnOrphans
@@ -533,6 +531,7 @@ data WarningFlag =
    | Opt_WarnUntickedPromotedConstructors
    | Opt_WarnDerivingTypeable
    | Opt_WarnDeferredTypeErrors
+   | Opt_WarnNonCanonicalMonadInstances
    deriving (Eq, Show, Enum)
 
 data Language = Haskell98 | Haskell2010
@@ -575,6 +574,7 @@ data ExtensionFlag
    | Opt_ParallelArrays           -- Syntactic support for parallel arrays
    | Opt_Arrows                   -- Arrow-notation syntax
    | Opt_TemplateHaskell
+   | Opt_TemplateHaskellQuotes    -- subset of TH supported by stage1, no splice
    | Opt_QuasiQuotes
    | Opt_ImplicitParams
    | Opt_ImplicitPrelude
@@ -679,6 +679,7 @@ data DynFlags = DynFlags {
   sigOf                 :: SigOf,       -- ^ Compiling an hs-boot against impl.
   verbosity             :: Int,         -- ^ Verbosity level: see Note [Verbosity levels]
   optLevel              :: Int,         -- ^ Optimisation level
+  debugLevel            :: Int,         -- ^ How much debug information to produce
   simplPhases           :: Int,         -- ^ Number of simplifier phases
   maxSimplIterations    :: Int,         -- ^ Max simplifier iterations
   ruleCheck             :: Maybe String,
@@ -1427,6 +1428,7 @@ defaultDynFlags mySettings =
         sigOf                   = Map.empty,
         verbosity               = 0,
         optLevel                = 0,
+        debugLevel              = 0,
         simplPhases             = 2,
         maxSimplIterations      = 4,
         ruleCheck               = Nothing,
@@ -2573,13 +2575,15 @@ dynamic_flags = [
   , defGhcFlag "mavx512pf"    (noArg (\d -> d{ avx512pf = True }))
 
      ------ Warning opts -------------------------------------------------
-  , defFlag "W"      (NoArg (mapM_ setWarningFlag minusWOpts))
-  , defFlag "Werror" (NoArg (setGeneralFlag           Opt_WarnIsError))
-  , defFlag "Wwarn"  (NoArg (unSetGeneralFlag         Opt_WarnIsError))
-  , defFlag "Wall"   (NoArg (mapM_ setWarningFlag minusWallOpts))
-  , defFlag "Wnot"   (NoArg (do upd (\dfs -> dfs {warningFlags = IntSet.empty})
-                                deprecate "Use -w instead"))
-  , defFlag "w"      (NoArg (upd (\dfs -> dfs {warningFlags = IntSet.empty})))
+  , defFlag "W"       (NoArg (mapM_ setWarningFlag minusWOpts))
+  , defFlag "Werror"  (NoArg (setGeneralFlag           Opt_WarnIsError))
+  , defFlag "Wwarn"   (NoArg (unSetGeneralFlag         Opt_WarnIsError))
+  , defFlag "Wcompat" (NoArg (mapM_ setWarningFlag minusWcompatOpts))
+  , defFlag "Wno-compat" (NoArg (mapM_ unSetWarningFlag minusWcompatOpts))
+  , defFlag "Wall"    (NoArg (mapM_ setWarningFlag minusWallOpts))
+  , defFlag "Wnot"    (NoArg (do upd (\dfs -> dfs {warningFlags = IntSet.empty})
+                                 deprecate "Use -w instead"))
+  , defFlag "w"       (NoArg (upd (\dfs -> dfs {warningFlags = IntSet.empty})))
 
         ------ Plugin flags ------------------------------------------------
   , defGhcFlag "fplugin-opt" (hasArg addPluginModuleNameOption)
@@ -2722,7 +2726,7 @@ dynamic_flags = [
   , defGhcFlag "fno-PIC"       (NoArg (unSetGeneralFlag Opt_PIC))
 
          ------ Debugging flags ----------------------------------------------
-  , defGhcFlag "g"             (NoArg (setGeneralFlag Opt_Debug))
+  , defGhcFlag "g"             (OptIntSuffix setDebugLevel)
  ]
  ++ map (mkFlag turnOn  ""     setGeneralFlag  ) negatableFlags
  ++ map (mkFlag turnOff "no-"  unSetGeneralFlag) negatableFlags
@@ -2904,10 +2908,13 @@ fWarningFlags = [
   flagSpec "warn-missing-local-sigs"          Opt_WarnMissingLocalSigs,
   flagSpec "warn-missing-methods"             Opt_WarnMissingMethods,
   flagSpec "warn-missing-monadfail-instance"  Opt_WarnMissingMonadFailInstance,
+  flagSpec "warn-semigroup"                   Opt_WarnSemigroup,
   flagSpec "warn-missing-signatures"          Opt_WarnMissingSigs,
   flagSpec "warn-missing-exported-sigs"       Opt_WarnMissingExportedSigs,
   flagSpec "warn-monomorphism-restriction"    Opt_WarnMonomorphism,
   flagSpec "warn-name-shadowing"              Opt_WarnNameShadowing,
+  flagSpec "warn-noncanonical-monad-instances"
+                                         Opt_WarnNonCanonicalMonadInstances,
   flagSpec "warn-orphans"                     Opt_WarnOrphans,
   flagSpec "warn-overflowed-literals"         Opt_WarnOverflowedLiterals,
   flagSpec "warn-overlapping-patterns"        Opt_WarnOverlappingPatterns,
@@ -3050,7 +3057,7 @@ fLangFlags = [
 -- See Note [Supporting CLI completion]
   flagSpec' "th"                              Opt_TemplateHaskell
     (\on -> deprecatedForExtension "TemplateHaskell" on
-         >> setTemplateHaskellLoc on),
+         >> checkTemplateHaskellOk on),
   flagSpec' "fi"                              Opt_ForeignFunctionInterface
     (deprecatedForExtension "ForeignFunctionInterface"),
   flagSpec' "ffi"                             Opt_ForeignFunctionInterface
@@ -3238,7 +3245,8 @@ xFlags = [
   flagSpec "Strict"                           Opt_Strict,
   flagSpec "StrictData"                       Opt_StrictData,
   flagSpec' "TemplateHaskell"                 Opt_TemplateHaskell
-                                              setTemplateHaskellLoc,
+                                              checkTemplateHaskellOk,
+  flagSpec "TemplateHaskellQuotes"            Opt_TemplateHaskellQuotes,
   flagSpec "TraditionalRecordSyntax"          Opt_TraditionalRecordSyntax,
   flagSpec "TransformListComp"                Opt_TransformListComp,
   flagSpec "TupleSections"                    Opt_TupleSections,
@@ -3355,6 +3363,8 @@ impliedXFlags
 
     -- Duplicate record fields require field disambiguation
     , (Opt_DuplicateRecordFields, turnOn, Opt_DisambiguateRecordFields)
+
+    , (Opt_TemplateHaskell, turnOn, Opt_TemplateHaskellQuotes)
   ]
 
 -- Note [Documenting optimisation flags]
@@ -3363,8 +3373,8 @@ impliedXFlags
 -- If you change the list of flags enabled for particular optimisation levels
 -- please remember to update the User's Guide. The relevant files are:
 --
---  * docs/users_guide/flags.xml
---  * docs/users_guide/using.xml
+--  * utils/mkUserGuidePart/Options/
+--  * docs/users_guide/using.rst
 --
 -- The first contains the Flag Refrence section, which breifly lists all
 -- available flags. The second contains a detailed description of the
@@ -3421,8 +3431,10 @@ optLevelFlags -- see Note [Documenting optimisation flags]
 -- If you change the list of warning enabled by default
 -- please remember to update the User's Guide. The relevant file is:
 --
---  * docs/users_guide/using.xml
+--  * utils/mkUserGuidePart/
+--  * docs/users_guide/using.rst
 
+-- | Warnings enabled unless specified otherwise
 standardWarnings :: [WarningFlag]
 standardWarnings -- see Note [Documenting warning flags]
     = [ Opt_WarnOverlappingPatterns,
@@ -3448,8 +3460,8 @@ standardWarnings -- see Note [Documenting warning flags]
         Opt_WarnTabs
       ]
 
+-- | Things you get with -W
 minusWOpts :: [WarningFlag]
--- Things you get with -W
 minusWOpts
     = standardWarnings ++
       [ Opt_WarnUnusedTopBinds,
@@ -3462,8 +3474,8 @@ minusWOpts
         Opt_WarnDodgyImports
       ]
 
+-- | Things you get with -Wall
 minusWallOpts :: [WarningFlag]
--- Things you get with -Wall
 minusWallOpts
     = minusWOpts ++
       [ Opt_WarnTypeDefaults,
@@ -3474,6 +3486,17 @@ minusWallOpts
         Opt_WarnUnusedDoBind,
         Opt_WarnTrustworthySafe,
         Opt_WarnUntickedPromotedConstructors
+      ]
+
+-- | Things you get with -Wcompat.
+--
+-- This is intended to group together warnings that will be enabled by default
+-- at some point in the future, so that library authors eager to make their
+-- code future compatible to fix issues before they even generate warnings.
+minusWcompatOpts :: [WarningFlag]
+minusWcompatOpts
+    = [ Opt_WarnMissingMonadFailInstance
+      , Opt_WarnSemigroup
       ]
 
 enableUnusedBinds :: DynP ()
@@ -3531,10 +3554,9 @@ glasgowExtsFlags = [
            , Opt_UnicodeSyntax
            , Opt_UnliftedFFITypes ]
 
--- Consult the RTS to find whether GHC itself has been built profiled
--- If so, you can't use Template Haskell
 foreign import ccall unsafe "rts_isProfiled" rtsIsProfiledIO :: IO CInt
 
+-- | Was the runtime system built with profiling enabled?
 rtsIsProfiled :: Bool
 rtsIsProfiled = unsafeDupablePerformIO rtsIsProfiledIO /= 0
 
@@ -3583,9 +3605,25 @@ setIncoherentInsts True = do
   l <- getCurLoc
   upd (\d -> d { incoherentOnLoc = l })
 
-setTemplateHaskellLoc :: TurnOnFlag -> DynP ()
-setTemplateHaskellLoc _
+checkTemplateHaskellOk :: TurnOnFlag -> DynP ()
+#ifdef GHCI
+checkTemplateHaskellOk _turn_on
   = getCurLoc >>= \l -> upd (\d -> d { thOnLoc = l })
+#else
+-- In stage 1, Template Haskell is simply illegal, except with -M
+-- We don't bleat with -M because there's no problem with TH there,
+-- and in fact GHC's build system does ghc -M of the DPH libraries
+-- with a stage1 compiler
+checkTemplateHaskellOk turn_on
+  | turn_on = do dfs <- liftEwM getCmdLineState
+                 case ghcMode dfs of
+                    MkDepend -> return ()
+                    _        -> addErr msg
+  | otherwise = return ()
+  where
+    msg = "Template Haskell requires GHC with interpreter support\n    " ++
+          "Perhaps you are using a stage-1 compiler?"
+#endif
 
 {- **********************************************************************
 %*                                                                      *
@@ -3733,6 +3771,9 @@ setVerboseCore2Core = setDumpFlag' Opt_D_verbose_core2core
 
 setVerbosity :: Maybe Int -> DynP ()
 setVerbosity mb_n = upd (\dfs -> dfs{ verbosity = mb_n `orElse` 3 })
+
+setDebugLevel :: Maybe Int -> DynP ()
+setDebugLevel mb_n = upd (\dfs -> dfs{ debugLevel = mb_n `orElse` 2 })
 
 addCmdlineHCInclude :: String -> DynP ()
 addCmdlineHCInclude a = upd (\s -> s{cmdlineHcIncludes =  a : cmdlineHcIncludes s})

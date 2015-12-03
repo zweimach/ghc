@@ -23,14 +23,14 @@ module HsUtils(
   mkSimpleMatch, unguardedGRHSs, unguardedRHS,
   mkMatchGroup, mkMatchGroupName, mkMatch, mkHsLam, mkHsIf,
   mkHsWrap, mkLHsWrap, mkHsWrapCo, mkHsWrapCoR, mkLHsWrapCo,
-  coToHsWrapper, coToHsWrapperR, mkHsDictLet, mkHsLams,
+  mkHsDictLet, mkHsLams,
   mkHsOpApp, mkHsDo, mkHsComp, mkHsWrapPat, mkHsWrapPatCo,
   mkLHsPar, mkHsCmdCast,
 
   nlHsTyApp, nlHsTyApps, nlHsVar, nlHsLit, nlHsApp, nlHsApps, nlHsIntLit, nlHsVarApps,
   nlHsDo, nlHsOpApp, nlHsLam, nlHsPar, nlHsIf, nlHsCase, nlList,
   mkLHsTupleExpr, mkLHsVarTuple, missingTupArg,
-  toHsType, toHsKind,
+  toLHsSigWcType,
 
   -- * Constructing general big tuples
   -- $big_tuples
@@ -52,6 +52,7 @@ module HsUtils(
 
   -- Types
   mkHsAppTy, mkHsAppTys, userHsTyVarBndrs, userHsLTyVarBndrs,
+  mkLHsSigType, mkLHsSigWcType, mkClassOpSigs,
   nlHsAppTy, nlHsTyVar, nlHsFunTy, nlHsTyConApp,
   getAppsTyHead_maybe, hsTyGetAppHead_maybe, splitHsAppsTy,
 
@@ -92,11 +93,12 @@ import HsTypes
 import HsLit
 import PlaceHolder
 
+import TcType( tcSplitForAllTys, tcSplitPhiTy )
 import TcEvidence
 import RdrName
 import Var
 import TyCoRep
-import Type   ( filterOutInvisibleTypes )
+import Type   ( filterOutInvisibleTypes, isPredTy )
 import TcType
 import Kind
 import DataCon
@@ -199,7 +201,7 @@ mkSimpleHsAlt pat expr
   = mkSimpleMatch [pat] expr
 
 nlHsTyApp :: name -> [Type] -> LHsExpr name
-nlHsTyApp fun_id tys = noLoc (HsWrap (mkWpTyApps tys) (HsVar fun_id))
+nlHsTyApp fun_id tys = noLoc (HsWrap (mkWpTyApps tys) (HsVar (noLoc fun_id)))
 
 nlHsTyApps :: name -> [Type] -> [LHsExpr name] -> LHsExpr name
 nlHsTyApps fun_id tys xs = foldl nlHsApp (nlHsTyApp fun_id tys) xs
@@ -304,7 +306,8 @@ mkRecStmt stmts  = emptyRecStmt { recS_stmts = stmts }
 --- A useful function for building @OpApps@.  The operator is always a
 -- variable, and we don't know the fixity yet.
 mkHsOpApp :: LHsExpr id -> id -> LHsExpr id -> HsExpr id
-mkHsOpApp e1 op e2 = OpApp e1 (noLoc (HsVar op)) (error "mkOpApp:fixity") e2
+mkHsOpApp e1 op e2 = OpApp e1 (noLoc (HsVar (noLoc op)))
+                           (error "mkOpApp:fixity") e2
 
 unqualSplice :: RdrName
 unqualSplice = mkRdrUnqual (mkVarOccFS (fsLit "splice"))
@@ -343,7 +346,7 @@ userHsLTyVarBndrs loc bndrs = [ L loc (UserTyVar v) | L _ v <- bndrs ]
 
 userHsTyVarBndrs :: SrcSpan -> [name] -> [LHsTyVarBndr name]
 -- Caller sets location
-userHsTyVarBndrs loc bndrs = [ L loc (UserTyVar v) | v <- bndrs ]
+userHsTyVarBndrs loc bndrs = [ L loc (UserTyVar (L loc v)) | v <- bndrs ]
 
 
 {-
@@ -355,13 +358,13 @@ userHsTyVarBndrs loc bndrs = [ L loc (UserTyVar v) | v <- bndrs ]
 -}
 
 nlHsVar :: id -> LHsExpr id
-nlHsVar n = noLoc (HsVar n)
+nlHsVar n = noLoc (HsVar (noLoc n))
 
 nlHsLit :: HsLit -> LHsExpr id
 nlHsLit n = noLoc (HsLit n)
 
 nlVarPat :: id -> LPat id
-nlVarPat n = noLoc (VarPat n)
+nlVarPat n = noLoc (VarPat (noLoc n))
 
 nlLitPat :: HsLit -> LPat id
 nlLitPat l = noLoc (LitPat l)
@@ -376,7 +379,7 @@ nlHsApps :: id -> [LHsExpr id] -> LHsExpr id
 nlHsApps f xs = foldl nlHsApp (nlHsVar f) xs
 
 nlHsVarApps :: id -> [id] -> LHsExpr id
-nlHsVarApps f xs = noLoc (foldl mk (HsVar f) (map HsVar xs))
+nlHsVarApps f xs = noLoc (foldl mk (HsVar (noLoc f)) (map (HsVar . noLoc) xs))
                  where
                    mk f a = HsApp (noLoc f) (noLoc a)
 
@@ -437,7 +440,7 @@ nlHsTyVar :: name                         -> LHsType name
 nlHsFunTy :: LHsType name -> LHsType name -> LHsType name
 
 nlHsAppTy f t           = noLoc (HsAppTy f t)
-nlHsTyVar x             = noLoc (HsTyVar x)
+nlHsTyVar x             = noLoc (HsTyVar (noLoc x))
 nlHsFunTy a b           = noLoc (HsFunTy a b)
 
 nlHsTyConApp :: name -> [LHsType name] -> LHsType name
@@ -525,51 +528,68 @@ chunkify xs
 {-
 ************************************************************************
 *                                                                      *
-        Converting a Type to an HsType RdrName
+        LHsSigType and LHsSigWcType
 *                                                                      *
-************************************************************************
+********************************************************************* -}
 
-This is needed to implement GeneralizedNewtypeDeriving.
--}
+mkLHsSigType :: LHsType RdrName -> LHsSigType RdrName
+mkLHsSigType ty = mkHsImplicitBndrs ty
 
-toHsType :: Type -> LHsType RdrName
-toHsType ty
-  | [] <- tvs
-  , [] <- theta
-  = to_hs_type tau
-  | otherwise
-  = noLoc $
-    mkExplicitHsForAllTy (map mk_hs_tvb tvs)
-                         (noLoc $ map toHsType theta)
-                         (to_hs_type tau)
+mkLHsSigWcType :: LHsType RdrName -> LHsSigWcType RdrName
+mkLHsSigWcType ty = mkHsImplicitBndrs (mkHsWildCardBndrs ty)
 
+mkClassOpSigs :: [LSig RdrName] -> [LSig RdrName]
+-- Convert TypeSig to ClassOpSig
+-- The former is what is parsed, but the latter is
+-- what we need in class/instance declarations
+mkClassOpSigs sigs
+  = map fiddle sigs
   where
-    (tvs, theta, tau) = tcSplitSigmaTy ty
+    fiddle (L loc (TypeSig nms ty)) = L loc (ClassOpSig False nms (dropWildCards ty))
+    fiddle sig                      = sig
 
-    to_hs_type (TyVarTy tv) = nlHsTyVar (getRdrName tv)
-    to_hs_type (AppTy t1 t2) = nlHsAppTy (toHsType t1) (toHsType t2)
-    to_hs_type (TyConApp tc args) = nlHsTyConApp (getRdrName tc) (map toHsType args')
+toLHsSigWcType :: Type -> LHsSigWcType RdrName
+-- ^ Converting a Type to an HsType RdrName
+-- This is needed to implement GeneralizedNewtypeDeriving.
+--
+-- Note that we use 'getRdrName' extensively, which
+-- generates Exact RdrNames rather than strings.
+toLHsSigWcType ty
+  = mkLHsSigWcType (go ty)
+  where
+    go :: Type -> LHsType RdrName
+    go ty@(ForAllTy {})
+      | (tvs, tau) <- tcSplitForAllTys ty
+      = noLoc (HsForAllTy { hst_bndrs = map go_tv tvs
+                          , hst_body = go tau })
+    go ty@(FunTy arg _)
+      | isPredTy arg
+      , (theta, tau) <- tcSplitPhiTy ty
+      = noLoc (HsQualTy { hst_ctxt = noLoc (map go theta)
+                        , hst_body = go tau })
+    go (FunTy arg res)      = nlHsFunTy (go arg) (go res)
+    go (TyVarTy tv)         = nlHsTyVar (getRdrName tv)
+    go (AppTy t1 t2)        = nlHsAppTy (go t1) (go t2)
+    go (LitTy (NumTyLit n)) = noLoc $ HsTyLit (HsNumTy "" n)
+    go (LitTy (StrTyLit s)) = noLoc $ HsTyLit (HsStrTy "" s)
+    go (TyConApp tc args)   = nlHsTyConApp (getRdrName tc) (map go args')
        where
          args' = filterOutInvisibleTypes tc args
 
          -- Source-language types have _invisible_ kind arguments,
          -- so we must remove them here (Trac #8563)
-    to_hs_type (ForAllTy (Anon arg) res)
-                               = ASSERT( not (isConstraintKind (typeKind arg)) )
-                                 nlHsFunTy (toHsType arg) (toHsType res)
-    to_hs_type t@(ForAllTy {}) = pprPanic "toHsType" (ppr t)
-    to_hs_type (LitTy (NumTyLit n)) = noLoc $ HsTyLit (HsNumTy "" n)
-    to_hs_type (LitTy (StrTyLit s)) = noLoc $ HsTyLit (HsStrTy "" s)
-    to_hs_type (CastTy ty _)   = to_hs_type ty
-    to_hs_type (CoercionTy co) = pprPanic "toHsType(2)" (ppr co)
 
-    mk_hs_tvb tv = noLoc $ KindedTyVar (noLoc (getRdrName tv))
-                                       (toHsKind (tyVarKind tv))
+    go_tv :: TyVar -> LHsTyVarBndr RdrName
+    go_tv tv = noLoc $ KindedTyVar (noLoc (getRdrName tv))
+                                   (go (tyVarKind tv))
 
-toHsKind :: Kind -> LHsKind RdrName
-toHsKind = toHsType
 
---------- HsWrappers: type args, dict args, casts ---------
+{- *********************************************************************
+*                                                                      *
+    --------- HsWrappers: type args, dict args, casts ---------
+*                                                                      *
+********************************************************************* -}
+
 mkLHsWrap :: HsWrapper -> LHsExpr id -> LHsExpr id
 mkLHsWrap co_fn (L loc e) = L loc (mkHsWrap co_fn e)
 
@@ -579,35 +599,26 @@ mkHsWrap co_fn e | isIdHsWrapper co_fn = e
 
 mkHsWrapCo :: TcCoercionN   -- A Nominal coercion  a ~N b
            -> HsExpr id -> HsExpr id
-mkHsWrapCo co e = mkHsWrap (coToHsWrapper co) e
+mkHsWrapCo co e = mkHsWrap (mkWpCastN co) e
 
 mkHsWrapCoR :: TcCoercionR   -- A Representational coercion  a ~R b
             -> HsExpr id -> HsExpr id
-mkHsWrapCoR co e = mkHsWrap (coToHsWrapperR co) e
+mkHsWrapCoR co e = mkHsWrap (mkWpCastR co) e
 
-mkLHsWrapCo :: TcCoercion -> LHsExpr id -> LHsExpr id
+mkLHsWrapCo :: TcCoercionN -> LHsExpr id -> LHsExpr id
 mkLHsWrapCo co (L loc e) = L loc (mkHsWrapCo co e)
 
 mkHsCmdCast :: TcCoercion -> HsCmd id -> HsCmd id
 mkHsCmdCast co cmd | isTcReflCo co = cmd
                    | otherwise     = HsCmdCast co cmd
 
-coToHsWrapper :: TcCoercion -> HsWrapper   -- A Nominal coercion
-coToHsWrapper co | isTcReflCo co = idHsWrapper
-                 | otherwise     = mkWpCast (mkTcSubCo co)
-
-coToHsWrapperR :: TcCoercion -> HsWrapper   -- A Representational coercion
-coToHsWrapperR co | isTcReflCo co = idHsWrapper
-                  | otherwise     = mkWpCast co
-
 mkHsWrapPat :: HsWrapper -> Pat id -> Type -> Pat id
 mkHsWrapPat co_fn p ty | isIdHsWrapper co_fn = p
                        | otherwise           = CoPat co_fn p ty
 
--- input coercion is Nominal
-mkHsWrapPatCo :: TcCoercion -> Pat id -> Type -> Pat id
+mkHsWrapPatCo :: TcCoercionN -> Pat id -> Type -> Pat id
 mkHsWrapPatCo co pat ty | isTcReflCo co = pat
-                        | otherwise     = CoPat (mkWpCast (mkTcSubCo co)) pat ty
+                        | otherwise     = CoPat (mkWpCastN co) pat ty
 
 mkHsDictLet :: TcEvBinds -> LHsExpr Id -> LHsExpr Id
 mkHsDictLet ev_binds expr = mkLHsWrap (mkWpLet ev_binds) expr
@@ -794,7 +805,7 @@ collect_lpat :: LPat name -> [name] -> [name]
 collect_lpat (L _ pat) bndrs
   = go pat
   where
-    go (VarPat var)               = var : bndrs
+    go (VarPat (L _ var))         = var : bndrs
     go (WildPat _)                = bndrs
     go (LazyPat pat)              = collect_lpat pat bndrs
     go (BangPat pat)              = collect_lpat pat bndrs
@@ -881,8 +892,8 @@ hsLTyClDeclBinders (L loc (SynDecl     { tcdLName = L _ name })) = ([L loc name]
 hsLTyClDeclBinders (L loc (ClassDecl   { tcdLName = L _ cls_name
                                        , tcdSigs = sigs, tcdATs = ats }))
   = (L loc cls_name :
-       [ L fam_loc fam_name | L fam_loc (FamilyDecl { fdLName = L _ fam_name }) <- ats ] ++
-       [ L mem_loc mem_name | L mem_loc (TypeSig ns _ _) <- sigs, L _ mem_name <- ns ]
+     [ L fam_loc fam_name | L fam_loc (FamilyDecl { fdLName = L _ fam_name }) <- ats ] ++
+     [ L mem_loc mem_name | L mem_loc (ClassOpSig False ns _) <- sigs, L _ mem_name <- ns ]
     , [])
 hsLTyClDeclBinders (L loc (DataDecl    { tcdLName = L _ name, tcdDataDefn = defn }))
   = (\ (xs, ys) -> (L loc name : xs, ys)) $ hsDataDefnBinders defn
@@ -892,7 +903,7 @@ hsForeignDeclsBinders :: [LForeignDecl name] -> [Located name]
 -- See Note [SrcSpan for binders]
 hsForeignDeclsBinders foreign_decls
   = [ L decl_loc n
-    | L decl_loc (ForeignImport (L _ n) _ _ _) <- foreign_decls]
+    | L decl_loc (ForeignImport { fd_name = L _ n }) <- foreign_decls]
 
 
 

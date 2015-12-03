@@ -19,6 +19,13 @@ warningsOptions =
          , flagType = DynamicFlag
          , flagReverse = "-w"
          }
+  , flag { flagName = "-Wcompat"
+         , flagDescription =
+           "enable future compatibility warnings " ++
+           "(details in :ref:`options-sanity`)"
+         , flagType = DynamicFlag
+         , flagReverse = "-Wno-compat"
+         }
   , flag { flagName = "-Werror"
          , flagDescription = "make warnings fatal"
          , flagType = DynamicFlag
@@ -147,10 +154,17 @@ warningsOptions =
          }
   , flag { flagName = "-fwarn-missing-monadfail-instance"
          , flagDescription =
-           "warn when a failable pattern is used in a do-block that does not  "++
-           "have a ``MonadFail`` instance."
+           "warn when a failable pattern is used in a do-block that does " ++
+           "not have a ``MonadFail`` instance."
          , flagType = DynamicFlag
          , flagReverse = "-fno-warn-missing-monadfail-instance"
+         }
+  , flag { flagName = "-fwarn-semigroup"
+         , flagDescription =
+           "warn when a ``Monoid`` is not ``Semigroup``, and on non-" ++
+           "``Semigroup`` definitions of ``(<>)``?"
+         , flagType = DynamicFlag
+         , flagReverse = "-fno-warn-semigroup"
          }
   , flag { flagName = "-fwarn-missed-specialisations"
          , flagDescription =
@@ -173,6 +187,15 @@ warningsOptions =
          , flagDescription = "warn when names are shadowed"
          , flagType = DynamicFlag
          , flagReverse = "-fno-warn-name-shadowing"
+         }
+  , flag { flagName = "-fwarn-noncanonical-monad-instance"
+         , flagDescription =
+           "warn when ``Applicative`` or ``Monad`` instances have "++
+           "noncanonical definitions of ``return``, ``pure``, ``(>>)``, "++
+           "or ``(*>)``. "++
+           "See flag description in :ref:`options-sanity` for more details."
+         , flagType = DynamicFlag
+         , flagReverse = "-fno-warn-noncanonical-monad-instance"
          }
   , flag { flagName = "-fwarn-orphans"
          , flagDescription =

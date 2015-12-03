@@ -77,8 +77,9 @@ import UniqSupply
 import BasicTypes
 import Util
 import DynFlags
+import Data.List
+import Data.Ord
 
-import Data.List        ( partition )
 import Data.Char        ( ord )
 #if __GLASGOW_HASKELL__ < 709
 import Data.Word        ( Word )
@@ -93,10 +94,12 @@ infixl 4 `mkCoreApp`, `mkCoreApps`
 *                                                                      *
 ************************************************************************
 -}
-
 sortQuantVars :: [Var] -> [Var]
 -- Sort the variables, putting type and covars first, in scoped order,
 -- and then other Ids
+-- It is a deterministic sort, meaining it doesn't look at the values of
+-- Uniques. For explanation why it's important See Note [Unique Determinism]
+-- in Unique.
 sortQuantVars vs = sorted_tcvs ++ ids
   where
     (tcvs, ids) = partition (isTyVar <||> isCoVar) vs

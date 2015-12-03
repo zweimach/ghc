@@ -1,6 +1,4 @@
 
 WildcardInADT2.hs:4:34: error:
-    Unexpected wild card: ‘_’
-    In the first argument of ‘Either’, namely ‘_’
-    In the type ‘Either _ a’
-    In the definition of data constructor ‘Foo’
+    Wildcard ‘_’ not allowed
+      in the definition of data constructor ‘Foo’

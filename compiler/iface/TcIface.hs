@@ -48,6 +48,7 @@ import ConLike
 import DataCon
 import PrelNames
 import TysWiredIn
+import BasicTypes       ( DefMethSpec(..) )
 import Literal
 import qualified Var
 import VarEnv
@@ -420,13 +421,23 @@ tc_iface_decl _parent ignore_prags
         -- Here the associated type T is knot-tied with the class, and
         -- so we must not pull on T too eagerly.  See Trac #5970
 
-   tc_sig (IfaceClassOp occ dm rdr_ty)
+   tc_sig :: IfaceClassOp -> IfL TcMethInfo
+   tc_sig (IfaceClassOp occ rdr_ty dm)
      = do { op_name <- lookupIfaceTop occ
-          ; op_ty   <- forkM (mk_op_doc op_name rdr_ty) (tcIfaceType rdr_ty)
+          ; ~(op_ty, dm') <- forkM (mk_op_doc op_name rdr_ty) $
+                             do { ty <- tcIfaceType rdr_ty
+                                ; dm' <- tc_dm dm
+                                ; return (ty, dm') }
                 -- Must be done lazily for just the same reason as the
                 -- type of a data con; to avoid sucking in types that
                 -- it mentions unless it's necessary to do so
-          ; return (op_name, dm, op_ty) }
+          ; return (op_name, op_ty, dm') }
+
+   tc_dm :: Maybe (DefMethSpec IfaceType) -> IfL (Maybe (DefMethSpec Type))
+   tc_dm Nothing               = return Nothing
+   tc_dm (Just VanillaDM)      = return (Just VanillaDM)
+   tc_dm (Just (GenericDM ty)) = do { ty' <- tcIfaceType ty
+                                    ; return (Just (GenericDM ty')) }
 
    tc_at cls (IfaceAT tc_decl if_def)
      = do ATyCon tc <- tc_iface_decl (Just cls) ignore_prags tc_decl
@@ -1087,9 +1098,9 @@ tcIfaceExpr (IfaceLet (IfaceRec pairs) body)
 tcIfaceExpr (IfaceTick tickish expr) = do
     expr' <- tcIfaceExpr expr
     -- If debug flag is not set: Ignore source notes
-    dbgFlag <- fmap (gopt Opt_Debug) getDynFlags
+    dbgLvl <- fmap debugLevel getDynFlags
     case tickish of
-      IfaceSource{} | not dbgFlag
+      IfaceSource{} | dbgLvl > 0
                     -> return expr'
       _otherwise    -> do
         tickish' <- tcIfaceTickish tickish

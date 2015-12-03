@@ -28,6 +28,7 @@ import Var
 import Type             ( isUnLiftedType )
 import VarSet
 import Util
+import UniqDFM (UniqDFM, udfmToUfm)
 import DynFlags
 import Outputable
 import Data.List( mapAccumL )
@@ -117,8 +118,8 @@ the closure for a is not built.
 ************************************************************************
 -}
 
-type FreeVarSet  = IdSet
-type BoundVarSet = IdSet
+type FreeVarSet  = DIdSet
+type BoundVarSet = DIdSet
 
 data FloatInBind = FB BoundVarSet FreeVarSet FloatBind
         -- The FreeVarSet is the free variables of the binding.  In the case
@@ -335,8 +336,8 @@ fiExpr dflags to_drop (_,AnnLet (AnnRec bindings) body)
   = fiExpr dflags new_to_drop body
   where
     (ids, rhss) = unzip bindings
-    rhss_fvs = map freeVarsOf rhss
-    body_fvs = freeVarsOf body
+    rhss_fvs = map (udfmToUfm . freeVarsOf) rhss
+    body_fvs = udfmToUfm $ freeVarsOf body
 
         -- See Note [extra_fvs (1,2)]
     rule_fvs = mapUnionVarSet idRuleAndUnfoldingVars ids
@@ -522,7 +523,7 @@ sepBindsByDropPoint _ _is_case drop_pts _ty_fvs []
   = [] : [[] | _ <- drop_pts]   -- cut to the chase scene; it happens
 
 sepBindsByDropPoint dflags is_case drop_pts ty_fvs floaters
-  = go floaters (map (\fvs -> (fvs, [])) (emptyVarSet : drop_pts))
+  = go floaters (map (\fvs -> (fvs, [])) (emptyDVarSet : drop_pts))
   where
     go :: FloatInBinds -> [DropBox] -> [FloatInBinds]
         -- The *first* one in the argument list is the drop_here set
@@ -536,9 +537,9 @@ sepBindsByDropPoint dflags is_case drop_pts ty_fvs floaters
         where
           -- "here" means the group of bindings dropped at the top of the fork
 
-          (used_here : used_in_flags) = [ fvs `intersectsVarSet` bndrs
+          (used_here : used_in_flags) = [ fvs `intersectsDVarSet` bndrs
                                         | (fvs, _) <- drop_boxes]
-          used_in_ty = ty_fvs `intersectsVarSet` bndrs
+          used_in_ty = ty_fvs `intersectsDVarSet` bndrs
 
           drop_here = used_here || not can_push || used_in_ty
 
@@ -566,7 +567,7 @@ sepBindsByDropPoint dflags is_case drop_pts ty_fvs floaters
           new_fork_boxes = zipWithEqual "FloatIn.sepBinds" insert_maybe fork_boxes used_in_flags
 
           insert :: DropBox -> DropBox
-          insert (fvs,drops) = (fvs `unionVarSet` bind_fvs, bind_w_fvs:drops)
+          insert (fvs,drops) = (fvs `unionDVarSet` bind_fvs, bind_w_fvs:drops)
 
           insert_maybe box True  = insert box
           insert_maybe box False = box
@@ -575,9 +576,9 @@ sepBindsByDropPoint dflags is_case drop_pts ty_fvs floaters
 
 
 floatedBindsFVs :: FloatInBinds -> FreeVarSet
-floatedBindsFVs binds = mapUnionVarSet fbFVs binds
+floatedBindsFVs binds = mapUnionDVarSet fbFVs binds
 
-fbFVs :: FloatInBind -> VarSet
+fbFVs :: FloatInBind -> DVarSet
 fbFVs (FB _ fvs _) = fvs
 
 wrapFloats :: FloatInBinds -> CoreExpr -> CoreExpr

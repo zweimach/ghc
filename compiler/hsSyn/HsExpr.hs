@@ -127,7 +127,9 @@ is Less Cool because
 
 -- | A Haskell expression.
 data HsExpr id
-  = HsVar     id             -- ^ Variable
+  = HsVar     (Located id)   -- ^ Variable
+
+                             -- See Note [Located RdrNames]
 
   | HsUnboundVar OccName     -- ^ Unbound variable; also used for "holes" _, or _x.
                              -- Turned from HsVar to HsUnboundVar by the renamer, when
@@ -319,16 +321,13 @@ data HsExpr id
   -- For details on above see note [Api annotations] in ApiAnnotation
   | ExprWithTySig
                 (LHsExpr id)
-                (LHsType id)
-                (PostRn id [Name])      -- After renaming, the list of Names
-                                        -- contains the named and unnamed
-                                        -- wildcards brought in scope by the
-                                        -- signature
+                (LHsSigWcType id)
 
-  | ExprWithTySigOut                    -- TRANSLATION
+  | ExprWithTySigOut              -- Post typechecking
                 (LHsExpr id)
-                (LHsType Name)          -- Retain the signature for
-                                        -- round-tripping purposes
+                (LHsSigWcType Name)  -- Retain the signature,
+                                     -- as HsSigType Name, for
+                                     -- round-tripping purposes
 
   -- | Arithmetic sequence
   --
@@ -569,29 +568,33 @@ So we use Nothing to mean "use the old built-in typing rule".
 
 Note [Record Update HsWrapper]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-There is a wrapper in RecordUpd which is used for the *required* constraints for
-pattern synonyms. This wrapper is created in the typechecking and is then
-directly used in the desugaring without modification.
+There is a wrapper in RecordUpd which is used for the *required*
+constraints for pattern synonyms. This wrapper is created in the
+typechecking and is then directly used in the desugaring without
+modification.
 
 For example, if we have the record pattern synonym P,
+  pattern P :: (Show a) => a -> Maybe a
+  pattern P{x} = Just x
 
-```
-pattern P :: (Show a) => a -> Maybe a
-pattern P{x} = Just x
-
-foo = (Just True) { x = False }
-```
-
+  foo = (Just True) { x = False }
 then `foo` desugars to something like
+  foo = case Just True of
+          P x -> P False
+hence we need to provide the correct dictionaries to P's matcher on
+the RHS so that we can build the expression.
 
-```
-P x = P False
-```
+Note [Located RdrNames]
+~~~~~~~~~~~~~~~~~~~~~~~
+A number of syntax elements have seemingly redundant locations attached to them.
+This is deliberate, to allow transformations making use of the API Annotations
+to easily correlate a Located Name in the RenamedSource with a Located RdrName
+in the ParsedSource.
 
-hence we need to provide the correct dictionaries to P on the RHS so that we can
-build the expression.
-
+There are unfortunately enough differences between the ParsedSource and the
+RenamedSource that the API Annotations cannot be used directly with
+RenamedSource, so this allows a simple mapping to be used based on the location.
+>>>>>>> origin/master
 -}
 
 instance OutputableBndr id => Outputable (HsExpr id) where
@@ -626,7 +629,7 @@ ppr_lexpr :: OutputableBndr id => LHsExpr id -> SDoc
 ppr_lexpr e = ppr_expr (unLoc e)
 
 ppr_expr :: forall id. OutputableBndr id => HsExpr id -> SDoc
-ppr_expr (HsVar v)        = pprPrefixOcc v
+ppr_expr (HsVar (L _ v))  = pprPrefixOcc v
 ppr_expr (HsUnboundVar v) = pprPrefixOcc v
 ppr_expr (HsIPVar v)      = ppr v
 ppr_expr (HsOverLabel l)  = char '#' <> ppr l
@@ -646,8 +649,8 @@ ppr_expr (HsApp e1 e2)
 
 ppr_expr (OpApp e1 op _ e2)
   = case unLoc op of
-      HsVar v -> pp_infixly v
-      _       -> pp_prefixly
+      HsVar (L _ v) -> pp_infixly v
+      _             -> pp_prefixly
   where
     pp_e1 = pprDebugParendExpr e1   -- In debug mode, add parens
     pp_e2 = pprDebugParendExpr e2   -- to make precedence clear
@@ -662,8 +665,8 @@ ppr_expr (NegApp e _) = char '-' <+> pprDebugParendExpr e
 
 ppr_expr (SectionL expr op)
   = case unLoc op of
-      HsVar v -> pp_infixly v
-      _       -> pp_prefixly
+      HsVar (L _ v) -> pp_infixly v
+      _             -> pp_prefixly
   where
     pp_expr = pprDebugParendExpr expr
 
@@ -673,8 +676,8 @@ ppr_expr (SectionL expr op)
 
 ppr_expr (SectionR op expr)
   = case unLoc op of
-      HsVar v -> pp_infixly v
-      _       -> pp_prefixly
+      HsVar (L _ v) -> pp_infixly v
+      _             -> pp_prefixly
   where
     pp_expr = pprDebugParendExpr expr
 
@@ -739,7 +742,7 @@ ppr_expr (RecordCon { rcon_con_name = con_id, rcon_flds = rbinds })
 ppr_expr (RecordUpd { rupd_expr = aexp, rupd_flds = rbinds })
   = hang (pprLExpr aexp) 2 (braces (fsep (punctuate comma (map ppr rbinds))))
 
-ppr_expr (ExprWithTySig expr sig _)
+ppr_expr (ExprWithTySig expr sig)
   = hang (nest 2 (ppr_lexpr expr) <+> dcolon)
          4 (ppr sig)
 ppr_expr (ExprWithTySigOut expr sig)
@@ -802,7 +805,7 @@ ppr_expr (HsArrApp arrow arg _ HsHigherOrderApp True)
 ppr_expr (HsArrApp arrow arg _ HsHigherOrderApp False)
   = hsep [ppr_lexpr arg, arrowtt, ppr_lexpr arrow]
 
-ppr_expr (HsArrForm (L _ (HsVar v)) (Just _) [arg1, arg2])
+ppr_expr (HsArrForm (L _ (HsVar (L _ v))) (Just _) [arg1, arg2])
   = sep [pprCmdArg (unLoc arg1), hsep [pprInfixOcc v, pprCmdArg (unLoc arg2)]]
 ppr_expr (HsArrForm op _ args)
   = hang (ptext (sLit "(|") <+> ppr_lexpr op)
@@ -967,7 +970,7 @@ data HsCmd id
 
     -- For details on above see note [Api annotations] in ApiAnnotation
 
-  | HsCmdCast   TcCoercion     -- A simpler version of HsWrap in HsExpr
+  | HsCmdCast   TcCoercionN    -- A simpler version of HsWrap in HsExpr
                 (HsCmd id)     -- If   cmd :: arg1 --> res
                                --       co :: arg1 ~ arg2
                                -- Then (HsCmdCast co cmd) :: arg2 --> res
@@ -1064,7 +1067,7 @@ ppr_cmd (HsCmdArrApp arrow arg _ HsHigherOrderApp True)
 ppr_cmd (HsCmdArrApp arrow arg _ HsHigherOrderApp False)
   = hsep [ppr_lexpr arg, arrowtt, ppr_lexpr arrow]
 
-ppr_cmd (HsCmdArrForm (L _ (HsVar v)) (Just _) [arg1, arg2])
+ppr_cmd (HsCmdArrForm (L _ (HsVar (L _ v))) (Just _) [arg1, arg2])
   = sep [pprCmdArg (unLoc arg1), hsep [pprInfixOcc v, pprCmdArg (unLoc arg2)]]
 ppr_cmd (HsCmdArrForm op _ args)
   = hang (ptext (sLit "(|") <> ppr_lexpr op)
@@ -1135,6 +1138,7 @@ data Match id body
         m_type :: (Maybe (LHsType id)),
                                  -- A type signature for the result of the match
                                  -- Nothing after typechecking
+                                 -- NB: No longer supported
         m_grhss :: (GRHSs id body)
   } deriving (Typeable)
 deriving instance (Data body,DataId id) => Data (Match id body)

@@ -724,7 +724,10 @@ Note that inertness is not the same as idempotence.  To apply S to a
 type, you may have to apply it recursive.  But inertness does
 guarantee that this recursive use will terminate.
 
----------- The main theorem --------------
+Note [Extending the inert equalities]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+This is the main theorem!
+
    Suppose we have a "work item"
        a -fw-> t
    and an inert generalised substitution S,
@@ -734,6 +737,9 @@ guarantee that this recursive use will terminate.
       (T3) a not in t      -- No occurs check in the work item
 
       (K1) for every (a -fs-> s) in S, then not (fw >= fs)
+           Reason: the work item is fully rewritten by S, hence not (fs >= fw)
+                   but if (fw >= fs) then the work item could rewrite
+                   the inert item
 
       (K2) for every (b -fs-> s) in S, where b /= a, then
               (K2a) not (fs >= fs)
@@ -750,11 +756,16 @@ guarantee that this recursive use will terminate.
    then the extended substition T = S+(a -fw-> t)
    is an inert generalised substitution.
 
+Conditions (T1-T3) are established by the canonicaliser
+Conditions (K1-K3) are established by TcSMonad.kickOutRewriteable
+
 The idea is that
 * (T1-2) are guaranteed by exhaustively rewriting the work-item
   with S(fw,_).
 
 * T3 is guaranteed by a simple occurs-check on the work item.
+  This is done during canonicalisation, in canEqTyVar;
+  (invariant: a CTyEqCan never has an occurs check).
 
 * (K1-3) are the "kick-out" criteria.  (As stated, they are really the
   "keep" criteria.) If the current inert S contains a triple that does
@@ -770,6 +781,12 @@ The idea is that
   a unification we add a new given  a -G-> ty.  But doing so does NOT require
   us to kick out an inert wanted that mentions a, because of (K2a).  This
   is a common case, hence good not to kick out.
+
+* Lemma (L2): if not (fw >= fw), then K1-K3 all hold.
+  Proof: using Definition [Can-rewrite relation], fw can't rewrite anything
+         and so K1-K3 hold.  Intuitivel, since fw can't rewrite anything,
+         adding it cannot cause any loops
+  This is a common case, because Wanteds cannot rewrite Wanteds.
 
 * Lemma (L1): The conditions of the Main Theorem imply that there is no
               (a -fs-> t) in S, s.t.  (fs >= fw).
@@ -1318,6 +1335,7 @@ kickOutRewritable :: CtFlavourRole  -- Flavour/role of the equality that
    -- take the substitution into account
 kickOutRewritable new_fr new_tv ics@(IC { inert_funeqs = funeqmap })
   | not (new_fr `eqCanRewriteFR` new_fr)
+    -- Lemma (L2) in Note [Extending the inert equalities]
   = if isFlattenTyVar new_tv
     then (emptyWorkList { wl_funeqs = feqs_out }, ics { inert_funeqs = feqs_in })
     else (emptyWorkList,                          ics)
@@ -1370,8 +1388,8 @@ kickOutRewritable new_fr new_tv (IC { inert_eqs      = tv_eqs
     (insols_out, insols_in) = partitionBag     kick_out_ct insols
       -- Kick out even insolubles; see Note [Kick out insolubles]
 
-    can_rewrite :: CtEvidence -> Bool
-    can_rewrite = (new_fr `eqCanRewriteFR`) . ctEvFlavourRole
+    fr_can_rewrite :: CtEvidence -> Bool
+    fr_can_rewrite = (new_fr `eqCanRewriteFR`) . ctEvFlavourRole
 
     kick_out_ct :: Ct -> Bool
     kick_out_ct ct = kick_out_ctev (ctEvidence ct)
@@ -1382,7 +1400,7 @@ kickOutRewritable new_fr new_tv (IC { inert_eqs      = tv_eqs
     kick_out_fe _ = False  -- Can't happen
 
     kick_out_ctev :: CtEvidence -> Bool
-    kick_out_ctev ev =  can_rewrite ev
+    kick_out_ctev ev =  fr_can_rewrite ev
                      && new_tv `elemVarSet` tyCoVarsOfType (ctEvPred ev)
          -- See Note [Kicking out inert constraints]
 
@@ -1395,23 +1413,23 @@ kickOutRewritable new_fr new_tv (IC { inert_eqs      = tv_eqs
       where
         (eqs_in, eqs_out) = partition keep_eq eqs
 
-    -- implements criteria K1-K3 in Note [inert_eqs: the inert equalities]
+    -- Implements criteria K1-K3 in Note [Extending the inert equalities]
     keep_eq (CTyEqCan { cc_tyvar = tv, cc_rhs = rhs_ty, cc_ev = ev
                       , cc_eq_rel = eq_rel })
       | tv == new_tv
-      = not (can_rewrite ev)  -- (K1)
+      = not (fr_can_rewrite ev)  -- (K1)
 
       | otherwise
       = check_k2 && check_k3
       where
-        ev_fr    = ctEvFlavourRole ev
-        check_k2 = not (ev_fr  `eqCanRewriteFR` ev_fr)
-                || not (new_fr `eqCanRewriteFR` ev_fr)
-                ||     (ev_fr  `eqCanRewriteFR` new_fr)
-                || not (new_tv `elemVarSet` tyCoVarsOfType rhs_ty)
+        fs = ctEvFlavourRole ev
+        check_k2 = not (fs  `eqCanRewriteFR` fs)                   -- (K2a)
+                ||     (fs  `eqCanRewriteFR` new_fr)               -- (K2b)
+                || not (new_fr `eqCanRewriteFR` fs)                -- (K2c)
+                || not (new_tv `elemVarSet` tyCoVarsOfType rhs_ty) -- (K2d)
 
         check_k3
-          | new_fr `eqCanRewriteFR` ev_fr
+          | new_fr `eqCanRewriteFR` fs
           = case eq_rel of
               NomEq  -> not (rhs_ty `eqType` mkTyVarTy new_tv)
               ReprEq -> not (isTyVarExposed new_tv rhs_ty)
@@ -2736,20 +2754,8 @@ newFlattenSkolem Derived loc fam_ty
        ; return (ev, pprPanic "newFlattenSkolem [D]" (ppr fam_ty), fmv) }
 
 newFsk, newFmv :: TcType -> TcS TcTyVar
-newFsk fam_ty
-  = wrapTcS $ do { uniq <- TcM.newUnique
-                 ; let name = TcM.mkTcTyVarName uniq (fsLit "fsk")
-                 ; return (mkTcTyVar name (typeKind fam_ty) (FlatSkol fam_ty)) }
-
-newFmv fam_ty
-  = wrapTcS $ do { uniq <- TcM.newUnique
-                 ; ref  <- TcM.newMutVar Flexi
-                 ; cur_lvl <- TcM.getTcLevel
-                 ; let details = MetaTv { mtv_info  = FlatMetaTv
-                                        , mtv_ref   = ref
-                                        , mtv_tclvl = fmvTcLevel cur_lvl }
-                       name = TcM.mkTcTyVarName uniq (fsLit "s")
-                 ; return (mkTcTyVar name (typeKind fam_ty) details) }
+newFsk fam_ty = wrapTcS (TcM.newFskTyVar fam_ty)
+newFmv fam_ty = wrapTcS (TcM.newFmvTyVar fam_ty)
 
 extendFlatCache :: TyCon -> [Type] -> (TcCoercion, TcType, CtFlavour) -> TcS ()
 extendFlatCache tc xi_args stuff

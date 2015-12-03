@@ -110,7 +110,8 @@ module Type (
         liftedTypeKind, unliftedTypeKind,
 
         -- * Type free variables
-        tyCoVarsOfType, tyCoVarsOfTypes, coVarsOfType,
+        tyCoVarsOfType, tyCoVarsOfTypes, tyCoVarsOfTypeAcc,
+        coVarsOfType,
         coVarsOfTypes, closeOverKinds,
         splitDepVarsOfType, splitDepVarsOfTypes,
         splitVisVarsOfType, splitVisVarsOfTypes,
@@ -1724,7 +1725,7 @@ toposortTyVars tvs = reverse $
                      [ tv | (_, tv, _) <- topologicalSortG $
                                           graphFromEdgedVertices nodes ]
   where
-    nodes = [ ((), tv, varSetElems (tyCoVarsOfType (tyVarKind tv)))
+    nodes = [ ((), tv, dVarSetElems (dTyCoVarsOfType (tyVarKind tv)))
             | tv <- tvs ]
 
 -- | Extract a well-scoped list of variables from a set of variables.

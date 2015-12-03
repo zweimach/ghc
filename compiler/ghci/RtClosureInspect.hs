@@ -1273,9 +1273,8 @@ quantifyType :: Type -> QuantifiedType
 -- Thus (quantifyType (forall a. a->[b]))
 -- returns ([a,b], a -> [b])
 
-quantifyType ty = ( varSetElemsWellScoped $
-                    filterVarSet isTyVar $
-                    tyCoVarsOfType rho
+quantifyType ty = ( filter isTyVar $
+                    tyCoVarsOfTypeWellScoped rho
                   , rho)
   where
     (_tvs, rho) = tcSplitNamedForAllTys ty

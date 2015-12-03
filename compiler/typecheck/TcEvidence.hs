@@ -6,8 +6,8 @@ module TcEvidence (
 
   -- HsWrapper
   HsWrapper(..),
-  (<.>),
-  mkWpTyApps, mkWpEvApps, mkWpEvVarApps, mkWpTyLams, mkWpLams, mkWpLet, mkWpCast,
+  (<.>), mkWpTyApps, mkWpEvApps, mkWpEvVarApps, mkWpTyLams,
+  mkWpLams, mkWpLet, mkWpCastN, mkWpCastR,
   mkWpFun, idHsWrapper, isIdHsWrapper, pprHsWrapper,
 
   -- Evidence bindings
@@ -95,16 +95,16 @@ mkTcAppCo              :: TcCoercion -> TcCoercionN -> TcCoercion
 mkTcFunCo              :: Role -> TcCoercion -> TcCoercion -> TcCoercion
 mkTcAxInstCo           :: Role -> CoAxiom br -> BranchIndex
                        -> [TcType] -> [TcCoercion] -> TcCoercion
-mkTcUnbranchedAxInstCo :: Role -> CoAxiom Unbranched -> [TcType]
-                       -> [TcCoercion] -> TcCoercion
+mkTcUnbranchedAxInstCo :: CoAxiom Unbranched -> [TcType]
+                       -> [TcCoercion] -> TcCoercionR
 mkTcForAllCo           :: TyVar -> TcCoercionN -> TcCoercion -> TcCoercion
 mkTcForAllCos          :: [(TyVar, TcCoercionN)] -> TcCoercion -> TcCoercion
 mkTcNthCo              :: Int -> TcCoercion -> TcCoercion
 mkTcLRCo               :: LeftOrRight -> TcCoercion -> TcCoercion
-mkTcSubCo              :: TcCoercion -> TcCoercion
+mkTcSubCo              :: TcCoercionN -> TcCoercionR
 maybeTcSubCo           :: EqRel -> TcCoercion -> TcCoercion
 tcDowngradeRole        :: Role -> Role -> TcCoercion -> TcCoercion
-mkTcAxiomRuleCo        :: CoAxiomRule -> [TcCoercion] -> TcCoercion
+mkTcAxiomRuleCo        :: CoAxiomRule -> [TcCoercion] -> TcCoercionR
 mkTcCoherenceLeftCo    :: TcCoercion -> TcCoercionN -> TcCoercion
 mkTcCoherenceRightCo   :: TcCoercion -> TcCoercionN -> TcCoercion
 mkTcPhantomCo          :: TcCoercionN -> TcType -> TcType -> TcCoercionP
@@ -201,11 +201,18 @@ mkWpFun (WpCast co1) WpHole       _  t2 = WpCast (mkFunCo Representational (mkSy
 mkWpFun (WpCast co1) (WpCast co2) _  _  = WpCast (mkFunCo Representational (mkSymCo co1) co2)
 mkWpFun co1          co2          t1 t2 = WpFun co1 co2 t1 t2
 
-mkWpCast :: TcCoercion -> HsWrapper
-mkWpCast co
+mkWpCastR :: TcCoercionR -> HsWrapper
+mkWpCastR co
   | isTcReflCo co = WpHole
   | otherwise     = ASSERT2(tcCoercionRole co == Representational, ppr co)
                     WpCast co
+
+mkWpCastN :: TcCoercionN -> HsWrapper
+mkWpCastN co
+  | isTcReflCo co = WpHole
+  | otherwise     = ASSERT2(tcCoercionRole co == Nominal, ppr co)
+                    WpCast (mkTcSubCo co)
+    -- The mkTcSubCo converts Nominal to Representational
 
 mkWpTyApps :: [Type] -> HsWrapper
 mkWpTyApps tys = mk_co_app_fn WpTyApp tys
@@ -778,7 +785,7 @@ instance Outputable EvTypeable where
 -- and return a 'Coercion' `co :: IP sym ty ~ ty` or
 -- `co :: IsLabel sym ty ~ Proxy# sym -> ty`.  See also
 -- Note [Type-checking overloaded labels] in TcExpr.
-unwrapIP :: Type -> Coercion
+unwrapIP :: Type -> CoercionR
 unwrapIP ty =
   case unwrapNewTyCon_maybe tc of
     Just (_,_,ax) -> mkUnbranchedAxInstCo Representational ax tys []
@@ -790,5 +797,5 @@ unwrapIP ty =
 
 -- | Create a 'Coercion' that wraps a value in an implicit-parameter
 -- dictionary. See 'unwrapIP'.
-wrapIP :: Type -> Coercion
+wrapIP :: Type -> CoercionR
 wrapIP ty = mkSymCo (unwrapIP ty)

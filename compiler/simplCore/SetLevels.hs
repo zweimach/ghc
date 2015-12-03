@@ -77,6 +77,8 @@ import UniqSupply
 import Util
 import Outputable
 import FastString
+import UniqDFM (udfmToUfm)
+import FV
 
 import Data.List        ( nub )
 
@@ -361,7 +363,7 @@ lvlExpr env (_, AnnCase scrut case_bndr ty alts)
 
 -------------------------------------------
 lvlCase :: LevelEnv             -- Level of in-scope names/tyvars
-        -> VarSet               -- Free vars of input scrutinee
+        -> DVarSet              -- Free vars of input scrutinee
         -> LevelledExpr         -- Processed scrutinee
         -> Id -> Type           -- Case binder and result type
         -> [CoreAltWithFVs]     -- Input alternatives
@@ -708,7 +710,7 @@ lvlBind env (AnnNonRec bndr rhs)
 
   where
     rhs_fvs    = freeVarsOf rhs
-    bind_fvs   = rhs_fvs `unionVarSet` idFreeVars bndr
+    bind_fvs   = rhs_fvs `unionDVarSet` dIdFreeVars bndr
     abs_vars   = abstractVars dest_lvl env bind_fvs
     dest_lvl   = destLevel env bind_fvs (isFunction rhs) is_bot
     is_bot     = exprIsBottom (deAnnotate rhs)
@@ -768,10 +770,12 @@ lvlBind env (AnnRec pairs)
     (bndrs,rhss) = unzip pairs
 
         -- Finding the free vars of the binding group is annoying
-    bind_fvs = (unionVarSets [ idFreeVars bndr `unionVarSet` freeVarsOf rhs
-                             | (bndr, rhs) <- pairs])
-               `minusVarSet`
-               mkVarSet bndrs
+    bind_fvs = ((unionDVarSets [ freeVarsOf rhs | (_, rhs) <- pairs])
+                `unionDVarSet`
+                (runFVDSet $ foldr unionFV noVars [ idFreeVarsAcc bndr
+                                                  | (bndr, (_,_)) <- pairs]))
+               `minusDVarSet`
+                mkDVarSet bndrs -- XXX: it's a waste to create a set here
 
     dest_lvl = destLevel env bind_fvs (all isFunction rhss) False
     abs_vars = abstractVars dest_lvl env bind_fvs
@@ -851,7 +855,7 @@ lvlBndrs env@(LE { le_lvl_env = lvl_env }) new_lvl bndrs
 
   -- Destination level is the max Id level of the expression
   -- (We'll abstract the type variables, if any.)
-destLevel :: LevelEnv -> VarSet
+destLevel :: LevelEnv -> DVarSet
           -> Bool   -- True <=> is function
           -> Bool   -- True <=> is bottom
           -> Level
@@ -888,8 +892,8 @@ isFunction (_, AnnLam b e) | isId b    = True
 -- isFunction (_, AnnTick _ e)          = isFunction e  -- dubious
 isFunction _                           = False
 
-countFreeIds :: VarSet -> Int
-countFreeIds = foldVarSet add 0
+countFreeIds :: DVarSet -> Int
+countFreeIds = foldVarSet add 0 . udfmToUfm
   where
     add :: Var -> Int -> Int
     add v n | isId v    = n+1
@@ -971,9 +975,9 @@ extendCaseBndrEnv le@(LE { le_subst = subst, le_env = id_env })
        , le_env     = add_id id_env (case_bndr, scrut_var) }
 extendCaseBndrEnv env _ _ = env
 
-maxFvLevel :: (Var -> Bool) -> LevelEnv -> VarSet -> Level
+maxFvLevel :: (Var -> Bool) -> LevelEnv -> DVarSet -> Level
 maxFvLevel max_me (LE { le_lvl_env = lvl_env, le_env = id_env }) var_set
-  = foldVarSet max_in tOP_LEVEL var_set
+  = foldDVarSet max_in tOP_LEVEL var_set
   where
     max_in in_var lvl
        = foldr max_out lvl (case lookupVarEnv id_env in_var of
@@ -991,19 +995,30 @@ lookupVar le v = case lookupVarEnv (le_env le) v of
                     Just (_, expr) -> expr
                     _              -> Var v
 
-abstractVars :: Level -> LevelEnv -> VarSet -> [OutVar]
+abstractVars :: Level -> LevelEnv -> DVarSet -> [OutVar]
         -- Find the variables in fvs, free vars of the target expresion,
         -- whose level is greater than the destination level
         -- These are the ones we are going to abstract out
+        --
+        -- Note that to get reproducible builds, the variables need to be
+        -- abstracted in deterministic order, not dependent on the values of
+        -- Uniques. This is achieved by using DVarSets, deterministic free
+        -- variable computation and deterministic sort.
+        -- See Note [Unique Determinism] in Unique for explanation of why
+        -- Uniques are not deterministic.
 abstractVars dest_lvl (LE { le_subst = subst, le_lvl_env = lvl_env }) in_fvs
   =  -- NB: sortQuantVars might not put duplicates next to each other
-    map zap $ nub $ sortQuantVars
-    [out_var | out_fv  <- varSetElems (substVarSet subst in_fvs)
-             , out_var <- varSetElems (close out_fv)
+    map zap $ sortQuantVars $ uniq
+    [out_var | out_fv  <- dVarSetElems (substDVarSet subst in_fvs)
+             , out_var <- dVarSetElems (close out_fv)
              , abstract_me out_var ]
         -- NB: it's important to call abstract_me only on the OutIds the
-        -- come from substVarSet (not on fv, which is an InId)
+        -- come from substDVarSet (not on fv, which is an InId)
   where
+    uniq :: [Var] -> [Var]
+        -- Remove duplicates, preserving order
+    uniq = dVarSetElems . mkDVarSet
+
     abstract_me v = case lookupVarEnv lvl_env v of
                         Just lvl -> dest_lvl `ltLvl` lvl
                         Nothing  -> False
@@ -1016,11 +1031,11 @@ abstractVars dest_lvl (LE { le_subst = subst, le_lvl_env = lvl_env }) in_fvs
                      setIdInfo v vanillaIdInfo
           | otherwise = v
 
-    close :: Var -> VarSet  -- Close over variables free in the type
-                            -- Result includes the input variable itself
-    close v = foldVarSet (unionVarSet . close)
-                         (unitVarSet v)
-                         (varTypeTyCoVars v)
+    close :: Var -> DVarSet  -- Close over variables free in the type
+                             -- Result includes the input variable itself
+    close v = foldDVarSet (unionDVarSet . close)
+                          (unitDVarSet v)
+                          (runFVDSet $ varTypeTyCoVarsAcc v)
 
 type LvlM result = UniqSM result
 

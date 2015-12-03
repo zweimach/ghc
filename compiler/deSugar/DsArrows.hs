@@ -527,8 +527,8 @@ dsCmd ids local_vars stack_ty res_ty
     left_con <- dsLookupDataCon leftDataConName
     right_con <- dsLookupDataCon rightDataConName
     let
-        left_id  = HsVar (dataConWrapId left_con)
-        right_id = HsVar (dataConWrapId right_con)
+        left_id  = HsVar (noLoc (dataConWrapId left_con))
+        right_id = HsVar (noLoc (dataConWrapId right_con))
         left_expr  ty1 ty2 e = noLoc $ HsApp (noLoc $ HsWrap (mkWpTyApps [ty1, ty2]) left_id ) e
         right_expr ty1 ty2 e = noLoc $ HsApp (noLoc $ HsWrap (mkWpTyApps [ty1, ty2]) right_id) e
 
@@ -616,7 +616,7 @@ dsCmd _ids local_vars _stack_ty _res_ty (HsCmdArrForm op _ args) env_ids = do
 
 dsCmd ids local_vars stack_ty res_ty (HsCmdCast coercion cmd) env_ids = do
     (core_cmd, env_ids') <- dsCmd ids local_vars stack_ty res_ty cmd env_ids
-    wrapped_cmd <- dsHsWrapper (mkWpCast coercion) core_cmd
+    wrapped_cmd <- dsHsWrapper (mkWpCastN coercion) core_cmd
     return (wrapped_cmd, env_ids')
 
 dsCmd _ _ _ _ _ c = pprPanic "dsCmd" (ppr c)
@@ -1127,7 +1127,7 @@ collectl :: LPat Id -> [Id] -> [Id]
 collectl (L _ pat) bndrs
   = go pat
   where
-    go (VarPat var)               = var : bndrs
+    go (VarPat (L _ var))         = var : bndrs
     go (WildPat _)                = bndrs
     go (LazyPat pat)              = collectl pat bndrs
     go (BangPat pat)              = collectl pat bndrs

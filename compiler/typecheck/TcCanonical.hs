@@ -519,7 +519,7 @@ can_eq_nc' True _rdr_env _envs ev eq_rel ty1 _ (AppTy t2 s2) _
   | Just (t1, s1) <- tcSplitAppTy_maybe ty1
   = can_eq_app ev eq_rel t1 s1 t2 s2
 
--- No similarity in type structure detected. Flatten and try again!
+-- No similarity in type structure detected. Flatten and try again.
 can_eq_nc' False rdr_env envs ev eq_rel _ ps_ty1 _ ps_ty2
   = do { (xi1, co1) <- flatten FM_FlattenAll ev ps_ty1
        ; (xi2, co2) <- flatten FM_FlattenAll ev ps_ty2

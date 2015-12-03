@@ -414,25 +414,25 @@ the let binding.
 
 simplifyInfer :: TcLevel               -- Used when generating the constraints
               -> Bool                  -- Apply monomorphism restriction
-              -> [TcTyVar]             -- The quantified tyvars of any signatures
-                                       --   see Note [Which type variables to quantify]
+              -> [TcIdSigInfo]         -- Any signatures (possibly partial)
               -> [(Name, TcTauType)]   -- Variables to be generalised,
                                        -- and their tau-types
               -> WantedConstraints
               -> TcM ([TcTyVar],    -- Quantify over these type variables
                       [EvVar],      -- ... and these constraints (fully zonked)
                       TcEvBinds)    -- ... binding these evidence variables
-simplifyInfer rhs_tclvl apply_mr sig_qtvs name_taus wanteds
+simplifyInfer rhs_tclvl apply_mr sigs name_taus wanteds
   | isEmptyWC wanteds
-  = do { gbl_tvs <- tcGetGlobalTyCoVars
-       ; qtkvs <- quantifyTyVars gbl_tvs $
+  = do { gbl_tvs <- tcGetGlobalTyVars
+       ; qtkvs <- quantify_tvs sigs gbl_tvs $
                   splitDepVarsOfTypes (map snd name_taus)
        ; traceTc "simplifyInfer: empty WC" (ppr name_taus $$ ppr qtkvs)
        ; return (qtkvs, [], emptyTcEvBinds) }
 
   | otherwise
   = do { traceTc "simplifyInfer {"  $ vcat
-             [ ptext (sLit "binds =") <+> ppr name_taus
+             [ ptext (sLit "sigs =") <+> ppr sigs
+             , ptext (sLit "binds =") <+> ppr name_taus
              , ptext (sLit "rhs_tclvl =") <+> ppr rhs_tclvl
              , ptext (sLit "apply_mr =") <+> ppr apply_mr
              , ptext (sLit "(unzonked) wanted =") <+> ppr wanteds
@@ -513,7 +513,7 @@ simplifyInfer rhs_tclvl apply_mr sig_qtvs name_taus wanteds
        ; zonked_taus <- mapM (TcM.zonkTcType . snd) name_taus
        ; let zonked_tau_tkvs = splitDepVarsOfTypes zonked_taus
        ; (qtvs, bound_theta)
-           <- decideQuantification apply_mr sig_qtvs name_taus
+           <- decideQuantification apply_mr sigs name_taus
                                    quant_pred_candidates zonked_tau_tkvs
 
          -- Promote any type variables that are free in the inferred type
@@ -616,31 +616,25 @@ including all covars -- and the quantified constraints are empty/insoluble.
 
 decideQuantification
   :: Bool                  -- try the MR restriction?
-  -> [TcTyVar]             -- signature tyvars
+  -> [TcIdSigInfo]
   -> [(Name, TcTauType)]   -- variables to be generalised (for errors only)
   -> [PredType]            -- candidate theta
   -> Pair TcTyCoVarSet     -- dependent (kind) variables & type variables
   -> TcM ( [TcTyVar]       -- Quantify over these (skolems)
          , [PredType] )    -- and this context (fully zonked)
 -- See Note [Deciding quantification]
-decideQuantification apply_mr sig_qtvs name_taus constraints
+decideQuantification apply_mr sigs name_taus constraints
                      (Pair zonked_tau_kvs zonked_tau_tvs)
   | apply_mr     -- Apply the Monomorphism restriction
   = do { gbl_tvs <- tcGetGlobalTyCoVars
        ; let constrained_tvs = tyCoVarsOfTypes constraints `unionVarSet`
                                filterVarSet isCoVar zonked_tkvs
              mono_tvs = gbl_tvs `unionVarSet` constrained_tvs
-             mr_bites = constrained_tvs `intersectsVarSet` zonked_tkvs
-       ; qtvs <- quantify_tvs mono_tvs zonked_tau_kvs zonked_tau_tvs
-
-       ; traceTc "decideQuantification 1"
-           (vcat [ text "constraints:"     <+> ppr constraints
-                 , text "gbl_tvs:"         <+> ppr gbl_tvs
-                 , text "constrained_tvs:" <+> ppr constrained_tvs
-                 , text "qtvs:"            <+> ppr qtvs ])
+       ; qtvs <- quantify_tvs sigs mono_tvs zonked_tau_kvs zonked_tau_tvs
 
            -- Warn about the monomorphism restriction
        ; warn_mono <- woptM Opt_WarnMonomorphism
+       ; let mr_bites = constrained_tvs `intersectsVarSet` zonked_tkvs
        ; warnTc (warn_mono && mr_bites) $
          hang (text "The Monomorphism Restriction applies to the binding"
                <> plural bndrs <+> ptext (sLit "for") <+> pp_bndrs)
@@ -648,13 +642,16 @@ decideQuantification apply_mr sig_qtvs name_taus constraints
                 <+> if isSingleton bndrs then pp_bndrs
                                          else ptext (sLit "these binders"))
 
+       -- All done
+       ; traceTc "decideQuantification 1" (vcat [ppr constraints, ppr gbl_tvs, ppr mono_tvs
+                                                , ppr qtvs, ppr mr_bites])
        ; return (qtvs, []) }
 
   | otherwise
   = do { gbl_tvs <- tcGetGlobalTyCoVars
-       ; let mono_tvs     = growThetaTyVars (filter isEqPred constraints) gbl_tvs
+       ; let mono_tvs     = growThetaTyVars equality_constraints gbl_tvs
              tau_tvs_plus = growThetaTyVars constraints zonked_tau_tvs
-       ; qtvs <- quantify_tvs mono_tvs zonked_tau_kvs tau_tvs_plus
+       ; qtvs <- quantify_tvs sigs mono_tvs zonked_tau_kvs tau_tvs_plus
           -- We don't grow the kvs, as there's no real need to. Recall
           -- that quantifyTyVars uses the separation between kvs and tvs
           -- only for defaulting, and we don't want (ever) to default a tv
@@ -681,11 +678,24 @@ decideQuantification apply_mr sig_qtvs name_taus constraints
     zonked_tkvs = zonked_tau_kvs `unionVarSet` zonked_tau_tvs
     bndrs    = map fst name_taus
     pp_bndrs = pprWithCommas (quotes . ppr) bndrs
-    quantify_tvs mono_tvs kvs tvs   -- See Note [Which type variable to quantify]
-      | null sig_qtvs = quantifyTyVars mono_tvs (Pair kvs tvs)
-      | otherwise     = quantifyTyVars
-                         (mono_tvs `delVarSetList`    sig_qtvs)
-                         (Pair kvs (tvs `extendVarSetList` sig_qtvs))
+    equality_constraints = filter isEqPred constraints
+
+quantify_tvs :: [TcIdSigInfo]
+             -> TcTyVarSet   -- the monomorphic tvs
+             -> TcTyVarSet   -- kvs to quantify
+             -> TcTyVarSet   -- tvs to quantify
+             -> TcM [TcTyVar]
+-- See Note [Which type variables to quantify]
+quantify_tvs sigs mono_tvs tau_kvs tau_tvs
+  = quantifyTyVars (mono_tvs `delVarSetList` sig_qtvs)
+                   (Pair tau_kvs
+                         (tau_tvs `extendVarSetList` sig_qtvs
+                                  `extendVarSetList` sig_wcs)
+                   -- NB: quantifyTyVars zonks its arguments
+  where
+    sig_qtvs = [ skol | sig <- sigs, (_, skol) <- sig_skols sig ]
+    sig_wcs  = [ wc   | TISI { sig_bndr = PartialSig { sig_wcs = wcs } } <- sigs
+                      , (_, wc) <- wcs ]
 
 
 ------------------
@@ -720,21 +730,32 @@ quantify over all type variables that are
 
 However, for a pattern binding, or with wildcards, we might
 be doing inference *in the presence of a type signature*.
-Mostly, if there is a signature, we use CheckGen, not InferGen,
-but with pattern bindings or wildcards we might do inference
+Mostly, if there is a signature we use CheckGen, not InferGen,
+but with pattern bindings or wildcards we might do InferGen
 and still have a type signature.  For example:
    f :: _ -> a
    f x = ...
 or
+   g :: (Eq _a) => _b -> _b
+or
    p :: a -> a
    (p,q) = e
-In both cases we use plan InferGen, and hence call simplifyInfer.
+In all these cases we use plan InferGen, and hence call simplifyInfer.
 But those 'a' variables are skolems, and we should be sure to quantify
 over them, regardless of the monomorphism restriction etc.  If we
 don't, when reporting a type error we panic when we find that a
 skolem isn't bound by any enclosing implication.
 
-That's why we pass sig_qtvs to simplifyInfer, and make sure (in
+Moreover we must quantify over all wildcards that are not free in
+the environment.  In the case of 'g' for example, silly though it is,
+we want to get the inferred type
+   g :: forall t. Eq t => Int -> Int
+and then report ambiguity, rather than *not* quantifying over 't'
+and getting some much more mysterious error later.  A similar case
+is
+  h :: F _a -> Int
+
+That's why we pass sigs to simplifyInfer, and make sure (in
 quantify_tvs) that we do quantify over them.  Trac #10615 is
 a case in point.
 

@@ -142,8 +142,6 @@ data IdDetails
   -- Currently we don't persist these through interface file
   -- (see MkIface.toIfaceIdDetails), but we easily could if it mattered
 
-  | DefMethId                   -- ^ A default-method Id, either polymorphic or generic
-
   | ReflectionId                -- ^ A top-level Id to support runtime reflection
                                 -- e.g. $trModule, or $tcT
 
@@ -179,7 +177,6 @@ pprIdDetails VanillaId = empty
 pprIdDetails other     = brackets (pp other)
  where
    pp VanillaId         = panic "pprIdDetails"
-   pp DefMethId         = ptext (sLit "DefMethId")
    pp ReflectionId      = ptext (sLit "ReflectionId")
    pp PatSynId          = ptext (sLit "PatSynId")
    pp (DataConWorkId _) = ptext (sLit "DataCon")
@@ -383,21 +380,21 @@ and put in the global list.
 data RuleInfo
   = RuleInfo
         [CoreRule]
-        VarSet          -- Locally-defined free vars of *both* LHS and RHS
+        DVarSet         -- Locally-defined free vars of *both* LHS and RHS
                         -- of rules.  I don't think it needs to include the
                         -- ru_fn though.
                         -- Note [Rule dependency info] in OccurAnal
 
 -- | Assume that no specilizations exist: always safe
 emptyRuleInfo :: RuleInfo
-emptyRuleInfo = RuleInfo [] emptyVarSet
+emptyRuleInfo = RuleInfo [] emptyDVarSet
 
 isEmptyRuleInfo :: RuleInfo -> Bool
 isEmptyRuleInfo (RuleInfo rs _) = null rs
 
 -- | Retrieve the locally-defined free variables of both the left and
 -- right hand sides of the specialization rules
-ruleInfoFreeVars :: RuleInfo -> VarSet
+ruleInfoFreeVars :: RuleInfo -> DVarSet
 ruleInfoFreeVars (RuleInfo _ fvs) = fvs
 
 ruleInfoRules :: RuleInfo -> [CoreRule]

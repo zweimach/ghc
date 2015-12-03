@@ -105,7 +105,7 @@ There are several reasons why an Id might appear in the wiredInIds:
     result type. -- sof 1/99]
 
 (3) Other error functions (rUNTIME_ERROR_ID) are wired in (a) because
-    the desugarer generates code that mentiones them directly, and
+    the desugarer generates code that mentions them directly, and
     (b) for the same reason as eRROR_ID
 
 (4) lazyId is wired in because the wired-in version overrides the
@@ -389,7 +389,7 @@ mkDataConWorkId wkr_name data_con
         -- even if the data constructor is declared strict
         --      e.g.    data T = MkT !(Int,Int)
         -- Why?  Because the *wrapper* is strict (and its unfolding has case
-        -- expresssions that do the evals) but the *worker* itself is not.
+        -- expressions that do the evals) but the *worker* itself is not.
         -- If we pretend it is strict then when we see
         --      case x of y -> $wMkT y
         -- the simplifier thinks that y is "sure to be evaluated" (because
@@ -647,7 +647,7 @@ dataConSrcToImplBang dflags fam_envs arg_ty
   = HsStrict
 
 
--- | Wrappers/Workser and representation following Unpack/Strictness
+-- | Wrappers/Workers and representation following Unpack/Strictness
 -- decisions
 dataConArgRep
   :: Type
@@ -812,7 +812,7 @@ Because then we'd get an infinite number of arguments.
 Here is a more complicated case:
         data S = MkS {-# UNPACK #-} !T Int
         data T = MkT {-# UNPACK #-} !S Int
-Each of S and T must decide independendently whether to unpack
+Each of S and T must decide independently whether to unpack
 and they had better not both say yes. So they must both say no.
 
 Also behave conservatively when there is no UNPACK pragma
@@ -968,7 +968,7 @@ mkFCallId dflags uniq fcall ty
 
     strict_sig      = mkClosedStrictSig (replicate arity topDmd) topRes
     -- the call does not claim to be strict in its arguments, since they
-    -- may be lifted (foreign import prim) and the called code doen't
+    -- may be lifted (foreign import prim) and the called code doesn't
     -- necessarily force them. See Trac #11076.
 {-
 ************************************************************************

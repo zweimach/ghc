@@ -17,7 +17,7 @@ module CoreSubst (
         substTy, substCo, substExpr, substExprSC, substBind, substBindSC,
         substUnfolding, substUnfoldingSC,
         lookupIdSubst, lookupTCvSubst, substIdOcc,
-        substTickish, substVarSet,
+        substTickish, substDVarSet,
 
         -- ** Operations on substitutions
         emptySubst, mkEmptySubst, mkSubst, mkOpenSubst, substInScope, isEmptySubst,
@@ -681,7 +681,7 @@ substSpec subst new_id (RuleInfo rules rhs_fvs)
   where
     subst_ru_fn = const (idName new_id)
     new_spec = RuleInfo (map (substRule subst subst_ru_fn) rules)
-                        (substVarSet subst rhs_fvs)
+                        (substDVarSet subst rhs_fvs)
 
 ------------------
 substRulesForImportedIds :: Subst -> [CoreRule] -> [CoreRule]
@@ -728,13 +728,13 @@ substVect _subst vd@(VectClass _)    = vd
 substVect _subst vd@(VectInst _)     = vd
 
 ------------------
-substVarSet :: Subst -> VarSet -> VarSet
-substVarSet subst fvs
-  = foldVarSet (unionVarSet . subst_fv subst) emptyVarSet fvs
+substDVarSet :: Subst -> DVarSet -> DVarSet
+substDVarSet subst fvs
+  = mkDVarSet $ fst $ foldr (subst_fv subst) ([], emptyVarSet) $ dVarSetElems fvs
   where
-    subst_fv subst fv
-        | isId fv   = exprFreeVars (lookupIdSubst (text "substVarSet") subst fv)
-        | otherwise = tyCoVarsOfType (lookupTCvSubst subst fv)
+  subst_fv subst fv acc
+     | isId fv = expr_fvs (lookupIdSubst (text "substDVarSet") subst fv) isLocalVar emptyVarSet $! acc
+     | otherwise = tyCoVarsOfTypeAcc (lookupTCvSubst subst fv) (const True) emptyVarSet $! acc
 
 ------------------
 substTickish :: Subst -> Tickish Id -> Tickish Id

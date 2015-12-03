@@ -4,9 +4,9 @@ T7368a.hs:8:6: error:
     When matching types
       f :: * -> *
       Bad :: (* -> *) -> *
-       Expected type: f (Bad f)
-         Actual type: Bad (Bad f)
-    Relevant bindings include
-      fun :: f (Bad f) -> Bool (bound at T7368a.hs:8:1)
+    Expected type: f (Bad f)
+      Actual type: Bad t0
     In the pattern: Bad x
     In an equation for ‘fun’: fun (Bad x) = True
+    Relevant bindings include
+      fun :: f (Bad f) -> Bool (bound at T7368a.hs:8:1)

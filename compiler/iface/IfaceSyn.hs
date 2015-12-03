@@ -172,10 +172,13 @@ data IfaceFamTyConFlav
   | IfaceAbstractClosedSynFamilyTyCon
   | IfaceBuiltInSynFamTyCon -- for pretty printing purposes only
 
-data IfaceClassOp = IfaceClassOp IfaceTopBndr DefMethSpec IfaceType
-        -- Nothing    => no default method
-        -- Just False => ordinary polymorphic default method
-        -- Just True  => generic default method
+data IfaceClassOp
+  = IfaceClassOp IfaceTopBndr
+                 IfaceType                         -- Class op type
+                 (Maybe (DefMethSpec IfaceType))   -- Default method
+                 -- The types of both the class op itself,
+                 -- and the default method, are *not* quantifed
+                 -- over the class variables
 
 data IfaceAT = IfaceAT  -- See Class.ClassATItem
                   IfaceDecl          -- The associated type declaration
@@ -827,9 +830,14 @@ instance Outputable IfaceClassOp where
    ppr = pprIfaceClassOp showAll
 
 pprIfaceClassOp :: ShowSub -> IfaceClassOp -> SDoc
-pprIfaceClassOp ss (IfaceClassOp n dm ty) = hang opHdr 2 (pprIfaceSigmaType ty)
-  where opHdr = pprPrefixIfDeclBndr ss n
-                <+> ppShowIface ss (ppr dm) <+> dcolon
+pprIfaceClassOp ss (IfaceClassOp n ty dm)
+  = pp_sig n ty $$ generic_dm
+  where
+   generic_dm | Just (GenericDM dm_ty) <- dm
+              =  ptext (sLit "default") <+> pp_sig n dm_ty
+              | otherwise
+              = empty
+   pp_sig n ty = pprPrefixIfDeclBndr ss n <+> dcolon <+> pprIfaceSigmaType ty
 
 instance Outputable IfaceAT where
    ppr = pprIfaceAT showAll
@@ -878,9 +886,12 @@ pprIfaceConDecl ss gadt_style mk_user_con_res_ty fls
         (IfCon { ifConOcc = name, ifConInfix = is_infix,
                  ifConExTvs = ex_tvs,
                  ifConEqSpec = eq_spec, ifConCtxt = ctxt, ifConArgTys = arg_tys,
-                 ifConStricts = stricts, ifConFields = labels })
-  | gadt_style = pp_prefix_con <+> dcolon <+> ppr_ty
-  | otherwise  = ppr_fields tys_w_strs
+                 ifConStricts = stricts, ifConFields = fields })
+  | gadt_style            = pp_prefix_con <+> dcolon <+> ppr_ty
+  | not (null fields)     = pp_prefix_con <+> pp_field_args
+  | is_infix
+  , [ty1, ty2] <- pp_args = sep [ty1, pprInfixIfDeclBndr ss name, ty2]
+  | otherwise             = pp_prefix_con <+> sep pp_args
   where
     tys_w_strs :: [(IfaceBang, IfaceType)]
     tys_w_strs = zip stricts arg_tys
@@ -892,9 +903,12 @@ pprIfaceConDecl ss gadt_style mk_user_con_res_ty fls
 
         -- A bit gruesome this, but we can't form the full con_tau, and ppr it,
         -- because we don't have a Name for the tycon, only an OccName
-    pp_tau = case map pprParendIfaceType arg_tys ++ [pp_res_ty] of
+    pp_tau | null fields
+           = case pp_args ++ [pp_res_ty] of
                 (t:ts) -> fsep (t : map (arrow <+>) ts)
                 []     -> panic "pp_con_taus"
+           | otherwise
+           = sep [pp_field_args, arrow <+> pp_res_ty]
 
     ppr_bang IfNoBang = ppWhen opt_PprStyle_Debug $ char '_'
     ppr_bang IfStrict = char '!'
@@ -905,6 +919,13 @@ pprIfaceConDecl ss gadt_style mk_user_con_res_ty fls
     pprParendBangTy (bang, ty) = ppr_bang bang <> pprParendIfaceType ty
     pprBangTy       (bang, ty) = ppr_bang bang <> ppr ty
 
+    pp_args :: [SDoc]  -- With parens, e.g  (Maybe a)  or  !(Maybe a)
+    pp_args = map pprParendBangTy tys_w_strs
+
+    pp_field_args :: SDoc  -- Braces form:  { x :: !Maybe a, y :: Int }
+    pp_field_args = braces $ sep $ punctuate comma $ ppr_trim $
+                    map maybe_show_label (zip fields tys_w_strs)
+
     maybe_show_label (sel,bty)
       | showSub ss sel = Just (pprPrefixIfDeclBndr ss lbl <+> dcolon <+> pprBangTy bty)
       | otherwise      = Nothing
@@ -913,14 +934,6 @@ pprIfaceConDecl ss gadt_style mk_user_con_res_ty fls
         -- we have to look up the field label (in case
         -- DuplicateRecordFields was used for the definition)
         lbl = maybe sel (mkVarOccFS . flLabel) $ find (\ fl -> flSelector fl == sel) fls
-
-    ppr_fields [ty1, ty2]
-      | is_infix && null labels
-      = sep [pprParendBangTy ty1, pprInfixIfDeclBndr ss name, pprParendBangTy ty2]
-    ppr_fields fields
-      | null labels = pp_prefix_con <+> sep (map pprParendBangTy fields)
-      | otherwise   = pp_prefix_con <+> (braces $ sep $ punctuate comma $ ppr_trim $
-                                    map maybe_show_label (zip labels fields))
 
 instance Outputable IfaceRule where
   ppr (IfaceRule { ifRuleName = name, ifActivation = act, ifRuleBndrs = bndrs,
@@ -1205,7 +1218,11 @@ freeNamesIfAT (IfaceAT decl mb_def)
       Just rhs -> freeNamesIfType rhs
 
 freeNamesIfClsSig :: IfaceClassOp -> NameSet
-freeNamesIfClsSig (IfaceClassOp _n _dm ty) = freeNamesIfType ty
+freeNamesIfClsSig (IfaceClassOp _n ty dm) = freeNamesIfType ty &&& freeNamesDM dm
+
+freeNamesDM :: Maybe (DefMethSpec IfaceType) -> NameSet
+freeNamesDM (Just (GenericDM ty)) = freeNamesIfType ty
+freeNamesDM _                     = emptyNameSet
 
 freeNamesIfConDecls :: IfaceConDecls -> NameSet
 freeNamesIfConDecls (IfDataTyCon c _ _) = fnList freeNamesIfConDecl c
@@ -1581,16 +1598,16 @@ instance Binary IfaceFamTyConFlav where
                                   (ppr (fromIntegral h :: Int)) }
 
 instance Binary IfaceClassOp where
-    put_ bh (IfaceClassOp n def ty) = do
+    put_ bh (IfaceClassOp n ty def) = do
         put_ bh (occNameFS n)
-        put_ bh def
         put_ bh ty
+        put_ bh def
     get bh = do
         n   <- get bh
-        def <- get bh
         ty  <- get bh
+        def <- get bh
         occ <- return $! mkVarOccFS n
-        return (IfaceClassOp occ def ty)
+        return (IfaceClassOp occ ty def)
 
 instance Binary IfaceAT where
     put_ bh (IfaceAT dec defs) = do

@@ -11,20 +11,23 @@ module RnTypes (
         -- Type related stuff
         rnHsType, rnLHsType, rnLHsTypes, rnContext,
         rnHsKind, rnLHsKind, rnLHsMaybeKind,
-        rnHsSigType, rnLHsInstType, rnConDeclFields,
-        newTyVarNameRn, rnLHsTypeWithWildCards,
-        rnHsSigTypeWithWildCards, rnLTyVar, collectWildCards,
+        rnHsSigType, rnHsWcType,
+        rnHsSigWcType, rnHsSigWcTypeScoped,
+        rnLHsInstType,
+        newTyVarNameRn, collectAnonWildCards,
+        rnConDeclFields,
+        rnLTyVar, rnLHsTyVarBndr,
 
         -- Precence related stuff
         mkOpAppRn, mkNegAppRn, mkOpFormRn, mkConOpPatRn,
         checkPrecMatch, checkSectionPrec,
 
         -- Binding related stuff
-        warnContextQuantification, warnUnusedForAlls,
-        bindSigTyVarsFV, bindHsTyVars, rnHsBndrSig,
+        warnUnusedForAlls,
+        bindSigTyVarsFV, bindHsQTyVars, bindLRdrNames,
         extractHsTyRdrTyVars, extractHsTysRdrTyVars,
         extractRdrKindSigVars, extractDataDefnKindVars,
-        filterInScope, freeKiTyVarsAllVars, freeKiTyVarsKindVars
+        freeKiTyVarsAllVars, freeKiTyVarsKindVars
   ) where
 
 import {-# SOURCE #-} RnSplice( rnSpliceType )
@@ -35,7 +38,7 @@ import RnHsDoc          ( rnLHsDoc, rnMbLHsDoc )
 import RnEnv
 import TcRnMonad
 import RdrName
-import PrelNames
+import PrelNames        ( negateName, dot_tv_RDR, forall_tv_RDR )
 import TysPrim          ( funTyConName )
 import TysWiredIn       ( starKindTyConName, unicodeStarKindTyConName )
 import Name
@@ -49,7 +52,7 @@ import BasicTypes       ( compareFixity, funTyFixity, negateFixity,
 import Outputable
 import FastString
 import Maybes
-import Data.List        ( nubBy, deleteFirstsBy )
+import Data.List        ( nubBy )
 import Control.Monad    ( unless, when )
 
 #if __GLASGOW_HASKELL__ < 709
@@ -63,32 +66,184 @@ These type renamers are in a separate module, rather than in (say) RnSource,
 to break several loop.
 
 *********************************************************
-*                                                      *
-\subsection{Renaming types}
-*                                                      *
+*                                                       *
+           HsSigWcType (i.e with wildcards)
+*                                                       *
 *********************************************************
 -}
 
-rnHsSigType :: SDoc -> LHsType RdrName -> RnM (LHsType Name, FreeVars)
-        -- rnHsSigType is used for source-language type signatures,
-        -- which use *implicit* universal quantification.
-rnHsSigType doc_str ty = rnLHsType (TypeSigCtx doc_str) ty
+rnHsSigWcType :: HsDocContext -> LHsSigWcType RdrName
+            -> RnM (LHsSigWcType Name, FreeVars)
+rnHsSigWcType doc sig_ty
+  = rn_hs_sig_wc_type True doc sig_ty $ \sig_ty' ->
+    return (sig_ty', emptyFVs)
 
-rnLHsInstType :: SDoc -> LHsType RdrName -> RnM (LHsType Name, FreeVars)
+rnHsSigWcTypeScoped :: HsDocContext -> LHsSigWcType RdrName
+                    -> (LHsSigWcType Name -> RnM (a, FreeVars))
+                    -> RnM (a, FreeVars)
+-- Used for
+--   - Signatures on binders in a RULE
+--   - Pattern type signatures
+-- Wildcards are allowed
+rnHsSigWcTypeScoped ctx sig_ty thing_inside
+  = rn_hs_sig_wc_type False ctx sig_ty thing_inside
+    -- False: for pattern type sigs and rules we /do/ want
+    --        to bring those type varibles into scope
+    -- e.g  \ (x :: forall a. a-> b) -> e
+    -- Here we do bring 'b' into scope
+
+rn_hs_sig_wc_type :: Bool   -- see rnImplicitBndrs
+                  -> HsDocContext
+                  -> LHsSigWcType RdrName
+                  -> (LHsSigWcType Name -> RnM (a, FreeVars))
+                  -> RnM (a, FreeVars)
+-- rn_hs_sig_wc_type is used for source-language type signatures
+rn_hs_sig_wc_type no_implicit_if_forall ctxt
+                  (HsIB { hsib_body = wc_ty }) thing_inside
+  = rnImplicitBndrs no_implicit_if_forall (hswc_body wc_ty) $ \ kvs tvs ->
+    rn_hs_wc_type ctxt wc_ty $ \ wc_ty' ->
+    thing_inside (HsIB { hsib_kvs  = kvs
+                       , hsib_tvs  = tvs
+                       , hsib_body = wc_ty' })
+
+rnHsWcType :: HsDocContext -> LHsWcType RdrName -> RnM (LHsWcType Name, FreeVars)
+rnHsWcType ctxt wc_ty
+  = rn_hs_wc_type ctxt wc_ty $ \ wc_ty' ->
+    return (wc_ty', emptyFVs)
+
+rn_hs_wc_type :: HsDocContext -> LHsWcType RdrName
+              -> (LHsWcType Name -> RnM (a, FreeVars))
+              -> RnM (a, FreeVars)
+rn_hs_wc_type ctxt (HsWC { hswc_body = hs_ty }) thing_inside
+  = do { let nwc_rdrs = collectNamedWildCards hs_ty
+       ; rdr_env <- getLocalRdrEnv
+       ; nwcs <- sequence [ newLocalBndrRn lrdr
+                          | lrdr@(L _ rdr) <- nwc_rdrs
+                          , not (inScope rdr_env rdr) ]
+                 -- nwcs :: [Name]   Named wildcards
+       ; bindLocalNamesFV nwcs $
+    do { (wc_ty, fvs1) <- rnWcSigTy ctxt hs_ty
+       ; let wc_ty' :: HsWildCardBndrs Name (LHsType Name)
+             wc_ty' = wc_ty { hswc_wcs = nwcs ++ hswc_wcs wc_ty }
+       ; (res, fvs2) <- thing_inside wc_ty'
+       ; return (res, fvs1 `plusFV` fvs2) } }
+
+rnWcSigTy :: HsDocContext -> LHsType RdrName
+          -> RnM (LHsWcType Name, FreeVars)
+-- Renames just the top level of a type signature
+-- It's exactly like rnHsTyKi, except that it uses rnWcSigContext
+-- on a qualified type, and return info on any extra-constraints
+-- wildcard.  Some code duplication, but no big deal.
+rnWcSigTy ctxt (L loc hs_ty@(HsForAllTy { hst_bndrs = tvs, hst_body = hs_tau }))
+  = bindLHsTyVarBndrs ctxt Nothing tvs $ \ tvs' ->
+    do { (hs_tau', fvs) <- rnWcSigTy ctxt hs_tau
+       ; warnUnusedForAlls (inTypeDoc hs_ty) tvs' fvs
+       ; let hs_ty' = HsForAllTy { hst_bndrs = tvs', hst_body = hswc_body hs_tau' }
+       ; return ( hs_tau' { hswc_body = L loc hs_ty' }, fvs) }
+
+rnWcSigTy ctxt (L loc (HsQualTy { hst_ctxt = hs_ctxt, hst_body = tau }))
+  = do { (hs_ctxt', fvs1) <- rnWcSigContext ctxt hs_ctxt
+       ; (tau',     fvs2) <- rnLHsType ctxt tau
+       ; let awcs_tau = collectAnonWildCards tau'
+             hs_ty'   = HsQualTy { hst_ctxt = hswc_body hs_ctxt'
+                                 , hst_body = tau' }
+       ; return ( HsWC { hswc_wcs = hswc_wcs hs_ctxt' ++ awcs_tau
+                       , hswc_ctx = hswc_ctx hs_ctxt'
+                       , hswc_body = L loc hs_ty' }
+                , fvs1 `plusFV` fvs2) }
+
+rnWcSigTy ctxt hs_ty
+  = do { (hs_ty', fvs) <- rnLHsType ctxt hs_ty
+       ; return (HsWC { hswc_wcs = collectAnonWildCards hs_ty'
+                      , hswc_ctx = Nothing
+                      , hswc_body = hs_ty' }
+                , fvs) }
+
+rnWcSigContext :: HsDocContext -> LHsContext RdrName
+               -> RnM (HsWildCardBndrs Name (LHsContext Name), FreeVars)
+rnWcSigContext ctxt (L loc hs_ctxt)
+  | Just (hs_ctxt1, hs_ctxt_last) <- snocView hs_ctxt
+  , L lx (HsWildCardTy wc) <- ignoreParens hs_ctxt_last
+  = do { (hs_ctxt1', fvs) <- mapFvRn (rnLHsTyKi RnTopConstraint ctxt) hs_ctxt1
+       ; wc'              <- setSrcSpan lx $
+                             rnExtraConstraintWildCard ctxt wc
+       ; let hs_ctxt' = hs_ctxt1' ++ [L lx (HsWildCardTy wc')]
+             awcs     = concatMap collectAnonWildCards hs_ctxt1'
+             -- NB: *not* including the extra-constraint wildcard
+       ; return ( HsWC { hswc_wcs = awcs
+                       , hswc_ctx = Just lx
+                       , hswc_body = L loc hs_ctxt' }
+                , fvs ) }
+  | otherwise
+  = do { (hs_ctxt', fvs) <- mapFvRn (rnLHsTyKi RnTopConstraint ctxt) hs_ctxt
+       ; return (HsWC { hswc_wcs = concatMap collectAnonWildCards hs_ctxt'
+                      , hswc_ctx = Nothing
+                      , hswc_body = L loc hs_ctxt' }, fvs) }
+
+
+{- ******************************************************
+*                                                       *
+           HsSigtype (i.e. no wildcards)
+*                                                       *
+****************************************************** -}
+
+rnHsSigType :: HsDocContext -> LHsSigType RdrName
+            -> RnM (LHsSigType Name, FreeVars)
+-- Used for source-language type signatures
+-- that cannot have wildcards
+rnHsSigType ctx (HsIB { hsib_body = hs_ty })
+  = rnImplicitBndrs True hs_ty $ \ kvs tvs ->
+    do { (body', fvs) <- rnLHsType ctx hs_ty
+       ; return (HsIB { hsib_kvs  = kvs
+                      , hsib_tvs  = tvs
+                      , hsib_body = body' }, fvs) }
+
+rnImplicitBndrs :: Bool    -- True <=> no implicit quantification
+                           --          if type is headed by a forall
+                           -- E.g.  f :: forall a. a->b
+                           -- Do not quantify over 'b' too.
+                -> LHsType RdrName
+                -> ([Name] -> RnM (a, FreeVars))
+                -> RnM (a, FreeVars)
+rnImplicitBndrs no_implicit_if_forall hs_ty@(L loc _) thing_inside
+  = do { rdr_env <- getLocalRdrEnv
+       ; free_vars <- filterInScope rdr_env <$>
+                      extractHsTyRdrTyVars hs_ty
+       ; let real_rdrs  -- Implicit quantification only if
+                        -- there is no explicit forall
+               | no_implicit_if_forall
+               , L _ (HsForAllTy {}) <- hs_ty = []
+               | otherwise                    = freeKiTyVarsAllVars free_vars
+       ; traceRn (text "rnSigType" <+> (ppr hs_ty $$ ppr free_vars $$
+                                        ppr real_rdrs))
+       ; vars <- mapM (newLocalBndrRn . L loc . unLoc) real_rdrs
+       ; bindLocalNamesFV vars $
+         thing_inside vars }
+
+rnLHsInstType :: SDoc -> LHsSigType RdrName -> RnM (LHsSigType Name, FreeVars)
 -- Rename the type in an instance or standalone deriving decl
-rnLHsInstType doc_str ty
-  = do { (ty', fvs) <- rnLHsType (GenericCtx doc_str) ty
-       ; unless good_inst_ty (addErrAt (getLoc ty) (badInstTy ty))
-       ; return (ty', fvs) }
-  where
-    good_inst_ty
-      | (_, _, body_ty) <- splitLHsForAllTy (flattenTopLevelLHsForAllTy ty)
-      , Just (L _ cls, _) <- hsTyGetAppHead_maybe body_ty
-      , isTcOcc (rdrNameOcc cls) = True
-      | otherwise                = False
+-- The 'doc_str' is "an instance declaration" or "a VECTORISE pragma"
+rnLHsInstType doc_str inst_ty
+  | Just cls <- getLHsInstDeclClass_maybe inst_ty
+  , isTcOcc (rdrNameOcc (unLoc cls))
+         -- The guards check that the instance type looks like
+         --   blah => C ty1 .. tyn
+  = do { let full_doc = doc_str <+> ptext (sLit "for") <+> quotes (ppr cls)
+       ; rnHsSigType (GenericCtx full_doc) inst_ty }
 
-badInstTy :: LHsType RdrName -> SDoc
-badInstTy ty = ptext (sLit "Malformed instance:") <+> ppr ty
+  | otherwise  -- The instance is malformed, but we'd still like
+               -- to make progress rather than failing outright, so
+               -- we report more errors.  So we rename it anyway.
+  = do { addErrAt (getLoc (hsSigType inst_ty)) $
+         ptext (sLit "Malformed instance:") <+> ppr inst_ty
+       ; rnHsSigType (GenericCtx doc_str) inst_ty }
+
+
+{- ******************************************************
+*                                                       *
+           LHsType and HsType
+*                                                       *
+****************************************************** -}
 
 {-
 rnHsType is here because we call it from loadInstDecl, and I didn't
@@ -143,18 +298,22 @@ must come along for the ride just so that the list stays in sync with the
 operators.
 -}
 
-rnLHsTyKi  :: Bool --  True <=> renaming a type, False <=> a kind
+rnLHsTyKi  :: RnTyKiWhat
            -> HsDocContext -> LHsType RdrName -> RnM (LHsType Name, FreeVars)
-rnLHsTyKi isType doc (L loc ty)
+rnLHsTyKi what doc (L loc ty)
   = setSrcSpan loc $
-    do { (ty', fvs) <- rnHsTyKi isType doc ty
+    do { (ty', fvs) <- rnHsTyKi what doc ty
        ; return (L loc ty', fvs) }
 
 rnLHsType  :: HsDocContext -> LHsType RdrName -> RnM (LHsType Name, FreeVars)
-rnLHsType = rnLHsTyKi True
+rnLHsType cxt ty = -- pprTrace "rnHsType" (pprHsDocContext cxt $$ ppr ty) $
+                   rnLHsTyKi RnType cxt ty
+
+rnLHsPred  :: HsDocContext -> LHsType RdrName -> RnM (LHsType Name, FreeVars)
+rnLHsPred = rnLHsTyKi RnConstraint
 
 rnLHsKind  :: HsDocContext -> LHsKind RdrName -> RnM (LHsKind Name, FreeVars)
-rnLHsKind = rnLHsTyKi False
+rnLHsKind = rnLHsTyKi RnKind
 
 rnLHsMaybeKind  :: HsDocContext -> Maybe (LHsKind RdrName)
                 -> RnM (Maybe (LHsKind Name), FreeVars)
@@ -165,36 +324,68 @@ rnLHsMaybeKind doc (Just kind)
        ; return (Just kind', fvs) }
 
 rnHsType  :: HsDocContext -> HsType RdrName -> RnM (HsType Name, FreeVars)
-rnHsType = rnHsTyKi True
+rnHsType cxt ty = rnHsTyKi RnType cxt ty
+
 rnHsKind  :: HsDocContext -> HsKind RdrName -> RnM (HsKind Name, FreeVars)
-rnHsKind = rnHsTyKi False
+rnHsKind = rnHsTyKi RnKind
 
-rnHsTyKi :: Bool -> HsDocContext -> HsType RdrName -> RnM (HsType Name, FreeVars)
+data RnTyKiWhat = RnType
+                | RnKind
+                | RnTopConstraint  -- Top-level context of HsSigWcTypes
+                | RnConstraint     -- All other constraints
 
-rnHsTyKi isType doc ty@HsForAllTy{}
-  = rnHsTyKiForAll isType doc (flattenTopLevelHsForAllTy ty)
+instance Outputable RnTyKiWhat where
+  ppr RnType          = ptext (sLit "RnType")
+  ppr RnKind          = ptext (sLit "RnKind")
+  ppr RnTopConstraint = ptext (sLit "RnTopConstraint")
+  ppr RnConstraint    = ptext (sLit "RnConstraint")
 
-rnHsTyKi isType _ (HsTyVar rdr_name)
-  = do { name <- rnTyVar isType rdr_name
-       ; return (HsTyVar name, unitFV name) }
+isRnType :: RnTyKiWhat -> Bool
+isRnType RnType = True
+isRnType _      = False
 
-rnHsTyKi isType doc ty@(HsOpTy ty1 l_op ty2)
+isRnKind :: RnTyKiWhat -> Bool
+isRnKind RnKind = True
+isRnKind _      = False
+
+rnHsTyKi :: RnTyKiWhat -> HsDocContext -> HsType RdrName -> RnM (HsType Name, FreeVars)
+
+rnHsTyKi what doc ty@(HsForAllTy { hst_bndrs = tyvars, hst_body  = tau })
+  = do { checkTypeInType what ty
+       ; bindLHsTyVarBndrs doc Nothing tyvars $ \ tyvars' ->
+    do { (tau',  fvs) <- rnLHsType doc tau
+       ; warnUnusedForAlls (inTypeDoc ty) tyvars' fvs
+       ; return ( HsForAllTy { hst_bndrs = tyvars', hst_body =  tau' }
+                , fvs) }}
+
+rnHsTyKi what doc ty@(HsQualTy { hst_ctxt = lctxt
+                               , hst_body = tau })
+  = do { checkTypeInType what ty
+       ; (ctxt', fvs1) <- rnContext doc lctxt
+       ; (tau',  fvs2) <- rnLHsType doc tau
+       ; return (HsQualTy { hst_ctxt = ctxt', hst_body =  tau' }
+                , fvs1 `plusFV` fvs2) }
+
+rnHsTyKi what _ (HsTyVar (L loc rdr_name))
+  = do { name <- rnTyVar what rdr_name
+       ; return (HsTyVar (L loc name), unitFV name) }
+
+rnHsTyKi what doc ty@(HsOpTy ty1 l_op ty2)
   = setSrcSpan (getLoc l_op) $
-    do  { (l_op', fvs1) <- rnHsTyOp isType ty l_op
+    do  { (l_op', fvs1) <- rnHsTyOp what ty l_op
         ; fix   <- lookupTyFixityRn l_op'
-        ; (ty1', fvs2) <- rnLHsType doc ty1
-        ; (ty2', fvs3) <- rnLHsType doc ty2
+        ; (ty1', fvs2) <- rnLHsTyKi what doc ty1
+        ; (ty2', fvs3) <- rnLHsTyKi what doc ty2
         ; res_ty <- mkHsOpTyRn (\t1 t2 -> HsOpTy t1 l_op' t2)
                                (unLoc l_op') fix ty1' ty2'
         ; return (res_ty, plusFVs [fvs1, fvs2, fvs3]) }
 
-rnHsTyKi isType doc (HsParTy ty)
-  = do { (ty', fvs) <- rnLHsTyKi isType doc ty
+rnHsTyKi what doc (HsParTy ty)
+  = do { (ty', fvs) <- rnLHsTyKi what doc ty
        ; return (HsParTy ty', fvs) }
 
-rnHsTyKi isType doc (HsBangTy b ty)
-  = ASSERT( isType )
-    do { (ty', fvs) <- rnLHsType doc ty
+rnHsTyKi _ doc (HsBangTy b ty)
+  = do { (ty', fvs) <- rnLHsType doc ty
        ; return (HsBangTy b ty', fvs) }
 
 rnHsTyKi _ doc ty@(HsRecTy flds)
@@ -203,10 +394,10 @@ rnHsTyKi _ doc ty@(HsRecTy flds)
        ; (flds', fvs) <- rnConDeclFields [] doc flds
        ; return (HsRecTy flds', fvs) }
 
-rnHsTyKi isType doc (HsFunTy ty1 ty2)
-  = do { (ty1', fvs1) <- rnLHsTyKi isType doc ty1
+rnHsTyKi what doc (HsFunTy ty1 ty2)
+  = do { (ty1', fvs1) <- rnLHsTyKi what doc ty1
         -- Might find a for-all as the arg of a function type
-       ; (ty2', fvs2) <- rnLHsTyKi isType doc ty2
+       ; (ty2', fvs2) <- rnLHsTyKi what doc ty2
         -- Or as the result.  This happens when reading Prelude.hi
         -- when we find return :: forall m. Monad m -> forall a. a -> m a
 
@@ -214,37 +405,39 @@ rnHsTyKi isType doc (HsFunTy ty1 ty2)
        ; res_ty <- mkHsOpTyRn HsFunTy funTyConName funTyFixity ty1' ty2'
        ; return (res_ty, fvs1 `plusFV` fvs2) }
 
-rnHsTyKi isType doc listTy@(HsListTy ty)
+rnHsTyKi what doc listTy@(HsListTy ty)
   = do { data_kinds <- xoptM Opt_DataKinds
-       ; unless (data_kinds || isType) (addErr (dataKindsErr isType listTy))
-       ; (ty', fvs) <- rnLHsTyKi isType doc ty
+       ; when (not data_kinds && isRnKind what)
+              (addErr (dataKindsErr what listTy))
+       ; (ty', fvs) <- rnLHsTyKi what doc ty
        ; return (HsListTy ty', fvs) }
 
-rnHsTyKi isType doc t@(HsKindSig ty k)
-  = do { checkTypeInType isType t
+rnHsTyKi what doc t@(HsKindSig ty k)
+  = do { checkTypeInType what t
        ; kind_sigs_ok <- xoptM Opt_KindSignatures
-       ; unless kind_sigs_ok (badSigErr False doc ty)
+       ; unless kind_sigs_ok (badKindSigErr doc ty)
        ; (ty', fvs1) <- rnLHsType doc ty
        ; (k', fvs2) <- rnLHsKind doc k
        ; return (HsKindSig ty' k', fvs1 `plusFV` fvs2) }
 
-rnHsTyKi isType doc t@(HsPArrTy ty)
-  = do { notInKinds isType t
+rnHsTyKi what doc t@(HsPArrTy ty)
+  = do { notInKinds what t
        ; (ty', fvs) <- rnLHsType doc ty
        ; return (HsPArrTy ty', fvs) }
 
 -- Unboxed tuples are allowed to have poly-typed arguments.  These
 -- sometimes crop up as a result of CPR worker-wrappering dictionaries.
-rnHsTyKi isType doc tupleTy@(HsTupleTy tup_con tys)
+rnHsTyKi what doc tupleTy@(HsTupleTy tup_con tys)
   = do { data_kinds <- xoptM Opt_DataKinds
-       ; unless (data_kinds || isType) (addErr (dataKindsErr isType tupleTy))
-       ; (tys', fvs) <- mapFvRn (rnLHsTyKi isType doc) tys
+       ; when (not data_kinds && isRnKind what)
+              (addErr (dataKindsErr what tupleTy))
+       ; (tys', fvs) <- mapFvRn (rnLHsTyKi what doc) tys
        ; return (HsTupleTy tup_con tys', fvs) }
 
 -- Ensure that a type-level integer is nonnegative (#8306, #8412)
-rnHsTyKi isType _ tyLit@(HsTyLit t)
+rnHsTyKi what _ tyLit@(HsTyLit t)
   = do { data_kinds <- xoptM Opt_DataKinds
-       ; unless data_kinds (addErr (dataKindsErr isType tyLit))
+       ; unless data_kinds (addErr (dataKindsErr what tyLit))
        ; when (negLit t) (addErr negLitErr)
        ; checkTypeInType isType tyLit
        ; return (HsTyLit t, emptyFVs) }
@@ -309,18 +502,18 @@ rnHsTyKi isType doc overall_ty@(HsAppsTy tys)
     build_res_ty [arg] [] = return arg
     build_res_ty _ _ = pprPanic "build_op_ty" (ppr overall_ty)
 
-rnHsTyKi isType doc (HsAppTy ty1 ty2)
-  = do { (ty1', fvs1) <- rnLHsTyKi isType doc ty1
-       ; (ty2', fvs2) <- rnLHsTyKi isType doc ty2
+rnHsTyKi what doc (HsAppTy ty1 ty2)
+  = do { (ty1', fvs1) <- rnLHsTyKi what doc ty1
+       ; (ty2', fvs2) <- rnLHsTyKi what doc ty2
        ; return (HsAppTy ty1' ty2', fvs1 `plusFV` fvs2) }
 
-rnHsTyKi isType doc t@(HsIParamTy n ty)
-  = do { notInKinds isType t
+rnHsTyKi what doc t@(HsIParamTy n ty)
+  = do { notInKinds what t
        ; (ty', fvs) <- rnLHsType doc ty
        ; return (HsIParamTy n ty', fvs) }
 
-rnHsTyKi isType doc t@(HsEqTy ty1 ty2)
-  = do { checkTypeInType isType t
+rnHsTyKi what doc t@(HsEqTy ty1 ty2)
+  = do { checkTypeInType what t
        ; (ty1', fvs1) <- rnLHsType doc ty1
        ; (ty2', fvs2) <- rnLHsType doc ty2
        ; return (HsEqTy ty1' ty2', fvs1 `plusFV` fvs2) }
@@ -338,113 +531,79 @@ rnHsTyKi _ _ (HsCoreTy ty)
     -- The emptyFVs probably isn't quite right
     -- but I don't think it matters
 
-rnHsTyKi isType doc ty@(HsExplicitListTy k tys)
-  = do { checkTypeInType isType ty
+rnHsTyKi what doc ty@(HsExplicitListTy k tys)
+  = do { checkTypeInType what ty
        ; data_kinds <- xoptM Opt_DataKinds
-       ; unless data_kinds (addErr (dataKindsErr isType ty))
+       ; unless data_kinds (addErr (dataKindsErr what ty))
        ; (tys', fvs) <- rnLHsTypes doc tys
        ; return (HsExplicitListTy k tys', fvs) }
 
-rnHsTyKi isType doc ty@(HsExplicitTupleTy kis tys)
-  = do { checkTypeInType isType ty
+rnHsTyKi what doc ty@(HsExplicitTupleTy kis tys)
+  = do { checkTypeInType what ty
        ; data_kinds <- xoptM Opt_DataKinds
-       ; unless data_kinds (addErr (dataKindsErr isType ty))
+       ; unless data_kinds (addErr (dataKindsErr what ty))
        ; (tys', fvs) <- rnLHsTypes doc tys
        ; return (HsExplicitTupleTy kis tys', fvs) }
 
-rnHsTyKi isType _doc ty@(HsWildCardTy (AnonWildCard PlaceHolder))
-  = do { checkTypeInType isType ty
-       ; loc <- getSrcSpanM
-       ; uniq <- newUnique
-       ; let name = mkInternalName uniq (mkTyVarOcc "_") loc
-       ; return (HsWildCardTy (AnonWildCard name), emptyFVs) }
-         -- emptyFVs: this occurrence does not refer to a
-         --           binding, so don't treat it as a free variable
+rnHsTyKi what ctxt (HsWildCardTy wc)
+  = do { wc' <- case mb_bad of
+           Just msg -> do { addErr (wildCardMsg ctxt msg)
+                          ; discardErrs (rnWildCard ctxt wc) }
+                          -- discardErrs: avoid reporting
+                          -- a second error
+           Nothing  -> rnWildCard ctxt wc
 
-rnHsTyKi isType doc ty@(HsWildCardTy (NamedWildCard rdr_name))
-  = do { checkTypeInType isType ty
-       ; not_in_scope <- isNothing `fmap` lookupOccRn_maybe rdr_name
-       ; when not_in_scope $
-         -- When the named wild card is not in scope, it means it shouldn't be
-         -- there in the first place, i.e. rnHsSigTypeWithWildCards wasn't
-         -- used, so fail.
-         failWith $ text "Unexpected wild card:" <+> quotes (ppr rdr_name) $$
-                    docOfHsDocContext doc
-       ; name <- rnTyVar isType rdr_name
-       ; return (HsWildCardTy (NamedWildCard name), emptyFVs) }
+       ; traceRn (text "rnHsTyKi wild" <+> ppr wc <+> ppr (isJust mb_bad))
+       ; return (HsWildCardTy wc', emptyFVs) }
          -- emptyFVs: this occurrence does not refer to a
-         --           binding, so don't treat it as a free variable
+         --           user-written binding site, so don't treat
+         --           it as a free variable
+  where
+    mb_bad :: Maybe SDoc
+    mb_bad | not (wildCardsAllowed ctxt)
+           = Just (notAllowed wc)
+           | otherwise
+           = case what of
+               RnType          -> Nothing
+               RnKind          -> Just (notAllowed wc <+> ptext (sLit "in a kind"))
+               RnConstraint    -> Just constraint_msg
+               RnTopConstraint -> case wc of
+                     AnonWildCard {}  -> Just constraint_msg
+                     NamedWildCard {} -> Nothing
+
+    constraint_msg = hang (notAllowed wc <+> ptext (sLit "in a constraint"))
+                        2 hint_msg
+
+    hint_msg = case wc of
+       NamedWildCard {} -> empty
+       AnonWildCard {}  -> vcat [ ptext (sLit "except as the last top-level constraint of a type signature")
+                                , nest 2 (ptext (sLit "e.g  f :: (Eq a, _) => blah")) ]
+
+notAllowed :: HsWildCardInfo RdrName -> SDoc
+notAllowed wc =  ptext (sLit "Wildcard") <+> quotes (ppr wc)
+                 <+> ptext (sLit "not allowed")
+
+wildCardMsg :: HsDocContext -> SDoc -> SDoc
+wildCardMsg ctxt doc
+  = vcat [doc, nest 2 (ptext (sLit "in") <+> pprHsDocContext ctxt)]
 
 --------------
-rnHsTyKiForAll :: Bool -> HsDocContext -> HsType RdrName
-               -> RnM (HsType Name, FreeVars)
-rnHsTyKiForAll isType doc (HsForAllTy Implicit extra _ lctxt@(L _ ctxt) ty)
-  = do
-        -- Implicit quantifiction in source code (no kinds on tyvars)
-        -- Given the signature  C => T  we universally quantify
-        -- over FV(T) \ {in-scope-tyvars}
-    rdr_env <- getLocalRdrEnv
-    loc <- getSrcSpanM
-    free_kity_vars <- filterInScope rdr_env <$>
-                      extractHsTysRdrTyVars (ctxt ++ [ty])
-           -- The filterInScope is to ensure that we don't quantify over
-           -- type variables that are in scope; when GlasgowExts is off,
-           -- there usually won't be any, except for class signatures:
-           --   class C a where { op :: a -> a }
+rnTyVar :: RnTyKiWhat -> RdrName -> RnM Name
+rnTyVar what rdr_name
+  | isRnKind what = lookupKindOccRn rdr_name
+  | otherwise     = lookupTypeOccRn rdr_name
 
-    let all_vars = freeKiTyVarsAllVars free_kity_vars
-        tyvar_bndrs = userHsLTyVarBndrs loc all_vars
-
-    rnForAll isType doc Implicit extra [] (mkHsQTvs tyvar_bndrs) lctxt ty
-
-rnHsTyKiForAll isType doc
-               fulltype@(HsForAllTy Qualified extra _ lctxt@(L _ ctxt) ty)
-  = do
-    rdr_env <- getLocalRdrEnv
-    loc <- getSrcSpanM
-    free_kity_vars <- filterInScope rdr_env <$>
-                      extractHsTysRdrTyVars (ty:ctxt)
-
-    let tyvar_bndrs = userHsLTyVarBndrs loc (freeKiTyVarsAllVars free_kity_vars)
-        in_type_doc = ptext (sLit "In the type") <+> quotes (ppr fulltype)
-
-    -- See Note [Context quantification]
-    warnContextQuantification (in_type_doc $$ docOfHsDocContext doc) tyvar_bndrs
-    rnForAll isType doc Implicit extra [] (mkHsQTvs tyvar_bndrs) lctxt ty
-
-rnHsTyKiForAll isType doc
-               ty@(HsForAllTy Explicit extra forall_tyvars lctxt@(L _ ctxt) tau)
-  = do {      -- Explicit quantification.
-         -- Check that the forall'd tyvars are actually
-         -- mentioned in the type, and produce a warning if not
-         free_kity_vars <- extractHsTysRdrTyVars (tau:ctxt)
-       ; let in_type_doc = ptext (sLit "In the type") <+> quotes (ppr ty)
-       ; warnUnusedForAlls (in_type_doc $$ docOfHsDocContext doc)
-                           forall_tyvars free_kity_vars
-       ; traceRn (text "rnHsTyKiForAll:Exlicit" <+> vcat
-            [ppr free_kity_vars, ppr lctxt,ppr tau ])
-       ; rnForAll isType doc Explicit extra (freeKiTyVarsKindVars free_kity_vars)
-                  forall_tyvars lctxt tau }
-
--- The following should never happen but keeps the completeness checker happy
-rnHsTyKiForAll isType doc ty = rnHsTyKi isType doc ty
---------------
-rnTyVar :: Bool -> RdrName -> RnM Name
-rnTyVar is_type rdr_name
-  | is_type   = lookupTypeOccRn rdr_name
-  | otherwise = lookupKindOccRn rdr_name
-
-rnLTyVar :: Bool -> Located RdrName -> RnM (Located Name)
-rnLTyVar is_type (L loc rdr_name) = do
-  tyvar' <- rnTyVar is_type rdr_name
-  return (L loc tyvar')
+rnLTyVar :: Located RdrName -> RnM (Located Name)
+rnLTyVar (L loc rdr_name)
+  = do { tyvar <- lookupTypeOccRn rdr_name
+       ; return (L loc tyvar) }
 
 --------------
 rnHsTyOp :: Outputable a
          => Bool -> a -> Located RdrName -> RnM (Located Name, FreeVars)
-rnHsTyOp isType overall_ty (L loc op)
+rnHsTyOp what overall_ty (L loc op)
   = do { ops_ok <- xoptM Opt_TypeOperators
-       ; op' <- rnTyVar isType op
+       ; op' <- rnTyVar what op
        ; unless (ops_ok
                  || op' == starKindTyConName
                  || op' == unicodeStarKindTyConName
@@ -458,35 +617,68 @@ rnLHsTypes :: HsDocContext -> [LHsType RdrName]
            -> RnM ([LHsType Name], FreeVars)
 rnLHsTypes doc tys = mapFvRn (rnLHsType doc) tys
 
-rnForAll :: Bool -- "isType"
-         -> HsDocContext -> HsExplicitFlag
-         -> Maybe SrcSpan           -- Location of an extra-constraints wildcard
-         -> [Located RdrName]       -- Kind variables
-         -> LHsTyVarBndrs RdrName   -- Type variables
-         -> LHsContext RdrName -> LHsType RdrName
-         -> RnM (HsType Name, FreeVars)
+--------------
+extraConstraintWildCardsAllowed :: HsDocContext -> Bool
+extraConstraintWildCardsAllowed ctxt
+  = case ctxt of
+      TypeSigCtx {}       -> True
+      _                   -> False
 
-rnForAll isType doc exp extra kvs forall_tyvars ctxt ty
+wildCardsAllowed :: HsDocContext -> Bool
+-- ^ In what contexts are wildcards permitted
+wildCardsAllowed ctxt
+   = case ctxt of
+       TypeSigCtx {}       -> True
+       TypBrCtx {}         -> True   -- Template Haskell quoted type
+       SpliceTypeCtx {}    -> True   -- Result of a Template Haskell splice
+       ExprWithTySigCtx {} -> True
+       PatCtx {}           -> True
+       RuleCtx {}          -> True
+       FamPatCtx {}        -> True   -- Not named wildcards though
+       GHCiCtx {}          -> True
+       _                   -> False
 
-  | null kvs
-  , null (hsQTvExplicit forall_tyvars)
-  , null (unLoc ctxt)
-  , isNothing extra
-  = rnHsTyKi isType doc (unLoc ty)
-        -- One reason for this case is that a type like Int#
-        -- starts off as (HsForAllTy Implicit Nothing [] Int), in case
-        -- there is some quantification.  Now that we have quantified
-        -- and discovered there are no type variables, it's nicer to turn
-        -- it into plain Int.
+rnExtraConstraintWildCard :: HsDocContext -> HsWildCardInfo RdrName
+                          -> RnM (HsWildCardInfo Name)
+-- Rename the extra-constraint spot in a type signature
+--    (blah, _) => type
+-- Check that extra-constraints are allowed at all, and
+-- if so that it's an anonymous wildcard
+rnExtraConstraintWildCard ctxt wc
+  = case mb_bad of
+      Nothing  -> rnWildCard ctxt wc
+      Just msg -> do { addErr (wildCardMsg ctxt msg)
+                     ; discardErrs (rnWildCard ctxt wc) }
+  where
+    mb_bad | not (extraConstraintWildCardsAllowed ctxt)
+           = Just (ptext (sLit "Extra-contraint wildcard") <+> quotes (ppr wc)
+                   <+> ptext (sLit "not allowed"))
+           | isNamedWildCard wc
+           = Just (hang (ptext (sLit "Named wildcard") <+> quotes (ppr wc)
+                         <+> ptext (sLit "not allowed as an extra-contraint"))
+                      2 (ptext (sLit "Use an anonymous wildcard instead")))
+           | otherwise
+           = Nothing
 
-  | otherwise
-  = do { checkTypeInType isType (HsForAllTy exp extra forall_tyvars ctxt ty)
-       ; bindHsTyVars doc Nothing kvs forall_tyvars $ \ new_tyvars ->
-    do { (new_ctxt, fvs1) <- rnContext doc ctxt
-       ; (new_ty, fvs2) <- rnLHsTyKi isType doc ty
-       ; return (HsForAllTy exp extra new_tyvars new_ctxt new_ty, fvs1 `plusFV` fvs2) }}
-        -- Retain the same implicit/explicit flag as before
-        -- so that we can later print it correctly
+rnWildCard :: HsDocContext -> HsWildCardInfo RdrName -> RnM (HsWildCardInfo Name)
+rnWildCard _ (AnonWildCard _)
+  = do { loc <- getSrcSpanM
+       ; uniq <- newUnique
+       ; let name = mkInternalName uniq (mkTyVarOcc "_") loc
+       ; return (AnonWildCard (L loc name)) }
+
+rnWildCard ctxt wc@(NamedWildCard (L loc rdr_name))
+  -- NB: The parser only generates NamedWildCard if -XNamedWildCards
+  --     is on, so we don't need to check for that here
+  = do { mb_name <- lookupOccRn_maybe rdr_name
+       ; traceRn (text "rnWildCard named" <+> (ppr rdr_name $$ ppr mb_name))
+       ; case mb_name of
+           Just n  -> return (NamedWildCard (L loc n))
+           Nothing -> do { addErr msg  -- I'm not sure how this can happen
+                         ; return (NamedWildCard (L loc (mkUnboundNameRdr rdr_name))) } }
+  where
+    msg = wildCardMsg ctxt (notAllowed wc)
+
 
 ---------------
 -- | Ensures either that we're in a type or that -XTypeInType is set
@@ -509,7 +701,12 @@ notInKinds True _ = return ()
 notInKinds False ty
   = addErr (text "Illegal kind (even with TypeInType enabled):" <+> ppr ty)
 
----------------
+{- *****************************************************
+*                                                      *
+          Binding type variables
+*                                                      *
+***************************************************** -}
+
 bindSigTyVarsFV :: [Name]
                 -> RnM (a, FreeVars)
                 -> RnM (a, FreeVars)
@@ -523,20 +720,46 @@ bindSigTyVarsFV tvs thing_inside
           else
                 bindLocalNamesFV tvs thing_inside }
 
+-- | Simply bring a bunch of RdrNames into scope. No checking for
+-- validity, at all. The binding location is taken from the location
+-- on each name.
+bindLRdrNames :: [Located RdrName]
+              -> ([Name] -> RnM a)
+              -> RnM a
+bindLRdrNames rdrs thing_inside
+  = do { var_names <- mapM newTyVarNameRn rdrs
+       ; bindLocalNamesFV var_names $
+         thing_inside var_names }
+
 ---------------
-bindHsTyVars :: forall a b.
-                HsDocContext
-             -> Maybe a                 -- Just _  => an associated type decl
-             -> [Located RdrName]       -- Kind variables from scope, in l-to-r
-                                        -- order, but not from ...
-             -> (LHsTyVarBndrs RdrName) -- ... these user-written tyvars
-             -> (LHsTyVarBndrs Name -> RnM (b, FreeVars))
-             -> RnM (b, FreeVars)
+bindHsQTyVars :: forall a b.
+                 HsDocContext
+              -> Maybe a                 -- Just _  => an associated type decl
+              -> [Located RdrName]       -- Kind variables from scope, in l-to-r
+                                         -- order, but not from ...
+              -> (LHsQTyVars RdrName)     -- ... these user-written tyvars
+              -> (LHsQTyVars Name -> RnM (b, FreeVars))
+              -> RnM (b, FreeVars)
 -- (a) Bring kind variables into scope
 --     both (i)  passed in (kv_bndrs)
 --     and  (ii) mentioned in the kinds of tv_bndrs
 -- (b) Bring type variables into scope
-bindHsTyVars doc mb_assoc kv_bndrs tv_bndrs thing_inside
+bindHsQTyVars doc mb_assoc kv_bndrs tv_bndrs thing_inside
+  = do { bindLHsTyVarBndrs doc mb_assoc kv_bndrs (hsQTvExplicit tv_bndrs) $
+         \ rn_kvs rn_bndrs -> thing_inside (HsQTvs { hsq_implicit = all_rn_kvs
+                                                   , hsq_explicit = rn_bndrs })
+
+bindLHsTyVarBndrs :: forall a b.
+                     HsDocContext
+                  -> Maybe a            -- Just _  => an associated type decl
+                  -> [Located RdrName]  -- Kind variables from scope, in l-to-r
+                                        -- order, but not from ...
+                  -> [LHsTyVarBndr RdrName]  -- ... these user-written tyvars
+                  -> (   [Name]  -- kv names encountered in the LHsTyVarBndrs
+                      -> [LHsTyVarBndr Name]
+                      -> RnM (b, FreeVars))
+                  -> RnM (b, FreeVars)
+bindLHsTyVarBndrs doc mb_assoc kv_bndrs tv_bndrs thing_inside
   = do { when (isNothing mb_assoc) (checkShadowedRdrNames tv_names_w_loc)
        ; go [] [] emptyNameSet emptyNameSet (hsQTvExplicit tv_bndrs) }
   where
@@ -548,11 +771,11 @@ bindHsTyVars doc mb_assoc kv_bndrs tv_bndrs thing_inside
        -> NameSet                -- type vars already in scope (for dup checking)
        -> [LHsTyVarBndr RdrName] -- still to be renamed, scoped
        -> RnM (b, FreeVars)
-    go rn_kvs rn_tvs kv_names tv_names (L loc (UserTyVar rdr) : hs_tvs)
+    go rn_kvs rn_tvs kv_names tv_names (L loc (UserTyVar (L lv rdr)) : hs_tvs)
       = do { check_dup loc rdr kv_names tv_names
            ; nm <- newTyVarNameRn mb_assoc (L loc rdr)
            ; bindLocalNamesFV [nm] $
-             go rn_kvs (L loc (UserTyVar nm) : rn_tvs)
+             go rn_kvs (L loc (UserTyVar (L lv nm)) : rn_tvs)
                 kv_names (tv_names `extendNameSet` nm)
                 hs_tvs }
 
@@ -562,7 +785,7 @@ bindHsTyVars doc mb_assoc kv_bndrs tv_bndrs thing_inside
 
               -- check for -XKindSignatures
            ; sig_ok <- xoptM Opt_KindSignatures
-           ; unless sig_ok (badSigErr False doc kind)
+           ; unless sig_ok (badKindSigErr False doc kind)
 
              -- deal with kind vars in the user-written kind
            ; free_kvs <- freeKiTyVarsAllVars <$> extractHsTyRdrTyVars kind
@@ -587,8 +810,7 @@ bindHsTyVars doc mb_assoc kv_bndrs tv_bndrs thing_inside
            ; traceRn (text "bindHsTyVars" <+> (ppr env $$
                                                ppr all_rn_kvs $$
                                                ppr all_rn_tvs))
-           ; thing_inside (HsQTvs { hsq_implicit = all_rn_kvs
-                                  , hsq_explicit = all_rn_tvs }) }
+           ; thing_inside all_rn_kvs all_rn_tvs }
 
     bind_kvs :: [Located RdrName]  -- kind var *occurrences*, from which
                                    -- intent to bind is inferred
@@ -657,102 +879,20 @@ newTyVarNameRn mb_assoc (L loc rdr)
 
            _                -> newLocalBndrRn (L loc rdr) }
 
---------------------------------
-rnHsBndrSig :: HsDocContext
-            -> HsWithBndrs RdrName (LHsType RdrName)
-            -> (HsWithBndrs Name (LHsType Name) -> RnM (a, FreeVars))
-            -> RnM (a, FreeVars)
-rnHsBndrSig doc (HsWB { hswb_cts = ty@(L loc _) }) thing_inside
-  = do { sig_ok <- xoptM Opt_ScopedTypeVariables
-       ; unless sig_ok (badSigErr True doc ty)
-       ; rdr_env <- getLocalRdrEnv
-       ; var_rdr_names <- freeKiTyVarsAllVars <$>
-                          (filterInScope rdr_env <$>
-                           extractHsTyRdrTyVars ty)
-       ; var_names <- newLocalBndrsRn (map (L loc . unLoc) var_rdr_names)
-       ; bindLocalNamesFV var_names $
-    do { (ty', fvs1, wcs) <- rnLHsTypeWithWildCards doc ty
-       ; (res, fvs2) <- thing_inside (HsWB { hswb_cts  = ty'
-                                           , hswb_vars = var_names
-                                           , hswb_wcs  = wcs })
-       ; return (res, fvs1 `plusFV` fvs2) } }
+---------------------
+collectNamedWildCards :: LHsType RdrName -> [Located RdrName]
+collectNamedWildCards hs_ty
+  = nubBy eqLocated $
+    [n | L _ (NamedWildCard n) <- collectWildCards hs_ty ]
 
-badKindBndrs :: HsDocContext -> [Located RdrName] -> SDoc
-badKindBndrs doc kvs
-  = vcat [ hang (ptext (sLit "Unexpected kind variable") <> plural kvs
-                 <+> pprQuotedList kvs)
-              2 (ptext (sLit "Perhaps you intended to use PolyKinds"))
-         , docOfHsDocContext doc ]
+collectAnonWildCards :: LHsType Name -> [Name]
+collectAnonWildCards hs_ty
+  = [n | L _ (AnonWildCard (L _ n)) <- collectWildCards hs_ty ]
 
-badSigErr :: Bool -> HsDocContext -> LHsType RdrName -> TcM ()
-badSigErr is_type doc (L loc ty)
-  = setSrcSpan loc $ addErr $
-    vcat [ hang (ptext (sLit "Illegal") <+> what
-                 <+> ptext (sLit "signature:") <+> quotes (ppr ty))
-              2 (ptext (sLit "Perhaps you intended to use") <+> flag)
-         , docOfHsDocContext doc ]
+collectWildCards :: LHsType name -> [Located (HsWildCardInfo name)]
+-- | Extract all wild cards from a type.
+collectWildCards lty = go lty
   where
-    what | is_type   = ptext (sLit "type")
-         | otherwise = ptext (sLit "kind")
-    flag | is_type   = ptext (sLit "ScopedTypeVariables")
-         | otherwise = ptext (sLit "KindSignatures")
-
-dataKindsErr :: Bool -> HsType RdrName -> SDoc
-dataKindsErr is_type thing
-  = hang (ptext (sLit "Illegal") <+> what <> colon <+> quotes (ppr thing))
-       2 (ptext (sLit "Perhaps you intended to use DataKinds"))
-  where
-    what | is_type   = ptext (sLit "type")
-         | otherwise = ptext (sLit "kind")
-
---------------------------------
--- | Variant of @rnHsSigType@ that supports wild cards. Also returns the wild
--- cards to bind.
-rnHsSigTypeWithWildCards :: SDoc -> LHsType RdrName
-                         -> RnM (LHsType Name, FreeVars, [Name])
-rnHsSigTypeWithWildCards doc_str ty
-  = rnLHsTypeWithWildCards (TypeSigCtx doc_str) ty'
-  where
-    ty' = extractExtraCtsWc `fmap` flattenTopLevelLHsForAllTy ty
-    -- When there is a wild card at the end of the context, remove it and add
-    -- its location as the extra-constraints wild card in the HsForAllTy.
-    extractExtraCtsWc (HsForAllTy flag _ bndrs (L l ctxt) ty)
-      | Just (ctxt', ct) <- snocView ctxt
-      , L lx (HsWildCardTy (AnonWildCard _)) <- ignoreParens ct
-      = HsForAllTy flag (Just lx) bndrs (L l ctxt') ty
-    extractExtraCtsWc ty = ty
-
--- | Variant of @rnLHsType@ that supports wild cards. The third element of the
--- tuple consists of the freshly generated names of the anonymous wild cards
--- occurring in the type, as well as the names of the named wild cards in the
--- type that are not yet in scope.
-rnLHsTypeWithWildCards  :: HsDocContext -> LHsType RdrName
-                        -> RnM (LHsType Name, FreeVars, [Name])
-rnLHsTypeWithWildCards doc ty
-  = do { checkValidPartialType doc ty
-       ; rdr_env <- getLocalRdrEnv
-       -- Filter out named wildcards that are already in scope
-       ; let (_, wcs) = collectWildCards ty
-             nwcs = [L loc n | L loc (NamedWildCard n) <- wcs
-                             , not (elemLocalRdrEnv n rdr_env) ]
-       ; bindLocatedLocalsRn nwcs $ \nwcs' -> do {
-         (ty', fvs) <- rnLHsType doc ty
-       -- Add the anonymous wildcards that have been given names during
-       -- renaming
-       ; let (_, wcs') = collectWildCards ty'
-             awcs      = filter (isAnonWildCard . unLoc) wcs'
-       ; return (ty', fvs, nwcs' ++ map (HsSyn.wildCardName . unLoc) awcs) } }
-
--- | Extract all wild cards from a type. The named and anonymous
--- extra-constraints wild cards are returned separately to be able to give
--- more accurate error messages.
-collectWildCards
-  :: Eq name => LHsType name
-  -> ([Located (HsWildCardInfo name)],  -- extra-constraints wild cards
-      [Located (HsWildCardInfo name)])  -- wild cards
-collectWildCards lty = (extra, nubBy sameNamedWildCard wcs)
-  where
-    (extra, wcs) = go lty
     go (L loc ty) = case ty of
       HsAppsTy tys            -> gos (mapMaybe prefix_types_only tys)
       HsAppTy ty1 ty2         -> go ty1 `mappend` go ty2
@@ -771,101 +911,17 @@ collectWildCards lty = (extra, nubBy sameNamedWildCard wcs)
       HsExplicitListTy _ tys  -> gos tys
       HsExplicitTupleTy _ tys -> gos tys
       -- Interesting cases
-      HsWildCardTy wc         -> ([], [L loc wc])
-      HsForAllTy _ _ _ (L _ ctxt) ty -> ctxtWcs `mappend` go ty
-        where
-          ctxt' = map ignoreParens ctxt
-          extraWcs  = [L l wc | L l (HsWildCardTy wc) <- ctxt']
-          (_, wcs) = gos ctxt'
-          -- Remove extra-constraints wild cards from wcs
-          ctxtWcs = (extraWcs, deleteFirstsBy sameWildCard
-                               (nubBy sameWildCard wcs) extraWcs)
+      HsWildCardTy wc         -> [L loc wc]
+      HsForAllTy { hst_body = ty } -> go ty
+      HsQualTy { hst_ctxt = L _ ctxt
+               , hst_body = ty }  -> gos ctxt `mappend` go ty
       -- HsQuasiQuoteTy, HsSpliceTy, HsCoreTy, HsTyLit
       _ -> mempty
+
     gos = mconcat . map go
 
     prefix_types_only (HsAppPrefix ty) = Just ty
     prefix_types_only (HsAppInfix _)   = Nothing
-
--- | Check the validity of a partial type signature. The following things are
--- checked:
---
--- * Named extra-constraints wild cards aren't allowed,
--- e.g. invalid: @(Show a, _x) => a -> String@.
---
--- * There is only one extra-constraints wild card in the context and it must
--- come last, e.g. invalid: @(_, Show a) => a -> String@
--- or @(_, Show a, _) => a -> String@.
---
--- * There should be no unnamed wild cards in the context.
---
--- * An extra-constraints wild card can only occur in the top-level context.
--- This would be invalid: @(Eq a, _) => a -> (Num a, _) => a -> Bool@.
---
--- * Named wild cards occurring in the context must also occur in the monotype.
---
--- When an invalid wild card is found, we fail with an error.
-checkValidPartialType :: HsDocContext -> LHsType RdrName -> RnM ()
-checkValidPartialType doc lty
-  = do { whenNonEmpty isNamedWildCard inExtra $ \(L loc _) ->
-           failAt loc $ typeDoc $$
-           text "An extra-constraints wild card cannot be named" $$
-           docOfHsDocContext doc
-
-       ; whenNonEmpty isAnonWildCard extraTopLevel $ \(L loc _) ->
-           failAt loc $ typeDoc $$
-           -- If there was a valid extra-constraints wild card, it should have
-           -- already been removed and its location should be stored in the
-           -- HsForAllTy
-           (case extra of
-             Just _ ->
-               -- We're in a top-level context with an extracted
-               -- extra-constraints wild card.
-               text "Only a single extra-constraints wild card is allowed"
-             _ | TypeSigCtx _ <- doc ->
-               -- We're in a top-level context, but the extra-constraints wild
-               -- card didn't occur at the end.
-               fcat [ text "An extra-constraints wild card must occur"
-                    , text "at the end of the constraints" ]
-             _ ->
-               -- We're not in a top-level context, so no extra-constraints
-               -- wild cards are supported.
-               fcat [ text "An extra-constraints wild card is only allowed"
-                    , text "in the top-level context" ]) $$
-           docOfHsDocContext doc
-
-       ; whenNonEmpty isAnonWildCard inCtxt $ \(L loc _) ->
-           failAt loc $ typeDoc $$
-           text "Anonymous wild cards are not allowed in constraints" $$
-           docOfHsDocContext doc
-
-       ; whenNonEmpty isAnonWildCard nestedExtra $ \(L loc _) ->
-           failAt loc $ typeDoc $$
-           fcat [ text "An extra-constraints wild card is only allowed"
-                , text "in the top-level context" ] $$
-           docOfHsDocContext doc
-
-       ; whenNonEmpty isNamedWildCard inCtxtNotInTau $ \(L loc name) ->
-           failAt loc $ typeDoc $$
-           fcat [ text "The named wild card" <+> quotes (ppr name) <> space
-                , text "is only allowed in the constraints"
-                , text "when it also occurs in the rest of the type" ] $$
-           docOfHsDocContext doc }
-  where
-    typeDoc               = hang (text "Invalid partial type:") 2 (ppr lty)
-    (extra, ctxt, tau)    = splitPartialType lty
-    (inExtra,     _)      = collectWildCards lty
-    (nestedExtra, inTau)  = collectWildCards tau
-    (_,           inCtxt) = mconcat $ map collectWildCards ctxt
-    inCtxtNotInTau        = deleteFirstsBy sameWildCard inCtxt inTau
-    extraTopLevel         = deleteFirstsBy sameWildCard inExtra nestedExtra
-
-    splitPartialType (L _ (HsForAllTy _ extra _ (L _ ctxt) ty))
-      = (extra, map ignoreParens ctxt, ty)
-    splitPartialType ty = (Nothing, [], ty)
-
-    whenNonEmpty test wcs f
-      = whenIsJust (listToMaybe $ filter (test . unLoc) wcs) f
 
 
 {-
@@ -913,7 +969,8 @@ rnField fl_env doc (L l (ConDeclField names ty haddock_doc))
 
 rnContext :: HsDocContext -> LHsContext RdrName -> RnM (LHsContext Name, FreeVars)
 rnContext doc (L loc cxt)
-  = do { (cxt', fvs) <- rnLHsTypes doc cxt
+  = do { traceRn (text "rncontext" <+> ppr cxt)
+       ; (cxt', fvs) <- mapFvRn (rnLHsPred doc) cxt
        ; return (L loc cxt', fvs) }
 
 {-
@@ -1034,8 +1091,8 @@ mkOpAppRn e1 op fix e2                  -- Default case, no rearrangment
 get_op :: LHsExpr Name -> Name
 -- An unbound name could be either HsVar or HsUnboundVar
 -- See RnExpr.rnUnboundVar
-get_op (L _ (HsVar n))          = n
-get_op (L _ (HsUnboundVar occ)) = mkUnboundName (mkRdrUnqual occ)
+get_op (L _ (HsVar (L _ n)))    = n
+get_op (L _ (HsUnboundVar occ)) = mkUnboundName occ
 get_op other                    = pprPanic "get_op" (ppr other)
 
 -- Parser left-associates everything, but
@@ -1201,15 +1258,45 @@ ppr_opfix (op, fixity) = pp_op <+> brackets (ppr fixity)
      pp_op | op == negateName = ptext (sLit "prefix `-'")
            | otherwise        = quotes (ppr op)
 
-{-
-*********************************************************
+{- *****************************************************
 *                                                      *
-\subsection{Errors}
+                 Errors
 *                                                      *
-*********************************************************
--}
+***************************************************** -}
 
-warnUnusedForAlls :: SDoc -> LHsTyVarBndrs RdrName -> FreeKiTyVars -> TcM ()
+overlappingKindVars :: HsDocContext -> [RdrName] -> SDoc
+overlappingKindVars doc kvs
+  = withHsDocContext doc $
+    ptext (sLit "Kind variable") <> plural kvs
+    <+> ptext (sLit "also used as type variable") <> plural kvs
+    <> colon <+> pprQuotedList kvs
+
+badKindBndrs :: HsDocContext -> [Located RdrName] -> SDoc
+badKindBndrs doc kvs
+  = withHsDocContext doc $
+    hang (ptext (sLit "Unexpected kind variable") <> plural kvs
+                 <+> pprQuotedList kvs)
+       2 (ptext (sLit "Perhaps you intended to use PolyKinds"))
+
+badKindSigErr :: HsDocContext -> LHsType RdrName -> TcM ()
+badKindSigErr doc (L loc ty)
+  = setSrcSpan loc $ addErr $
+    withHsDocContext doc $
+    hang (ptext (sLit "Illegal kind signature:") <+> quotes (ppr ty))
+       2 (ptext (sLit "Perhaps you intended to use KindSignatures"))
+
+dataKindsErr :: RnTyKiWhat -> HsType RdrName -> SDoc
+dataKindsErr what thing
+  = hang (ptext (sLit "Illegal") <+> pp_what <> colon <+> quotes (ppr thing))
+       2 (ptext (sLit "Perhaps you intended to use DataKinds"))
+  where
+    pp_what | isRnKind what = ptext (sLit "kind")
+            | otherwise     = ptext (sLit "type")
+
+inTypeDoc :: HsType RdrName -> SDoc
+inTypeDoc ty = ptext (sLit "In the type") <+> quotes (ppr ty)
+
+warnUnusedForAlls :: SDoc -> [LHsTyVarBndr RdrName] -> FreeKiTyVars -> TcM ()
 warnUnusedForAlls in_doc bound mentioned_rdrs
   = do { ftkv <- setXOptM Opt_TypeInType $  -- avoid dup errors
                  extract_ltys KindLevel bound_tv_kinds emptyFKTV
@@ -1217,29 +1304,17 @@ warnUnusedForAlls in_doc bound mentioned_rdrs
                              freeKiTyVarsAllVarsSet mentioned_rdrs
        ; whenWOptM Opt_WarnUnusedMatches $
          mapM_ add_warn (bound_but_not_used all_mentioned) }
+
   where
     bound_tv_kinds     = [ k | L _ (KindedTyVar _ k) <- hsQTvExplicit bound ]
 
-    bound_names        = hsLTyVarLocNames bound
+    bound_names        = map hsLTyVarLocName bound
     bound_but_not_used all_mentioned
       = filterOut ((`elemOccSet` all_mentioned) . rdrNameOcc . unLoc) bound_names
 
     add_warn (L loc tv)
       = addWarnAt loc $
         vcat [ ptext (sLit "Unused quantified type variable") <+> quotes (ppr tv)
-             , in_doc ]
-
-warnContextQuantification :: SDoc -> [LHsTyVarBndr RdrName] -> TcM ()
-warnContextQuantification in_doc tvs
-  = whenWOptM Opt_WarnContextQuantification $
-    mapM_ add_warn tvs
-  where
-    add_warn (L loc tv)
-      = addWarnAt loc $
-        vcat [ ptext (sLit "Variable") <+> quotes (ppr tv) <+>
-               ptext (sLit "is implicitly quantified due to a context") $$
-               ptext (sLit "Use explicit forall syntax instead.") $$
-               ptext (sLit "This will become an error in GHC 7.12.")
              , in_doc ]
 
 opTyErr :: Outputable a => RdrName -> a -> SDoc
@@ -1260,7 +1335,7 @@ emptyNonSymsErr overall_ty
 ************************************************************************
 *                                                                      *
       Finding the free type variables of a (HsType RdrName)
-*                                                                    *
+*                                                                      *
 ************************************************************************
 
 
@@ -1323,13 +1398,17 @@ filterInScope rdr_env (FKTV kis k_set tys t_set all)
          (filterOccSet (not . in_scope_occ) t_set)
          (filterOut in_scope all)
   where
-    in_scope (L _ tv) = tv `elemLocalRdrEnv` rdr_env
-    in_scope_occ occ  = isJust $ lookupLocalRdrOcc rdr_env occ
+    in_scope         = inScope rdr_env . unLoc
+    in_scope_occ occ = isJust $ lookupLocalRdrOcc rdr_env occ
+
+inScope :: LocalRdrEnv -> RdrName -> Bool
+inScope rdr_env rdr = rdr `elemLocalRdrEnv` rdr_env
 
 extractHsTyRdrTyVars :: LHsType RdrName -> RnM FreeKiTyVars
 -- extractHsTyRdrNames finds the free (kind, type) variables of a HsType
 --                        or the free (sort, kind) variables of a HsKind
 -- It's used when making the for-alls explicit.
+-- Does not return any wildcards
 -- See Note [Kind and type-variable binders]
 extractHsTyRdrTyVars ty
   = do { FKTV kis k_set tys t_set all <- extract_lty TypeLevel ty emptyFKTV
@@ -1361,13 +1440,13 @@ extractDataDefnKindVars (HsDataDefn { dd_ctxt = ctxt, dd_kindSig = ksig
   = freeKiTyVarsKindVars <$>
     (extract_lctxt TypeLevel ctxt =<<
      extract_mb extract_lkind ksig =<<
-     extract_mb (extract_ltys TypeLevel . unLoc) derivs =<<
+     extract_mb (extract_sig_tys . unLoc) derivs =<<
      foldrM (extract_con . unLoc) emptyFKTV cons)
   where
     extract_con (ConDecl { con_res = ResTyGADT {} }) acc = return acc
     extract_con (ConDecl { con_res = ResTyH98, con_qvars = qvs
                          , con_cxt = ctxt, con_details = details }) acc
-      = extract_hs_tv_bndrs qvs acc =<<
+      = extract_hs_tv_bndrs (hsQTvBndrs qvs) acc =<<
         extract_lctxt TypeLevel ctxt =<<
         extract_ltys TypeLevel (hsConDeclArgTys details) emptyFKTV
 
@@ -1375,6 +1454,11 @@ extractDataDefnKindVars (HsDataDefn { dd_ctxt = ctxt, dd_kindSig = ksig
 extract_lctxt :: TypeOrKind
               -> LHsContext RdrName -> FreeKiTyVars -> RnM FreeKiTyVars
 extract_lctxt t_or_k ctxt = extract_ltys t_or_k (unLoc ctxt)
+
+extract_sig_tys :: [LHsSigType RdrName] -> FreeKiTyVars -> RnM FreeKiTyVars
+extract_sig_tys sig_tys acc
+  = foldrM (\sig_ty acc -> extract_lty TypeLevel (hsSigType sig_ty) acc)
+           acc sig_tys
 
 extract_ltys :: TypeOrKind
              -> [LHsType RdrName] -> FreeKiTyVars -> RnM FreeKiTyVars
@@ -1391,7 +1475,7 @@ extract_lkind = extract_lty KindLevel
 extract_lty :: TypeOrKind -> LHsType RdrName -> FreeKiTyVars -> RnM FreeKiTyVars
 extract_lty t_or_k (L loc ty) acc
   = case ty of
-      HsTyVar tv                -> extract_tv t_or_k (L loc tv) acc
+      HsTyVar ltv               -> extract_tv t_or_k ltv acc
       HsBangTy _ ty             -> extract_lty t_or_k ty acc
       HsRecTy flds              -> foldrM (extract_lty t_or_k
                                            . cd_fld_type . unLoc) acc
@@ -1419,11 +1503,14 @@ extract_lty t_or_k (L loc ty) acc
       HsTyLit _                 -> return acc
       HsKindSig ty ki           -> extract_lty t_or_k ty =<<
                                    extract_lkind ki acc
-      HsForAllTy _ _ tvs cx ty  -> extract_hs_tv_bndrs tvs acc =<<
-                                   extract_lctxt t_or_k cx     =<<
+      HsForAllTy { hst_bndrs = tvs, hst_body = ty }
+                                -> extract_hs_tv_bndrs tvs acc =<<
                                    extract_lty t_or_k ty emptyFKTV
+      HsQualTy { hst_ctxt = ctxt, hst_body = ty }
+                                -> extract_lctxt t_or_k cx     =<<
+                                   extract_lty t_or_k ty acc
       -- We deal with these separately in rnLHsTypeWithWildCards
-      HsWildCardTy _            -> return acc
+      HsWildCardTy {}           -> return acc
 
 extract_apps :: TypeOrKind
              -> [HsAppType RdrName] -> FreeKiTyVars -> RnM FreeKiTyVars
@@ -1433,9 +1520,13 @@ extract_app :: TypeOrKind -> HsAppType RdrName -> FreeKiTyVars -> RnM FreeKiTyVa
 extract_app t_or_k (HsAppInfix tv)  acc = extract_tv t_or_k tv acc
 extract_app t_or_k (HsAppPrefix ty) acc = extract_lty t_or_k ty acc
 
-extract_hs_tv_bndrs :: LHsTyVarBndrs RdrName -> FreeKiTyVars
+extract_hs_tv_bndrs :: [LHsTyVarBndr RdrName] -> FreeKiTyVars
                     -> FreeKiTyVars -> RnM FreeKiTyVars
-extract_hs_tv_bndrs (HsQTvs { hsq_explicit = tvs })
+-- In (forall (a :: Maybe e). a -> b) we have
+--     'a' is bound by the forall
+--     'b' is a free type variable
+--     'e' is a free kind variable
+extract_hs_tv_bndrs tvs
                     (FKTV acc_kvs acc_k_set acc_tvs acc_t_set acc_all)
                            -- Note accumulator comes first
                     (FKTV body_kvs body_k_set body_tvs body_t_set body_all)

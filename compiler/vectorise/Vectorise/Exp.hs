@@ -44,6 +44,7 @@ import Outputable
 import FastString
 import DynFlags
 import Util
+import UniqDFM (udfmToUfm)
 #if __GLASGOW_HASKELL__ < 709
 import MonadUtils
 #endif
@@ -1049,7 +1050,7 @@ vectAvoidInfo pvs ce@(_, AnnVar v)
         traceVt "  reason:" $ if v `elemVarSet` pvs  then text "local"  else
                               if v `elemVarSet` gpvs then text "global" else text "parallel type"
 
-    ; return ((fvs, vi), AnnVar v)
+    ; return ((udfmToUfm fvs, vi), AnnVar v)
     }
   where
     fvs = freeVarsOf ce
@@ -1058,7 +1059,7 @@ vectAvoidInfo _pvs ce@(_, AnnLit lit)
   = do
     { vi <- vectAvoidInfoTypeOf ce
     ; viTrace ce vi []
-    ; return ((fvs, vi), AnnLit lit)
+    ; return ((udfmToUfm fvs, vi), AnnLit lit)
     }
   where
     fvs = freeVarsOf ce
@@ -1070,7 +1071,7 @@ vectAvoidInfo pvs ce@(_, AnnApp e1 e2)
     ; eVI2 <- vectAvoidInfo pvs e2
     ; let vi = ceVI `unlessVIParrExpr` eVI1 `unlessVIParrExpr` eVI2
     -- ; viTrace ce vi [eVI1, eVI2]
-    ; return ((fvs, vi), AnnApp eVI1 eVI2)
+    ; return ((udfmToUfm fvs, vi), AnnApp eVI1 eVI2)
     }
   where
     fvs = freeVarsOf ce
@@ -1081,7 +1082,7 @@ vectAvoidInfo pvs ce@(_, AnnLam var body)
     ; varVI  <- vectAvoidInfoType $ varType var
     ; let vi = vectAvoidInfoOf bodyVI `unlessVIParr` varVI
     -- ; viTrace ce vi [bodyVI]
-    ; return ((fvs, vi), AnnLam var bodyVI)
+    ; return ((udfmToUfm fvs, vi), AnnLam var bodyVI)
     }
   where
     fvs = freeVarsOf ce
@@ -1101,7 +1102,7 @@ vectAvoidInfo pvs ce@(_, AnnLet (AnnNonRec var e) body)
         ; return (bodyVI, ceVI `unlessVIParrExpr` bodyVI)
         }
     -- ; viTrace ce vi [eVI, bodyVI]
-    ; return ((fvs, vi), AnnLet (AnnNonRec var eVI) bodyVI)
+    ; return ((udfmToUfm fvs, vi), AnnLet (AnnNonRec var eVI) bodyVI)
     }
   where
     fvs = freeVarsOf ce
@@ -1118,13 +1119,13 @@ vectAvoidInfo pvs ce@(_, AnnLet (AnnRec bnds) body)
         ; bndsVI <- mapM (vectAvoidInfoBnd extendedPvs) bnds
         ; bodyVI <- vectAvoidInfo extendedPvs body
         -- ; viTrace ce VIParr (map snd bndsVI ++ [bodyVI])
-        ; return ((fvs, VIParr), AnnLet (AnnRec bndsVI) bodyVI)
+        ; return ((udfmToUfm fvs, VIParr), AnnLet (AnnRec bndsVI) bodyVI)
         }
       else do         -- demanded bindings cannot trigger parallelism
         { bodyVI <- vectAvoidInfo pvs body
         ; let vi = ceVI `unlessVIParrExpr` bodyVI
         -- ; viTrace ce vi (map snd bndsVI ++ [bodyVI])
-        ; return ((fvs, vi), AnnLet (AnnRec bndsVI) bodyVI)
+        ; return ((udfmToUfm fvs, vi), AnnLet (AnnRec bndsVI) bodyVI)
         }
     }
   where
@@ -1145,7 +1146,7 @@ vectAvoidInfo pvs ce@(_, AnnCase e var ty alts)
     ; let alteVIs = [eVI | (_, _, eVI) <- altsVI]
           vi      =  foldl unlessVIParrExpr ceVI (eVI:alteVIs)  -- NB: same effect as in the paper
     -- ; viTrace ce vi (eVI : alteVIs)
-    ; return ((fvs, vi), AnnCase eVI var ty altsVI)
+    ; return ((udfmToUfm fvs, vi), AnnCase eVI var ty altsVI)
     }
   where
     fvs = freeVarsOf ce
@@ -1160,7 +1161,7 @@ vectAvoidInfo pvs ce@(_, AnnCase e var ty alts)
 vectAvoidInfo pvs ce@(_, AnnCast e (fvs_ann, ann))
   = do
     { eVI <- vectAvoidInfo pvs e
-    ; return ((fvs, vectAvoidInfoOf eVI), AnnCast eVI ((freeVarsOfAnn fvs_ann, VISimple), ann))
+    ; return ((udfmToUfm fvs, vectAvoidInfoOf eVI), AnnCast eVI ((udfmToUfm $ freeVarsOfAnn fvs_ann, VISimple), ann))
     }
   where
     fvs = freeVarsOf ce
@@ -1168,18 +1169,18 @@ vectAvoidInfo pvs ce@(_, AnnCast e (fvs_ann, ann))
 vectAvoidInfo pvs ce@(_, AnnTick tick e)
   = do
     { eVI <- vectAvoidInfo pvs e
-    ; return ((fvs, vectAvoidInfoOf eVI), AnnTick tick eVI)
+    ; return ((udfmToUfm fvs, vectAvoidInfoOf eVI), AnnTick tick eVI)
     }
   where
     fvs = freeVarsOf ce
 
 vectAvoidInfo _pvs ce@(_, AnnType ty)
-  = return ((fvs, VISimple), AnnType ty)
+  = return ((udfmToUfm fvs, VISimple), AnnType ty)
   where
     fvs = freeVarsOf ce
 
 vectAvoidInfo _pvs ce@(_, AnnCoercion coe)
-  = return ((fvs, VISimple), AnnCoercion coe)
+  = return ((udfmToUfm fvs, VISimple), AnnCoercion coe)
   where
     fvs = freeVarsOf ce
 

@@ -543,7 +543,8 @@ runAnnotation target expr = do
                 -- and hence ensures the appropriate dictionary is bound by const_binds
               ; wrapper <- instCall AnnOrigin [expr_ty] [mkClassPred data_class [expr_ty]]
               ; let specialised_to_annotation_wrapper_expr
-                      = L loc (HsWrap wrapper (HsVar to_annotation_wrapper_id))
+                      = L loc (HsWrap wrapper
+                                      (HsVar (L loc to_annotation_wrapper_id)))
               ; return (L loc (HsApp specialised_to_annotation_wrapper_expr expr')) }
 
     -- Run the appropriately wrapped expression to get the value of
@@ -818,7 +819,7 @@ instance TH.Quasi TcM where
         = return ()
       checkTopDecl (AnnD _)
         = return ()
-      checkTopDecl (ForD (ForeignImport (L _ name) _ _ _))
+      checkTopDecl (ForD (ForeignImport { fd_name = L _ name }))
         = bindName name
       checkTopDecl _
         = addErr $ text "Only function, value, annotation, and foreign import declarations may be added with addTopDecl"
@@ -867,16 +868,15 @@ reifyInstances th_nm th_tys
           -- #9262 says to bring vars into scope, like in HsForAllTy case
           -- of rnHsTyKi
         ; free_vars <- extractHsTyRdrTyVars rdr_ty
-        ; let tv_bndrs   = userHsLTyVarBndrs loc (freeKiTyVarsAllVars free_vars)
-              hs_tvbs    = mkHsQTvs tv_bndrs
+        ; let tv_rdrs = freeKiTyVarsAllVars free_vars
           -- Rename  to HsType Name
-        ; ((rn_tvbs, rn_ty), _fvs)
-            <- bindHsTyVars doc Nothing [] hs_tvbs $ \ rn_tvbs ->
+        ; ((tv_names, rn_ty), _fvs)
+            <- bindLRdrNames tv_rdrs $ \ tv_names ->
                do { (rn_ty, fvs) <- rnLHsType doc rdr_ty
-                  ; return ((rn_tvbs, rn_ty), fvs) }
+                  ; return ((tv_names, rn_ty), fvs) }
         ; (_tvs, (ty, _kind))
             <- solveEqualities $
-               tcHsTyVarBndrs Implicit rn_tvbs $
+               tcImplicitTKBndrs tv_names $
                tcLHsType rn_ty
         ; ty <- zonkTcTypeToType emptyZonkEnv ty
                 -- Substitute out the meta type variables
@@ -1213,10 +1213,9 @@ reifyClass cls
       = do { ty <- reifyType (idType op)
            ; let nm' = reifyName op
            ; case def_meth of
-                GenDefMeth gdm_nm ->
-                  do { gdm_id <- tcLookupId gdm_nm
-                     ; gdm_ty <- reifyType (idType gdm_id)
-                     ; return [TH.SigD nm' ty, TH.DefaultSigD nm' gdm_ty] }
+                Just (_, GenericDM gdm_ty) ->
+                  do { gdm_ty' <- reifyType gdm_ty
+                     ; return [TH.SigD nm' ty, TH.DefaultSigD nm' gdm_ty'] }
                 _ -> return [TH.SigD nm' ty] }
 
     reifyAT :: ClassATItem -> TcM [TH.Dec]

@@ -32,9 +32,11 @@ Thumbs.db
 *.stdout.normalised
 *.stdout-mingw32.normalised
 *.stdout-ghc.normalised
+*.stdout-ws-32.normalised
 *.stderr.normalised
 *.stderr-mingw32.normalised
 *.stderr-ghc.normalised
+*.stderr-ws-32.normalised
 *.interp.stdout
 *.interp.stderr
 *.run.stdout
@@ -469,6 +471,7 @@ mk/ghcconfig*_test___spaces_ghc*.exe.mk
 /tests/deriving/should_run/drvrun019
 /tests/deriving/should_run/drvrun020
 /tests/deriving/should_run/drvrun021
+/tests/determinism/determinism001
 /tests/dph/classes/dph-classes-copy-fast
 /tests/dph/classes/dph-classes-fast
 /tests/dph/classes/dph-classes-vseg-fast
@@ -1173,6 +1176,7 @@ mk/ghcconfig*_test___spaces_ghc*.exe.mk
 /tests/perf/should_run/InlineCloneArrayAlloc
 /tests/perf/should_run/MethSharing
 /tests/perf/should_run/MethSharing.stats
+/tests/perf/should_run/T10359
 /tests/perf/should_run/T149_A
 /tests/perf/should_run/T149_B
 /tests/perf/should_run/T2902_A

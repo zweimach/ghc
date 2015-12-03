@@ -935,7 +935,7 @@ ty_co_match menv subst (TyVarTy tv1) co
     else Nothing       -- no match since tv1 matches two different coercions
 
   | tv1' `elemVarSet` me_tmpls menv           -- tv1' is a template var
-  , not (any (inRnEnvR rn_env) (varSetElems (tyCoVarsOfCo co)))
+  , not (any (inRnEnvR rn_env) (tyCoVarsOfCoList co))
   = do { subst' <- ty_co_match menv subst (tyVarKind tv1') (mkKindCo co)
        ; return $ extendVarEnv subst' tv1' co }
 

@@ -154,8 +154,8 @@ itName uniq loc = mkInternalName uniq (mkOccNameFS varName (fsLit "it")) loc
 
 -- mkUnboundName makes a place-holder Name; it shouldn't be looked at except possibly
 -- during compiler debugging.
-mkUnboundName :: RdrName -> Name
-mkUnboundName rdr_name = mkInternalName unboundKey (rdrNameOcc rdr_name) noSrcSpan
+mkUnboundName :: OccName -> Name
+mkUnboundName occ = mkInternalName unboundKey occ noSrcSpan
 
 isUnboundName :: Name -> Bool
 isUnboundName name = name `hasKey` unboundKey
@@ -197,6 +197,8 @@ basicKnownKeyNames
         alternativeClassName,
         foldableClassName,
         traversableClassName,
+        semigroupClassName, sappendName,
+        monoidClassName, memptyName, mappendName, mconcatName,
 
         -- The IO type
         -- See Note [TyConRepNames for non-wired-in TyCons]
@@ -234,9 +236,8 @@ basicKnownKeyNames
         enumFromName, enumFromThenName,
         enumFromThenToName, enumFromToName,
 
-        -- Applicative/Alternative stuff
-        pureAName,
-        apAName,
+        -- Applicative stuff
+        pureAName, apAName, thenAName,
 
         -- Monad stuff
         thenIOName, bindIOName, returnIOName, failIOName, bindMName, thenMName,
@@ -407,7 +408,8 @@ pRELUDE         = mkBaseModule_ pRELUDE_NAME
 gHC_PRIM, gHC_TYPES, gHC_GENERICS, gHC_MAGIC,
     gHC_CLASSES, gHC_BASE, gHC_ENUM, gHC_GHCI, gHC_CSTRING,
     gHC_SHOW, gHC_READ, gHC_NUM, gHC_INTEGER_TYPE, gHC_LIST,
-    gHC_TUPLE, dATA_TUPLE, dATA_EITHER, dATA_STRING, dATA_FOLDABLE, dATA_TRAVERSABLE, dATA_MONOID,
+    gHC_TUPLE, dATA_TUPLE, dATA_EITHER, dATA_STRING,
+    dATA_FOLDABLE, dATA_TRAVERSABLE, dATA_MONOID, dATA_SEMIGROUP,
     gHC_CONC, gHC_IO, gHC_IO_Exception,
     gHC_ST, gHC_ARR, gHC_STABLE, gHC_PTR, gHC_ERR, gHC_REAL,
     gHC_FLOAT, gHC_TOP_HANDLER, sYSTEM_IO, dYNAMIC,
@@ -437,6 +439,7 @@ dATA_EITHER     = mkBaseModule (fsLit "Data.Either")
 dATA_STRING     = mkBaseModule (fsLit "Data.String")
 dATA_FOLDABLE   = mkBaseModule (fsLit "Data.Foldable")
 dATA_TRAVERSABLE= mkBaseModule (fsLit "Data.Traversable")
+dATA_SEMIGROUP  = mkBaseModule (fsLit "Data.Semigroup")
 dATA_MONOID     = mkBaseModule (fsLit "Data.Monoid")
 gHC_CONC        = mkBaseModule (fsLit "GHC.Conc")
 gHC_IO          = mkBaseModule (fsLit "GHC.IO")
@@ -936,27 +939,44 @@ monadFailClassName, failMName :: Name
 monadFailClassName = clsQual mONAD_FAIL (fsLit "MonadFail") monadFailClassKey
 failMName          = varQual mONAD_FAIL (fsLit "fail")      failMClassOpKey
 
--- Classes (Applicative, Foldable, Traversable)
-applicativeClassName, foldableClassName, traversableClassName :: Name
-applicativeClassName  = clsQual  gHC_BASE            (fsLit "Applicative") applicativeClassKey
+-- Class Applicative
+applicativeClassName, pureAName, apAName, thenAName :: Name
+applicativeClassName = clsQual gHC_BASE (fsLit "Applicative") applicativeClassKey
+apAName              = varQual gHC_BASE (fsLit "<*>")         apAClassOpKey
+pureAName            = varQual gHC_BASE (fsLit "pure")        pureAClassOpKey
+thenAName            = varQual gHC_BASE (fsLit "*>")          thenAClassOpKey
+
+-- Classes (Foldable, Traversable)
+foldableClassName, traversableClassName :: Name
 foldableClassName     = clsQual  dATA_FOLDABLE       (fsLit "Foldable")    foldableClassKey
 traversableClassName  = clsQual  dATA_TRAVERSABLE    (fsLit "Traversable") traversableClassKey
+
+-- Classes (Semigroup, Monoid)
+semigroupClassName, sappendName :: Name
+semigroupClassName = clsQual dATA_SEMIGROUP (fsLit "Semigroup") semigroupClassKey
+sappendName        = varQual dATA_SEMIGROUP (fsLit "<>")        sappendClassOpKey
+monoidClassName, memptyName, mappendName, mconcatName :: Name
+monoidClassName    = clsQual gHC_BASE       (fsLit "Monoid")    monoidClassKey
+memptyName         = varQual gHC_BASE       (fsLit "mempty")    memptyClassOpKey
+mappendName        = varQual gHC_BASE       (fsLit "mappend")   mappendClassOpKey
+mconcatName        = varQual gHC_BASE       (fsLit "mconcat")   mconcatClassOpKey
 
 
 
 -- AMP additions
 
-joinMName,  apAName, pureAName, alternativeClassName :: Name
+joinMName, alternativeClassName :: Name
 joinMName            = varQual gHC_BASE (fsLit "join")        joinMIdKey
-apAName              = varQual gHC_BASE (fsLit "<*>")         apAClassOpKey
-pureAName            = varQual gHC_BASE (fsLit "pure")        pureAClassOpKey
 alternativeClassName = clsQual mONAD (fsLit "Alternative") alternativeClassKey
 
-joinMIdKey, apAClassOpKey, pureAClassOpKey, alternativeClassKey :: Unique
+--
+joinMIdKey, apAClassOpKey, pureAClassOpKey, thenAClassOpKey,
+    alternativeClassKey :: Unique
 joinMIdKey          = mkPreludeMiscIdUnique 750
 apAClassOpKey       = mkPreludeMiscIdUnique 751 -- <*>
 pureAClassOpKey     = mkPreludeMiscIdUnique 752
-alternativeClassKey = mkPreludeMiscIdUnique 753
+thenAClassOpKey     = mkPreludeMiscIdUnique 753
+alternativeClassKey = mkPreludeMiscIdUnique 754
 
 
 -- Functions for GHC extensions
@@ -1444,6 +1464,10 @@ ghciIoClassKey = mkPreludeClassUnique 44
 
 isLabelClassNameKey :: Unique
 isLabelClassNameKey = mkPreludeClassUnique 45
+
+semigroupClassKey, monoidClassKey :: Unique
+semigroupClassKey = mkPreludeClassUnique 46
+monoidClassKey    = mkPreludeClassUnique 47
 
 ---------------- Template Haskell -------------------
 --      THNames.hs: USES ClassUniques 200-299
@@ -2073,6 +2097,15 @@ heqSCSelIdKey, coercibleSCSelIdKey :: Unique
 heqSCSelIdKey       = mkPreludeMiscIdUnique 511
 coercibleSCSelIdKey = mkPreludeMiscIdUnique 512
 
+sappendClassOpKey :: Unique
+sappendClassOpKey = mkPreludeMiscIdUnique 513
+
+memptyClassOpKey, mappendClassOpKey, mconcatClassOpKey :: Unique
+memptyClassOpKey  = mkPreludeMiscIdUnique 514
+mappendClassOpKey = mkPreludeMiscIdUnique 515
+mconcatClassOpKey = mkPreludeMiscIdUnique 516
+
+
 {-
 ************************************************************************
 *                                                                      *
@@ -2108,6 +2141,7 @@ standardClassKeys = derivableClassKeys ++ numericClassKeys
                   ++ [randomClassKey, randomGenClassKey,
                       functorClassKey,
                       monadClassKey, monadPlusClassKey, monadFailClassKey,
+                      semigroupClassKey, monoidClassKey,
                       isStringClassKey,
                       applicativeClassKey, foldableClassKey,
                       traversableClassKey, alternativeClassKey

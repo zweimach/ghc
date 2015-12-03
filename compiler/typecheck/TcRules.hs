@@ -19,6 +19,7 @@ import TcHsType
 import TcExpr
 import TcEnv
 import TcEvidence
+import TcUnify( buildImplicationFor )
 import Type
 import Id
 import Var              ( EvVar )
@@ -112,39 +113,24 @@ tcRule (HsRule name act hs_bndrs lhs fv_lhs rhs fv_rhs)
                   ])
 
            -- Simplify the RHS constraints
-       ; lcl_env <- getLclEnv
-       ; rhs_binds_var <- newTcEvBinds
-       ; emitImplication $ Implic { ic_tclvl    = topTcLevel
-                                  , ic_skols    = qtkvs
-                                  , ic_no_eqs   = False
-                                  , ic_given    = lhs_evs
-                                  , ic_wanted   = rhs_wanted
-                                  , ic_status   = IC_Unsolved
-                                  , ic_binds    = Just rhs_binds_var
-                                  , ic_info     = RuleSkol (snd $ unLoc name)
-                                  , ic_env      = lcl_env }
+       ; let skol_info = RuleSkol (snd $ unLoc name)
+       ; (rhs_implic, rhs_binds) <- buildImplicationFor topTcLevel skol_info qtkvs
+                                         lhs_evs rhs_wanted
 
            -- For the LHS constraints we must solve the remaining constraints
            -- (a) so that we report insoluble ones
            -- (b) so that we bind any soluble ones
-       ; lhs_binds_var <- newTcEvBinds
-       ; emitImplication $ Implic { ic_tclvl    = topTcLevel
-                                  , ic_skols    = qtkvs
-                                  , ic_no_eqs   = False
-                                  , ic_given    = lhs_evs
-                                  , ic_wanted   = all_lhs_wanted
-                                                    { wc_simple = emptyBag }
-                                        -- simplifyRule consumed all simple
-                                        -- constraints
-                                  , ic_status   = IC_Unsolved
-                                  , ic_binds    = Just lhs_binds_var
-                                  , ic_info     = RuleSkol (snd $ unLoc name)
-                                  , ic_env      = lcl_env }
+       ; (lhs_implic, lhs_binds) <- buildImplicationFor topTcLevel skol_info qtkvs
+                                         lhs_evs
+                                         (all_lhs_wanted { wc_simple = emptyBag })
+                                           -- simplifyRule consumed all simple
+                                           -- constraints
 
+       ; emitImplications (lhs_implic `unionBags` rhs_implic)
        ; return (HsRule name act
                     (map (noLoc . RuleBndr . noLoc) (qtkvs ++ tpl_ids))
-                    (mkHsDictLet (TcEvBinds lhs_binds_var) lhs') fv_lhs
-                    (mkHsDictLet (TcEvBinds rhs_binds_var) rhs') fv_rhs) }
+                    (mkHsDictLet lhs_binds lhs') fv_lhs
+                    (mkHsDictLet rhs_binds rhs') fv_rhs) }
 
 tcRuleBndrs :: [LRuleBndr Name] -> TcM [Var]
 tcRuleBndrs []

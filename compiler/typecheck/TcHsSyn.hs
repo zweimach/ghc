@@ -81,7 +81,7 @@ hsLPatType (L _ pat) = hsPatType pat
 hsPatType :: Pat Id -> Type
 hsPatType (ParPat pat)                = hsLPatType pat
 hsPatType (WildPat ty)                = ty
-hsPatType (VarPat var)                = idType var
+hsPatType (VarPat (L _ var))          = idType var
 hsPatType (BangPat pat)               = hsLPatType pat
 hsPatType (LazyPat pat)               = hsLPatType pat
 hsPatType (LitPat lit)                = hsLitType lit
@@ -616,8 +616,8 @@ zonkExpr   :: ZonkEnv -> HsExpr TcId    -> TcM (HsExpr Id)
 zonkLExprs env exprs = mapM (zonkLExpr env) exprs
 zonkLExpr  env expr  = wrapLocM (zonkExpr env) expr
 
-zonkExpr env (HsVar id)
-  = return (HsVar (zonkIdOcc env id))
+zonkExpr env (HsVar (L l id))
+  = return (HsVar (L l (zonkIdOcc env id)))
 
 zonkExpr _ (HsIPVar id)
   = return (HsIPVar id)
@@ -763,8 +763,6 @@ zonkExpr env (RecordUpd { rupd_expr = expr, rupd_flds = rbinds
 zonkExpr env (ExprWithTySigOut e ty)
   = do { e' <- zonkLExpr env e
        ; return (ExprWithTySigOut e' ty) }
-
-zonkExpr _ (ExprWithTySig _ _ _) = panic "zonkExpr env:ExprWithTySig"
 
 zonkExpr env (ArithSeq expr wit info)
   = do new_expr <- zonkExpr env expr
@@ -1106,9 +1104,9 @@ zonk_pat env (WildPat ty)
   = do  { ty' <- zonkTcTypeToType env ty
         ; return (env, WildPat ty') }
 
-zonk_pat env (VarPat v)
+zonk_pat env (VarPat (L l v))
   = do  { v' <- zonkIdBndr env v
-        ; return (extendIdZonkEnv1 env v', VarPat v') }
+        ; return (extendIdZonkEnv1 env v', VarPat (L l v')) }
 
 zonk_pat env (LazyPat pat)
   = do  { (env', pat') <- zonkPat env pat
@@ -1240,8 +1238,10 @@ zonkForeignExports :: ZonkEnv -> [LForeignDecl TcId] -> TcM [LForeignDecl Id]
 zonkForeignExports env ls = mapM (wrapLocM (zonkForeignExport env)) ls
 
 zonkForeignExport :: ZonkEnv -> ForeignDecl TcId -> TcM (ForeignDecl Id)
-zonkForeignExport env (ForeignExport i _hs_ty co spec) =
-   return (ForeignExport (fmap (zonkIdOcc env) i) undefined co spec)
+zonkForeignExport env (ForeignExport { fd_name = i, fd_co = co, fd_fe = spec })
+  = return (ForeignExport { fd_name = fmap (zonkIdOcc env) i
+                          , fd_sig_ty = undefined, fd_co = co
+                          , fd_fe = spec })
 zonkForeignExport _ for_imp
   = return for_imp     -- Foreign imports don't need zonking
 

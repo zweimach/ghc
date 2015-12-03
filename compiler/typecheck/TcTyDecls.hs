@@ -30,7 +30,7 @@ module TcTyDecls(
 import TcRnMonad
 import TcEnv
 import TcTypeable( mkTypeableBinds )
-import TcBinds( tcRecSelBinds, addTypecheckedBinds )
+import TcBinds( tcRecSelBinds )
 import TyCoRep( Type(..), Binder(..), delBinderVar )
 import TcType
 import TysWiredIn( unitTy )
@@ -375,17 +375,15 @@ data RecTyInfo = RTI { rti_roles      :: Name -> [Role]
                      , rti_is_rec     :: Name -> RecFlag }
 
 calcRecFlags :: SelfBootInfo -> Bool  -- hs-boot file?
-             -> RoleAnnots -> [TyThing] -> RecTyInfo
+             -> RoleAnnots -> [TyCon] -> RecTyInfo
 -- The 'boot_names' are the things declared in M.hi-boot, if M is the current module.
 -- Any type constructors in boot_names are automatically considered loop breakers
-calcRecFlags boot_details is_boot mrole_env tyclss
+-- Recursion of newtypes/data types can happen via
+-- the class TyCon, so all_tycons includes the class tycons
+calcRecFlags boot_details is_boot mrole_env all_tycons
   = RTI { rti_roles      = roles
         , rti_is_rec     = is_rec }
   where
-    all_tycons = mapMaybe getTyCon tyclss
-                   -- Recursion of newtypes/data types can happen via
-                   -- the class TyCon, so tyclss includes the class tycons
-
     roles = inferRoles is_boot mrole_env all_tycons
 
     ----------------- Recursion calculation ----------------
@@ -461,10 +459,6 @@ calcRecFlags boot_details is_boot mrole_env tyclss
 
 new_tc_rhs :: TyCon -> Type
 new_tc_rhs tc = snd (newTyConRhs tc)    -- Ignore the type variables
-
-getTyCon :: TyThing -> Maybe TyCon
-getTyCon (ATyCon tc) = Just tc
-getTyCon _           = Nothing
 
 findLoopBreakers :: [(TyCon, [TyCon])] -> [Name]
 -- Finds a set of tycons that cut all loops
@@ -868,19 +862,44 @@ updateRoleEnv name n role
 *                                                                      *
 ********************************************************************* -}
 
-tcAddImplicits :: [TyThing] -> TcM TcGblEnv
-tcAddImplicits tyclss
+tcAddImplicits :: [TyCon] -> TcM TcGblEnv
+-- Given a [TyCon], add to the TcGblEnv
+--   * extend the TypeEnv with their implicitTyThings
+--   * extend the TypeEnv with any default method Ids
+--   * add bindings for record selectors
+--   * add bindings for type representations for the TyThings
+tcAddImplicits tycons
   = discardWarnings $
     tcExtendGlobalEnvImplicit implicit_things  $
     tcExtendGlobalValEnv def_meth_ids          $
-    do { (typeable_ids, typeable_binds) <- mkTypeableBinds tycons
-       ; gbl_env <- tcExtendGlobalValEnv typeable_ids
-                    $ tcRecSelBinds $ mkRecSelBinds tycons
-       ; return (gbl_env `addTypecheckedBinds` typeable_binds) }
+    do { traceTc "tcAddImplicits" $ vcat
+            [ text "tycons" <+> ppr tycons
+            , text "implicits" <+> ppr implicit_things ]
+       ; gbl_env <- mkTypeableBinds tycons
+       ; gbl_env <- setGblEnv gbl_env $
+                    tcRecSelBinds (mkRecSelBinds tycons)
+       ; return gbl_env }
  where
-   implicit_things = concatMap implicitTyThings tyclss
-   tycons          = [tc | ATyCon tc <- tyclss]
-   def_meth_ids    = mkDefaultMethodIds tyclss
+   implicit_things = concatMap implicitTyConThings tycons
+   def_meth_ids    = mkDefaultMethodIds tycons
+
+mkDefaultMethodIds :: [TyCon] -> [Id]
+-- We want to put the default-method Ids (both vanilla and generic)
+-- into the type environment so that they are found when we typecheck
+-- the filled-in default methods of each instance declaration
+-- See Note [Default method Ids and Template Haskell]
+mkDefaultMethodIds tycons
+  = [ mkExportedLocalId VanillaId dm_name (mk_dm_ty cls sel_id dm_spec)
+    | tc <- tycons
+    , Just cls <- [tyConClass_maybe tc]
+    , (sel_id, Just (dm_name, dm_spec)) <- classOpItems cls ]
+  where
+    mk_dm_ty :: Class -> Id -> DefMethSpec Type -> Type
+    mk_dm_ty _ sel_id VanillaDM        = idType sel_id
+    mk_dm_ty cls _   (GenericDM dm_ty) = mkSigmaTy cls_tvs [pred] dm_ty
+       where
+         cls_tvs = classTyVars cls
+         pred    = mkClassPred cls (mkTyVarTys cls_tvs)
 
 {-
 ************************************************************************
@@ -889,14 +908,6 @@ tcAddImplicits tyclss
 *                                                                      *
 ************************************************************************
 -}
-
-mkDefaultMethodIds :: [TyThing] -> [Id]
--- See Note [Default method Ids and Template Haskell]
-mkDefaultMethodIds things
-  = [ mkExportedLocalId VanillaId dm_name (idType sel_id)
-    | ATyCon tc <- things
-    , Just cls <- [tyConClass_maybe tc]
-    , (sel_id, DefMeth dm_name) <- classOpItems cls ]
 
 {-
 Note [Default method Ids and Template Haskell]
@@ -914,6 +925,14 @@ When we typecheck 'ast' we have done the first pass over the class decl
 declarations (because they can mention value declarations).  So we
 must bring the default method Ids into scope first (so they can be seen
 when typechecking the [d| .. |] quote, and typecheck them later.
+-}
+
+{-
+************************************************************************
+*                                                                      *
+                Building record selectors
+*                                                                      *
+************************************************************************
 -}
 
 mkRecSelBinds :: [TyCon] -> HsValBinds Name
@@ -973,12 +992,14 @@ mkOneRecordSelector all_cons idDetails fl
         alts | is_naughty = [mkSimpleMatch [] unit_rhs]
              | otherwise =  map mk_match cons_w_field ++ deflt
     mk_match con = mkSimpleMatch [L loc (mk_sel_pat con)]
-                                 (L loc (HsVar field_var))
+                                 (L loc (HsVar (L loc field_var)))
     mk_sel_pat con = ConPatIn (L loc (getName con)) (RecCon rec_fields)
     rec_fields = HsRecFields { rec_flds = [rec_field], rec_dotdot = Nothing }
-    rec_field  = noLoc (HsRecField { hsRecFieldLbl = L loc (FieldOcc (mkVarUnqual lbl) sel_name)
-                                   , hsRecFieldArg = L loc (VarPat field_var)
-                                   , hsRecPun = False })
+    rec_field  = noLoc (HsRecField
+                        { hsRecFieldLbl = L loc (FieldOcc (mkVarUnqual lbl)
+                                                 sel_name)
+                        , hsRecFieldArg = L loc (VarPat (L loc field_var))
+                        , hsRecPun = False })
     sel_lname = L loc sel_name
     field_var = mkInternalName (mkBuiltinUnique 1) (getOccName sel_name) loc
 
@@ -987,7 +1008,8 @@ mkOneRecordSelector all_cons idDetails fl
     -- mentions this particular record selector
     deflt | all dealt_with all_cons = []
           | otherwise = [mkSimpleMatch [L loc (WildPat placeHolderType)]
-                            (mkHsApp (L loc (HsVar (getName rEC_SEL_ERROR_ID)))
+                            (mkHsApp (L loc (HsVar
+                                            (L loc (getName rEC_SEL_ERROR_ID))))
                                      (L loc (HsLit msg_lit)))]
 
         -- Do not add a default case unless there are unmatched
@@ -1042,9 +1064,9 @@ like     sel :: T [a] -> a
 
 For naughty selectors we make a dummy binding
    sel = ()
-for naughty selectors, so that the later type-check will add them to the
-environment, and they'll be exported.  The function is never called, because
-the tyepchecker spots the sel_naughty field.
+so that the later type-check will add them to the environment, and they'll be
+exported.  The function is never called, because the typechecker spots the
+sel_naughty field.
 
 Note [GADT record selectors]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~

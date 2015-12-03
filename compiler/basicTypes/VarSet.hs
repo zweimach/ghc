@@ -20,7 +20,20 @@ module VarSet (
         transCloVarSet, fixVarSet,
         lookupVarSet, lookupVarSetByName,
         mapVarSet, sizeVarSet, seqVarSet,
-        elemVarSetByKey, partitionVarSet
+        elemVarSetByKey, partitionVarSet,
+
+        -- * Deterministic Var set types
+        DVarSet, DIdSet, DTyVarSet, DTyCoVarSet,
+
+        -- ** Manipulating these sets
+        emptyDVarSet, unitDVarSet, mkDVarSet,
+        extendDVarSet,
+        elemDVarSet, dVarSetElems, subDVarSet,
+        unionDVarSet, unionDVarSets, mapUnionDVarSet,
+        intersectDVarSet,
+        isEmptyDVarSet, delDVarSet,
+        minusDVarSet, foldDVarSet, filterDVarSet,
+        sizeDVarSet, seqDVarSet,
     ) where
 
 #include "HsVersions.h"
@@ -29,6 +42,7 @@ import Var      ( Var, TyVar, CoVar, TyCoVar, Id )
 import Unique
 import Name     ( Name )
 import UniqSet
+import UniqDSet
 import UniqFM( disjointUFM )
 
 {-
@@ -154,3 +168,70 @@ transCloVarSet fn seeds
 
 seqVarSet :: VarSet -> ()
 seqVarSet s = sizeVarSet s `seq` ()
+
+-- Deterministic VarSet
+-- See Note [Deterministic UniqFM] in UniqDFM for explanation why we need
+-- DVarSet.
+
+type DVarSet     = UniqDSet Var
+type DIdSet      = UniqDSet Id
+type DTyVarSet   = UniqDSet TyVar
+type DTyCoVarSet = UniqDSet TyCoVar
+
+emptyDVarSet :: DVarSet
+emptyDVarSet = emptyUniqDSet
+
+unitDVarSet :: Var -> DVarSet
+unitDVarSet = unitUniqDSet
+
+mkDVarSet :: [Var] -> DVarSet
+mkDVarSet = mkUniqDSet
+
+extendDVarSet :: DVarSet -> Var -> DVarSet
+extendDVarSet = addOneToUniqDSet
+
+elemDVarSet :: Var -> DVarSet -> Bool
+elemDVarSet = elementOfUniqDSet
+
+dVarSetElems :: DVarSet -> [Var]
+dVarSetElems = uniqDSetToList
+
+subDVarSet :: DVarSet -> DVarSet -> Bool
+subDVarSet s1 s2 = isEmptyDVarSet (s1 `minusDVarSet` s2)
+
+unionDVarSet :: DVarSet -> DVarSet -> DVarSet
+unionDVarSet = unionUniqDSets
+
+unionDVarSets :: [DVarSet] -> DVarSet
+unionDVarSets = unionManyUniqDSets
+
+-- | Map the function over the list, and union the results
+mapUnionDVarSet  :: (a -> DVarSet) -> [a] -> DVarSet
+mapUnionDVarSet get_set xs = foldr (unionDVarSet . get_set) emptyDVarSet xs
+
+intersectDVarSet :: DVarSet -> DVarSet -> DVarSet
+intersectDVarSet = intersectUniqDSets
+
+intersectsDVarSet :: DVarSet -> DVarSet -> Bool
+intersectsDVarSet = intersectsUniqDSets
+
+isEmptyDVarSet :: DVarSet -> Bool
+isEmptyDVarSet = isEmptyUniqDSet
+
+delDVarSet :: DVarSet -> Var -> DVarSet
+delDVarSet = delOneFromUniqDSet
+
+minusDVarSet :: DVarSet -> DVarSet -> DVarSet
+minusDVarSet = minusUniqDSet
+
+foldDVarSet :: (Var -> a -> a) -> a -> DVarSet -> a
+foldDVarSet = foldUniqDSet
+
+filterDVarSet :: (Var -> Bool) -> DVarSet -> DVarSet
+filterDVarSet = filterUniqDSet
+
+sizeDVarSet :: DVarSet -> Int
+sizeDVarSet = sizeUniqDSet
+
+seqDVarSet :: DVarSet -> ()
+seqDVarSet s = sizeDVarSet s `seq` ()

@@ -461,7 +461,7 @@ addBinTickLHsExpr boxLabel (L pos e0)
 -- Decoarate an HsExpr with ticks
 
 addTickHsExpr :: HsExpr Id -> TM (HsExpr Id)
-addTickHsExpr e@(HsVar id)       = do freeVar id; return e
+addTickHsExpr e@(HsVar (L _ id)) = do freeVar id; return e
 addTickHsExpr (HsUnboundVar {})  = panic "addTickHsExpr.HsUnboundVar"
 addTickHsExpr e@(HsIPVar _)      = return e
 addTickHsExpr e@(HsOverLit _)    = return e
@@ -545,8 +545,8 @@ addTickHsExpr expr@(RecordUpd { rupd_expr = e, rupd_flds = flds })
        ; flds' <- mapM addTickHsRecField flds
        ; return (expr { rupd_expr = e', rupd_flds = flds' }) }
 
-addTickHsExpr (ExprWithTySigOut e ty) =
-        liftM2 ExprWithTySigOut
+addTickHsExpr (ExprWithTySig e ty) =
+        liftM2 ExprWithTySig
                 (addTickLHsExprNever e) -- No need to tick the inner expression
                                     -- for expressions with signatures
                 (return ty)
@@ -594,11 +594,16 @@ addTickHsExpr (HsProc pat cmdtop) =
 addTickHsExpr (HsWrap w e) =
         liftM2 HsWrap
                 (return w)
-                (addTickHsExpr e)       -- explicitly no tick on inside
+                (addTickHsExpr e)       -- Explicitly no tick on inside
+
+addTickHsExpr (ExprWithTySigOut e ty) =
+        liftM2 ExprWithTySigOut
+               (addTickLHsExprNever e) -- No need to tick the inner expression
+               (return ty)             -- for expressions with signatures
 
 addTickHsExpr e@(HsType _) = return e
 
--- Others dhould never happen in expression content.
+-- Others should never happen in expression content.
 addTickHsExpr e  = pprPanic "addTickHsExpr" (ppr e)
 
 addTickTupArg :: LHsTupArg Id -> TM (LHsTupArg Id)
@@ -980,7 +985,7 @@ coveragePasses dflags =
     ifa (gopt Opt_Hpc dflags)                HpcTicks $
     ifa (gopt Opt_SccProfilingOn dflags &&
          profAuto dflags /= NoProfAuto)      ProfNotes $
-    ifa (gopt Opt_Debug dflags)              SourceNotes []
+    ifa (debugLevel dflags > 0)              SourceNotes []
   where ifa f x xs | f         = x:xs
                    | otherwise = xs
 

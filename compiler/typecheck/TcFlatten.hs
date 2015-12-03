@@ -896,7 +896,7 @@ flatten_many_nom (ty:tys)
   = do { (xi, co) <- flatten_one ty
        ; (xis, cos) <- flatten_many_nom tys
        ; return (xi:xis, co:cos) }
-
+-- TODO (RAE): Document that flattening t flattens t's kindco
 ------------------
 flatten_one :: TcType -> FlatM (Xi, Coercion)
 -- Flatten a type to get rid of type function applications, returning

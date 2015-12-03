@@ -194,7 +194,8 @@ dsLExpr (L loc e) = putSrcSpanDs loc $ dsExpr e
 dsExpr :: HsExpr Id -> DsM CoreExpr
 dsExpr (HsPar e)              = dsLExpr e
 dsExpr (ExprWithTySigOut e _) = dsLExpr e
-dsExpr (HsVar var)            = return $ varToCoreExpr var  -- See Note [Desugaring vars]
+dsExpr (HsVar (L _ var))      = return (varToCoreExpr var)
+                                -- See Note [Desugaring vars]
 dsExpr (HsUnboundVar {})      = panic "dsExpr: HsUnboundVar" -- Typechecker eliminates them
 dsExpr (HsIPVar _)            = panic "dsExpr: HsIPVar"
 dsExpr (HsOverLabel _)        = panic "dsExpr: HsOverLabel"
@@ -442,7 +443,7 @@ dsExpr (HsStatic expr@(L loc _)) = do
                  , moduleNameFS $ moduleName $ nameModule n'
                  , occNameFS    $ nameOccName n'
                  ]
-    let tvars = varSetElemsWellScoped $ tyCoVarsOfType ty
+    let tvars = tyCoVarsOfTypeWellScoped ty
         speTy = ASSERT( all isTyVar tvars )  -- ty is top-level, so this is OK
                 mkInvForAllTys tvars $ mkTyConApp staticPtrTyCon [ty]
         speId = mkExportedLocalId VanillaId n' speTy
@@ -611,7 +612,7 @@ dsExpr expr@(RecordUpd { rupd_expr = record_expr, rupd_flds = fields
                  -- SAFE: the typechecker will complain if the synonym is
                  -- not bidirectional
                  wrap_id = expectJust "dsExpr:mk_alt" (conLikeWrapId_maybe con)
-                 inst_con = noLoc $ HsWrap wrap (HsVar wrap_id)
+                 inst_con = noLoc $ HsWrap wrap (HsVar (noLoc wrap_id))
                         -- Reconstruct with the WrapId so that unpacking happens
                  -- The order here is because of the order in `TcPatSyn`.
                  wrap = dict_req_wrap                                           <.>

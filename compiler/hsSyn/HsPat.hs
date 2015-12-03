@@ -74,7 +74,8 @@ data Pat id
         -- The sole reason for a type on a WildPat is to
         -- support hsPatType :: Pat Id -> Type
 
-  | VarPat      id                      -- Variable
+  | VarPat      (Located id) -- Variable
+                             -- See Note [Located RdrNames] in HsExpr
   | LazyPat     (LPat id)               -- Lazy pattern
     -- ^ - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnTilde'
 
@@ -157,6 +158,8 @@ data Pat id
         pat_binds :: TcEvBinds,         -- Bindings involving those dictionaries
         pat_args  :: HsConPatDetails id,
         pat_wrap  :: HsWrapper          -- Extra wrapper to pass to the matcher
+                                        -- Only relevant for pattern-synonyms;
+                                        --   ignored for data cons
     }
 
         ------------ View patterns ---------------
@@ -199,9 +202,9 @@ data Pat id
   -- | - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnDcolon'
 
   -- For details on above see note [Api annotations] in ApiAnnotation
-  | SigPatIn        (LPat id)                  -- Pattern with a type signature
-                    (HsWithBndrs id (LHsType id)) -- Signature can bind both
-                                                  -- kind and type vars
+  | SigPatIn        (LPat id)                 -- Pattern with a type signature
+                    (LHsSigWcType id)         -- Signature can bind both
+                                              -- kind and type vars
 
   | SigPatOut       (LPat id)           -- Pattern with a type signature
                     Type
@@ -391,7 +394,7 @@ pprParendPat p = getPprStyle $ \ sty ->
                          -- is the pattern inside that matters.  Sigh.
 
 pprPat :: (OutputableBndr name) => Pat name -> SDoc
-pprPat (VarPat var)           = pprPatBndr var
+pprPat (VarPat (L _ var))     = pprPatBndr var
 pprPat (WildPat _)            = char '_'
 pprPat (LazyPat pat)          = char '~' <> pprParendLPat pat
 pprPat (BangPat pat)          = char '!' <> pprParendLPat pat
