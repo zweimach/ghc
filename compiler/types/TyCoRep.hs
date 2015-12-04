@@ -56,13 +56,14 @@ module TyCoRep (
         pprDataCons,
 
         -- Free variables
-        tyCoVarsOfType, dTyCoVarsOfType, tyCoVarsOfTypes,
+        tyCoVarsOfType, tyCoVarsOfTypeDSet, tyCoVarsOfTypes, tyCoVarsOfTypesDSet,
         tyCoVarsOfTypeAcc, tyCoVarsOfTypeList,
         tyCoVarsOfTypesAcc, tyCoVarsOfTypesList,
+        closeOverKindsDSet, closeOverKindsAcc,
         coVarsOfType, coVarsOfTypes,
         coVarsOfCo, coVarsOfCos,
         tyCoVarsOfCo, tyCoVarsOfCos,
-        dTyCoVarsOfCo,
+        tyCoVarsOfCoDSet,
         tyCoVarsOfCoAcc, tyCoVarsOfCosAcc,
         tyCoVarsOfCoList, tyCoVarsOfProv,
         closeOverKinds,
@@ -90,7 +91,7 @@ module TyCoRep (
         substTys, substTheta,
         lookupTyVar, substTyVarBndr,
         substCo, substCos, substCoVar, substCoVars, lookupCoVar,
-        substCoVarBndr, cloneTyVarBndr,
+        substCoVarBndr, cloneTyVarBndr, cloneTyVarBndrs,
         substTyVar, substTyVars,
         substForAllCoBndr,
         substTyVarBndrCallback, substForAllCoBndrCallback,
@@ -965,18 +966,21 @@ in nominal ways. If not, having w be representational is OK.
 %************************************************************************
 -}
 
+-- | Returns free variables of a type, including kind variables as
+-- a non-deterministic set. For type synonyms it does /not/ expand the
+-- synonym.
 tyCoVarsOfType :: Type -> TyCoVarSet
--- ^ NB: for type synonyms tyCoVarsOfType does /not/ expand the synonym
--- tyVarsOfType returns free variables of a type, including kind variables.
 tyCoVarsOfType ty = runFVSet $ tyCoVarsOfTypeAcc ty
 
--- | Get a deterministic set of the vars free in a type
-dTyCoVarsOfType :: Type -> DTyCoVarSet
-dTyCoVarsOfType ty = runFVDSet $ tyCoVarsOfTypeAcc ty
+-- | `tyVarsOfType` that returns free variables of a type in a deterministic
+-- set. For explanation of why using `VarSet` is not deterministic see
+-- Note [Deterministic FV] in FV.
+tyCoVarsOfTypeDSet :: Type -> DTyCoVarSet
+tyCoVarsOfTypeDSet ty = runFVDSet $ tyCoVarsOfTypeAcc ty
 
 -- | `tyVarsOfType` that returns free variables of a type in deterministic
 -- order. For explanation of why using `VarSet` is not deterministic see
--- Note [Deterministic UniqFM] in UniqDFM.
+-- Note [Deterministic FV] in FV.
 tyCoVarsOfTypeList :: Type -> [TyCoVar]
 tyCoVarsOfTypeList ty = runFVList $ tyCoVarsOfTypeAcc ty
 
@@ -985,6 +989,7 @@ tyCoVarsOfTypeList ty = runFVList $ tyCoVarsOfTypeAcc ty
 -- make the function quadratic.
 -- It's exported, so that it can be composed with other functions that compute
 -- free variables.
+-- See Note [FV naming conventions] in FV.
 tyCoVarsOfTypeAcc :: Type -> FV
 tyCoVarsOfTypeAcc (TyVarTy v)         fv_cand in_scope acc = (oneVar v `unionFV` tyCoVarsOfTypeAcc (tyVarKind v)) fv_cand in_scope acc
 tyCoVarsOfTypeAcc (TyConApp _ tys)    fv_cand in_scope acc = tyCoVarsOfTypesAcc tys fv_cand in_scope acc
@@ -996,9 +1001,21 @@ tyCoVarsOfTypeAcc (ForAllTy bndr ty) fv_cand in_scope acc
 tyCoVarsOfTypeAcc (CastTy ty co)      fv_cand in_scope acc = (tyCoVarsOfTypeAcc ty `unionFV` tyCoVarsOfCoAcc co) fv_cand in_scope acc
 tyCoVarsOfTypeAcc (CoercionTy co)     fv_cand in_scope acc = tyCoVarsOfCoAcc co fv_cand in_scope acc
 
+-- | Returns free variables of types, including kind variables as
+-- a non-deterministic set. For type synonyms it does /not/ expand the
+-- synonym.
 tyCoVarsOfTypes :: [Type] -> TyCoVarSet
 tyCoVarsOfTypes tys = runFVSet $ tyCoVarsOfTypesAcc tys
 
+-- | Returns free variables of types, including kind variables as
+-- a deterministic set. For type synonyms it does /not/ expand the
+-- synonym.
+tyCoVarsOfTypesDSet :: [Type] -> DTyCoVarSet
+tyCoVarsOfTypesDSet tys = runFVDSet $ tyCoVarsOfTypesAcc tys
+
+-- | Returns free variables of types, including kind variables as
+-- a deterministically ordered list. For type synonyms it does /not/ expand the
+-- synonym.
 tyCoVarsOfTypesList :: [Type] -> [TyCoVar]
 tyCoVarsOfTypesList tys = runFVList $ tyCoVarsOfTypesAcc tys
 
@@ -1010,8 +1027,8 @@ tyCoVarsOfCo :: Coercion -> TyCoVarSet
 tyCoVarsOfCo co = runFVSet $ tyCoVarsOfCoAcc co
 
 -- | Get a deterministic set of the vars free in a coercion
-dTyCoVarsOfCo :: Coercion -> DTyCoVarSet
-dTyCoVarsOfCo co = runFVDSet $ tyCoVarsOfCoAcc co
+tyCoVarsOfCoDSet :: Coercion -> DTyCoVarSet
+tyCoVarsOfCoDSet co = runFVDSet $ tyCoVarsOfCoAcc co
 
 tyCoVarsOfCoList :: Coercion -> [TyCoVar]
 tyCoVarsOfCoList co = runFVList $ tyCoVarsOfCoAcc co
@@ -1101,12 +1118,29 @@ coVarsOfProv (HoleProv _)        = emptyVarSet
 coVarsOfCos :: [Coercion] -> CoVarSet
 coVarsOfCos cos = mapUnionVarSet coVarsOfCo cos
 
+-- | Add the kind variables free in the kinds of the tyvars in the given set.
+-- Returns a non-deterministic set.
+closeOverKinds :: TyVarSet -> TyVarSet
+closeOverKinds = runFVSet . closeOverKindsAcc . varSetElems
+
 closeOverKinds :: TyCoVarSet -> TyCoVarSet
 -- Add the kind variables free in the kinds
 -- of the tyvars in the given set
 closeOverKinds tvs
   = foldVarSet (\tv ktvs -> closeOverKinds (tyCoVarsOfType (tyVarKind tv))
                             `unionVarSet` ktvs) tvs tvs
+
+-- | Given a list of tyvars returns a deterministic FV computation that
+-- returns the given tyvars with the kind variables free in the kinds of the
+-- given tyvars.
+closeOverKindsAcc :: [TyVar] -> FV
+closeOverKindsAcc tvs =
+  mapUnionFV (tyCoVarsOfTypeAcc . tyVarKind) tvs `unionFV` someVars tvs
+
+-- | Add the kind variables free in the kinds of the tyvars in the given set.
+-- Returns a deterministic set.
+closeOverKindsDSet :: DTyVarSet -> DTyVarSet
+closeOverKindsDSet = runFVDSet . closeOverKindsAcc . dVarSetElems
 
 -- | Gets the free vars of a telescope, scoped over a given free var set.
 tyCoVarsOfTelescope :: [Var] -> TyCoVarSet -> TyCoVarSet
@@ -1820,6 +1854,14 @@ cloneTyVarBndr (TCvSubst in_scope tv_env cv_env) tv uniq
     tv' = setVarUnique tv uniq  -- Simply set the unique; the kind
                                 -- has no type variables to worry about
 
+cloneTyVarBndrs :: TvSubst -> [TyVar] -> UniqSupply -> (TvSubst, [TyVar])
+cloneTyVarBndrs subst []     _usupply = (subst, [])
+cloneTyVarBndrs subst (t:ts)  usupply = (subst'', tv:tvs)
+  where
+    (uniq, usupply') = takeUniqFromSupply usupply
+    (subst' , tv )   = cloneTyVarBndr subst t uniq
+    (subst'', tvs)   = cloneTyVarBndrs subst' ts usupply'
+
 {-
 %************************************************************************
 %*                                                                      *
@@ -2144,7 +2186,9 @@ pprTyTcApp p tc tys
     if gopt Opt_PrintExplicitKinds dflags then ppr_deflt
                                           else pprTyList p ty1 ty2
 
-  | tc `hasKey` errorMessageTypeErrorFamKey = text "(TypeError ...)"
+  | not opt_PprStyle_Debug
+  , tc `hasKey` errorMessageTypeErrorFamKey
+  = text "(TypeError ...)"   -- Suppress detail unles you _really_ want to see
 
   | tc `hasKey` tYPETyConKey
   , [TyConApp lev_tc []] <- tys

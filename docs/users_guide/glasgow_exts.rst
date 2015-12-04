@@ -1796,7 +1796,7 @@ In the case of transform comprehensions, notice that the groups are
 parameterised over some arbitrary type ``n`` (provided it has an
 ``fmap``, as well as the comprehension being over an arbitrary monad.
 
-.. _monadfail-desugaring
+.. _monadfail-desugaring:
 
 New monadic failure desugaring mechanism
 ----------------------------------------
@@ -9769,6 +9769,8 @@ The syntax for a declaration splice uses "``$``" not "``splice``". The type of
 the enclosed expression must be ``Q [Dec]``, not ``[Q Dec]``. Typed expression
 splices and quotations are supported.)
 
+.. _th-usage:
+
 Using Template Haskell
 ----------------------
 
@@ -10639,7 +10641,7 @@ strict, regardless of the pattern. (We say "apparent" exception because
 the Right Way to think of it is that the bang at the top of a binding is
 not part of the *pattern*; rather it is part of the syntax of the
 *binding*, creating a "bang-pattern binding".) See :ref:`Strict recursive and
-polymorphic let bindings <recursive-and-polymorphic-let-bindings> for
+polymorphic let bindings <recursive-and-polymorphic-let-bindings>` for
 how bang-pattern bindings are compiled.
 
 However, *nested* bangs in a pattern binding behave uniformly with all

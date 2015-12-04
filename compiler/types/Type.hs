@@ -32,7 +32,7 @@ module Type (
         tyConAppTyCon_maybe, tyConAppTyConPicky_maybe,
         tyConAppArgs_maybe, tyConAppTyCon, tyConAppArgs,
         splitTyConApp_maybe, splitTyConApp, tyConAppArgN, nextRole,
-        splitTyConArgs,
+        splitTyConArgs, splitListTyConApp_maybe,
 
         mkForAllTy, mkForAllTys, mkInvForAllTys, mkVisForAllTys,
         mkNamedForAllTy,
@@ -47,7 +47,7 @@ module Type (
 
         mkCastTy, mkCoercionTy,
 
-        isUserErrorTy, pprUserTypeErrorTy,
+        userTypeError_maybe, pprUserTypeErrorTy,
 
         coAxNthLHS,
         stripCoercionTy, splitCoercionType_maybe,
@@ -111,7 +111,7 @@ module Type (
 
         -- * Type free variables
         tyCoVarsOfType, tyCoVarsOfTypes, tyCoVarsOfTypeAcc,
-        dTyCoVarsOfType,
+        tyCoVarsOfTypeDSet,
         coVarsOfType,
         coVarsOfTypes, closeOverKinds,
         splitDepVarsOfType, splitDepVarsOfTypes,
@@ -157,7 +157,7 @@ module Type (
         -- ** Performing substitution on types and kinds
         substTy, substTys, substTyWith, substTysWith, substTheta,
         substTyVarBndr, substTyVar, substTyVars,
-        cloneTyVarBndr, lookupTyVar, substTelescope,
+        cloneTyVarBndr, cloneTyVarBndrs, lookupTyVar, substTelescope,
 
         -- * Pretty-printing
         pprType, pprParendType, pprTypeApp, pprTyThingCategory, pprTyThing,
@@ -196,12 +196,14 @@ import NameEnv
 import Class
 import TyCon
 import TysPrim
-import {-# SOURCE #-} TysWiredIn ( typeNatKind, typeSymbolKind, liftedTypeKind )
+import {-# SOURCE #-} TysWiredIn ( listTyCon, typeNatKind
+                                 , typeSymbolKind, liftedTypeKind )
 import PrelNames
 import CoAxiom
 import {-# SOURCE #-} Coercion
 
 -- others
+import UniqSupply       ( UniqSupply, takeUniqFromSupply )
 import BasicTypes       ( Arity, RepArity )
 import Util
 import Outputable
@@ -705,10 +707,11 @@ isStrLitTy _                    = Nothing
 
 -- | Is this type a custom user error?
 -- If so, give us the kind and the error message.
-isUserErrorTy :: Type -> Maybe (Kind,Type)
-isUserErrorTy t = do (tc,[k,msg]) <- splitTyConApp_maybe t
-                     guard (tyConName tc == errorMessageTypeErrorFamName)
-                     return (k,msg)
+userTypeError_maybe :: Type -> Maybe Type
+userTypeError_maybe t
+  = do { (tc, [_kind, msg]) <- splitTyConApp_maybe t
+       ; guard (tyConName tc == errorMessageTypeErrorFamName)
+       ; return msg }
 
 -- | Render a type corresponding to a user type error into a SDoc.
 pprUserTypeErrorTy :: Type -> SDoc
@@ -871,6 +874,13 @@ splitTyConApp_maybe ty | Just ty' <- coreView ty = splitTyConApp_maybe ty'
 splitTyConApp_maybe (TyConApp tc tys)         = Just (tc, tys)
 splitTyConApp_maybe (ForAllTy (Anon arg) res) = Just (funTyCon, [arg,res])
 splitTyConApp_maybe _                         = Nothing
+
+-- | Attempts to tease a list type apart and gives the type of the elements if
+-- successful (looks through type synonyms)
+splitListTyConApp_maybe :: Type -> Maybe Type
+splitListTyConApp_maybe ty = case splitTyConApp_maybe ty of
+  Just (tc,[e]) | tc == listTyCon -> Just e
+  _other                          -> Nothing
 
 -- | What is the role assigned to the next parameter of this type? Usually,
 -- this will be 'Nominal', but if the type is a 'TyConApp', we may be able to

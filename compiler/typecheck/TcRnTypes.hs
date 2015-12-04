@@ -140,6 +140,7 @@ import TcType
 import Annotations
 import InstEnv
 import FamInstEnv
+import PmExpr
 import IOEnv
 import RdrName
 import Name
@@ -325,7 +326,9 @@ instance ContainsModule DsGblEnv where
 
 data DsLclEnv = DsLclEnv {
         dsl_meta    :: DsMetaEnv,        -- Template Haskell bindings
-        dsl_loc     :: SrcSpan           -- to put in pattern-matching error msgs
+        dsl_loc     :: RealSrcSpan,      -- To put in pattern-matching error msgs
+        dsl_dicts   :: Bag EvVar,        -- Constraints from GADT pattern-matching
+        dsl_tm_cs   :: Bag SimpleEq
      }
 
 -- Inside [| |] brackets, the desugarer looks
@@ -1514,33 +1517,42 @@ dropDerivedWC wc@(WC { wc_simple = simples, wc_insol = insols })
 -}
 
 ---------------- Getting free tyvars -------------------------
-tyCoVarsOfCt :: Ct -> TcTyVarSet
-tyCoVarsOfCt (CTyEqCan { cc_tyvar = tv, cc_rhs = xi })     = extendVarSet (tyCoVarsOfType xi) tv `unionVarSet` tyCoVarsOfType (tyVarKind tv)
-tyCoVarsOfCt (CFunEqCan { cc_tyargs = tys, cc_fsk = fsk }) = extendVarSet (tyCoVarsOfTypes tys) fsk `unionVarSet` tyCoVarsOfType (tyVarKind fsk)
-tyCoVarsOfCt (CDictCan { cc_tyargs = tys })                = tyCoVarsOfTypes tys
-tyCoVarsOfCt (CIrredEvCan { cc_ev = ev })                  = tyCoVarsOfType (ctEvPred ev)
-tyCoVarsOfCt (CHoleCan { cc_ev = ev })                     = tyCoVarsOfType (ctEvPred ev)
-tyCoVarsOfCt (CNonCanonical { cc_ev = ev })                = tyCoVarsOfType (ctEvPred ev)
 
-tyCoVarsOfCts :: Cts -> TcTyVarSet
-tyCoVarsOfCts = foldrBag (unionVarSet . tyCoVarsOfCt) emptyVarSet
+-- | Returns free variables of constraints as a non-deterministic set
+tyVarsOfCt :: Ct -> TcTyVarSet
+tyVarsOfCt = runFVSet . tyVarsOfCtAcc
 
-tyCoVarsOfWC :: WantedConstraints -> TyVarSet
--- Only called on *zonked* things, hence no need to worry about flatten-skolems
-tyCoVarsOfWC (WC { wc_simple = simple, wc_impl = implic, wc_insol = insol })
-  = tyCoVarsOfCts simple `unionVarSet`
-    tyCoVarsOfBag tyCoVarsOfImplic implic `unionVarSet`
-    tyCoVarsOfCts insol
+-- | Returns free variables of constraints as a deterministically ordered.
+-- list. See Note [Deterministic FV] in FV.
+tyVarsOfCtList :: Ct -> [TcTyVar]
+tyVarsOfCtList = runFVList . tyVarsOfCtAcc
 
-tyCoVarsOfImplic :: Implication -> TyCoVarSet
--- Only called on *zonked* things, hence no need to worry about flatten-skolems
-tyCoVarsOfImplic (Implic { ic_skols = skols
-                         , ic_given = givens, ic_wanted = wanted })
-  = tyCoVarsOfTelescope skols $
-    (tyCoVarsOfWC wanted `unionVarSet` tyCoVarsOfTypes (map evVarPred givens))
+-- | Returns free variables of constraints as a composable FV computation.
+-- See Note [Deterministic FV] in FV.
+tyVarsOfCtAcc :: Ct -> FV
+tyVarsOfCtAcc (CTyEqCan { cc_tyvar = tv, cc_rhs = xi })
+  = tyVarsOfTypeAcc xi `unionFV` oneVar tv `unionFV` tyCoVarsOfTypeAcc (tyVarKind tv)
+tyVarsOfCtAcc (CFunEqCan { cc_tyargs = tys, cc_fsk = fsk })
+  = tyVarsOfTypesAcc tys `unionFV` oneVar fsk `unionFV` tyCoVarsOfTypeAcc (tyVarKind fsk)
+tyVarsOfCtAcc (CDictCan { cc_tyargs = tys }) = tyVarsOfTypesAcc tys
+tyVarsOfCtAcc (CIrredEvCan { cc_ev = ev }) = tyVarsOfTypeAcc (ctEvPred ev)
+tyVarsOfCtAcc (CHoleCan { cc_ev = ev }) = tyVarsOfTypeAcc (ctEvPred ev)
+tyVarsOfCtAcc (CNonCanonical { cc_ev = ev }) = tyVarsOfTypeAcc (ctEvPred ev)
 
-tyCoVarsOfBag :: (a -> TyVarSet) -> Bag a -> TyVarSet
-tyCoVarsOfBag tvs_of = foldrBag (unionVarSet . tvs_of) emptyVarSet
+-- | Returns free variables of a bag of constraints as a non-deterministic
+-- set. See Note [Deterministic FV] in FV.
+tyVarsOfCts :: Cts -> TcTyVarSet
+tyVarsOfCts = runFVSet . tyVarsOfCtsAcc
+
+-- | Returns free variables of a bag of constraints as a deterministically
+-- odered list. See Note [Deterministic FV] in FV.
+tyVarsOfCtsList :: Cts -> [TcTyVar]
+tyVarsOfCtsList = runFVList . tyVarsOfCtsAcc
+
+-- | Returns free variables of a bag of constraints as a composable FV
+-- computation. See Note [Deterministic FV] in FV.
+tyVarsOfCtsAcc :: Cts -> FV
+tyVarsOfCtsAcc = foldrBag (unionFV . tyVarsOfCtAcc) noVars
 
 dropDerivedSimples :: Cts -> Cts
 dropDerivedSimples simples = filterBag isWantedCt simples
@@ -1685,14 +1697,14 @@ isTypeHoleCt _ = False
 --    1. TypeError msg
 --    2. TypeError msg ~ Something  (and the other way around)
 --    3. C (TypeError msg)          (for any parameter of class constraint)
-getUserTypeErrorMsg :: Ct -> Maybe (Kind, Type)
+getUserTypeErrorMsg :: Ct -> Maybe Type
 getUserTypeErrorMsg ct
   | Just (_,t1,t2) <- getEqPredTys_maybe ctT    = oneOf [t1,t2]
   | Just (_,ts)    <- getClassPredTys_maybe ctT = oneOf ts
-  | otherwise                                   = isUserErrorTy ctT
+  | otherwise                                   = userTypeError_maybe ctT
   where
   ctT       = ctPred ct
-  oneOf xs  = msum (map isUserErrorTy xs)
+  oneOf xs  = msum (map userTypeError_maybe xs)
 
 isUserTypeErrorCt :: Ct -> Bool
 isUserTypeErrorCt ct = case getUserTypeErrorMsg ct of

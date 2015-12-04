@@ -57,3 +57,5 @@ test('T7947', extra_clean(['T7947a.o', 'T7947a.hi', 'T7947b.o', 'T7947b.hi']), m
 test('T10561', normal, compile_fail, [''])
 test('T10487', extra_clean(['T10487_M.o', 'T10487_M.hi']), multimod_compile, ['T10487', '-v0'])
 test('T10524', normal, compile, [''])
+test('T11148', normal, run_command,
+     ['$MAKE -s --no-print-directory T11148'])

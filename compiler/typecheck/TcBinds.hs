@@ -708,7 +708,7 @@ mkExport prag_fn qtvs theta mono_info@(poly_name, mb_sig, mono_id)
               _other   -> checkNoErrs $
                           mkInferredPolyId qtvs theta
                                            poly_name mb_sig mono_ty
-              -- The checkNoErrors ensures that if the type is ambiguous
+              -- The checkNoErrs ensures that if the type is ambiguous
               -- we don't carry on to the impedence matching, and generate
               -- a duplicate ambiguity error.  There is a similar
               -- checkNoErrs for complete type signatures too.
@@ -719,9 +719,8 @@ mkExport prag_fn qtvs theta mono_info@(poly_name, mb_sig, mono_id)
                 -- tcPrags requires a zonked poly_id
 
         -- See Note [Impedence matching]
-        -- NB: we have already done checkValidType on the type
-        --     for a complete sig, when we checked the sig;
-        --     otherwise in mkInferredPolyIe
+        -- NB: we have already done checkValidType, including an ambiguity check,
+        --     on the type; either when we checked the sig or in mkInferredPolyId
         ; let sel_poly_ty = mkInvSigmaTy qtvs theta mono_ty
               poly_ty     = idType poly_id
         ; wrap <- if sel_poly_ty `eqType` poly_ty
@@ -758,12 +757,13 @@ mkInferredPolyId qtvs inferred_theta poly_name mb_sig mono_ty
                                 inferred_theta (tyCoVarsOfType mono_ty') mb_sig
 
        ; let qtvs' = filter (`elemVarSet` my_tvs) qtvs   -- Maintain original order
-       ; let inferred_poly_ty = mkInvSigmaTy qtvs' theta' mono_ty'
-             msg = mk_inf_msg poly_name inferred_poly_ty
+             inferred_poly_ty = mkInvSigmaTy qtvs' theta' mono_ty'
 
-       ; traceTc "mkInferredPolyId" (vcat [ppr poly_name, ppr qtvs, ppr my_tvs, ppr theta', ppr inferred_poly_ty])
-       ; addErrCtxtM msg $
+       ; traceTc "mkInferredPolyId" (vcat [ppr poly_name, ppr qtvs, ppr my_tvs, ppr theta'
+                                          , ppr inferred_poly_ty])
+       ; addErrCtxtM (mk_inf_msg poly_name inferred_poly_ty) $
          checkValidType (InfSigCtxt poly_name) inferred_poly_ty
+         -- See Note [Validity of inferred types]
 
        ; return (mkLocalIdOrCoVar poly_name inferred_poly_ty) }
 
@@ -886,15 +886,11 @@ simply adds the inferred type to the program source, it'll compile fine.
 See #8883.
 
 Examples that might fail:
+ - the type might be ambiguous
+
  - an inferred theta that requires type equalities e.g. (F a ~ G b)
                                 or multi-parameter type classes
  - an inferred type that includes unboxed tuples
-
-However we don't do the ambiguity check (checkValidType omits it for
-InfSigCtxt) because the impedance-matching stage, which follows
-immediately, will do it and we don't want two error messages.
-Moreover, because of the impedance matching stage, the ambiguity-check
-suggestion of -XAllowAmbiguiousTypes will not work.
 
 
 Note [Impedence matching]

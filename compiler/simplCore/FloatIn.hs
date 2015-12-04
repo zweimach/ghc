@@ -307,7 +307,7 @@ fiExpr dflags to_drop (_,AnnLet (AnnNonRec id rhs) body)
     body_fvs = freeVarsOf body `delDVarSet` id
     rhs_fvs  = freeVarsOf rhs
 
-    rule_fvs = dIdRuleAndUnfoldingVars id        -- See Note [extra_fvs (2): free variables of rules]
+    rule_fvs = idRuleAndUnfoldingVarsDSet id        -- See Note [extra_fvs (2): free variables of rules]
     extra_fvs | noFloatIntoRhs rhs = rule_fvs `unionDVarSet` freeVarsOf rhs
               | otherwise          = rule_fvs
         -- See Note [extra_fvs (1): avoid floating into RHS]
@@ -339,7 +339,7 @@ fiExpr dflags to_drop (_,AnnLet (AnnRec bindings) body)
     body_fvs = freeVarsOf body
 
         -- See Note [extra_fvs (1,2)]
-    rule_fvs = mapUnionDVarSet dIdRuleAndUnfoldingVars ids
+    rule_fvs = mapUnionDVarSet idRuleAndUnfoldingVarsDSet ids
     extra_fvs = rule_fvs `unionDVarSet`
                 unionDVarSets [ freeVarsOf rhs | rhs@(_, rhs') <- rhss
                               , noFloatIntoExpr rhs' ]
