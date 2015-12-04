@@ -28,7 +28,6 @@ import TcRnMonad
 import TcEnv
 import TcValidity
 import TcHsSyn
-import TcSimplify( solveEqualities )
 import TcTyDecls
 import TcClassDcl
 import TcUnify
@@ -462,13 +461,11 @@ kcSynDecl decl@(SynDecl { tcdTyVars = hs_tvs, tcdLName = L _ name
   -- Returns a possibly-unzonked kind
   = tcAddDeclCtxt decl $
     do { (syn_kind, _) <-
-           kcHsTyVarBndrs (hsDeclHasCusk decl) hs_tvs $ \kvs tvs ->
+           kcHsTyVarBndrs (hsDeclHasCusk decl) hs_tvs $ \_ tvs ->
            do { traceTc "kcd1" (ppr name <+> brackets (ppr hs_tvs))
               ; (_, rhs_kind) <- tcLHsType rhs
               ; traceTc "kcd2" (ppr name)
-              ; kvs <- mapM zonkTyCoVarKind kvs
-              ; tvs <- mapM zonkTyCoVarKind tvs
-              ; checkValidTelescope hs_tvs kvs tvs
+              ; checkValidTelescope hs_tvs tvs
               ; return (rhs_kind, ()) }
        ; return (name, syn_kind) }
 kcSynDecl decl = pprPanic "kcSynDecl" (ppr decl)
@@ -496,8 +493,8 @@ kcTyClDecl (DataDecl { tcdLName = L _ name, tcdTyVars = hs_tvs, tcdDataDefn = de
     --    (b) dd_ctxt is not allowed for GADT-style decls, so we can ignore it
 
   | HsDataDefn { dd_ctxt = ctxt, dd_cons = cons } <- defn
-  = tcTyClTyVars name hs_tvs $ \ kvs tvs _ _ ->
-    do  { checkValidTelescope hs_tvs kvs tvs
+  = tcTyClTyVars name hs_tvs $ \ _ tvs _ _ ->
+    do  { checkValidTelescope hs_tvs tvs
         ; _ <- tcHsContext ctxt
         ; mapM_ (wrapLocM kcConDecl) cons }
 
@@ -505,8 +502,8 @@ kcTyClDecl decl@(SynDecl {}) = pprPanic "kcTyClDecl" (ppr decl)
 
 kcTyClDecl (ClassDecl { tcdLName = L _ name, tcdTyVars = hs_tvs
                        , tcdCtxt = ctxt, tcdSigs = sigs })
-  = tcTyClTyVars name hs_tvs $ \ kvs tvs _ _ ->
-    do  { checkValidTelescope hs_tvs kvs tvs
+  = tcTyClTyVars name hs_tvs $ \ _ tvs _ _ ->
+    do  { checkValidTelescope hs_tvs tvs
         ; _ <- tcHsContext ctxt
         ; mapM_ (wrapLocM kc_sig)     sigs }
   where
@@ -516,8 +513,8 @@ kcTyClDecl (ClassDecl { tcdLName = L _ name, tcdTyVars = hs_tvs
 kcTyClDecl (FamDecl (FamilyDecl { fdLName  = L _ fam_tc_name
                                 , fdTyVars = hs_tvs
                                 , fdInfo   = fd_info }))
-  = do { tcTyClTyVars fam_tc_name hs_tvs $ \ kvs tvs _ _ ->
-         checkValidTelescope hs_tvs kvs tvs
+  = do { tcTyClTyVars fam_tc_name hs_tvs $ \ _ tvs _ _ ->
+         checkValidTelescope hs_tvs tvs
 -- closed type families look at their equations, but other families don't
 -- do anything here
        ; case fd_info of
@@ -994,9 +991,9 @@ tcDefaultAssocDecl fam_tc [L loc (TyFamEqn { tfe_tycon = L _ tc_name
                           \ kvs tvs _full_kind rhs_kind ->
                           do { rhs_ty <- solveEqualities $
                                          tcCheckLHsType rhs rhs_kind
-                             ; return (tvs, rhs_ty) }
+                             ; return (kvs ++ tvs, rhs_ty) }
        ; rhs_ty <- zonkTcTypeToType emptyZonkEnv rhs_ty
-       ; let subst = zipTopTCvSubst (kvs ++ tvs) (mkTyVarTys fam_tc_tvs)
+       ; let subst = zipTopTCvSubst tvs (mkTyVarTys fam_tc_tvs)
        ; return ( Just (substTy subst rhs_ty, loc) ) }
     -- We check for well-formedness and validity later, in checkValidClass
 
@@ -1034,7 +1031,7 @@ kcDataDefn :: Name                -- ^ the family name, for error msgs only
            -> TcM ()
 -- Used for 'data instance' only
 -- Ordinary 'data' is handled by kcTyClDec
-kcDataDefn fam_name (HsWB { hswb_cts = pats })
+kcDataDefn fam_name (HsIB { hsib_body = pats })
            (HsDataDefn { dd_ctxt = ctxt, dd_cons = cons, dd_kindSig = mb_kind }) res_k
   = do  { _ <- tcHsContext ctxt
         ; checkNoErrs $ mapM_ (wrapLocM kcConDecl) cons
@@ -1045,7 +1042,7 @@ kcDataDefn fam_name (HsWB { hswb_cts = pats })
             Just k  -> do { k' <- tcLHsKind k
                           ; unifyKind (Just hs_ty_pats) res_k k' } }
   where
-    hs_ty_pats = mkHsAppTys (noLoc $ HsTyVar fam_name) pats
+    hs_ty_pats = mkHsAppTys (noLoc $ HsTyVar (noLoc fam_name)) pats
 
 {-
 Kind check type patterns and kind annotate the embedded type variables.
@@ -1115,8 +1112,7 @@ tc_fam_ty_pats :: FamTyConShape
 tc_fam_ty_pats (name, _, kind) mb_clsinfo
                (HsIB { hsib_body = arg_pats, hsib_vars = vars })
                kind_checker
-  = do { loc <- getSrcSpanM
-               -- See Note [Wild cards in family instances]
+  = do { -- See Note [Wild cards in family instances]
        ; let wcs      = concatMap collectAnonWildCards arg_pats
              tv_names = vars ++ wcs
 
@@ -1362,12 +1358,12 @@ tcConDecl :: NewOrData
           -> TcM [DataCon]
 
 tcConDecl new_or_data rep_tycon tmpl_tvs res_tmpl
-          (ConDecl { con_names = names,
+          (ConDecl { con_names = names
                    , con_qvars = hs_tvs, con_cxt = hs_ctxt
                    , con_details = hs_details, con_res = hs_res_ty })
   = addErrCtxt (dataConCtxtName names) $
     do { traceTc "tcConDecl 1" (ppr names)
-       ; (_tvs, (ctxt, arg_tys, res_ty, field_lbls, stricts))
+       ; (ctxt, arg_tys, res_ty, field_lbls, stricts)
            <- solveEqualities $
               tcHsQTyVars hs_tvs $
               do { ctxt    <- tcHsContext hs_ctxt

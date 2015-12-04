@@ -80,8 +80,6 @@ import FastString
 import UniqDFM (udfmToUfm)
 import FV
 
-import Data.List        ( nub )
-
 {-
 ************************************************************************
 *                                                                      *

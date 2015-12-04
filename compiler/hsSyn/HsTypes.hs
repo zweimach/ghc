@@ -49,14 +49,13 @@ module HsTypes (
         mkEmptyImplicitBndrs, mkEmptyWildCardBndrs,
         mkHsQTvs, hsQTvExplicit, isHsKindedTyVar, hsTvbAllKinded,
         hsScopedTvs, hsWcScopedTvs, dropWildCards,
-        hsTyVarName, hsAllLTyVarNames,
-        hsLTyVarName, hsLTyVarLocName,
-        splitLHsInstDeclTy, getLHsInstDeclClass_maybe,
+        hsTyVarName, hsAllLTyVarNames, hsLTyVarLocNames,
+        hsLTyVarName, hsLTyVarLocName, hsExplicitLTyVarNames,
+        splitLHsInstDeclTy,
         splitLHsPatSynTy,
         splitLHsForAllTy, splitLHsQualTy, splitLHsSigmaTy,
-        splitLHsClassTy_maybe,
-        splitHsFunType, splitHsAppTys, hsTyGetAppHead_maybe,
-        mkHsAppTys, mkHsOpTy,
+        splitHsFunType, splitHsAppTys,
+        mkHsOpTy,
         ignoreParens, hsSigType, hsSigWcType,
         hsLTyVarBndrsToTypes,
 
@@ -70,8 +69,7 @@ import {-# SOURCE #-} HsExpr ( HsSplice, pprSplice )
 import PlaceHolder ( PostTc,PostRn,DataId,PlaceHolder(..) )
 
 import Id ( Id )
-import Name( Name, isTyVarName )
-import Var ( varName )
+import Name( Name )
 import RdrName ( RdrName )
 import DataCon( HsSrcBang(..), HsImplBang(..),
                 SrcStrictness(..), SrcUnpackedness(..) )
@@ -83,9 +81,6 @@ import SrcLoc
 import StaticFlags
 import Outputable
 import FastString
-import DynFlags ( gopt, GeneralFlag(Opt_PrintExplicitKinds) )
-import NameSet
-import UniqFM ( mapUFM )
 import Maybes( isJust )
 
 import Data.Data hiding ( Fixity )
@@ -218,7 +213,7 @@ deriving instance (DataId name) => Data (LHsQTyVars name)
 mkHsQTvs :: [LHsTyVarBndr RdrName] -> LHsQTyVars RdrName
 mkHsQTvs tvs = HsQTvs { hsq_implicit = PlaceHolder, hsq_explicit = tvs }
 
-hsQTvExplicit :: LHsQTyVars name -> [LHsQTyVars name]
+hsQTvExplicit :: LHsQTyVars name -> [LHsTyVarBndr name]
 hsQTvExplicit = hsq_explicit
 
 ------------------------------------------------
@@ -905,38 +900,13 @@ splitLHsInstDeclTy
     :: LHsSigType Name
     -> ([Name], LHsContext Name, LHsType Name)
         -- Split up an instance decl type, returning the pieces
-splitLHsInstDeclTy (HsIB { hsib_vars = itkvs,
+splitLHsInstDeclTy (HsIB { hsib_vars = itkvs
                          , hsib_body = inst_ty })
   = (itkvs, cxt, body_ty)
          -- Return implicitly bound type and kind vars
          -- For an instance decl, all of them are in scope
   where
     (cxt, body_ty) = splitLHsQualTy inst_ty
-
-getLHsInstDeclClass_maybe :: LHsSigType name -> Maybe (Located name)
--- Works on (HsSigType RdrName)
-getLHsInstDeclClass_maybe inst_ty
-  = do { let (_, tau) = splitLHsQualTy (hsSigType inst_ty)
-       ; (cls, _) <- splitLHsClassTy_maybe tau
-       ; return cls }
-
-splitLHsClassTy_maybe :: LHsType Name -> Maybe (Located Name, [LHsType Name])
--- Watch out.. in ...deriving( Show )... we use this on
--- the list of partially applied predicates in the deriving,
--- so there can be zero args.
---
--- In TcDeriv we also use this to figure out what data type is being
--- mentioned in a deriving (Generic (Foo bar baz)) declaration (i.e. "Foo").
-splitLHsClassTy_maybe ty
-  = checkl ty []
-  where
-    checkl (L _ ty) args = case ty of
-        HsTyVar (L lt t)       -> Just (L lt t, args)
-        HsAppTy l r            -> checkl l (r:args)
-        HsOpTy l (L lt tc) r   -> checkl (L lt (HsTyVar (L lt tc))) (l:r:args)
-        HsParTy t              -> checkl t args
-        HsKindSig ty _         -> checkl ty args
-        _                      -> Nothing
 
 -- splitHsFunType decomposes a type (t1 -> t2 ... -> tn)
 -- Breaks up any parens in the result type:
@@ -984,15 +954,7 @@ instance Outputable HsTyLit where
     ppr = ppr_tylit
 
 instance (OutputableBndr name) => Outputable (LHsQTyVars name) where
-    ppr (HsQTvs { hsq_implicit = kvs, hsq_explicit = tvs })
-      = ppr_kvs <+> interppSP tvs
-      where
-        ppr_kvs
-          | [] <- kvs = empty
-          | otherwise = sdocWithDynFlags $ \dflags ->
-                        if gopt Opt_PrintExplicitKinds dflags
-                        then braces (interppSP kvs)
-                        else empty
+    ppr (HsQTvs { hsq_explicit = tvs }) = interppSP tvs
 
 instance (OutputableBndr name) => Outputable (HsTyVarBndr name) where
     ppr (UserTyVar n)     = ppr n
@@ -1161,9 +1123,9 @@ ppr_fun_ty ctxt_prec ty1 ty2
 
 --------------------------
 ppr_app_ty :: OutputableBndr name => TyPrec -> HsAppType name -> SDoc
-ppr_app_ty _    (HsAppInfix (L _ n))            = pprInfixOcc n
-ppr_app_ty _    (HsAppPrefix (L _ (HsTyVar n))) = pprPrefixOcc n
-ppr_app_ty ctxt (HsAppPrefix ty)                = ppr_mono_lty ctxt ty
+ppr_app_ty _    (HsAppInfix (L _ n))                  = pprInfixOcc n
+ppr_app_ty _    (HsAppPrefix (L _ (HsTyVar (L _ n)))) = pprPrefixOcc n
+ppr_app_ty ctxt (HsAppPrefix ty)                      = ppr_mono_lty ctxt ty
 
 --------------------------
 ppr_tylit :: HsTyLit -> SDoc

@@ -2603,6 +2603,10 @@ data ErrorThing
 data TypeOrKind = TypeLevel | KindLevel
   deriving Eq
 
+instance Outputable TypeOrKind where
+  ppr TypeLevel = text "TypeLevel"
+  ppr KindLevel = text "KindLevel"
+
 isTypeLevel :: TypeOrKind -> Bool
 isTypeLevel TypeLevel = True
 isTypeLevel KindLevel = False

@@ -14,7 +14,7 @@ module Util (
         zipEqual, zipWithEqual, zipWith3Equal, zipWith4Equal,
         zipLazy, stretchZipWith, zipWithAndUnzip,
 
-        filterByList,
+        filterByList, partitionByList,
 
         unzipWith,
 
@@ -331,6 +331,19 @@ filterByList :: [Bool] -> [a] -> [a]
 filterByList (True:bs)  (x:xs) = x : filterByList bs xs
 filterByList (False:bs) (_:xs) =     filterByList bs xs
 filterByList _          _      = []
+
+-- | 'partitionByList' takes a list of Bools and a list of some elements and
+-- partitions the list according to the list of Bools. Elements corresponding
+-- to 'True' go to the left; elements corresponding to 'False' go to the right.
+-- For example, @partitionByList [True, False, True] [1,2,3] == ([1,3], [2])@
+-- This function does not check whether the lists have equal
+-- length.
+partitionByList :: [Bool] -> [a] -> ([a], [a])
+partitionByList = go [] []
+  where
+    go trues falses (True  : bs) (x : xs) = go (x:trues) falses bs xs
+    go trues falses (False : bs) (x : xs) = go trues (x:falses) bs xs
+    go trues falses _ _ = (reverse trues, reverse falses)
 
 stretchZipWith :: (a -> Bool) -> b -> (a->b->c) -> [a] -> [b] -> [c]
 -- ^ @stretchZipWith p z f xs ys@ stretches @ys@ by inserting @z@ in

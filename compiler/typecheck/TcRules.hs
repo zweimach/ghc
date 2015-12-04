@@ -144,12 +144,8 @@ tcRuleBndrs (L _ (RuleBndrSig (L _ name) rn_ty) : rule_bndrs)
 --  The tyvar 'a' is brought into scope first, just as if you'd written
 --              a::*, x :: a->a
   = do  { let ctxt = RuleSigCtxt name
-        ; (id_ty, tv_prs, _) <- tcHsPatSigType ctxt rn_ty
+        ; (id_ty, tvs, _) <- tcHsPatSigType ctxt rn_ty
         ; let id  = mkLocalIdOrCoVar name id_ty
-              tvs = map snd tv_prs
-                    -- tcHsPatSigType returns (Name,TyVar) pairs
-                    -- for for RuleSigCtxt their Names are not
-                    -- cloned, so we get (n, tv-with-name-n) pairs
                     -- See Note [Pattern signature binders] in TcHsType
 
               -- The type variables scope over subsequent bindings; yuk

@@ -783,7 +783,7 @@ chooseInferredQuantifiers inferred_theta tau_tvs
   | PartialSig { sig_cts = extra } <- bndr_info
   , Nothing <- extra
   = do { annotated_theta <- zonkTcTypes annotated_theta
-       ; let free_tvs = closeOverKinds (tyVarsOfTypes annotated_theta
+       ; let free_tvs = closeOverKinds (tyCoVarsOfTypes annotated_theta
                                         `unionVarSet` tau_tvs)
        ; traceTc "ciq" (vcat [ ppr bndr_info, ppr annotated_theta, ppr free_tvs])
        ; return (free_tvs, annotated_theta) }
@@ -791,7 +791,7 @@ chooseInferredQuantifiers inferred_theta tau_tvs
   | PartialSig { sig_cts = extra } <- bndr_info
   , Just loc <- extra
   = do { annotated_theta <- zonkTcTypes annotated_theta
-       ; let free_tvs = closeOverKinds (tyVarsOfTypes annotated_theta
+       ; let free_tvs = closeOverKinds (tyCoVarsOfTypes annotated_theta
                                         `unionVarSet` tau_tvs)
              my_theta = pickQuantifiablePreds free_tvs inferred_theta
 
@@ -800,7 +800,7 @@ chooseInferredQuantifiers inferred_theta tau_tvs
        -- case, the extra inferred constraints are accepted without complaining.
        -- Returns the annotated constraints combined with the inferred constraints.
              inferred_diff = [ pred
-                             , pred <- my_theta
+                             | pred <- my_theta
                              , all (not . (`eqType` pred)) annotated_theta ]
              final_theta   = annotated_theta ++ inferred_diff
        ; partial_sigs      <- xoptM Opt_PartialTypeSignatures
@@ -1747,7 +1747,7 @@ tcUserTypeSig hs_sig_ty mb_name
               tcHsTyVarBndrs hs_tvs  $ \ tvs2 ->
          do { -- Instantiate the type-class context; but if there
               -- is an extra-constraints wildcard, just discard it here
-              traceTc "tcPartial" (ppr name $$ ppr vars $$ ppr vars1 $$ ppr wcs)
+              traceTc "tcPartial" (ppr name $$ ppr vars $$ ppr wcs)
             ; theta <- mapM tcLHsPredType $
                        case extra of
                          Nothing -> hs_ctxt

@@ -15,7 +15,7 @@ module TcValidity (
   checkValidTyFamEqn,
   checkConsistentFamInst,
   arityErr, badATErr,
-  checkValidTelescope, checkValidInferredKinds
+  checkValidTelescope, checkZonkValidTelescope, checkValidInferredKinds
   ) where
 
 #include "HsVersions.h"
@@ -1511,8 +1511,16 @@ Refer to dependent/should_fail/BadTelescope{,2,3}
 checkValidTelescope :: Outputable tele
                     => tele        -- the original user-written telescope
                     -> [TyVar]     -- explicit vars (not necessarily zonked)
-                    -> TcM [TyVar] -- returns zonked tyvars
-checkValidTelescope hs_tvs orig_tvs
+                    -> TcM ()      -- returns zonked tyvars
+checkValidTelescope hs_tvs orig_tvs = discardResult $
+                                      checkZonkValidTelescope hs_tvs orig_tvs
+
+-- | Like 'checkZonkValidTelescope', but returns the zonked tyvars
+checkZonkValidTelescope :: Outputable tele
+                        => tele
+                        -> [TyVar]
+                        -> TcM [TyVar]
+checkZonkValidTelescope hs_tvs orig_tvs
   = do { orig_tvs <- mapM zonkTyCoVarKind orig_tvs
        ; let (_, sorted_tidied_tvs) = tidyTyCoVarBndrs emptyTidyEnv $
                                       toposortTyVars orig_tvs
@@ -1565,7 +1573,6 @@ checkValidInferredKinds orig_kvs orig_tvs
     (env, _)  = tidyTyCoVarBndrs env1         orig_tvs
 
     orig_tvs' = toposortTyVars orig_tvs
-    tidy_tvs' = map (tidyTyVarOcc env) orig_tvs'
 
 {-
 ************************************************************************

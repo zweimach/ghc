@@ -30,8 +30,8 @@ module VarSet (
         extendDVarSet,
         elemDVarSet, dVarSetElems, subDVarSet,
         unionDVarSet, unionDVarSets, mapUnionDVarSet,
-        intersectDVarSet,
-        isEmptyDVarSet, delDVarSet,
+        intersectDVarSet, intersectsDVarSet,
+        isEmptyDVarSet, delDVarSet, delDVarSetList,
         minusDVarSet, foldDVarSet, filterDVarSet,
         sizeDVarSet, seqDVarSet,
     ) where
@@ -220,6 +220,9 @@ isEmptyDVarSet = isEmptyUniqDSet
 
 delDVarSet :: DVarSet -> Var -> DVarSet
 delDVarSet = delOneFromUniqDSet
+
+delDVarSetList :: DVarSet -> [Var] -> DVarSet
+delDVarSetList = delListFromUniqDSet
 
 minusDVarSet :: DVarSet -> DVarSet -> DVarSet
 minusDVarSet = minusUniqDSet

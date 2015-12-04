@@ -23,7 +23,8 @@ module CoreFVs (
         -- * Free variables of Rules, Vars and Ids
         varTypeTyCoVars,
         varTypeTyCoVarsAcc,
-        idUnfoldingVars, idFreeVars, dIdFreeVars, idRuleAndUnfoldingVars,
+        idUnfoldingVars, idFreeVars, dIdFreeVars,
+        idRuleAndUnfoldingVars, dIdRuleAndUnfoldingVars,
         idFreeVarsAcc,
         idRuleVars, idRuleRhsVars, stableUnfoldingVars,
         ruleRhsFreeVars, ruleFreeVars, rulesFreeVars,
@@ -58,8 +59,7 @@ import Name
 import VarSet
 import Var
 import TcType
-import Type  ( splitCoercionType_maybe )
-import TypeRep
+import Type
 import Coercion
 import Maybes( orElse )
 import Util
@@ -375,7 +375,7 @@ exprTypeFV :: CoreExprWithFVs -> Type
 exprTypeFV (FVAnn { fva_ty = ty }, _) = ty
 
 -- | Extract the vars reported in a FVAnn
-freeVarsOfAnn :: FVAnn -> IdSet
+freeVarsOfAnn :: FVAnn -> DIdSet
 freeVarsOfAnn = fva_fvs
 
 -- | Extract the type-level vars reported in a FVAnn
@@ -392,7 +392,7 @@ unionFVs :: DVarSet -> DVarSet -> DVarSet
 unionFVs = unionDVarSet
 
 unionFVss :: [DVarSet] -> DVarSet
-unionFVss = unionVarSets
+unionFVss = unionDVarSets
 
 delBindersFV :: [Var] -> DVarSet -> DVarSet
 delBindersFV bs fvs = foldr delBinderFV fvs bs
@@ -461,6 +461,9 @@ bndrRuleAndUnfoldingVarsAcc v | isTyVar v = noVars
 idRuleAndUnfoldingVars :: Id -> VarSet
 idRuleAndUnfoldingVars id = runFVSet $ idRuleAndUnfoldingVarsAcc id
 
+dIdRuleAndUnfoldingVars :: Id -> DVarSet
+dIdRuleAndUnfoldingVars id = runFVDSet $ idRuleAndUnfoldingVarsAcc id
+
 idRuleAndUnfoldingVarsAcc :: Id -> FV
 idRuleAndUnfoldingVarsAcc id = ASSERT( isId id)
                                idRuleVarsAcc id `unionFV` idUnfoldingVarsAcc id
@@ -521,7 +524,7 @@ freeVars = go
             -- fvs = fvs_v `unionVarSet` idSpecVars v
 
         (fvs, ty_fvs)
-            | isLocalVar v = (aFreeVar v `unionFVs` ty_fvs, varTypeTyCoVars v)
+            | isLocalVar v = (aFreeVar v `unionFVs` ty_fvs, dVarTypeTyCoVars v)
             | otherwise    = (emptyDVarSet, emptyDVarSet)
 
     go (Lit lit) = (FVAnn emptyDVarSet emptyDVarSet (literalType lit), AnnLit lit)
@@ -534,11 +537,11 @@ freeVars = go
         body'@(FVAnn { fva_fvs = body_fvs, fva_ty_fvs = body_ty_fvs
                      , fva_ty = body_ty }, _) = go body
         b_ty  = idType b
-        b_fvs = tyCoVarsOfType b_ty
+        b_fvs = dTyCoVarsOfType b_ty
 
     go (App fun arg)
       = ( FVAnn { fva_fvs    = freeVarsOf fun' `unionFVs` freeVarsOf arg'
-                , fva_ty_fvs = tyCoVarsOfType res_ty
+                , fva_ty_fvs = dTyCoVarsOfType res_ty
                 , fva_ty     = res_ty }
         , AnnApp fun' arg' )
       where
@@ -550,10 +553,10 @@ freeVars = go
     go (Case scrut bndr ty alts)
       = ( FVAnn { fva_fvs = (bndr `delBinderFV` alts_fvs)
                             `unionFVs` freeVarsOf scrut2
-                            `unionFVs` runFVDSet (tyCoVarsOfTypeAcc ty)
+                            `unionFVs` dTyCoVarsOfType ty
                            -- don't need to look at (idType bndr)
                            -- b/c that's redundant with scrut
-                , fva_ty_fvs = tyCoVarsOfType ty
+                , fva_ty_fvs = dTyCoVarsOfType ty
                 , fva_ty     = ty }
         , AnnCase scrut2 bndr ty alts2 )
       where
@@ -600,12 +603,12 @@ freeVars = go
         body_fvs = freeVarsOf body2
 
     go (Cast expr co)
-      = ( FVAnn (freeVarsOf expr2 `unionFVs` cfvs) (tyCoVarsOfType to_ty) to_ty
+      = ( FVAnn (freeVarsOf expr2 `unionFVs` cfvs) (dTyCoVarsOfType to_ty) to_ty
         , AnnCast expr2 (c_ann, co) )
       where
         expr2 = go expr
-        cfvs  = runFVDSet $ tyCoVarsOfCoAcc co
-        c_ann = FVAnn cfvs (tyCoVarsOfType co_ki) co_ki
+        cfvs  = dTyCoVarsOfCo co
+        c_ann = FVAnn cfvs (dTyCoVarsOfType co_ki) co_ki
         co_ki = coercionType co
         Just (_, to_ty) = splitCoercionType_maybe co_ki
 
@@ -620,15 +623,15 @@ freeVars = go
         tickishFVs (Breakpoint _ ids) = mkDVarSet ids
         tickishFVs _                  = emptyDVarSet
 
-    go (Type ty) = ( FVAnn (runFVDSet $ tyCoVarsOfTypeAcc ty)
-                           (runFVDSet $ tyCoVarsOfTypeAcc ki)
+    go (Type ty) = ( FVAnn (dTyCoVarsOfType ty)
+                           (dTyCoVarsOfType ki)
                            ki
                    , AnnType ty)
       where
         ki = typeKind ty
 
-    go (Coercion co) = ( FVAnn (runFVDSet $ tyCoVarsOfCoAcc co)
-                               (runFVDSet $ tyCoVarsOfTypeAcc ki)
+    go (Coercion co) = ( FVAnn (dTyCoVarsOfCo co)
+                               (dTyCoVarsOfType ki)
                                ki
                        , AnnCoercion co)
       where

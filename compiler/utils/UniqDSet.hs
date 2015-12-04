@@ -13,7 +13,7 @@ module UniqDSet (
         UniqDSet,    -- type synonym for UniqFM a
 
         -- ** Manipulating these sets
-        delOneFromUniqDSet,
+        delOneFromUniqDSet, delListFromUniqDSet,
         emptyUniqDSet,
         unitUniqDSet,
         mkUniqDSet,
@@ -53,6 +53,9 @@ addListToUniqDSet = foldl addOneToUniqDSet
 
 delOneFromUniqDSet :: Uniquable a => UniqDSet a -> a -> UniqDSet a
 delOneFromUniqDSet = delFromUDFM
+
+delListFromUniqDSet :: Uniquable a => UniqDSet a -> [a] -> UniqDSet a
+delListFromUniqDSet = delListFromUDFM
 
 unionUniqDSets :: UniqDSet a -> UniqDSet a -> UniqDSet a
 unionUniqDSets = plusUDFM

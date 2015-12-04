@@ -322,7 +322,7 @@ repFamilyDecl decl@(L loc (FamilyDecl { fdInfo      = info,
                                         fdInjectivityAnn = injectivity }))
   = do { tc1 <- lookupLOcc tc           -- See note [Binders and occurrences]
        ; let mkHsQTvs :: [LHsTyVarBndr Name] -> LHsQTyVars Name
-             mkHsQTvs tvs = HsQTvs { hsq_kvs = [], hsq_tvs = tvs }
+             mkHsQTvs tvs = HsQTvs { hsq_implicit = [], hsq_explicit = tvs }
              resTyVar = case resultSig of
                      TyVarSig bndr -> mkHsQTvs [bndr]
                      _             -> mkHsQTvs []
@@ -720,7 +720,7 @@ repDerivs (Just (L _ ctxt))
     rep_deriv :: LHsType Name -> DsM (Core TH.Name)
         -- Deriving clauses must have the simple H98 form
     rep_deriv ty
-      | Just (L _ cls, []) <- splitLHsClassTy_maybe ty
+      | Just (L _ cls, []) <- hsTyGetAppHead_maybe ty
       = lookupOcc cls
       | otherwise
       = notHandled "Non-H98 deriving clause" (ppr ty)
@@ -926,7 +926,7 @@ repHsSigWcType (HsIB { hsib_vars = implicit_vars
                   $ \ th_tvs ->
     do { th_ctxt <- repLContext ctxt
        ; th_ty   <- repLTy ty
-       ; if null implicit_tvs && null explicit_tvs && null (unLoc ctxt)
+       ; if null implicit_vars && null explicit_tvs && null (unLoc ctxt)
          then return th_ty
          else repTForall th_tvs th_ctxt th_ty }
 
@@ -944,7 +944,7 @@ repForall :: HsType Name -> DsM (Core TH.TypeQ)
 -- Arg of repForall is always HsForAllTy or HsQualTy
 repForall ty
  | (tvs, ctxt, tau) <- splitLHsSigmaTy (noLoc ty)
- = addTyVarBinds (HsQTvs { hsq_kvs = [], hsq_tvs = tvs}) $ \bndrs ->
+ = addTyVarBinds (HsQTvs { hsq_implicit = [], hsq_explicit = tvs}) $ \bndrs ->
    do { ctxt1  <- repLContext ctxt
       ; ty1    <- repLTy tau
       ; repTForall bndrs ctxt1 ty1 }
@@ -957,7 +957,7 @@ repTy (HsTyVar (L _ n))
   | isTvOcc occ   = do tv1 <- lookupOcc n
                        repTvar tv1
   | isDataOcc occ = do tc1 <- lookupOcc n
-                       repPromotedTyCon tc1
+                       repPromotedDataCon tc1
   | n == eqTyConName = repTequality
   | otherwise     = do tc1 <- lookupOcc n
                        repNamedTyCon tc1

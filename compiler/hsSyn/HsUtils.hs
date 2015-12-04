@@ -55,6 +55,7 @@ module HsUtils(
   mkLHsSigType, mkLHsSigWcType, mkClassOpSigs,
   nlHsAppTy, nlHsTyVar, nlHsFunTy, nlHsTyConApp,
   getAppsTyHead_maybe, hsTyGetAppHead_maybe, splitHsAppsTy,
+  getLHsInstDeclClass_maybe,
 
   -- Stmts
   mkTransformStmt, mkTransformByStmt, mkBodyStmt, mkBindStmt, mkLastStmt,
@@ -93,14 +94,12 @@ import HsTypes
 import HsLit
 import PlaceHolder
 
-import TcType( tcSplitForAllTys, tcSplitPhiTy )
 import TcEvidence
 import RdrName
 import Var
 import TyCoRep
-import Type   ( filterOutInvisibleTypes, isPredTy )
+import Type   ( filterOutInvisibleTypes )
 import TcType
-import Kind
 import DataCon
 import Name
 import NameSet
@@ -342,7 +341,7 @@ mkHsStringPrimLit fs
 -------------
 userHsLTyVarBndrs :: SrcSpan -> [Located name] -> [LHsTyVarBndr name]
 -- Caller sets location
-userHsLTyVarBndrs loc bndrs = [ L loc (UserTyVar v) | L _ v <- bndrs ]
+userHsLTyVarBndrs loc bndrs = [ L loc (UserTyVar v) | v <- bndrs ]
 
 userHsTyVarBndrs :: SrcSpan -> [name] -> [LHsTyVarBndr name]
 -- Caller sets location
@@ -558,16 +557,16 @@ toLHsSigWcType ty
   = mkLHsSigWcType (go ty)
   where
     go :: Type -> LHsType RdrName
-    go ty@(ForAllTy {})
-      | (tvs, tau) <- tcSplitForAllTys ty
-      = noLoc (HsForAllTy { hst_bndrs = map go_tv tvs
-                          , hst_body = go tau })
-    go ty@(FunTy arg _)
+    go ty@(ForAllTy (Anon arg) _)
       | isPredTy arg
       , (theta, tau) <- tcSplitPhiTy ty
       = noLoc (HsQualTy { hst_ctxt = noLoc (map go theta)
                         , hst_body = go tau })
-    go (FunTy arg res)      = nlHsFunTy (go arg) (go res)
+    go (ForAllTy (Anon arg) res) = nlHsFunTy (go arg) (go res)
+    go ty@(ForAllTy {})
+      | (tvs, tau) <- tcSplitNamedForAllTys ty
+      = noLoc (HsForAllTy { hst_bndrs = map go_tv tvs
+                          , hst_body = go tau })
     go (TyVarTy tv)         = nlHsTyVar (getRdrName tv)
     go (AppTy t1 t2)        = nlHsAppTy (go t1) (go t2)
     go (LitTy (NumTyLit n)) = noLoc $ HsTyLit (HsNumTy "" n)
@@ -575,6 +574,8 @@ toLHsSigWcType ty
     go (TyConApp tc args)   = nlHsTyConApp (getRdrName tc) (map go args')
        where
          args' = filterOutInvisibleTypes tc args
+    go (CastTy ty _)        = go ty
+    go (CoercionTy co)      = pprPanic "toLHsSigWcType" (ppr co)
 
          -- Source-language types have _invisible_ kind arguments,
          -- so we must remove them here (Trac #8563)
@@ -1089,7 +1090,7 @@ getAppsTyHead_maybe tys = case splitHsAppsTy tys of
   ([app1:apps], []) ->  -- no symbols, some normal types
     Just (mkHsAppTys app1 apps, [])
   ([app1l:appsl, app1r:appsr], [L loc op]) ->  -- one operator
-    Just (L loc (HsTyVar op), [mkHsAppTys app1l appsl, mkHsAppTys app1r appsr])
+    Just (L loc (HsTyVar (L loc op)), [mkHsAppTys app1l appsl, mkHsAppTys app1r appsr])
   _ -> -- can't figure it out
     Nothing
 
@@ -1115,7 +1116,7 @@ splitHsAppsTy = go [] [] []
 hsTyGetAppHead_maybe :: LHsType name -> Maybe (Located name, [LHsType name])
 hsTyGetAppHead_maybe = go []
   where
-    go tys (L loc (HsTyVar n))           = Just (L loc n, tys)
+    go tys (L _ (HsTyVar ln))           = Just (ln, tys)
     go tys (L _ (HsAppsTy apps))
       | Just (head, args) <- getAppsTyHead_maybe apps
                                          = go (args ++ tys) head
@@ -1124,3 +1125,10 @@ hsTyGetAppHead_maybe = go []
     go tys (L _ (HsParTy t))             = go tys t
     go tys (L _ (HsKindSig t _))         = go tys t
     go _   _                             = Nothing
+
+getLHsInstDeclClass_maybe :: LHsSigType name -> Maybe (Located name)
+-- Works on (HsSigType RdrName)
+getLHsInstDeclClass_maybe inst_ty
+  = do { let (_, tau) = splitLHsQualTy (hsSigType inst_ty)
+       ; (cls, _) <- hsTyGetAppHead_maybe tau
+       ; return cls }

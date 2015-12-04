@@ -11,7 +11,6 @@ module TcHsType (
         -- Type signatures
         kcClassSigType, tcClassSigType,
         tcHsSigType, tcHsSigWcType,
-        zonkSigType, zonkAndCheckValidity,
         funsSigCtxt, addSigCtxt,
 
         tcHsClsInstType,
@@ -31,6 +30,7 @@ module TcHsType (
         tcHsLiftedTypeNC, tcHsOpenTypeNC,
         tcLHsType, tcCheckLHsType,
         tcHsContext, tcLHsPredType, tcInferApps, tcInferArgs,
+        solveEqualities, -- useful re-export
 
         kindGeneralize,
 
@@ -53,7 +53,6 @@ import TcUnify
 import TcIface
 import TcSimplify ( solveEqualities )
 import TcType
-import TcHsSyn
 import Type
 import Kind
 import RdrName( lookupLocalRdrOcc )
@@ -201,7 +200,7 @@ tc_hs_sig_type (HsIB { hsib_body = hs_ty
                      , hsib_vars = sig_vars }) kind
   = do { (tkvs, ty) <- tcImplicitTKBndrs sig_vars $
                        tc_lhs_type typeLevelMode hs_ty kind
-       ; return (mkForAllTys tkvs ty) }
+       ; return (mkInvForAllTys tkvs ty) }
 
 -----------------
 tcHsDeriv :: LHsSigType Name -> TcM ([TyVar], Class, [Type], Kind)
@@ -230,7 +229,7 @@ tcHsClsInstType :: UserTypeCtxt    -- InstDeclCtxt or SpecInstCtxt
 -- Like tcHsSigType, but for a class instance declaration
 -- The significant difference is that we expect a /constraint/
 -- not a /type/ for the bit after the '=>'.
-tcHsClsInstType user_ctxt hs_inst_ty@(HsIB { hsib_vars = sig_vars,
+tcHsClsInstType user_ctxt hs_inst_ty@(HsIB { hsib_vars = sig_vars
                                            , hsib_body = hs_qual_ty })
     -- An explicit forall in an instance declaration isn't
     -- allowed, so there won't be any HsForAllTy here
@@ -252,7 +251,7 @@ tcHsClsInstType user_ctxt hs_inst_ty@(HsIB { hsib_vars = sig_vars,
 --
 tcHsVectInst :: LHsSigType Name -> TcM (Class, [Type])
 tcHsVectInst ty
-  | Just (L _ cls_name, tys) <- splitLHsClassTy_maybe (hsSigType ty)
+  | Just (L _ cls_name, tys) <- hsTyGetAppHead_maybe (hsSigType ty)
     -- Ignoring the binders looks pretty dodgy to me
   = do { (cls, cls_kind) <- tcClass cls_name
        ; (applied_class, _res_kind)
@@ -278,12 +277,6 @@ tcHsVectInst ty
 
         First a couple of simple wrappers for kcHsType
 -}
-
-tcClassSigType :: LHsType Name -> TcM Type
-tcClassSigType lhs_ty@(L loc hs_ty)
-  = addTypeCtxt lhs_ty $
-    setSrcSpan loc $
-    tcCheckHsTypeAndGen hs_ty liftedTypeKind
 
 tcHsConArgType :: NewOrData ->  LHsType Name -> TcM Type
 -- Permit a bang, but discard it
@@ -323,11 +316,11 @@ tcLHsType ty = addTypeCtxt ty (tc_infer_lhs_type typeLevelMode ty)
 -- We *should* generalise if the type is mentions no scoped type variables
 -- or if NoMonoLocalBinds is set. Otherwise, nope.
 decideKindGeneralisationPlan :: Type -> TcM Bool
-decideKindGeneralisationPlan hs_ty
+decideKindGeneralisationPlan ty
   = do { mono_locals <- xoptM Opt_MonoLocalBinds
-       ; in_scope <- getLocalInScope
-       ; let fvs        = varSetElems (tyCoVarsOfType ty)
-             should_gen = not mono_locals || all (not . in_scope) fvs
+       ; in_scope <- getInLocalScope
+       ; let fvs        = tyCoVarsOfTypeList ty
+             should_gen = not mono_locals || all (not . in_scope . getName) fvs
        ; traceTc "decideKindGeneralisationPlan"
            (vcat [ text "type:" <+> ppr ty
                  , text "ftvs:" <+> ppr fvs
@@ -506,7 +499,7 @@ tc_hs_type mode hs_ty@(HsForAllTy { hst_bndrs = hs_tvs, hst_body = ty }) exp_kin
     do { ty' <- tc_lhs_type mode ty exp_kind
        ; return (mkNakedInvSigmaTy tvs' [] ty') }
 
-tc_hs_type mode hs_ty@(HsQualTy { hst_ctxt = ctxt, hst_body = ty }) exp_kind
+tc_hs_type mode (HsQualTy { hst_ctxt = ctxt, hst_body = ty }) exp_kind
   = do { ctxt' <- tc_hs_context mode ctxt
        ; ty' <- if null (unLoc ctxt) then  -- Plain forall, no context
                    tc_lhs_type mode ty exp_kind
@@ -516,7 +509,7 @@ tc_hs_type mode hs_ty@(HsQualTy { hst_ctxt = ctxt, hst_body = ty }) exp_kind
                    -- _function_, so the kind of the result really is *
                    -- The body kind (result of the function) can be * or #, hence ekOpen
                    do { ek <- ekOpen
-                      ; ty <- tc_lhs_type mode hs_ty ek
+                      ; ty <- tc_lhs_type mode ty ek
                       ; checkExpectedKind ty liftedTypeKind exp_kind }
 
        ; return (mkNakedPhiTy ctxt' ty') }
@@ -625,9 +618,9 @@ tc_hs_type mode ty@(HsOpTy {})    ek = tc_infer_hs_type_ek mode ty ek
 tc_hs_type mode ty@(HsKindSig {}) ek = tc_infer_hs_type_ek mode ty ek
 tc_hs_type mode ty@(HsCoreTy {})  ek = tc_infer_hs_type_ek mode ty ek
 
-tc_hs_type mode (HsWildCardTy wc) exp_kind
+tc_hs_type _ (HsWildCardTy wc) exp_kind
   = do { let name = wildCardName wc
-       ; tv <- tcLookupTyVar mode name
+       ; tv <- tcLookupTyVar name
        ; checkExpectedKind (mkTyVarTy tv) (tyVarKind tv) exp_kind }
 
 -- disposed of by renamer
@@ -958,6 +951,9 @@ instantiateTyN n ty ki
 ---------------------------
 tcHsContext :: LHsContext Name -> TcM [PredType]
 tcHsContext = tc_hs_context typeLevelMode
+
+tcLHsPredType :: LHsType Name -> TcM PredType
+tcLHsPredType = tc_lhs_pred typeLevelMode
 
 tc_hs_context :: TcTyMode -> LHsContext Name -> TcM [PredType]
 tc_hs_context mode ctxt = mapM (tc_lhs_pred mode) (unLoc ctxt)
@@ -1301,17 +1297,24 @@ kcHsTyVarBndrs cusk (HsQTvs { hsq_implicit = kv_ns
               -- See Note [Complete user-supplied kind signatures] in HsDecls
            ; case hs_tvb of
                UserTyVar {} | cusk
-                 -> unifyKind (Just (mkTyVarTy tv)) liftedTypeKind
+                 -> discardResult $
+                    unifyKind (Just (mkTyVarTy tv)) liftedTypeKind
                                                     (tyVarKind tv)
                _ -> return ()
 
            ; return (tv, scoped) }
 
 tcImplicitTKBndrs :: [Name] -> TcM a -> TcM ([TcTyVar], a)
+tcImplicitTKBndrs = tcImplicitTKBndrsX tcHsTyVarName
+
+-- this more general variant is needed in tcHsPatSigType.
+-- See Note [Pattern signature binders]
+tcImplicitTKBndrsX :: (Name -> TcM (TcTyVar, Bool))  -- new_tv function
+                   -> [Name] -> TcM a -> TcM ([TcTyVar], a)
 -- Returned TcTyVars have the supplied Names
 --   i.e. no cloning of fresh names
-tcImplicitTKBndrs var_ns thing_inside
-  = do { tkvs_pairs <- mapM tcHsTyVarName var_ns
+tcImplicitTKBndrsX new_tv var_ns thing_inside
+  = do { tkvs_pairs <- mapM new_tv var_ns
        ; let must_scope_tkvs = [ tkv | (tkv, False) <- tkvs_pairs ]
              tkvs            = map fst tkvs_pairs
        ; result <- tcExtendTyVarEnv must_scope_tkvs $
@@ -1319,30 +1322,30 @@ tcImplicitTKBndrs var_ns thing_inside
 
          -- it's possible that we guessed the ordering of variables
          -- wrongly. Adjust.
-       ; tkvs <- zonkTyCoVarKind tkvs
+       ; tkvs <- mapM zonkTyCoVarKind tkvs
        ; let final_tvs = toposortTyVars tkvs
 
        ; traceTc "tcImplicitTKBndrs" (ppr var_ns $$ ppr final_tvs)
 
-       ; return (final_tvs, result) }}
+       ; return (final_tvs, result) }
 
 tcHsQTyVars :: LHsQTyVars Name
             -> TcM r
             -> TcM r
 -- Bind the kind variables to fresh skolem variables
 -- and type variables to skolems, each with a meta-kind variable kind
-tcHsQTyVars qtvs@(HsQTvs { hsq_implicit = kv_ns, hsq_explicit = hs_tvs })
+tcHsQTyVars (HsQTvs { hsq_implicit = kv_ns, hsq_explicit = hs_tvs })
             thing_inside
   | null kv_ns && null hs_tvs
   = do { traceTc "empty tcHsTyVarBndrs" empty
-       ; ([], ) <$> thing_inside }
+       ; thing_inside }
 
   | otherwise
   = do { traceTc "tcHsQTyVars {" $
            vcat [ text "Hs implicit vars:" <+> ppr kv_ns
                 , text "Hs explicit vars:" <+> ppr hs_tvs ]
        ; (kvs, (tvs, result)) <- tcImplicitTKBndrs kv_ns $
-                                 tcHsTyVarBndrs_Scoped hs_tvs $ \_ ->
+                                 tcHsTyVarBndrs_Scoped hs_tvs $
                                  thing_inside
 
        ; kvs <- mapM zonkTyCoVarKind kvs
@@ -1367,7 +1370,7 @@ tcHsTyVarBndrs hs_tvs thing_inside
 
          -- Issue an error if the ordering is bogus.
          -- See Note [Bad telescopes] in TcValidity.
-       ; tvs <- checkValidTelescope hs_tvs tvs
+       ; tvs <- checkZonkValidTelescope hs_tvs tvs
 
        ; traceTc "tcHsTyVarBndrs" $
            vcat [ text "Hs vars:" <+> ppr hs_tvs
@@ -1383,14 +1386,14 @@ tcHsTyVarBndrs hs_tvs thing_inside
 tcHsTyVarBndrs_Scoped :: [LHsTyVarBndr Name] -> TcM a
                       -> TcM ([TyVar], a)
 tcHsTyVarBndrs_Scoped orig_hs_tvs thing_inside
-  = do { go orig_hs_tvs $ \ tvs ->
-         do { result <- thing_inside
+  = go orig_hs_tvs $ \ tvs ->
+    do { result <- thing_inside
 
               -- Issue an error if the ordering is bogus.
               -- See Note [Bad telescopes] in TcValidity.
-            ; tvs <- checkValidTelescope orig_hs_tvs tvs
+       ; tvs <- checkZonkValidTelescope orig_hs_tvs tvs
 
-            ; return (tvs, result) }
+       ; return (tvs, result) }
   where
     go [] thing = thing []
     go (L _ hs_tv : hs_tvs) thing
@@ -1792,8 +1795,8 @@ Historical note:
 tcHsPatSigType :: UserTypeCtxt
                -> LHsSigWcType Name           -- The type signature
                -> TcM ( Type                  -- The signature
-                      , [(Name, TcTyVar)]     -- The new bit of type environment, binding
-                                              -- the scoped type variables
+                      , [TcTyVar]     -- The new bit of type environment, binding
+                                      -- the scoped type variables
                       , [(Name, TcTyVar)] )   -- The wildcards
 -- Used for type-checking type signatures in
 -- (a) patterns           e.g  f (x::Int) = e
@@ -1808,28 +1811,27 @@ tcHsPatSigType ctxt sig_ty
     addSigCtxt ctxt hs_ty $
     tcWildCardBinders sig_wcs $ \ wcs ->
     do  { emitWildCardHoleConstraints wcs
-        ; vars <- mapM new_tv sig_vars
-        ; (_vars, sig_ty) <- tcImplicitTKBndrs sig_vars $
-                             tcHsLiftedType hs_ty
+        ; (vars, sig_ty) <- tcImplicitTKBndrsX new_tkv sig_vars $
+                            tcHsLiftedType hs_ty
         ; sig_ty <- zonkTcType sig_ty
               -- don't use zonkTcTypeToType; it mistreats wildcards
         ; checkValidType ctxt sig_ty
-        ; traceTc "tcHsPatSigType" (ppr sig_vars $$ ppr ktv_binds)
-        ; return (sig_ty, ktv_binds, wcs) }
+        ; traceTc "tcHsPatSigType" (ppr sig_vars)
+        ; return (sig_ty, vars, wcs) }
   where
-    new_tv name = do { kind <- newMetaKindVar
-                     ; new_tkv name kind }
-
-    new_tkv name kind  -- See Note [Pattern signature binders]
-      = case ctxt of
-          RuleSigCtxt {} -> return $ new_skolem_tv name kind
-          _              -> newSigTyVar name kind -- See Note [Unifying SigTvs]
+    new_tkv name   -- See Note [Pattern signature binders]
+      = (, False) <$>  -- "False" means that these tyvars aren't yet in scope
+        do { kind <- newMetaKindVar
+           ; case ctxt of
+               RuleSigCtxt {} -> return $ new_skolem_tv name kind
+               _              -> newSigTyVar name kind }
+                                   -- See Note [Unifying SigTvs]
 
 tcPatSig :: Bool                    -- True <=> pattern binding
          -> LHsSigWcType Name
          -> TcSigmaType
          -> TcM (TcType,            -- The type to use for "inside" the signature
-                 [(Name, TcTyVar)], -- The new bit of type environment, binding
+                 [TcTyVar],         -- The new bit of type environment, binding
                                     -- the scoped type variables
                  [(Name, TcTyVar)], -- The wildcards
                  HsWrapper)         -- Coercion due to unification with actual ty
@@ -1860,7 +1862,7 @@ tcPatSig in_pat_bind sig res_ty
                 --      f :: Int -> Int
                 --      f (x :: T a) = ...
                 -- Here 'a' doesn't get a binding.  Sigh
-        ; let bad_tvs = [ tv | (_, tv) <- sig_tvs
+        ; let bad_tvs = [ tv | tv <- sig_tvs
                              , not (tv `elemVarSet` exactTyCoVarsOfType sig_ty) ]
         ; checkTc (null bad_tvs) (badPatSigTvs sig_ty bad_tvs)
 
@@ -1881,10 +1883,10 @@ tcPatSig in_pat_bind sig res_ty
                                           2 (ppr res_ty)) ]
             ; return (tidy_env, msg) }
 
-patBindSigErr :: [(Name, TcTyVar)] -> SDoc
+patBindSigErr :: [TcTyVar] -> SDoc
 patBindSigErr sig_tvs
   = hang (ptext (sLit "You cannot bind scoped type variable") <> plural sig_tvs
-          <+> pprQuotedList (map fst sig_tvs))
+          <+> pprQuotedList sig_tvs)
        2 (ptext (sLit "in a pattern binding signature"))
 
 {-

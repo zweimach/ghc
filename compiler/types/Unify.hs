@@ -461,6 +461,98 @@ niSubstTvSet tsubst tvs
 *                                                                      *
 ************************************************************************
 
+Note [Specification of unification]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The algorithm implemented here is rather delicate, and we depend on it
+to uphold certain properties. This is a summary of these required
+properties. Any reference to "flattening" refers to the flattening
+algorithm in FamInstEnv (See Note [Flattening] in FamInstEnv), not
+the flattening algorithm in the solver.
+
+Notation:
+ θ,φ    substitutions
+ ξ    type-function-free types
+ τ,σ  other types
+ τ♭   type τ, flattened
+
+ ≡    eqType
+
+(U1) Soundness.
+If (unify τ₁ τ₂) = Unifiable θ, then θ(τ₁) ≡ θ(τ₂). θ is a most general
+unifier for τ₁ and τ₂.
+
+(U2) Completeness.
+If (unify ξ₁ ξ₂) = SurelyApart,
+then there exists no substitution θ such that θ(ξ₁) ≡ θ(ξ₂).
+
+These two properties are stated as Property 11 in the "Closed Type Families"
+paper (POPL'14). Below, this paper is called [CTF].
+
+(U3) Apartness under substitution.
+If (unify ξ τ♭) = SurelyApart, then (unify ξ θ(τ)♭) = SurelyApart, for
+any θ. (Property 12 from [CTF])
+
+(U4) Apart types do not unify.
+If (unify ξ τ♭) = SurelyApart, then there exists no θ such that
+θ(ξ) = θ(τ). (Property 13 from [CTF])
+
+THEOREM. Completeness w.r.t ~
+If (unify τ₁♭ τ₂♭) = SurelyApart, then there exists no proof that (τ₁ ~ τ₂).
+
+PROOF. See appendix of [CTF].
+
+
+The unification algorithm is used for type family injectivity, as described
+in the "Injective Type Families" paper (Haskell'15), called [ITF]. When run
+in this mode, it has the following properties.
+
+(I1) If (unify σ τ) = SurelyApart, then σ and τ are not unifiable, even
+after arbitrary type family reductions. Note that σ and τ are not flattened
+here.
+
+(I2) If (unify σ τ) = MaybeApart θ, and if some
+φ exists such that φ(σ) ~ φ(τ), then φ extends θ.
+
+
+Furthermore, the RULES matching algorithm requires this property,
+but only when using this algorithm for matching:
+
+(M1) If (match σ τ) succeeds with θ, then all matchable tyvars in σ
+are bound in θ.
+
+Property M1 means that we must extend the substitution with, say
+(a ↦ a) when appropriate during matching.
+See also Note [Self-substitution when matching].
+
+(M2) Completeness of matching.
+If θ(σ) = τ, then (match σ τ) = Unifiable φ, where θ is an extension of φ.
+
+Sadly, property M2 and I2 conflict. Consider
+
+type family F1 a b where
+  F1 Int    Bool   = Char
+  F1 Double String = Char
+
+Consider now two matching problems:
+
+P1. match (F1 a Bool) (F1 Int Bool)
+P2. match (F1 a Bool) (F1 Double String)
+
+In case P1, we must find (a ↦ Int) to satisfy M2.
+In case P2, we must /not/ find (a ↦ Double), in order to satisfy I2. (Note
+that the correct mapping for I2 is (a ↦ Int). There is no way to discover
+this, but we musn't map a to anything else!)
+
+We thus must parameterize the algorithm over whether it's being used
+for an injectivity check (refrain from looking at non-injective arguments
+to type families) or not (do indeed look at those arguments).
+
+(It's all a question of whether or not to include equation (7) from Fig. 2
+of [ITF].)
+
+This extra parameter is a bit fiddly, perhaps, but seemingly less so than
+having two separate, almost-identical algorithms.
+
 Note [Self-substitution when matching]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 What should happen when we're *matching* (not unifying) a1 with a1? We
@@ -506,6 +598,7 @@ all bets are off.
 
 -}
 
+-- See Note [Specification of unification]
 unify_ty :: Type -> Type   -- Types to be unified
          -> UM ()
 -- Respects newtypes, PredTypes

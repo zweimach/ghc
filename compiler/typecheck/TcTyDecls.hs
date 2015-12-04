@@ -896,7 +896,7 @@ mkDefaultMethodIds tycons
   where
     mk_dm_ty :: Class -> Id -> DefMethSpec Type -> Type
     mk_dm_ty _ sel_id VanillaDM        = idType sel_id
-    mk_dm_ty cls _   (GenericDM dm_ty) = mkSigmaTy cls_tvs [pred] dm_ty
+    mk_dm_ty cls _   (GenericDM dm_ty) = mkInvSigmaTy cls_tvs [pred] dm_ty
        where
          cls_tvs = classTyVars cls
          pred    = mkClassPred cls (mkTyVarTys cls_tvs)

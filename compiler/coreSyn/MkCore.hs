@@ -78,7 +78,6 @@ import BasicTypes
 import Util
 import DynFlags
 import Data.List
-import Data.Ord
 
 import Data.Char        ( ord )
 #if __GLASGOW_HASKELL__ < 709

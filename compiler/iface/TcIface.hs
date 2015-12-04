@@ -48,7 +48,6 @@ import ConLike
 import DataCon
 import PrelNames
 import TysWiredIn
-import BasicTypes       ( DefMethSpec(..) )
 import Literal
 import qualified Var
 import VarEnv

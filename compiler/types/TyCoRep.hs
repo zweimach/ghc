@@ -62,6 +62,9 @@ module TyCoRep (
         coVarsOfType, coVarsOfTypes,
         coVarsOfCo, coVarsOfCos,
         tyCoVarsOfCo, tyCoVarsOfCos,
+        dTyCoVarsOfCo,
+        tyCoVarsOfCoAcc, tyCoVarsOfCosAcc,
+        tyCoVarsOfCoList, tyCoVarsOfProv,
         closeOverKinds,
         tyCoVarsOfTelescope,
 
@@ -391,6 +394,12 @@ binderType (Anon ty)   = ty
 delBinderVar :: VarSet -> Binder -> VarSet
 delBinderVar vars (Named tv _) = vars `delVarSet` tv
 delBinderVar vars (Anon {})    = vars
+
+-- | Remove the binder's variable from the set, if the binder has
+-- a variable.
+delBinderVarFV :: Binder -> FV -> FV
+delBinderVarFV (Named tv _) vars fv_cand in_scope acc = delFV tv vars fv_cand in_scope acc
+delBinderVarFV (Anon {})    vars fv_cand in_scope acc = vars fv_cand in_scope acc
 
 -- | Create the plain type constructor type which has been applied to no type arguments at all.
 mkTyConTy :: TyCon -> Type
@@ -982,13 +991,13 @@ tyCoVarsOfTypeAcc (TyConApp _ tys)    fv_cand in_scope acc = tyCoVarsOfTypesAcc 
 tyCoVarsOfTypeAcc (LitTy {})          fv_cand in_scope acc = noVars fv_cand in_scope acc
 tyCoVarsOfTypeAcc (AppTy fun arg)     fv_cand in_scope acc = (tyCoVarsOfTypeAcc fun `unionFV` tyCoVarsOfTypeAcc arg) fv_cand in_scope acc
 tyCoVarsOfTypeAcc (ForAllTy bndr ty) fv_cand in_scope acc
-  = (delFV bndr (tyCoVarsOfTypeAcc ty)
+  = (delBinderVarFV bndr (tyCoVarsOfTypeAcc ty)
      `unionFV` tyCoVarsOfTypeAcc (binderType bndr)) fv_cand in_scope acc
 tyCoVarsOfTypeAcc (CastTy ty co)      fv_cand in_scope acc = (tyCoVarsOfTypeAcc ty `unionFV` tyCoVarsOfCoAcc co) fv_cand in_scope acc
 tyCoVarsOfTypeAcc (CoercionTy co)     fv_cand in_scope acc = tyCoVarsOfCoAcc co fv_cand in_scope acc
 
 tyCoVarsOfTypes :: [Type] -> TyCoVarSet
-tyCoVarsOfTypes tys = runFVSet $ tyCoVarsOfTypesAcc ty
+tyCoVarsOfTypes tys = runFVSet $ tyCoVarsOfTypesAcc tys
 
 tyCoVarsOfTypesList :: [Type] -> [TyCoVar]
 tyCoVarsOfTypesList tys = runFVList $ tyCoVarsOfTypesAcc tys
@@ -999,6 +1008,10 @@ tyCoVarsOfTypesAcc []       fv_cand in_scope acc = noVars fv_cand in_scope acc
 
 tyCoVarsOfCo :: Coercion -> TyCoVarSet
 tyCoVarsOfCo co = runFVSet $ tyCoVarsOfCoAcc co
+
+-- | Get a deterministic set of the vars free in a coercion
+dTyCoVarsOfCo :: Coercion -> DTyCoVarSet
+dTyCoVarsOfCo co = runFVDSet $ tyCoVarsOfCoAcc co
 
 tyCoVarsOfCoList :: Coercion -> [TyCoVar]
 tyCoVarsOfCoList co = runFVList $ tyCoVarsOfCoAcc co

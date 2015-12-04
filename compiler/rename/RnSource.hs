@@ -545,11 +545,11 @@ rnClsInstDecl (ClsInstDecl { cid_poly_ty = inst_ty, cid_binds = mbinds
                            , cid_datafam_insts = adts })
   = do { (inst_ty', inst_fvs) <- rnLHsInstType (text "an instance declaration") inst_ty
        ; let (ktv_names, _, head_ty') = splitLHsInstDeclTy inst_ty'
-       ; let cls = case splitLHsClassTy_maybe head_ty' of
+       ; let cls = case hsTyGetAppHead_maybe head_ty' of
                      Nothing -> mkUnboundName (mkTcOccFS (fsLit "<class>"))
                      Just (L _ cls, _) -> cls
                      -- rnLHsInstType has added an error message
-                     -- if splitLHsClassTy_maybe fails
+                     -- if hsTyGetAppHead_maybe fails
 
           -- Rename the bindings
           -- The typechecker (not the renamer) checks that all
@@ -1263,11 +1263,13 @@ rnFamDecl mb_cls (FamilyDecl { fdLName = tycon, fdTyVars = tyvars
   = do { tycon' <- lookupLocatedTopBndrRn tycon
        ; kvs <- extractRdrKindSigVars res_sig
        ; ((tyvars', res_sig', injectivity'), fv1) <-
-            bindHsQTyVars doc mb_cls kvs tyvars $ \ tyvars' ->
-            do { (res_sig', fv_kind) <- wrapLocFstM (rnFamResultSig doc) res_sig
+            bindHsQTyVars doc mb_cls kvs tyvars $
+            \ tyvars'@(HsQTvs { hsq_implicit = rn_kvs, hsq_explicit = rn_tvs }) ->
+            do { let rn_sig = rnFamResultSig doc rn_kvs (map hsLTyVarName rn_tvs)
+               ; (res_sig', fv_kind) <- wrapLocFstM rn_sig res_sig
                ; injectivity' <- traverse (rnInjectivityAnn tyvars' res_sig')
                                           injectivity
-               ; return ( (tyvars', res_sig', injectivity') , fv_kind )  }
+               ; return ( (tyvars', res_sig', injectivity') , fv_kind ) }
        ; (info', fv2) <- rn_info info
        ; return (FamilyDecl { fdLName = tycon', fdTyVars = tyvars'
                             , fdInfo = info', fdResultSig = res_sig'
@@ -1286,29 +1288,25 @@ rnFamDecl mb_cls (FamilyDecl { fdLName = tycon, fdTyVars = tyvars
      rn_info OpenTypeFamily = return (OpenTypeFamily, emptyFVs)
      rn_info DataFamily     = return (DataFamily, emptyFVs)
 
-rnFamResultSig :: HsDocContext -> FamilyResultSig RdrName
+rnFamResultSig :: HsDocContext
+               -> [Name]   -- kind variables already in scope
+               -> [Name]   -- type variables already in scope
+               -> FamilyResultSig RdrName
                -> RnM (FamilyResultSig Name, FreeVars)
-rnFamResultSig _ NoSig
+rnFamResultSig _ _ _ NoSig
    = return (NoSig, emptyFVs)
-rnFamResultSig doc (KindSig kind)
+rnFamResultSig doc _ _ (KindSig kind)
    = do { (rndKind, ftvs) <- rnLHsKind doc kind
         ;  return (KindSig rndKind, ftvs) }
-rnFamResultSig doc (TyVarSig tvbndr)
+rnFamResultSig doc kv_names tv_names (TyVarSig tvbndr)
    = do { -- `TyVarSig` tells us that user named the result of a type family by
           -- writing `= tyvar` or `= (tyvar :: kind)`. In such case we want to
           -- be sure that the supplied result name is not identical to an
-          -- already in-scope type variables:
+          -- already in-scope type variable from an enclosing class.
           --
-          --  (a) one of already declared type family arguments. Example of
-          --      disallowed declaration:
-          --        type family F a = a
-          --
-          --  (b) already in-scope type variable. This second case might happen
-          --      for associated types, where type class head bounds some type
-          --      variables. Example of disallowed declaration:
+          --  Example of disallowed declaration:
           --         class C a b where
           --            type F b = a | a -> b
-          -- Both are caught by the "in-scope" check that comes next
           rdr_env <- getLocalRdrEnv
        ;  let resName = hsLTyVarName tvbndr
        ;  when (resName `elemLocalRdrEnv` rdr_env) $
@@ -1318,14 +1316,11 @@ rnFamResultSig doc (TyVarSig tvbndr)
                            ] $$
                       text "shadows an already bound type variable")
 
-       ; bindHsTyVars doc Nothing  -- this might be a lie, but it's used for
-                                   -- scoping checks that are irrelevant here
-                      []  -- no kvs, as they're already in scope
-                      (mkHsQTvs [tvbndr]) $ \ rn_tvbndrs ->
-         return $ case hsQTvExplicit rn_tvbndrs of
-                   [tvbndr'] -> (TyVarSig tvbndr', unitFV (hsLTyVarName tvbndr'))
-                   _         -> pprPanic "rnFamResultSig" (ppr tvbndr $$
-                                                           ppr rn_tvbndrs) }
+       ; bindLHsTyVarBndr doc Nothing -- this might be a lie, but it's used for
+                                      -- scoping checks that are irrelevant here
+                          (mkNameSet kv_names) (mkNameSet tv_names)
+                          tvbndr $ \ _ tvbndr' ->
+         return (TyVarSig tvbndr', unitFV (hsLTyVarName tvbndr')) }
 
 -- Note [Renaming injectivity annotation]
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1546,13 +1541,13 @@ rnConDecls = mapFvRn (wrapLocFstM rnConDecl)
 
 rnConDecl :: ConDecl RdrName -> RnM (ConDecl Name, FreeVars)
 rnConDecl decl@(ConDecl { con_names = names, con_qvars = qtvs
-                        , con_cxt = lcxt@(L loc cxt), con_details = details
+                        , con_cxt = lcxt@(L _ cxt), con_details = details
                         , con_res = res_ty, con_doc = mb_doc
                         , con_explicit = explicit })
   = do  { mapM_ (addLocM checkConName) names
         ; new_names    <- mapM lookupLocatedTopBndrRn names
         ; mb_doc'      <- rnMbLHsDoc mb_doc
-        ; let (kvs, qtvs') = get_con_qtvs qtvs (hsConDeclArgTys details) res_ty
+        ; (kvs, qtvs') <- get_con_qtvs qtvs (hsConDeclArgTys details) res_ty
 
         ; bindHsQTyVars doc Nothing kvs qtvs' $ \new_tyvars -> do
         { (new_context, fvs1) <- rnContext doc lcxt
@@ -1575,7 +1570,7 @@ rnConDecl decl@(ConDecl { con_names = names, con_qvars = qtvs
 
     get_con_qtvs :: LHsQTyVars RdrName -> [LHsType RdrName]
                  -> ResType (LHsType RdrName)
-                 -> RnM ([RdrName], LHsQTyVars RdrName)
+                 -> RnM ([Located RdrName], LHsQTyVars RdrName)
     get_con_qtvs qtvs arg_tys ResTyH98
       | explicit   -- data T = forall a. MkT (a -> a)
       = do { free_vars <- get_rdr_tvs arg_tys

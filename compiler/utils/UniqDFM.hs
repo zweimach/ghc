@@ -27,7 +27,7 @@ module UniqDFM (
         emptyUDFM,
         unitUDFM,
         addToUDFM,
-        delFromUDFM,
+        delFromUDFM, delListFromUDFM,
         plusUDFM,
         lookupUDFM,
         elemUDFM,
@@ -143,6 +143,9 @@ addListToUDFM_Directly = foldl (\m (k, v) -> addToUDFM_Directly m k v)
 
 delFromUDFM :: Uniquable key => UniqDFM elt -> key -> UniqDFM elt
 delFromUDFM (UDFM m i) k = UDFM (M.delete (getKey $ getUnique k) m) i
+
+delListFromUDFM :: Uniquable key => UniqDFM elt -> [key] -> UniqDFM elt
+delListFromUDFM = foldl delFromUDFM
 
 -- Note [Overflow on plusUDFM]
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -423,7 +423,7 @@ simplifyInfer :: TcLevel               -- Used when generating the constraints
                       TcEvBinds)    -- ... binding these evidence variables
 simplifyInfer rhs_tclvl apply_mr sigs name_taus wanteds
   | isEmptyWC wanteds
-  = do { gbl_tvs <- tcGetGlobalTyVars
+  = do { gbl_tvs <- tcGetGlobalTyCoVars
        ; qtkvs <- quantify_tvs sigs gbl_tvs $
                   splitDepVarsOfTypes (map snd name_taus)
        ; traceTc "simplifyInfer: empty WC" (ppr name_taus $$ ppr qtkvs)
@@ -689,7 +689,7 @@ quantify_tvs sigs mono_tvs (Pair tau_kvs tau_tvs)
   = quantifyTyVars (mono_tvs `delVarSetList` sig_qtvs)
                    (Pair tau_kvs
                          (tau_tvs `extendVarSetList` sig_qtvs
-                                  `extendVarSetList` sig_wcs)
+                                  `extendVarSetList` sig_wcs))
                    -- NB: quantifyTyVars zonks its arguments
   where
     sig_qtvs = [ skol | sig <- sigs, (_, skol) <- sig_skols sig ]

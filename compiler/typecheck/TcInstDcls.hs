@@ -21,7 +21,6 @@ import TcClassDcl( tcClassDecl2, tcATDefault,
 import TcPat      ( addInlinePrags, lookupPragEnv, emptyPragEnv )
 import TcRnMonad
 import TcValidity
-import TcSimplify ( solveEqualities )
 import TcHsSyn    ( zonkTcTypeToTypes, emptyZonkEnv )
 import TcMType
 import TcType

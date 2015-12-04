@@ -2073,7 +2073,8 @@ pprSkol implics tv
   | (skol_tvs, skol_info) <- getSkolemInfo implics tv
   = case skol_info of
       UnkSkol         -> pp_tv <+> ptext (sLit "is an unknown type variable")
-      SigSkol ctxt ty -> ppr_rigid (pprSigSkolInfo ctxt (mkForAllTys skol_tvs ty))
+      SigSkol ctxt ty -> ppr_rigid (pprSigSkolInfo ctxt
+                                      (mkInvForAllTys skol_tvs ty))
       _               -> ppr_rigid (pprSkolInfo skol_info)
   where
     pp_tv = quotes (ppr tv)

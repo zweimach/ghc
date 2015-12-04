@@ -211,7 +211,7 @@ import ListSetOps
 import Digraph
 
 import Maybes           ( orElse )
-import Data.Maybe       ( isJust )
+import Data.Maybe       ( isJust, mapMaybe )
 import Control.Monad    ( guard )
 import Control.Arrow    ( first, second )
 
@@ -1737,6 +1737,7 @@ toposortTyVars tvs = reverse $
                      [ tv | (tv, _, _) <- topologicalSortG $
                                           graphFromEdgedVertices nodes ]
   where
+    var_ids :: VarEnv Int
     var_ids = mkVarEnv (zip tvs [1..])
 
     nodes = [ ( tv
@@ -1751,7 +1752,7 @@ varSetElemsWellScoped = toposortTyVars . varSetElems
 
 -- | Get the free vars of a type in scoped order
 tyCoVarsOfTypeWellScoped :: Type -> [TyVar]
-tyCoVarSOfTypeWellScoped = toposortTyVars . tyCoVarsOfTypeListx
+tyCoVarsOfTypeWellScoped = toposortTyVars . tyCoVarsOfTypeList
 
 {-
 ************************************************************************
