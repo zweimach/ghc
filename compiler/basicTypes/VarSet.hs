@@ -226,9 +226,6 @@ isEmptyDVarSet = isEmptyUniqDSet
 delDVarSet :: DVarSet -> Var -> DVarSet
 delDVarSet = delOneFromUniqDSet
 
-delDVarSetList :: DVarSet -> [Var] -> DVarSet
-delDVarSetList = delListFromUniqDSet
-
 minusDVarSet :: DVarSet -> DVarSet -> DVarSet
 minusDVarSet = minusUniqDSet
 

@@ -1,5 +1,6 @@
 module TysWiredIn where
 
+import TyCon
 import {-# SOURCE #-} TyCoRep    (Type, Kind)
 
 

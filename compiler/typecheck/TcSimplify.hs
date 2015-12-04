@@ -389,7 +389,7 @@ simplifyDefault theta
 tcCheckSatisfiability :: Bag EvVar -> TcM Bool
 -- Return True if satisfiable, False if definitely contradictory
 tcCheckSatisfiability givens
-  = do { lcl_env <- TcRn.getLclEnv
+  = do { lcl_env <- TcM.getLclEnv
        ; let given_loc = mkGivenLoc topTcLevel UnkSkol lcl_env
        ; traceTc "checkSatisfiabilty {" (ppr givens)
        ; (res, _ev_binds) <- runTcS $
@@ -590,7 +590,7 @@ mkSigDerivedWanteds :: TcIdSigInfo -> TcM [Ct]
 mkSigDerivedWanteds (TISI { sig_bndr = PartialSig { sig_name = name }
                           , sig_theta = theta, sig_tau = tau })
  = do { let skol_info = InferSkol [(name, mkSigmaTy [] theta tau)]
-      ; loc <- getCtLocM (GivenOrigin skol_info)
+      ; loc <- getCtLocM (GivenOrigin skol_info) (Just TypeLevel)
       ; return [ mkNonCanonical (CtDerived { ctev_pred = pred
                                            , ctev_loc = loc })
                | pred <- theta ] }

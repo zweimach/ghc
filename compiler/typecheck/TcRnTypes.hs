@@ -74,6 +74,7 @@ module TcRnTypes(
         ctEvPred, ctEvLoc, ctEvOrigin, ctEvEqRel,
         ctEvTerm, ctEvCoercion, ctEvId,
         tyCoVarsOfCt, tyCoVarsOfCts,
+        tyCoVarsOfCtList, tyCoVarsOfCtsList,
         toDerivedCt,
 
         WantedConstraints(..), insolubleWC, emptyWC, isEmptyWC,
@@ -148,6 +149,7 @@ import NameEnv
 import NameSet
 import Avail
 import Var
+import FV
 import VarEnv
 import Module
 import SrcLoc
@@ -1519,41 +1521,59 @@ dropDerivedWC wc@(WC { wc_simple = simples, wc_insol = insols })
 ---------------- Getting free tyvars -------------------------
 
 -- | Returns free variables of constraints as a non-deterministic set
-tyVarsOfCt :: Ct -> TcTyVarSet
-tyVarsOfCt = runFVSet . tyVarsOfCtAcc
+tyCoVarsOfCt :: Ct -> TcTyCoVarSet
+tyCoVarsOfCt = runFVSet . tyCoVarsOfCtAcc
 
 -- | Returns free variables of constraints as a deterministically ordered.
 -- list. See Note [Deterministic FV] in FV.
-tyVarsOfCtList :: Ct -> [TcTyVar]
-tyVarsOfCtList = runFVList . tyVarsOfCtAcc
+tyCoVarsOfCtList :: Ct -> [TcTyCoVar]
+tyCoVarsOfCtList = runFVList . tyCoVarsOfCtAcc
 
 -- | Returns free variables of constraints as a composable FV computation.
 -- See Note [Deterministic FV] in FV.
-tyVarsOfCtAcc :: Ct -> FV
-tyVarsOfCtAcc (CTyEqCan { cc_tyvar = tv, cc_rhs = xi })
-  = tyVarsOfTypeAcc xi `unionFV` oneVar tv `unionFV` tyCoVarsOfTypeAcc (tyVarKind tv)
-tyVarsOfCtAcc (CFunEqCan { cc_tyargs = tys, cc_fsk = fsk })
-  = tyVarsOfTypesAcc tys `unionFV` oneVar fsk `unionFV` tyCoVarsOfTypeAcc (tyVarKind fsk)
-tyVarsOfCtAcc (CDictCan { cc_tyargs = tys }) = tyVarsOfTypesAcc tys
-tyVarsOfCtAcc (CIrredEvCan { cc_ev = ev }) = tyVarsOfTypeAcc (ctEvPred ev)
-tyVarsOfCtAcc (CHoleCan { cc_ev = ev }) = tyVarsOfTypeAcc (ctEvPred ev)
-tyVarsOfCtAcc (CNonCanonical { cc_ev = ev }) = tyVarsOfTypeAcc (ctEvPred ev)
+tyCoVarsOfCtAcc :: Ct -> FV
+tyCoVarsOfCtAcc (CTyEqCan { cc_tyvar = tv, cc_rhs = xi })
+  = tyCoVarsOfTypeAcc xi `unionFV` oneVar tv `unionFV` tyCoVarsOfTypeAcc (tyVarKind tv)
+tyCoVarsOfCtAcc (CFunEqCan { cc_tyargs = tys, cc_fsk = fsk })
+  = tyCoVarsOfTypesAcc tys `unionFV` oneVar fsk `unionFV` tyCoVarsOfTypeAcc (tyVarKind fsk)
+tyCoVarsOfCtAcc (CDictCan { cc_tyargs = tys }) = tyCoVarsOfTypesAcc tys
+tyCoVarsOfCtAcc (CIrredEvCan { cc_ev = ev }) = tyCoVarsOfTypeAcc (ctEvPred ev)
+tyCoVarsOfCtAcc (CHoleCan { cc_ev = ev }) = tyCoVarsOfTypeAcc (ctEvPred ev)
+tyCoVarsOfCtAcc (CNonCanonical { cc_ev = ev }) = tyCoVarsOfTypeAcc (ctEvPred ev)
 
 -- | Returns free variables of a bag of constraints as a non-deterministic
 -- set. See Note [Deterministic FV] in FV.
-tyVarsOfCts :: Cts -> TcTyVarSet
-tyVarsOfCts = runFVSet . tyVarsOfCtsAcc
+tyCoVarsOfCts :: Cts -> TcTyCoVarSet
+tyCoVarsOfCts = runFVSet . tyCoVarsOfCtsAcc
 
 -- | Returns free variables of a bag of constraints as a deterministically
 -- odered list. See Note [Deterministic FV] in FV.
-tyVarsOfCtsList :: Cts -> [TcTyVar]
-tyVarsOfCtsList = runFVList . tyVarsOfCtsAcc
+tyCoVarsOfCtsList :: Cts -> [TcTyCoVar]
+tyCoVarsOfCtsList = runFVList . tyCoVarsOfCtsAcc
 
 -- | Returns free variables of a bag of constraints as a composable FV
 -- computation. See Note [Deterministic FV] in FV.
-tyVarsOfCtsAcc :: Cts -> FV
-tyVarsOfCtsAcc = foldrBag (unionFV . tyVarsOfCtAcc) noVars
+tyCoVarsOfCtsAcc :: Cts -> FV
+tyCoVarsOfCtsAcc = foldrBag (unionFV . tyCoVarsOfCtAcc) noVars
 
+tyCoVarsOfWC :: WantedConstraints -> TyCoVarSet
+-- Only called on *zonked* things, hence no need to worry about flatten-skolems
+tyCoVarsOfWC (WC { wc_simple = simple, wc_impl = implic, wc_insol = insol })
+  = tyCoVarsOfCts simple `unionVarSet`
+    tyCoVarsOfBag tyCoVarsOfImplic implic `unionVarSet`
+    tyCoVarsOfCts insol
+
+tyCoVarsOfImplic :: Implication -> TyCoVarSet
+-- Only called on *zonked* things, hence no need to worry about flatten-skolems
+tyCoVarsOfImplic (Implic { ic_skols = skols
+                         , ic_given = givens, ic_wanted = wanted })
+  = (tyCoVarsOfWC wanted `unionVarSet` tyCoVarsOfTypes (map evVarPred givens))
+    `delVarSetList` skols
+
+tyCoVarsOfBag :: (a -> TyCoVarSet) -> Bag a -> TyCoVarSet
+tyCoVarsOfBag tvs_of = foldrBag (unionVarSet . tvs_of) emptyVarSet
+
+--------------------------
 dropDerivedSimples :: Cts -> Cts
 dropDerivedSimples simples = filterBag isWantedCt simples
                              -- simples are all Wanted or Derived

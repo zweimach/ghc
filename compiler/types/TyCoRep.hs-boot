@@ -4,7 +4,7 @@ import Outputable (Outputable)
 import Data.Data (Data,Typeable)
 
 data Type
-data Binder
+data TyBinder
 data TyThing
 data Coercion
 data LeftOrRight

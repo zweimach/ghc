@@ -569,12 +569,13 @@ writeMetaTyVarRef tyvar ref ty
 % Generating fresh variables for pattern match check
 -}
 
--- UNINSTANTIATED VERSION OF tcInstSkolTyVars
-genInstSkolTyVarsX :: SrcSpan -> TvSubst -> [TyVar] -> TcRnIf gbl lcl (TvSubst, [TcTyVar])
--- Precondition: tyvars should be ordered (kind vars first)
+-- UNINSTANTIATED VERSION OF tcInstSkolTyCoVars
+genInstSkolTyVarsX :: SrcSpan -> TCvSubst -> [TyVar]
+                   -> TcRnIf gbl lcl (TCvSubst, [TcTyVar])
+-- Precondition: tyvars should be scoping-ordered
 -- see Note [Kind substitution when instantiating]
 -- Get the location from the monad; this is a complete freshening operation
-genInstSkolTyVarsX loc subst tvs = instSkolTyVarsX (mkTcSkolTyVar loc False) subst tvs
+genInstSkolTyVarsX loc subst tvs = instSkolTyCoVarsX (mkTcSkolTyVar loc False) subst tvs
 
 {-
 ************************************************************************

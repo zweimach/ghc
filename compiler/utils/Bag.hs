@@ -14,7 +14,7 @@ module Bag (
         emptyBag, unitBag, unionBags, unionManyBags,
         mapBag,
         elemBag, lengthBag,
-        filterBag, filterBagM, partitionBag, partitionBagWith,
+        filterBag, partitionBag, partitionBagWith,
         concatBag, catBagMaybes, foldBag, foldrBag, foldlBag,
         isEmptyBag, isSingletonBag, consBag, snocBag, anyBag,
         listToBag, bagToList,

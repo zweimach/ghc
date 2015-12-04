@@ -31,7 +31,7 @@ import TcRnMonad
 import TcEnv
 import TcTypeable( mkTypeableBinds )
 import TcBinds( tcRecSelBinds )
-import TyCoRep( Type(..), Binder(..), delBinderVar )
+import TyCoRep( Type(..), TyBinder(..), delBinderVar )
 import TcType
 import TysWiredIn( unitTy )
 import MkCore( rEC_SEL_ERROR_ID )

@@ -795,7 +795,7 @@ tcInferApps mode orig_ty ty ki args = go ty ki args 1
 ---------------------------
 -- | This is used to instantiate binders when type-checking *types* only.
 -- Precondition: all binders are invisible. See also Note [Bidirectional type checking]
-tcInstBinders :: [Binder] -> TcM (TCvSubst, [TcType])
+tcInstBinders :: [TyBinder] -> TcM (TCvSubst, [TcType])
 tcInstBinders = tcInstBindersX emptyTCvSubst Nothing
 
 -- | This is used to instantiate binders when type-checking *types* only.
@@ -803,7 +803,7 @@ tcInstBinders = tcInstBindersX emptyTCvSubst Nothing
 -- The @VarEnv Kind@ gives some known instantiations.
 -- See also Note [Bidirectional type checking]
 tcInstBindersX :: TCvSubst -> Maybe (VarEnv Kind)
-               -> [Binder] -> TcM (TCvSubst, [TcType])
+               -> [TyBinder] -> TcM (TCvSubst, [TcType])
 tcInstBindersX subst mb_kind_info bndrs
   = do { (subst, args) <- mapAccumLM (tcInstBinderX mb_kind_info) subst bndrs
        ; traceTc "instantiating implicit dependent vars:"
@@ -813,7 +813,7 @@ tcInstBindersX subst mb_kind_info bndrs
 
 -- | Used only in *types*
 tcInstBinderX :: Maybe (VarEnv Kind)
-              -> TCvSubst -> Binder -> TcM (TCvSubst, TcType)
+              -> TCvSubst -> TyBinder -> TcM (TCvSubst, TcType)
 tcInstBinderX mb_kind_info subst binder
   | Just tv <- binderVar_maybe binder
   = case lookup_tv tv of
@@ -1606,7 +1606,7 @@ splitTelescopeTvs kind tvbs@(HsQTvs { hsq_implicit = hs_kvs
   where
     mk_tvs :: [TyVar]    -- scoped tv accum (reversed)
            -> [TyVar]    -- implicit tv accum (reversed)
-           -> [Binder]
+           -> [TyBinder]
            -> NameSet             -- implicit variables
            -> [LHsTyVarBndr Name] -- explicit variables
            -> ( [TyVar]           -- the tyvars to be lexically bound
@@ -1638,7 +1638,7 @@ splitTelescopeTvs kind tvbs@(HsQTvs { hsq_implicit = hs_kvs
     -- This can't handle Case (1) or Case (2) from [Typechecking telescopes]
     mk_tvs2 :: [TyVar]
             -> [TyVar]   -- new parameter: explicit tv accum (reversed)
-            -> [Binder]
+            -> [TyBinder]
             -> [LHsTyVarBndr Name]
             -> ( [TyVar]
                , [TyVar]   -- explicit tvs only

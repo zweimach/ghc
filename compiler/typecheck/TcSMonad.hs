@@ -2991,8 +2991,8 @@ See TcSMonad.deferTcSForAllEq
 deferTcSForAllEq :: Role -- Nominal or Representational
                  -> CtLoc  -- Original wanted equality flavor
                  -> [Coercion]        -- among the kinds of the binders
-                 -> ([Binder],TcType)   -- ForAll tvs1 body1
-                 -> ([Binder],TcType)   -- ForAll tvs2 body2
+                 -> ([TyBinder],TcType)   -- ForAll tvs1 body1
+                 -> ([TyBinder],TcType)   -- ForAll tvs2 body2
                  -> TcS Coercion
 deferTcSForAllEq role loc kind_cos (bndrs1,body1) (bndrs2,body2)
  = do { let tvs1'  = zipWithEqual "deferTcSForAllEq"

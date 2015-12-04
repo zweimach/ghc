@@ -22,7 +22,7 @@ module TcType (
   -- Types
   TcType, TcSigmaType, TcRhoType, TcTauType, TcPredType, TcThetaType,
   TcTyVar, TcTyVarSet, TcDTyVarSet, TcTyCoVarSet, TcDTyCoVarSet,
-  TcKind, TcCoVar, TcTyCoVar,
+  TcKind, TcCoVar, TcTyCoVar, TcTyBinder,
 
   -- TcLevel
   TcLevel(..), topTcLevel, pushTcLevel, isTopTcLevel,
@@ -122,7 +122,7 @@ module TcType (
 
   --------------------------------
   -- Rexported from Type
-  Type, PredType, ThetaType, Binder, VisibilityFlag(..),
+  Type, PredType, ThetaType, TyBinder, VisibilityFlag(..),
 
   mkForAllTy, mkForAllTys, mkInvForAllTys, mkNamedForAllTy,
   mkFunTy, mkFunTys,
@@ -256,6 +256,7 @@ type TcTyCoVar = Var    -- Either a TcTyVar or a CoVar
         --      forall a. T
         -- a cannot occur inside a MutTyVar in T; that is,
         -- T is "flattened" before quantifying over a
+type TcTyBinder = TyBinder
 
 -- These types do not have boxy type variables in them
 type TcPredType     = PredType
@@ -924,7 +925,7 @@ isRuntimeUnkSkol x
 ************************************************************************
 -}
 
-mkSigmaTy :: [Binder] -> [PredType] -> Type -> Type
+mkSigmaTy :: [TyBinder] -> [PredType] -> Type -> Type
 mkSigmaTy bndrs theta tau = mkForAllTys bndrs (mkPhiTy theta tau)
 
 mkInvSigmaTy :: [TyVar] -> [PredType] -> Type -> Type
@@ -934,7 +935,7 @@ mkInvSigmaTy tyvars
 mkPhiTy :: [PredType] -> Type -> Type
 mkPhiTy = mkFunTys
 
-mkNakedSigmaTy :: [Binder] -> [PredType] -> Type -> Type
+mkNakedSigmaTy :: [TyBinder] -> [PredType] -> Type -> Type
 -- See Note [Type-checking inside the knot] in TcHsType
 mkNakedSigmaTy bndrs theta tau = mkForAllTys bndrs (mkNakedPhiTy theta tau)
 
@@ -1024,7 +1025,7 @@ variables.  It's up to you to make sure this doesn't matter.
 
 -- | Splits a forall type into a list of 'Binder's and the inner type.
 -- Always succeeds, even if it returns an empty list.
-tcSplitForAllTys :: Type -> ([Binder], Type)
+tcSplitForAllTys :: Type -> ([TyBinder], Type)
 tcSplitForAllTys = splitForAllTys
 
 -- | Like 'tcSplitForAllTys', but splits off only named binders, returning
@@ -1033,7 +1034,7 @@ tcSplitNamedForAllTys :: Type -> ([TyVar], Type)
 tcSplitNamedForAllTys = splitNamedForAllTys
 
 -- | Like 'tcSplitForAllTys', but splits off only named binders.
-tcSplitNamedForAllTysB :: Type -> ([Binder], Type)
+tcSplitNamedForAllTysB :: Type -> ([TyBinder], Type)
 tcSplitNamedForAllTysB = splitNamedForAllTysB
 
 tcIsForAllTy :: Type -> Bool
@@ -1869,31 +1870,42 @@ isRigidEqPred _ _ = False  -- Not an equality
 -}
 
 toTcType :: Type -> TcType
-toTcType ty = to_tc_type emptyVarSet ty
-   where
-    to_tc_type :: VarSet -> Type -> TcType
-    -- The constraint solver expects EvVars to have TcType, in which the
-    -- free type variables are TcTyVars. So we convert from Type to TcType here
-    -- A bit tiresome; but one day I expect the two types to be entirely separate
-    -- in which case we'll definitely need to do this
-    to_tc_type forall_tvs (TyVarTy tv)
-      | Just var <- lookupVarSet forall_tvs tv = TyVarTy var
-      | otherwise = TyVarTy (toTcTyVar tv)
-    to_tc_type  ftvs (FunTy t1 t2)     = FunTy (to_tc_type ftvs t1) (to_tc_type ftvs t2)
-    to_tc_type  ftvs (AppTy t1 t2)     = AppTy (to_tc_type ftvs t1) (to_tc_type ftvs t2)
-    to_tc_type  ftvs (TyConApp tc tys) = TyConApp tc (map (to_tc_type ftvs) tys)
-    to_tc_type  ftvs (ForAllTy tv ty)  = let tv' = toTcTyVar tv
-                                         in ForAllTy tv' (to_tc_type (ftvs `extendVarSet` tv') ty)
-    to_tc_type _ftvs (LitTy l)         = LitTy l
+toTcType = to_tc_type emptyVarSet
 
 toTcTyVar :: TyVar -> TcTyVar
-toTcTyVar tv
-  | isTcTyVar tv = setVarType tv (toTcType (tyVarKind tv))
-  | isId tv      = pprPanic "toTcTyVar: Id:" (ppr tv)
-  | otherwise    = mkTcTyVar (tyVarName tv) (toTcType (tyVarKind tv)) vanillaSkolemTv
+toTcTyVar = to_tc_ty_var emptyVarSet
 
 toTcTypeBag :: Bag EvVar -> Bag EvVar -- All TyVars are transformed to TcTyVars
 toTcTypeBag evvars = mapBag (\tv -> setTyVarKind tv (toTcType (tyVarKind tv))) evvars
+
+to_tc_type :: VarSet -> Type -> TcType
+-- The constraint solver expects EvVars to have TcType, in which the
+-- free type variables are TcTyVars. So we convert from Type to TcType here
+-- A bit tiresome; but one day I expect the two types to be entirely separate
+-- in which case we'll definitely need to do this
+to_tc_type ftvs (TyVarTy tv)
+  | Just var <- lookupVarSet ftvs tv = TyVarTy var
+  | otherwise = TyVarTy (to_tc_ty_var ftvs tv)
+to_tc_type  ftvs (AppTy t1 t2)      = AppTy (to_tc_type ftvs t1) (to_tc_type ftvs t2)
+to_tc_type  ftvs (TyConApp tc tys)  = TyConApp tc (map (to_tc_type ftvs) tys)
+to_tc_type  ftvs (ForAllTy bndr ty)
+  = let (ftvs', bndr') = to_tc_binder ftvs bndr
+    in ForAllTy bndr' (to_tc_type ftvs' ty)
+to_tc_type _ftvs (LitTy l)          = LitTy l
+
+to_tc_binder :: VarSet -> TyBinder -> (VarSet, TcTyBinder)
+to_tc_binder ftvs (Anon ty) = (ftvs, Anon (to_tc_type ftvs ty))
+to_tc_binder ftvs (Named tv vis)
+  = (ftvs `extendVarSet` tv', Named tv' vis)
+  where
+    tv' = to_tc_ty_var ftvs tv
+
+to_tc_ty_var :: VarSet -> TyVar -> TcTyVar
+to_tc_ty_var ftvs tv
+  | isTcTyVar tv = setVarType tv (to_tc_type ftvs (tyVarKind tv))
+  | isId tv      = pprPanic "toTcTyVar: Id:" (ppr tv)
+  | otherwise    = mkTcTyVar (tyVarName tv) (to_tc_type ftvs (tyVarKind tv)) vanillaSkolemTv
+
 
 {-
 ************************************************************************

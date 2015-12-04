@@ -23,7 +23,7 @@ Note [The Type-related module hierarchy]
 module TyCoRep (
         TyThing(..),
         Type(..),
-        Binder(..),
+        TyBinder(..),
         TyLit(..),
         KindOrType, Kind,
         PredType, ThetaType,      -- Synonyms
@@ -139,6 +139,7 @@ import DynFlags
 import StaticFlags ( opt_PprStyle_Debug )
 import FastString
 import Pair
+import UniqSupply
 import ListSetOps
 import Util
 
@@ -190,7 +191,7 @@ data Type
                         --    can appear as the right hand side of a type synonym.
 
   | ForAllTy
-        Binder
+        TyBinder
         Type            -- ^ A Π type.
                         -- This includes arrow types, constructed with
                         -- @ForAllTy (Anon ...)@.
@@ -220,9 +221,9 @@ data TyLit
   | StrTyLit FastString
   deriving (Eq, Ord, Data.Data, Data.Typeable)
 
--- | A 'Binder' represents an argument to a function. Binders can be dependent
+-- | A 'TyBinder' represents an argument to a function. TyBinders can be dependent
 -- ('Named') or nondependent ('Anon'). They may also be visible or not.
-data Binder
+data TyBinder
   = Named TyVar VisibilityFlag
   | Anon Type   -- visibility is determined by the type (Constraint vs. *)
     deriving (Data.Typeable, Data.Data)
@@ -386,19 +387,19 @@ isCoercionType (TyConApp tc tys)
   = True
 isCoercionType _ = False
 
-binderType :: Binder -> Type
+binderType :: TyBinder -> Type
 binderType (Named v _) = varType v
 binderType (Anon ty)   = ty
 
 -- | Remove the binder's variable from the set, if the binder has
 -- a variable.
-delBinderVar :: VarSet -> Binder -> VarSet
+delBinderVar :: VarSet -> TyBinder -> VarSet
 delBinderVar vars (Named tv _) = vars `delVarSet` tv
 delBinderVar vars (Anon {})    = vars
 
 -- | Remove the binder's variable from the set, if the binder has
 -- a variable.
-delBinderVarFV :: Binder -> FV -> FV
+delBinderVarFV :: TyBinder -> FV -> FV
 delBinderVarFV (Named tv _) vars fv_cand in_scope acc = delFV tv vars fv_cand in_scope acc
 delBinderVarFV (Anon {})    vars fv_cand in_scope acc = vars fv_cand in_scope acc
 
@@ -1123,13 +1124,6 @@ coVarsOfCos cos = mapUnionVarSet coVarsOfCo cos
 closeOverKinds :: TyVarSet -> TyVarSet
 closeOverKinds = runFVSet . closeOverKindsAcc . varSetElems
 
-closeOverKinds :: TyCoVarSet -> TyCoVarSet
--- Add the kind variables free in the kinds
--- of the tyvars in the given set
-closeOverKinds tvs
-  = foldVarSet (\tv ktvs -> closeOverKinds (tyCoVarsOfType (tyVarKind tv))
-                            `unionVarSet` ktvs) tvs tvs
-
 -- | Given a list of tyvars returns a deterministic FV computation that
 -- returns the given tyvars with the kind variables free in the kinds of the
 -- given tyvars.
@@ -1418,7 +1412,7 @@ extendTCvSubstList :: TCvSubst -> [Var] -> [Type] -> TCvSubst
 extendTCvSubstList subst tvs tys
   = foldl2 extendTCvSubst subst tvs tys
 
-extendTCvSubstBinder :: TCvSubst -> Binder -> Type -> TCvSubst
+extendTCvSubstBinder :: TCvSubst -> TyBinder -> Type -> TCvSubst
 extendTCvSubstBinder env (Anon {})    _  = env
 extendTCvSubstBinder env (Named tv _) ty = extendTCvSubst env tv ty
 
@@ -1483,7 +1477,7 @@ zipOpenTCvSubstCoVars cvs cos
 
 -- | Create an open TCvSubst combining the binders and types provided.
 -- NB: It is OK if the lists are of different lengths.
-zipOpenTCvSubstBinders :: [Binder] -> [Type] -> TCvSubst
+zipOpenTCvSubstBinders :: [TyBinder] -> [Type] -> TCvSubst
 zipOpenTCvSubstBinders bndrs tys
   = TCvSubst is tenv emptyCvSubstEnv
   where
@@ -1626,7 +1620,7 @@ substTysWithCoVars cvs cos = ASSERT( length cvs == length cos )
 
 -- | Type substitution using 'Binder's. Anonymous binders
 -- simply ignore their matching type.
-substTyWithBinders :: [Binder] -> [Type] -> Type -> Type
+substTyWithBinders :: [TyBinder] -> [Type] -> Type -> Type
 substTyWithBinders bndrs tys = ASSERT( length bndrs == length tys )
                                substTy (zipOpenTCvSubstBinders bndrs tys)
 
@@ -1854,7 +1848,7 @@ cloneTyVarBndr (TCvSubst in_scope tv_env cv_env) tv uniq
     tv' = setVarUnique tv uniq  -- Simply set the unique; the kind
                                 -- has no type variables to worry about
 
-cloneTyVarBndrs :: TvSubst -> [TyVar] -> UniqSupply -> (TvSubst, [TyVar])
+cloneTyVarBndrs :: TCvSubst -> [TyVar] -> UniqSupply -> (TCvSubst, [TyVar])
 cloneTyVarBndrs subst []     _usupply = (subst, [])
 cloneTyVarBndrs subst (t:ts)  usupply = (subst'', tv:tvs)
   where
@@ -2046,7 +2040,7 @@ ppr_sigma_type show_foralls_unconditionally ty
 pprSigmaType :: Type -> SDoc
 pprSigmaType ty = ppr_sigma_type False ty
 
-pprUserForAll :: [Binder] -> SDoc
+pprUserForAll :: [TyBinder] -> SDoc
 -- Print a user-level forall; see Note [When to print foralls]
 pprUserForAll bndrs
   = sdocWithDynFlags $ \dflags ->
@@ -2061,7 +2055,7 @@ pprForAllImplicit tvs = pprForAll (zipWith Named tvs (repeat Invisible))
 
 -- | Render the "forall ... ." or "forall ... ->" bit of a type.
 -- Do not pass in anonymous binders!
-pprForAll :: [Binder] -> SDoc
+pprForAll :: [TyBinder] -> SDoc
 pprForAll [] = empty
 pprForAll bndrs@(Named _ vis : _)
   = add_separator (forAllLit <+> doc) <+> pprForAll bndrs'
@@ -2079,9 +2073,9 @@ pprTvBndrs tvs = sep (map pprTvBndr tvs)
 -- | Render the ... in @(forall ... .)@ or @(forall ... ->)@.
 -- Returns both the list of not-yet-rendered binders and the doc.
 -- No anonymous binders here!
-ppr_tv_bndrs :: [Binder]
+ppr_tv_bndrs :: [TyBinder]
              -> VisibilityFlag  -- ^ visibility of the first binder in the list
-             -> ([Binder], SDoc)
+             -> ([TyBinder], SDoc)
 ppr_tv_bndrs all_bndrs@(Named tv vis : bndrs) vis1
   | vis == vis1 = let (bndrs', doc) = ppr_tv_bndrs bndrs vis1 in
                   (bndrs', pprTvBndr tv <+> doc)
@@ -2096,7 +2090,7 @@ pprTvBndr tv
              where
                kind = tyVarKind tv
 
-instance Outputable Binder where
+instance Outputable TyBinder where
   ppr (Named v Visible)   = ppr v
   ppr (Named v Invisible) = braces (ppr v)
   ppr (Anon ty)       = text "[anon]" <+> ppr ty

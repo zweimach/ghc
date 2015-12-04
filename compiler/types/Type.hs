@@ -15,7 +15,7 @@ module Type (
 
         -- $representation_types
         TyThing(..), Type, VisibilityFlag(..), KindOrType, PredType, ThetaType,
-        Var, TyVar, isTyVar, TyCoVar, Binder,
+        Var, TyVar, isTyVar, TyCoVar, TyBinder,
 
         -- ** Constructing and deconstructing types
         mkTyVarTy, mkTyVarTys, getTyVar, getTyVar_maybe, repGetTyVar_maybe,
@@ -203,7 +203,6 @@ import CoAxiom
 import {-# SOURCE #-} Coercion
 
 -- others
-import UniqSupply       ( UniqSupply, takeUniqFromSupply )
 import BasicTypes       ( Arity, RepArity )
 import Util
 import Outputable
@@ -1165,7 +1164,7 @@ in TyCoRep.
                                 ~~~~~~~~
 -}
 
-mkForAllTy :: Binder -> Type -> Type
+mkForAllTy :: TyBinder -> Type -> Type
 mkForAllTy = ForAllTy
 
 -- | Make a dependent forall.
@@ -1174,7 +1173,7 @@ mkNamedForAllTy tv vis = ASSERT( isTyVar tv )
                          ForAllTy (Named tv vis)
 
 -- | Wraps foralls over the type using the provided 'TyVar's from left to right
-mkForAllTys :: [Binder] -> Type -> Type
+mkForAllTys :: [TyBinder] -> Type -> Type
 mkForAllTys tyvars ty = foldr ForAllTy ty tyvars
 
 -- | Like mkForAllTys, but assumes all variables are dependent and invisible,
@@ -1222,7 +1221,7 @@ mkPiTypesPreferFunTy vars inner_ty = fst $ go vars inner_ty
 -- | Take a ForAllTy apart, returning the list of binders and the result type.
 -- This always succeeds, even if it returns only an empty list. Note that the
 -- result type returned may have free variables that were bound by a forall.
-splitForAllTys :: Type -> ([Binder], Type)
+splitForAllTys :: Type -> ([TyBinder], Type)
 splitForAllTys ty = split ty ty []
   where
     split orig_ty ty bndrs | Just ty' <- coreView ty = split orig_ty ty' bndrs
@@ -1236,7 +1235,7 @@ splitNamedForAllTys ty = first (map $ binderVar "splitNamedForAllTys") $
                          splitNamedForAllTysB ty
 
 -- | Like 'splitForAllTys' but split off only /named/ binders.
-splitNamedForAllTysB :: Type -> ([Binder], Type)
+splitNamedForAllTysB :: Type -> ([TyBinder], Type)
 splitNamedForAllTysB ty = split ty ty []
   where
     split orig_ty ty bs | Just ty' <- coreView ty = split orig_ty ty' bs
@@ -1253,13 +1252,13 @@ isNamedForAllTy (ForAllTy (Named {}) _) = True
 isNamedForAllTy _                       = False
 
 -- | Take a forall type apart, or panics if that is not possible.
-splitForAllTy :: Type -> (Binder, Type)
+splitForAllTy :: Type -> (TyBinder, Type)
 splitForAllTy ty
   | Just answer <- splitForAllTy_maybe ty = answer
   | otherwise                             = pprPanic "splitForAllTy" (ppr ty)
 
 -- | Attempts to take a forall type apart
-splitForAllTy_maybe :: Type -> Maybe (Binder, Type)
+splitForAllTy_maybe :: Type -> Maybe (TyBinder, Type)
 splitForAllTy_maybe ty = splitFAT_m ty
   where
     splitFAT_m ty | Just ty' <- coreView ty = splitFAT_m ty'
@@ -1314,7 +1313,7 @@ partitionInvisibles tc get_ty = go emptyTCvSubst (tyConKind tc)
 
 
 -- like splitForAllTys, but returns only *invisible* binders, including constraints
-splitForAllTysInvisible :: Type -> ([Binder], Type)
+splitForAllTysInvisible :: Type -> ([TyBinder], Type)
 splitForAllTysInvisible ty = split ty ty []
    where
      split orig_ty ty bndrs
@@ -1326,7 +1325,7 @@ splitForAllTysInvisible ty = split ty ty []
      split orig_ty _ bndrs
        = (reverse bndrs, orig_ty)
 
-tyConBinders :: TyCon -> [Binder]
+tyConBinders :: TyCon -> [TyBinder]
 tyConBinders = fst . splitForAllTys . tyConKind
 
 {-
@@ -1385,30 +1384,30 @@ applyTysX tvs body_ty arg_tys
 {-
 %************************************************************************
 %*                                                                      *
-   Binders
+   TyBinders
 %*                                                                      *
 %************************************************************************
 -}
 
 -- | Make a named binder
-mkNamedBinder :: Var -> VisibilityFlag -> Binder
+mkNamedBinder :: Var -> VisibilityFlag -> TyBinder
 mkNamedBinder = Named
 
 -- | Make an anonymous binder
-mkAnonBinder :: Type -> Binder
+mkAnonBinder :: Type -> TyBinder
 mkAnonBinder = Anon
 
-isNamedBinder :: Binder -> Bool
+isNamedBinder :: TyBinder -> Bool
 isNamedBinder (Named {}) = True
 isNamedBinder _          = False
 
-isAnonBinder :: Binder -> Bool
+isAnonBinder :: TyBinder -> Bool
 isAnonBinder (Anon {}) = True
 isAnonBinder _         = False
 
 -- | Does this binder bind a variable that is /not/ erased? Returns
 -- 'True' for anonymous binders.
-isIdLikeBinder :: Binder -> Bool
+isIdLikeBinder :: TyBinder -> Bool
 isIdLikeBinder (Named {}) = False
 isIdLikeBinder (Anon {})  = True
 
@@ -1418,39 +1417,39 @@ isIdLikeBinder (Anon {})  = True
 isVisibleType :: Type -> Bool
 isVisibleType = not . isPredTy
 
-binderVisibility :: Binder -> VisibilityFlag
+binderVisibility :: TyBinder -> VisibilityFlag
 binderVisibility (Named _ vis) = vis
 binderVisibility (Anon ty)
   | isVisibleType ty = Visible
   | otherwise        = Invisible
 
 -- | Does this binder bind an invisible argument?
-isInvisibleBinder :: Binder -> Bool
+isInvisibleBinder :: TyBinder -> Bool
 isInvisibleBinder (Named _ vis) = vis == Invisible
 isInvisibleBinder (Anon ty)     = isPredTy ty
 
 -- | Does this binder bind a visible argument?
-isVisibleBinder :: Binder -> Bool
+isVisibleBinder :: TyBinder -> Bool
 isVisibleBinder = not . isInvisibleBinder
 
 -- | Extract a bound variable in a binder, if any
-binderVar_maybe :: Binder -> Maybe Var
+binderVar_maybe :: TyBinder -> Maybe Var
 binderVar_maybe (Named v _) = Just v
 binderVar_maybe (Anon {})   = Nothing
 
 -- | Extract a bound variable in a binder, or panics
 binderVar :: String   -- ^ printed if there is a panic
-          -> Binder -> Var
+          -> TyBinder -> Var
 binderVar _ (Named v _) = v
 binderVar e (Anon t)    = pprPanic ("binderVar (" ++ e ++ ")") (ppr t)
 
 -- | Extract a relevant type, if there is one.
-binderRelevantType_maybe :: Binder -> Maybe Type
+binderRelevantType_maybe :: TyBinder -> Maybe Type
 binderRelevantType_maybe (Named {}) = Nothing
 binderRelevantType_maybe (Anon ty)  = Just ty
 
 -- | Like 'maybe', but for binders.
-caseBinder :: Binder       -- ^ binder to scrutinize
+caseBinder :: TyBinder       -- ^ binder to scrutinize
            -> (TyVar -> a) -- ^ named case
            -> (Type -> a)  -- ^ anonymous case
            -> a
@@ -1458,14 +1457,14 @@ caseBinder (Named v _) f _ = f v
 caseBinder (Anon t) _ d    = d t
 
 -- | Break apart a list of binders into tyvars and anonymous types.
-partitionBinders :: [Binder] -> ([TyVar], [Type])
+partitionBinders :: [TyBinder] -> ([TyVar], [Type])
 partitionBinders = partitionWith named_or_anon
   where
     named_or_anon bndr = caseBinder bndr Left Right
 
 -- | Break apart a list of binders into a list of named binders and
 -- a list of anonymous types.
-partitionBindersIntoBinders :: [Binder] -> ([Binder], [Type])
+partitionBindersIntoBinders :: [TyBinder] -> ([TyBinder], [Type])
 partitionBindersIntoBinders = partitionWith named_or_anon
   where
     named_or_anon bndr = caseBinder bndr (\_ -> Left bndr) Right

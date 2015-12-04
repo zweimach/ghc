@@ -23,8 +23,7 @@ module Inst (
 
        -- Simple functions over evidence variables
        tyCoVarsOfWC,
-       tyCoVarsOfCt, tyCoVarsOfCts
-       tyCoVarsOfCtList, tyCoVarsOfCtsList,
+       tyCoVarsOfCt, tyCoVarsOfCts,
     ) where
 
 #include "HsVersions.h"
@@ -60,7 +59,6 @@ import Util
 import Outputable
 import Control.Monad( unless )
 import Data.Maybe( isJust )
-import FV
 
 {-
 ************************************************************************
