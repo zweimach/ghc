@@ -1296,7 +1296,9 @@ kcHsTyVarBndrs cusk (HsQTvs { hsq_implicit = kv_ns
               -- in the CUSK case, we want to default any un-kinded tyvars
               -- See Note [Complete user-supplied kind signatures] in HsDecls
            ; case hs_tvb of
-               UserTyVar {} | cusk
+               UserTyVar {}
+                 | cusk
+                 , not scoped  -- don't default class tyvars
                  -> discardResult $
                     unifyKind (Just (mkTyVarTy tv)) liftedTypeKind
                                                     (tyVarKind tv)

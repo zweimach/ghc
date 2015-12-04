@@ -128,13 +128,13 @@ coreExprToBCOs dflags this_mod expr
 
 -- The regular freeVars function gives more information than is useful to
 -- us here. simpleFreeVars does the impedence matching.
-simpleFreeVars :: CoreExpr -> AnnExpr Id VarSet
+simpleFreeVars :: CoreExpr -> AnnExpr Id DVarSet
 simpleFreeVars = go . freeVars
   where
-    go :: AnnExpr Id FVAnn -> AnnExpr Id VarSet
+    go :: AnnExpr Id FVAnn -> AnnExpr Id DVarSet
     go (ann, e) = (freeVarsOfAnn ann, go' e)
 
-    go' :: AnnExpr' Id FVAnn -> AnnExpr' Id VarSet
+    go' :: AnnExpr' Id FVAnn -> AnnExpr' Id DVarSet
     go' (AnnVar id)                  = AnnVar id
     go' (AnnLit lit)                 = AnnLit lit
     go' (AnnLam bndr body)           = AnnLam bndr (go body)

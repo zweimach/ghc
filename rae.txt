@@ -54,6 +54,12 @@ fix:
     the monad. We'd still need a knot, but the knot would only have to surround
     the final zonks, *not* constraint generation/solving. Vast improvement.
 
+  - We should deprecate some old kind behavior. Specifically, consider
+    foo :: forall a. (a :: k) -> *
+    vs
+    bar :: forall a. a -> b
+
+    The first works, while the second doesn't. That's a bit inconsistent.
 
   - better use of new VarSet features (CoreFVs using accumulators, FloatIn not converting from det
     maps to nondet maps)

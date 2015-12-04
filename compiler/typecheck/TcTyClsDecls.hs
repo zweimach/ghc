@@ -534,7 +534,7 @@ kcConDecl (ConDecl { con_names = names, con_qvars = ex_tvs
   = addErrCtxt (dataConCtxtName names) $
          -- the 'False' says that the existentials don't have a CUSK, as the
          -- concept doesn't really apply here. We just need to bring the variables
-         -- into scope!
+         -- into scope.
     do { _ <- kcHsTyVarBndrs False ex_tvs $ \_ _ ->
               do { _ <- tcHsContext ex_ctxt
                  ; mapM_ (tcHsOpenType . getBangType) (hsConDeclArgTys details)

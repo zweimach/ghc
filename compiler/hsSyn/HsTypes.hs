@@ -763,15 +763,21 @@ hsWcScopedTvs :: LHsSigWcType Name -> [Name]
 hsWcScopedTvs sig_ty
   | HsIB { hsib_vars = vars, hsib_body = sig_ty1 } <- sig_ty
   , HsWC { hswc_wcs = nwcs, hswc_body = sig_ty2 } <- sig_ty1
-  , (tvs, _) <- splitLHsForAllTy sig_ty2
-  = vars ++ nwcs ++ map hsLTyVarName tvs
+  = case sig_ty2 of
+      L _ (HsForAllTy { hst_bndrs = tvs }) -> vars ++ nwcs ++
+                                              map hsLTyVarName tvs
+               -- include kind variables only if the type is headed by forall
+               -- (this is consistent with GHC 7 behaviour)
+      _                                    -> nwcs
 
 hsScopedTvs :: LHsSigType Name -> [Name]
 -- Same as hsWcScopedTvs, but for a LHsSigType
 hsScopedTvs sig_ty
   | HsIB { hsib_vars = vars,  hsib_body = sig_ty2 } <- sig_ty
-  , (tvs, _) <- splitLHsForAllTy sig_ty2
+  , L _ (HsForAllTy { hst_bndrs = tvs }) <- sig_ty2
   = vars ++ map hsLTyVarName tvs
+  | otherwise
+  = []
 
 {- Note [Scoping of named wildcards]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

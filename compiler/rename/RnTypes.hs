@@ -27,7 +27,7 @@ module RnTypes (
         bindSigTyVarsFV, bindHsQTyVars, bindLRdrNames,
         extractHsTyRdrTyVars, extractHsTysRdrTyVars,
         extractRdrKindSigVars, extractDataDefnKindVars,
-        freeKiTyVarsAllVars, freeKiTyVarsKindVars
+        freeKiTyVarsAllVars, freeKiTyVarsKindVars, freeKiTyVarsTypeVars
   ) where
 
 import {-# SOURCE #-} RnSplice( rnSpliceType )
@@ -1369,7 +1369,7 @@ See also Note [HsBSig binder lists] in HsTypes
 data FreeKiTyVars = FKTV { fktv_kis    :: [Located RdrName]
                          , _fktv_k_set :: OccSet  -- for efficiency,
                                                   -- only used internally
-                         , _fktv_tys   :: [Located RdrName]
+                         , fktv_tys    :: [Located RdrName]
                          , _fktv_t_set :: OccSet
                          , fktv_all    :: [Located RdrName] }
 
@@ -1384,6 +1384,9 @@ freeKiTyVarsAllVars = fktv_all
 
 freeKiTyVarsKindVars :: FreeKiTyVars -> [Located RdrName]
 freeKiTyVarsKindVars = fktv_kis
+
+freeKiTyVarsTypeVars :: FreeKiTyVars -> [Located RdrName]
+freeKiTyVarsTypeVars = fktv_tys
 
 filterInScope :: LocalRdrEnv -> FreeKiTyVars -> FreeKiTyVars
 filterInScope rdr_env (FKTV kis k_set tys t_set all)

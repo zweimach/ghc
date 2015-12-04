@@ -1541,13 +1541,13 @@ rnConDecls = mapFvRn (wrapLocFstM rnConDecl)
 
 rnConDecl :: ConDecl RdrName -> RnM (ConDecl Name, FreeVars)
 rnConDecl decl@(ConDecl { con_names = names, con_qvars = qtvs
-                        , con_cxt = lcxt@(L _ cxt), con_details = details
+                        , con_cxt = lcxt@(L loc cxt), con_details = details
                         , con_res = res_ty, con_doc = mb_doc
                         , con_explicit = explicit })
   = do  { mapM_ (addLocM checkConName) names
         ; new_names    <- mapM lookupLocatedTopBndrRn names
         ; mb_doc'      <- rnMbLHsDoc mb_doc
-        ; (kvs, qtvs') <- get_con_qtvs qtvs (hsConDeclArgTys details) res_ty
+        ; (kvs, qtvs') <- get_con_qtvs (hsConDeclArgTys details) res_ty
 
         ; bindHsQTyVars doc Nothing kvs qtvs' $ \new_tyvars -> do
         { (new_context, fvs1) <- rnContext doc lcxt
@@ -1568,24 +1568,28 @@ rnConDecl decl@(ConDecl { con_names = names, con_qvars = qtvs
     doc = ConDeclCtx names
     get_rdr_tvs tys = extractHsTysRdrTyVars (cxt ++ tys)
 
-    get_con_qtvs :: LHsQTyVars RdrName -> [LHsType RdrName]
+    get_con_qtvs :: [LHsType RdrName]
                  -> ResType (LHsType RdrName)
                  -> RnM ([Located RdrName], LHsQTyVars RdrName)
-    get_con_qtvs qtvs arg_tys ResTyH98
+    get_con_qtvs arg_tys ResTyH98
       | explicit   -- data T = forall a. MkT (a -> a)
       = do { free_vars <- get_rdr_tvs arg_tys
            ; return (freeKiTyVarsKindVars free_vars, qtvs) }
       | otherwise  -- data T = MkT (a -> a)
       = return ([], mkHsQTvs [])
 
-    get_con_qtvs qtvs arg_tys (ResTyGADT _ ty)
+    get_con_qtvs arg_tys (ResTyGADT _ ty)
       = do { free_vars <- get_rdr_tvs (arg_tys ++ [ty])
            ; return $ if explicit
                         -- data T x where { MkT :: forall a. a -> T a }
                       then (freeKiTyVarsKindVars free_vars, qtvs)
 
                         -- data T x where { MkT :: a -> T a }
-                      else (freeKiTyVarsAllVars free_vars, mkHsQTvs []) }
+                      else let kvars = freeKiTyVarsKindVars free_vars
+                               tvars = map unLoc $
+                                       freeKiTyVarsTypeVars free_vars in
+                           ( kvars
+                           , mkHsQTvs (userHsTyVarBndrs loc tvars) ) }
 
 rnConResult :: HsDocContext -> [Name]
             -> HsConDetails (LHsType Name) (Located [LConDeclField Name])
