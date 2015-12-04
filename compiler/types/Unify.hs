@@ -620,17 +620,20 @@ unify_ty ty1 ty2
   = if tc1 == tc2 || (isStarKind ty1 && isStarKind ty2)
     then if isInjectiveTyCon tc1 Nominal
          then unify_tys tys1 tys2
-         else let inj | isTypeFamilyTyCon tc1
-                      = case familyTyConInjectivityInfo tc1 of
-                          NotInjective -> repeat False
-                          Injective bs -> bs
-                      | otherwise
-                      = repeat False
+         else do { let inj | isTypeFamilyTyCon tc1
+                           = case familyTyConInjectivityInfo tc1 of
+                               NotInjective -> repeat False
+                               Injective bs -> bs
+                           | otherwise
+                           = repeat False
 
-                  inj_tys1 = filterByList inj tys1
-                  inj_tys2 = filterByList inj tys2
-              in
-              don'tBeSoSure $ unify_tys inj_tys1 inj_tys2
+                       (inj_tys1, noninj_tys2) = partitionByList inj tys1
+                       (inj_tys2, noninj_tys2) = partitionByList inj tys2
+
+                 ; unify_tys inj_tys1 inj_tys2
+                 ; inj_tf <- checkingInjectivity
+                 ; unless inj_tf $ -- See (end of) Note [Specification of unification]
+                   don'tBeSoSure $ unify_tys noninj_tys1 noninj_tys2 }
     else -- tc1 /= tc2
          if isGenerativeTyCon tc1 Nominal && isGenerativeTyCon tc2 Nominal
          then surelyApart
@@ -815,6 +818,8 @@ data BindFlag
 data UMEnv = UMEnv { um_bind_fun :: TyVar -> BindFlag
                        -- the user-supplied BindFlag function
                    , um_unif     :: Bool   -- unification (True) or matching?
+                   , um_inj_tf   :: Bool   -- checking for injectivity?
+                             -- See (end of) Note [Specification of unification]
                    , um_rn_env   :: RnEnv2 }
 
 data UMState = UMState
@@ -856,11 +861,12 @@ instance MonadFail.MonadFail UM where
 
 initUM :: (TyVar -> BindFlag)
        -> Bool        -- True <=> unify; False <=> match
+       -> Bool        -- True <=> doing an injectivity check
        -> RnEnv2
        -> TvSubstEnv  -- subst to extend
        -> CvSubstEnv
        -> UM a -> UnifyResultM a
-initUM badtvs unif rn_env subst_env cv_subst_env um
+initUM badtvs unif inj_tf rn_env subst_env cv_subst_env um
   = case unUM um env state of
       Unifiable (_, subst)  -> Unifiable subst
       MaybeApart (_, subst) -> MaybeApart subst
@@ -868,6 +874,7 @@ initUM badtvs unif rn_env subst_env cv_subst_env um
   where
     env = UMEnv { um_bind_fun = badtvs
                 , um_unif     = unif
+                , um_inj_tf   = inj_tf
                 , um_rn_env   = rn_env }
     state = UMState { um_tv_env = subst_env
                     , um_cv_env = cv_subst_env }
@@ -940,6 +947,9 @@ umSwapRn thing = UM $ \env state ->
 
 amIUnifying :: UM Bool
 amIUnifying = UM $ \env state -> Unifiable (state, um_unif env)
+
+checkingInjectivity :: UM Bool
+checkingInjectivity = UM $ \env state -> Unifiable (state, um_inj_tf env)
 
 maybeApart :: UM ()
 maybeApart = UM (\_ state -> MaybeApart (state, ()))
