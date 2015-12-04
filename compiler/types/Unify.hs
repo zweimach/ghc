@@ -106,7 +106,7 @@ tcMatchTysX :: TyCoVarSet     -- ^ Template tyvars
             -> Maybe TCvSubst -- ^ One-shot substitution
 tcMatchTysX tmpls (TCvSubst in_scope tv_env cv_env) tys1 tys2
 -- See Note [Kind coercions in Unify]
-  = case tc_unify_tys (matchBindFun tmpls) False
+  = case tc_unify_tys (matchBindFun tmpls) False False
                       (mkRnEnv2 in_scope) tv_env cv_env tys1 tys2 of
       Unifiable (tv_env', cv_env')
         -> Just $ TCvSubst in_scope tv_env' cv_env'
@@ -123,7 +123,7 @@ ruleMatchTyX
   -> Maybe TvSubstEnv
 ruleMatchTyX tmpl_tvs rn_env tenv tmpl target
 -- See Note [Kind coercions in Unify]
-  = case tc_unify_tys (matchBindFun tmpl_tvs) False rn_env
+  = case tc_unify_tys (matchBindFun tmpl_tvs) False False rn_env
                       tenv emptyCvSubstEnv [tmpl] [target] of
       Unifiable (tenv', _) -> Just tenv'
       _                    -> Nothing
@@ -281,8 +281,9 @@ tcUnifyTyWithTFs :: Bool  -- ^ True <=> do two-way unification;
 -- The code is incorporated with the standard unifier for convenience, but
 -- its operation should match the specification in the paper.
 tcUnifyTyWithTFs twoWay t1 t2
-  = case tc_unify_tys (const BindMe) twoWay rn_env emptyTvSubstEnv emptyCvSubstEnv
-                         [t1] [t2] of
+  = case tc_unify_tys (const BindMe) twoWay True
+                       rn_env emptyTvSubstEnv emptyCvSubstEnv
+                       [t1] [t2] of
       Unifiable  (subst, _) -> Just $ niFixTCvSubst subst
       MaybeApart (subst, _) -> Just $ niFixTCvSubst subst
       -- we want to *succeed* in questionable cases. This is a
@@ -350,7 +351,8 @@ tcUnifyTysFG :: (TyVar -> BindFlag)
              -> [Type] -> [Type]
              -> UnifyResult
 tcUnifyTysFG bind_fn tys1 tys2
-  = do { (env, _) <- tc_unify_tys bind_fn True env emptyTvSubstEnv emptyCvSubstEnv
+  = do { (env, _) <- tc_unify_tys bind_fn True False env
+                                  emptyTvSubstEnv emptyCvSubstEnv
                                   tys1 tys2
        ; return $ niFixTCvSubst env }
   where
@@ -361,13 +363,14 @@ tcUnifyTysFG bind_fn tys1 tys2
 -- too general for outside clients, though.
 tc_unify_tys :: (TyVar -> BindFlag)
              -> Bool        -- ^ True <=> unify; False <=> match
+             -> Bool        -- ^ True <=> doing an injectivity check
              -> RnEnv2
              -> TvSubstEnv  -- ^ substitution to extend
              -> CvSubstEnv
              -> [Type] -> [Type]
              -> UnifyResultM (TvSubstEnv, CvSubstEnv)
-tc_unify_tys bind_fn unif rn_env tv_env cv_env tys1 tys2
-  = initUM bind_fn unif rn_env tv_env cv_env $
+tc_unify_tys bind_fn unif inj_check rn_env tv_env cv_env tys1 tys2
+  = initUM bind_fn unif inj_check rn_env tv_env cv_env $
     do { unify_tys tys1 tys2
        ; (,) <$> getTvSubstEnv <*> getCvSubstEnv }
 
@@ -627,7 +630,7 @@ unify_ty ty1 ty2
                            | otherwise
                            = repeat False
 
-                       (inj_tys1, noninj_tys2) = partitionByList inj tys1
+                       (inj_tys1, noninj_tys1) = partitionByList inj tys1
                        (inj_tys2, noninj_tys2) = partitionByList inj tys2
 
                  ; unify_tys inj_tys1 inj_tys2
