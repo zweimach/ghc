@@ -161,7 +161,6 @@ module TcType (
   --------------------------------
   -- Transforming Types to TcTypes
   toTcType,    -- :: Type -> TcType
-  toTcTyVar,   -- :: TyVar -> TcTyVar
   toTcTypeBag, -- :: Bag EvVar -> Bag EvVar
 
   pprKind, pprParendKind, pprSigmaType,
@@ -210,6 +209,7 @@ import Control.Monad (liftM, ap)
 #if __GLASGOW_HASKELL__ < 709
 import Control.Applicative (Applicative(..), (<$>) )
 #endif
+import Data.Functor.Identity
 
 {-
 ************************************************************************
@@ -1870,42 +1870,49 @@ isRigidEqPred _ _ = False  -- Not an equality
 -}
 
 toTcType :: Type -> TcType
-toTcType = to_tc_type emptyVarSet
-
-toTcTyVar :: TyVar -> TcTyVar
-toTcTyVar = to_tc_ty_var emptyVarSet
-
-toTcTypeBag :: Bag EvVar -> Bag EvVar -- All TyVars are transformed to TcTyVars
-toTcTypeBag evvars = mapBag (\tv -> setTyVarKind tv (toTcType (tyVarKind tv))) evvars
-
-to_tc_type :: VarSet -> Type -> TcType
 -- The constraint solver expects EvVars to have TcType, in which the
 -- free type variables are TcTyVars. So we convert from Type to TcType here
 -- A bit tiresome; but one day I expect the two types to be entirely separate
 -- in which case we'll definitely need to do this
-to_tc_type ftvs (TyVarTy tv)
-  | Just var <- lookupVarSet ftvs tv = TyVarTy var
-  | otherwise = TyVarTy (to_tc_ty_var ftvs tv)
-to_tc_type  ftvs (AppTy t1 t2)      = AppTy (to_tc_type ftvs t1) (to_tc_type ftvs t2)
-to_tc_type  ftvs (TyConApp tc tys)  = TyConApp tc (map (to_tc_type ftvs) tys)
-to_tc_type  ftvs (ForAllTy bndr ty)
-  = let (ftvs', bndr') = to_tc_binder ftvs bndr
-    in ForAllTy bndr' (to_tc_type ftvs' ty)
-to_tc_type _ftvs (LitTy l)          = LitTy l
+toTcType = runIdentity . to_tc_type emptyVarSet
 
-to_tc_binder :: VarSet -> TyBinder -> (VarSet, TcTyBinder)
-to_tc_binder ftvs (Anon ty) = (ftvs, Anon (to_tc_type ftvs ty))
-to_tc_binder ftvs (Named tv vis)
-  = (ftvs `extendVarSet` tv', Named tv' vis)
+toTcTypeBag :: Bag EvVar -> Bag EvVar -- All TyVars are transformed to TcTyVars
+toTcTypeBag evvars = mapBag (\tv -> setTyVarKind tv (toTcType (tyVarKind tv))) evvars
+
+to_tc_mapper :: TyCoMapper VarSet Identity
+to_tc_mapper
+  = TyCoMapper { tcm_smart    = False   -- more efficient not to use smart ctors
+               , tcm_tyvar    = tyvar
+               , tcm_covar    = covar
+               , tcm_hole     = hole
+               , tcm_tybinder = tybinder }
   where
-    tv' = to_tc_ty_var ftvs tv
+    tyvar :: VarSet -> TyVar -> Identity Type
+    tyvar ftvs tv
+      | Just var <- lookupVarSet ftvs tv = return $ TyVarTy var
+      | isTcTyVar tv = TyVarTy <$> updateTyVarKindM (to_tc_type ftvs) tv
+      | otherwise
+      = do { kind' <- to_tc_type ftvs (tyVarKind tv)
+           ; return $ TyVarTy $ mkTcTyVar (tyVarName tv) kind' vanillaSkolemTv }
 
-to_tc_ty_var :: VarSet -> TyVar -> TcTyVar
-to_tc_ty_var ftvs tv
-  | isTcTyVar tv = setVarType tv (to_tc_type ftvs (tyVarKind tv))
-  | isId tv      = pprPanic "toTcTyVar: Id:" (ppr tv)
-  | otherwise    = mkTcTyVar (tyVarName tv) (to_tc_type ftvs (tyVarKind tv)) vanillaSkolemTv
+    covar :: VarSet -> CoVar -> Identity Coercion
+    covar ftvs cv
+      | Just var <- lookupVarSet ftvs cv = return $ CoVarCo var
+      | otherwise = CoVarCo <$> updateVarTypeM (to_tc_type ftvs) cv
 
+    hole :: VarSet -> CoercionHole -> Role -> Type -> Type
+         -> Identity Coercion
+    hole ftvs h r t1 t2 = mkHoleCo h r <$> to_tc_type ftvs t1
+                                       <*> to_tc_type ftvs t2
+
+    tybinder :: VarSet -> TyVar -> VisibilityFlag -> Identity (VarSet, TyVar)
+    tybinder ftvs tv _vis = do { kind' <- to_tc_type ftvs (tyVarKind tv)
+                               ; let tv' = mkTcTyVar (tyVarName tv) kind'
+                                                     vanillaSkolemTv
+                               ; return (ftvs `extendVarSet` tv', tv') }
+
+to_tc_type :: VarSet -> Type -> Identity TcType
+to_tc_type = mapType to_tc_mapper
 
 {-
 ************************************************************************
