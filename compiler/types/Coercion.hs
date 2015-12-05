@@ -744,11 +744,7 @@ mkAxInstCo role ax index tys cos
 mkAxiomInstCo :: CoAxiom Branched -> BranchIndex -> [Coercion] -> Coercion
 mkAxiomInstCo ax index args
   = ASSERT( coAxiomArity ax index == length args )
-    let co           = AxiomInstCo ax index args
-        Pair ty1 ty2 = coercionKind co in
-    if ty1 `eqType` ty2
-    then Refl (coAxiomRole ax) ty1
-    else co
+    AxiomInstCo ax index args
 
 -- to be used only with unbranched axioms
 mkUnbranchedAxInstCo :: Role -> CoAxiom Unbranched
@@ -835,14 +831,7 @@ mkSymCo co                        = SymCo co
 mkTransCo :: Coercion -> Coercion -> Coercion
 mkTransCo co1 (Refl {}) = co1
 mkTransCo (Refl {}) co2 = co2
-mkTransCo co1 co2
-  | Pair s1 _s2 <- coercionKind co1
-  , Pair _t1 t2 <- coercionKind co2
-  , s1 `eqType` t2
-    -- NB: Don't check for invalid coercions here, as there may be
-    -- unzonked variables about
-  = Refl (coercionRole co1) s1
-mkTransCo co1 co2     = TransCo co1 co2
+mkTransCo co1 co2       = TransCo co1 co2
 
 -- the Role is the desired one. It is the caller's responsibility to make
 -- sure this request is reasonable
@@ -873,44 +862,15 @@ mkNthCo n (Refl r ty)
           | otherwise
           = False
 
-mkNthCo n co
-  | Just (bndr1, _) <- splitForAllTy_maybe ty1
-  , Just (bndr2, _) <- splitForAllTy_maybe ty2
-  , isNamedBinder bndr1
-  , isNamedBinder bndr2
-  , binderType bndr1 `eqType` binderType bndr2
-  , n == 0
-  = mkReflCo Nominal (binderType bndr1)
-
-  | Just (tc1, tys1) <- splitTyConApp_maybe ty1
-  , Just (_tc2, tys2) <- splitTyConApp_maybe ty2
-  , let arg1 = tys1 `getNth` n
-        arg2 = tys2 `getNth` n
-  , arg1 `eqType` arg2
-  = ASSERT( tc1 == _tc2 )
-    mkReflCo (nthRole (coercionRole co) tc1 n) arg1
-
-  | otherwise
-  = NthCo n co
-  where
-    Pair ty1 ty2 = coercionKind co
+mkNthCo n co = NthCo n co
 
 mkLRCo :: LeftOrRight -> Coercion -> Coercion
 mkLRCo lr (Refl eq ty) = Refl eq (pickLR lr (splitAppTy ty))
-mkLRCo lr co
-  | ty1 `eqType` ty2
-  = Refl Nominal ty1
-  | otherwise
-  = LRCo lr co
-  where Pair ty1 ty2 = (pickLR lr . splitAppTy) <$> coercionKind co
+mkLRCo lr co           = LRCo lr co
 
 -- | Instantiates a 'Coercion'.
 mkInstCo :: Coercion -> Coercion -> Coercion
-mkInstCo co arg = let result = InstCo co arg
-                      Pair ty1 ty2 = coercionKind result in
-                  if ty1 `eqType` ty2
-                  then Refl (coercionRole co) ty1
-                  else result
+mkInstCo co arg = InstCo co arg
 
 -- This could work harder to produce Refl coercions, but that would be
 -- quite inefficient. Seems better not to try.
@@ -941,15 +901,7 @@ mkKindCo :: Coercion -> Coercion
 mkKindCo (Refl _ ty) = Refl Nominal (typeKind ty)
 mkKindCo (UnivCo (PhantomProv h) _ _ _)    = h
 mkKindCo (UnivCo (ProofIrrelProv h) _ _ _) = h
-mkKindCo co
-  | Pair ty1 ty2 <- coercionKind co
-       -- generally, calling coercionKind during coercion creation is a bad idea,
-       -- as it can lead to exponential behavior. But, we don't have nested mkKindCos,
-       -- so it's OK here.
-  , typeKind ty1 `eqType` typeKind ty2
-  = Refl Nominal (typeKind ty1)
-  | otherwise
-  = KindCo co
+mkKindCo co = KindCo co
 
 -- input coercion is Nominal; see also Note [Role twiddling functions]
 mkSubCo :: Coercion -> Coercion
