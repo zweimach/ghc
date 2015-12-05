@@ -421,6 +421,14 @@ lots of foralls in the kinds of other foralls. Like this:
 This construction seems unlikely. So we'll do the inefficient, easy way
 for now.
 
+Note [Specialising mappers]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+These INLINABLE pragmas are indispensable. mapType/mapCoercion are used
+to implement zonking, and it's vital that they get specialised to the TcM
+monad. This specialisation happens automatically (that is, without a
+SPECIALISE pragma) as long as the definitions are INLINABLE. For example,
+this one change made a 20% allocation difference in perf/compiler/T5030.
+
 -}
 
 -- | This describes how a "map" operation over a type/coercion should behave
@@ -439,6 +447,7 @@ data TyCoMapper env m
           -- ^ The returned env is used in the extended scope
       }
 
+{-# INLINABLE mapType #-}  -- See Note [Specialising mappers]
 mapType :: (Applicative m, Monad m) => TyCoMapper env m -> env -> Type -> m Type
 mapType mapper@(TyCoMapper { tcm_smart = smart, tcm_tyvar = tyvar
                            , tcm_tybinder = tybinder })
@@ -461,6 +470,7 @@ mapType mapper@(TyCoMapper { tcm_smart = smart, tcm_tyvar = tyvar
       | smart     = (mkTyConApp, mkAppTy, mkCastTy, mkFunTy)
       | otherwise = (TyConApp,   AppTy,   CastTy,   ForAllTy . Anon)
 
+{-# INLINABLE mapCoercion #-}  -- See Note [Specialising mappers]
 mapCoercion :: (Applicative m, Monad m)
             => TyCoMapper env m -> env -> Coercion -> m Coercion
 mapCoercion mapper@(TyCoMapper { tcm_smart = smart, tcm_covar = covar
