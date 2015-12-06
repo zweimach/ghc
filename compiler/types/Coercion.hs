@@ -237,8 +237,9 @@ ppr_co p (UnivCo UnsafeCoerceProv r ty1 ty2)
 ppr_co _ (UnivCo p r t1 t2)= angleBrackets ( ppr t1 <> comma <+> ppr t2 ) <> ppr_role r <> ppr_prov
   where
     ppr_prov = case p of
-      HoleProv h -> ppr h
-      _          -> empty
+      HoleProv h          -> ppr h
+      PhantomProv kind_co -> braces (ppr kind_co)
+      _                   -> empty
 ppr_co p (SymCo co)          = pprPrefixApp p (ptext (sLit "Sym")) [pprParendCo co]
 ppr_co p (NthCo n co)        = pprPrefixApp p (ptext (sLit "Nth:") <> int n) [pprParendCo co]
 ppr_co p (LRCo sel co)       = pprPrefixApp p (ppr sel) [pprParendCo co]
