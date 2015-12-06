@@ -48,6 +48,7 @@ import Type
 import TyCon
 import Class( Class )
 import PrelNames
+import DynFlags   ( gopt, GeneralFlag(Opt_PrintExplicitCoercions) )
 import VarEnv
 import VarSet
 import Name
@@ -701,7 +702,10 @@ pprHsWrapper :: SDoc -> HsWrapper -> SDoc
 -- In debug mode, print the wrapper
 -- otherwise just print what's inside
 pprHsWrapper doc wrap
-  = getPprStyle (\ s -> if (dumpStyle s && debugIsOn) || debugStyle s
+  = sdocWithDynFlags $ \ dflags ->
+    getPprStyle (\ s -> if (dumpStyle s && debugIsOn)
+                           || debugStyle s
+                           || gopt Opt_PrintExplicitCoercions dflags
                         then (help (add_parens doc) wrap False)
                         else doc )
   where
