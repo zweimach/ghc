@@ -901,7 +901,15 @@ mkKindCo :: Coercion -> Coercion
 mkKindCo (Refl _ ty) = Refl Nominal (typeKind ty)
 mkKindCo (UnivCo (PhantomProv h) _ _ _)    = h
 mkKindCo (UnivCo (ProofIrrelProv h) _ _ _) = h
-mkKindCo co = KindCo co
+mkKindCo co
+  | Pair ty1 ty2 <- coercionKind co
+       -- generally, calling coercionKind during coercion creation is a bad idea,
+       -- as it can lead to exponential behavior. But, we don't have nested mkKindCos,
+       -- so it's OK here.
+  , typeKind ty1 `eqType` typeKind ty2
+  = Refl Nominal (typeKind ty1)
+  | otherwise
+  = KindCo co
 
 -- input coercion is Nominal; see also Note [Role twiddling functions]
 mkSubCo :: Coercion -> Coercion
