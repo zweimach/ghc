@@ -763,19 +763,17 @@ repBangTy ty = do
 --                      Deriving clause
 -------------------------------------------------------
 
-repDerivs :: HsDeriving Name -> DsM (Core [TH.Name])
-repDerivs Nothing = coreList nameTyConName []
-repDerivs (Just (L _ ctxt))
-  = repList nameTyConName (rep_deriv . hsSigType) ctxt
+repDerivs :: HsDeriving Name -> DsM (Core TH.CxtQ)
+repDerivs deriv = do
+    let clauses
+          | Nothing <- deriv         = []
+          | Just (L _ ctxt) <- deriv = ctxt
+    cxt_ty <- lookupType cxtName
+    tys <- repList typeQTyConName (rep_deriv . hsSigType) clauses
+    repSequenceQ cxt_ty tys
   where
-    rep_deriv :: LHsType Name -> DsM (Core TH.Name)
-        -- Deriving clauses must have the simple H98 form
-    rep_deriv ty
-      | Just (L _ cls, []) <- hsTyGetAppHead_maybe ty
-      = lookupOcc cls
-      | otherwise
-      = notHandled "Non-H98 deriving clause" (ppr ty)
-
+    rep_deriv :: LHsType Name -> DsM (Core TH.TypeQ)
+    rep_deriv (L _ ty) = repTy ty
 
 -------------------------------------------------------
 --   Signatures in a class decl, or a group of bindings

@@ -251,6 +251,9 @@ Template Haskell
 -  The ``Lift`` class is now derivable via the ``-XDeriveLift`` extension. See
    :ref:`deriving-lift` for more information.
 
+-  The representation of data, newtype, data instance, and newtype instance
+   declarations has been change to allow for multi-parameter type classes in the
+   deriving clause.
 
 Runtime system
 ~~~~~~~~~~~~~~
