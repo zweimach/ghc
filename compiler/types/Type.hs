@@ -33,6 +33,7 @@ module Type (
         tyConAppArgs_maybe, tyConAppTyCon, tyConAppArgs,
         splitTyConApp_maybe, splitTyConApp, tyConAppArgN, nextRole,
         splitTyConArgs, splitListTyConApp_maybe,
+        repSplitTyConApp_maybe,
 
         mkForAllTy, mkForAllTys, mkInvForAllTys, mkVisForAllTys,
         mkNamedForAllTy,
@@ -880,9 +881,14 @@ splitTyConApp ty = case splitTyConApp_maybe ty of
 -- of a number of arguments to that constructor
 splitTyConApp_maybe :: Type -> Maybe (TyCon, [Type])
 splitTyConApp_maybe ty | Just ty' <- coreView ty = splitTyConApp_maybe ty'
-splitTyConApp_maybe (TyConApp tc tys)         = Just (tc, tys)
-splitTyConApp_maybe (ForAllTy (Anon arg) res) = Just (funTyCon, [arg,res])
-splitTyConApp_maybe _                         = Nothing
+splitTyConApp_maybe ty                           = repSplitTyConApp_maybe ty
+
+-- | Like 'splitTyConApp_maybe', but doesn't look through synonyms. This
+-- assumes the synonyms have already been dealt with.
+repSplitTyConApp_maybe :: Type -> Maybe (TyCon, [Type])
+repSplitTyConApp_maybe (TyConApp tc tys)         = Just (tc, tys)
+repSplitTyConApp_maybe (ForAllTy (Anon arg) res) = Just (funTyCon, [arg,res])
+repSplitTyConApp_maybe _                         = Nothing
 
 -- | Attempts to tease a list type apart and gives the type of the elements if
 -- successful (looks through type synonyms)

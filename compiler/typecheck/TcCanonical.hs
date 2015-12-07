@@ -34,9 +34,10 @@ import Util
 import Bag
 import MonadUtils
 import Control.Monad
-import Data.List  ( zip4 )
+import Data.List  ( zip4, foldl' )
 import BasicTypes
 import FastString
+import Data.Bifunctor ( bimap )
 
 {-
 ************************************************************************
@@ -420,7 +421,10 @@ is flattened, but this is left as future work. (Mar '15)
 
 canEqNC :: CtEvidence -> EqRel -> Type -> Type -> TcS (StopOrContinue Ct)
 canEqNC ev eq_rel ty1 ty2
-  = can_eq_nc False ev eq_rel ty1 ty1 ty2 ty2
+  = do { result <- zonk_eq_types ty1 ty2
+       ; case result of
+           Left (Pair ty1' ty2') -> can_eq_nc False ev eq_rel ty1' ty1 ty2' ty2
+           Right ty              -> canEqReflexive ev eq_rel ty }
 
 can_eq_nc
    :: Bool            -- True => both types are flat
@@ -484,8 +488,8 @@ can_eq_nc' _flat _rdr_env _envs ev eq_rel ty1@(LitTy l1) _ (LitTy l2) _
 -- Try to decompose type constructor applications
 -- Including FunTy (s -> t)
 can_eq_nc' _flat _rdr_env _envs ev eq_rel ty1 _ ty2 _
-  | Just (tc1, tys1) <- tcSplitTyConApp_maybe ty1
-  , Just (tc2, tys2) <- tcSplitTyConApp_maybe ty2
+  | Just (tc1, tys1) <- tcRepSplitTyConApp_maybe ty1
+  , Just (tc2, tys2) <- tcRepSplitTyConApp_maybe ty2
   , not (isTypeFamilyTyCon tc1)
   , not (isTypeFamilyTyCon tc2)
   = canTyConApp ev eq_rel tc1 tys1 tc2 tys2
@@ -539,6 +543,108 @@ can_eq_nc' True _rdr_env _envs ev eq_rel _ ps_ty1 (TyVarTy tv2) _
 can_eq_nc' True _rdr_env _envs ev _eq_rel _ ps_ty1 _ ps_ty2
   = do { traceTcS "can_eq_nc' catch-all case" (ppr ps_ty1 $$ ppr ps_ty2)
        ; canEqHardFailure ev ps_ty1 ps_ty2 }
+
+---------------------------------
+-- | Compare types for equality, while zonking as necessary. Gives up
+-- as soon as it finds that two types are not equal.
+-- This is quite handy when some unification has made two
+-- types in an inert wanted to be equal. We can discover the equality without
+-- flattening, which is sometimes very expensive (in the case of type functions).
+-- In particular, this function makes a ~20% improvement in test case
+-- perf/compiler/T5030.
+--
+-- Returns either the (partially zonked) types in the case of
+-- inequality, or the one type in the case of equality. canEqReflexive is
+-- a good next step in the 'Right' case. Returning 'Left' is always safe.
+--
+-- NB: This does *not* look through type synonyms. In fact, it treats type
+-- synonyms as rigid constructors. In the future, it might be convenient
+-- to look at only those arguments of type synonyms that actually appear
+-- in the synonym RHS. But we're not there yet. TODO (RAE): Improve.
+zonk_eq_types :: TcType -> TcType -> TcS (Either (Pair TcType) TcType)
+zonk_eq_types = go
+  where
+    go (TyVarTy tv1) (TyVarTy tv2) = tyvar_tyvar tv1 tv2
+    go (TyVarTy tv1) ty2           = tyvar NotSwapped tv1 ty2
+    go ty1 (TyVarTy tv2)           = tyvar IsSwapped  tv2 ty1
+
+    go ty1 ty2
+      | Just (tc1, tys1) <- tcRepSplitTyConApp_maybe ty1
+      , Just (tc2, tys2) <- tcRepSplitTyConApp_maybe ty2
+      , tc1 == tc2
+      = tycon tc1 tys1 tys2
+
+    go ty1 ty2
+      | Just (ty1a, ty1b) <- tcRepSplitAppTy_maybe ty1
+      , Just (ty2a, ty2b) <- tcRepSplitAppTy_maybe ty2
+      = do { res_a <- go ty1a ty2a
+           ; res_b <- go ty1b ty2b
+           ; return $ combine_rev mkAppTy res_b res_a }
+
+    go ty1@(LitTy lit1) (LitTy lit2)
+      | lit1 == lit2
+      = return (Right ty1)
+
+    go ty1 ty2 = return $ Left (Pair ty1 ty2)
+      -- we don't handle more complex forms here
+
+    tyvar :: SwapFlag -> TcTyVar -> TcType
+          -> TcS (Either (Pair TcType) TcType)
+      -- try to do as little as possible, as anything we do here is redundant
+      -- with flattening. In particular, no need to zonk kinds. That's why
+      -- we don't use the already-defined zonking functions
+    tyvar swapped tv ty
+      = case tcTyVarDetails tv of
+          MetaTv { mtv_ref = ref }
+            -> do { cts <- readTcRef ref
+                  ; case cts of
+                      Flexi        -> give_up
+                      Indirect ty' -> unSwap swapped go ty' ty }
+          _ -> give_up
+      where
+        give_up = return $ Left $ unSwap swapped Pair (mkTyVarTy tv) ty
+
+    tyvar_tyvar tv1 tv2
+      | tv1 == tv2 = return (Right (mkTyVarTy tv1))
+      | otherwise  = do { (ty1', progress1) <- quick_zonk tv1
+                        ; (ty2', progress2) <- quick_zonk tv2
+                        ; if progress1 || progress2
+                          then go ty1' ty2'
+                          else return $ Left (Pair (TyVarTy tv1) (TyVarTy tv2)) }
+
+    quick_zonk tv = case tcTyVarDetails tv of
+      MetaTv { mtv_ref = ref }
+        -> do { cts <- readTcRef ref
+              ; case cts of
+                  Flexi        -> return (TyVarTy tv, False)
+                  Indirect ty' -> return (ty', True) }
+      _ -> return (TyVarTy tv, False)
+
+      -- This happens for type families, too. But recall that failure
+      -- here just means to try harder, so it's OK if the type function
+      -- isn't injective.
+    tycon :: TyCon -> [TcType] -> [TcType]
+          -> TcS (Either (Pair TcType) TcType)
+    tycon tc tys1 tys2
+      = do { results <- zipWithM go tys1 tys2
+           ; return $ case combine_results results of
+               Left tys  -> Left (mkTyConApp tc <$> tys)
+               Right tys -> Right (mkTyConApp tc tys) }
+
+    combine_results :: [Either (Pair TcType) TcType]
+                    -> Either (Pair [TcType]) [TcType]
+    combine_results = bimap (fmap reverse) reverse .
+                      foldl' (combine_rev (:)) (Right [])
+
+      -- combine (in reverse) a new result onto an already-combined result
+    combine_rev :: (a -> b -> c)
+                -> Either (Pair b) b
+                -> Either (Pair a) a
+                -> Either (Pair c) c
+    combine_rev f (Left list) (Left elt) = Left (f <$> elt     <*> list)
+    combine_rev f (Left list) (Right ty) = Left (f <$> pure ty <*> list)
+    combine_rev f (Right tys) (Left elt) = Left (f <$> elt     <*> pure tys)
+    combine_rev f (Right tys) (Right ty) = Right (f ty tys)
 
 {-
 Note [Newtypes can blow the stack]

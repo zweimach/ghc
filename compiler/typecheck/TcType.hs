@@ -58,7 +58,8 @@ module TcType (
   tcIsNamedForAllTy,
   tcSplitPhiTy, tcSplitPredFunTy_maybe,
   tcSplitFunTy_maybe, tcSplitFunTys, tcFunArgTy, tcFunResultTy, tcSplitFunTysN,
-  tcSplitTyConApp, tcSplitTyConApp_maybe, tcTyConAppTyCon, tcTyConAppArgs,
+  tcSplitTyConApp, tcSplitTyConApp_maybe, tcRepSplitTyConApp_maybe,
+  tcTyConAppTyCon, tcTyConAppArgs,
   tcSplitAppTy_maybe, tcSplitAppTy, tcSplitAppTys, tcRepSplitAppTy_maybe,
   tcInstHeadTyNotSynonym, tcInstHeadTyAppAllTyVars,
   tcGetTyVar_maybe, tcGetTyVar, nextRole,
@@ -1107,12 +1108,13 @@ tcSplitTyConApp ty = case tcSplitTyConApp_maybe ty of
 
 tcSplitTyConApp_maybe :: Type -> Maybe (TyCon, [Type])
 tcSplitTyConApp_maybe ty | Just ty' <- tcView ty = tcSplitTyConApp_maybe ty'
-tcSplitTyConApp_maybe (TyConApp tc tys)          = Just (tc, tys)
-tcSplitTyConApp_maybe (ForAllTy (Anon arg) res)  = Just (funTyCon, [arg,res])
-        -- Newtypes are opaque, so they may be split
-        -- However, predicates are not treated
-        -- as tycon applications by the type checker
-tcSplitTyConApp_maybe _                 = Nothing
+tcSplitTyConApp_maybe ty                         = tcRepSplitTyConApp_maybe ty
+
+tcRepSplitTyConApp_maybe :: Type -> Maybe (TyCon, [Type])
+tcRepSplitTyConApp_maybe (TyConApp tc tys)          = Just (tc, tys)
+tcRepSplitTyConApp_maybe (ForAllTy (Anon arg) res)  = Just (funTyCon, [arg,res])
+tcRepSplitTyConApp_maybe _                          = Nothing
+
 
 -----------------------
 tcSplitFunTys :: Type -> ([Type], Type)
