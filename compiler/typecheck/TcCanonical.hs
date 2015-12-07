@@ -457,7 +457,9 @@ can_eq_nc' flat _rdr_env _envs ev eq_rel ty1 ps_ty1 ty2 ps_ty2
 
 -- need to check for reflexivity in the ReprEq case.
 -- See Note [Eager reflexivity check]
-can_eq_nc' _flat _rdr_env _envs ev ReprEq ty1 _ ty2 _
+-- Check only when flat because the zonk_eq_types check in canEqNC takes
+-- care of the non-flat case.
+can_eq_nc' True _rdr_env _envs ev ReprEq ty1 _ ty2 _
   | ty1 `eqType` ty2
   = canEqReflexive ev ReprEq ty1
 
