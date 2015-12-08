@@ -1996,7 +1996,7 @@ checkValidTyCon tc
     get_fields con = dataConFieldLabels con `zip` repeat con
         -- dataConFieldLabels may return the empty list, which is fine
 
-    -- See Note [GADT record selectors] in MkId.hs
+    -- See Note [GADT record selectors] in TcTyDecls
     -- We must check (a) that the named field has the same
     --                   type in each constructor
     --               (b) that those constructors have the same result type
