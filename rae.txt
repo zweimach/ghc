@@ -1,5 +1,19 @@
 stack:
 
+PERFORMANCE STUFF:
+ T5030: I think the root of the problem is that I have a lot more coercions than
+ the baseline. And, I think, the reason for that is that I have a
+ (sym (a;b;c;...;zz)) where HEAD has it the right way round. During optimization,
+ the sym is pushed into the trans, and the individual pieces are axioms, which
+ resist the sym. So I get a *lot* of syms! Moving on.
+
+ T3738: I have no clue. The core appears to be the same. Is the problem
+ further down the pipeline? Ditto T5536.
+ 
+ T10370: 
+
+ 
+
 
 - BUG: match_ty needs to be more delicate looking under TyConApps:
   match_ty (Just (x :: Age)) (Just 5 |> Maybe Int ~ Maybe Age) won't work
