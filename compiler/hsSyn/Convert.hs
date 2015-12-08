@@ -446,9 +446,9 @@ cvtConstr (ForallC tvs ctxt con)
         ; let qvars = case (tvs,con_qvars con') of
                 ([],Nothing) -> Nothing
                 _  ->
-                  Just $ mkHsQTvs (hsQTvBndrs tvs' ++
-                                   hsQTvBndrs (fromMaybe (HsQTvs PlaceHolder [])
-                                              (con_qvars con')))
+                  Just $ mkHsQTvs (hsQTvExplicit tvs' ++
+                                   hsQTvExplicit (fromMaybe (HsQTvs PlaceHolder [])
+                                                            (con_qvars con')))
         ; returnL $ con' { con_qvars = qvars
                          , con_cxt = Just $
                                      L loc (ctxt' ++
