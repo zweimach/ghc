@@ -1713,8 +1713,8 @@ coercionKind :: Coercion -> Pair Type
 coercionKind co = go co
   where
     go (Refl _ ty)          = Pair ty ty
-    go (TyConAppCo _ tc cos)= mkTyConApp tc <$> (sequenceA $ map coercionKind cos)
-    go (AppCo co1 co2)      = mkAppTy <$> go co1 <*> coercionKind co2
+    go (TyConAppCo _ tc cos)= mkTyConApp tc <$> (sequenceA $ map go cos)
+    go (AppCo co1 co2)      = mkAppTy <$> go co1 <*> go co2
     go (ForAllCo tv1 k_co co)
       = let Pair _ k2          = go k_co
             tv2                = setTyVarKind tv1 k2
@@ -1725,7 +1725,7 @@ coercionKind co = go co
     go (AxiomInstCo ax ind cos)
       | CoAxBranch { cab_tvs = tvs, cab_cvs = cvs
                    , cab_lhs = lhs, cab_rhs = rhs } <- coAxiomNthBranch ax ind
-      , let Pair tycos1 tycos2 = sequenceA (map coercionKind cos)
+      , let Pair tycos1 tycos2 = sequenceA (map go cos)
             (tys1, cotys1) = splitAtList tvs tycos1
             (tys2, cotys2) = splitAtList tvs tycos2
             cos1           = map stripCoercionTy cotys1
@@ -1753,7 +1753,7 @@ coercionKind co = go co
       | otherwise
       = pprPanic "coercionKind" (ppr g)
       where
-        tys = coercionKind co
+        tys = go co
     go (LRCo lr co)         = (pickLR lr . splitAppTy) <$> go co
     go (InstCo aco arg)     = go_app aco [arg]
     go (CoherenceCo g h)
@@ -1768,7 +1768,7 @@ coercionKind co = go co
     -- Collect up all the arguments and apply all at once
     -- See Note [Nested InstCos]
     go_app (InstCo co arg) args = go_app co (arg:args)
-    go_app co              args = applyTys <$> go co <*> (sequenceA $ map coercionKind args)
+    go_app co              args = applyTys <$> go co <*> (sequenceA $ map go args)
 
 -- | Apply 'coercionKind' to multiple 'Coercion's
 coercionKinds :: [Coercion] -> Pair [Type]
