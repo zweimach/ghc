@@ -768,9 +768,11 @@ repDerivs deriv = do
     let clauses
           | Nothing <- deriv         = []
           | Just (L _ ctxt) <- deriv = ctxt
-    cxt_ty <- lookupType cxtName
-    tys <- repList typeQTyConName (rep_deriv . hsSigType) clauses
-    repSequenceQ cxt_ty tys
+    tys <- repList typeQTyConName
+                   (rep_deriv . hsSigType)
+                   clauses
+           :: DsM (Core [TH.PredQ])
+    repCtxt tys
   where
     rep_deriv :: LHsType Name -> DsM (Core TH.TypeQ)
     rep_deriv (L _ ty) = repTy ty
