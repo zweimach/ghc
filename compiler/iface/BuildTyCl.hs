@@ -108,7 +108,7 @@ mkNewTyConRhs tycon_name tycon con
 buildDataCon :: FamInstEnvs
             -> Name
             -> Bool                     -- Declared infix
-            -> TyConRepName             -- Promotable
+            -> TyConRepName
             -> [HsSrcBang]
             -> Maybe [HsImplBang]
                 -- See Note [Bangs on imported data constructors] in MkId

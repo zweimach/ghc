@@ -153,6 +153,8 @@ module TcType (
   isUnboxedTupleType,   -- Ditto
   isPrimitiveType,
 
+  coreView,
+
   tyCoVarsOfType, tyCoVarsOfTypes, closeOverKinds,
   tyCoVarsOfTelescope,
   tyCoVarsOfTypeAcc, tyCoVarsOfTypesAcc,
@@ -717,7 +719,7 @@ exactTyCoVarsOfType ty
   where
     go ty | Just ty' <- coreView ty = go ty'  -- This is the key line
     go (TyVarTy tv)         = unitVarSet tv
-    go (TyConApp _ tys)     = exactTyVarsOfTypes tys
+    go (TyConApp _ tys)     = exactTyCoVarsOfTypes tys
     go (LitTy {})           = emptyVarSet
     go (AppTy fun arg)      = go fun `unionVarSet` go arg
     go (ForAllTy bndr ty)   = delBinderVar (go ty) bndr `unionVarSet` go (binderType bndr)

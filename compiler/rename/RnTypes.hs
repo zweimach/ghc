@@ -1453,12 +1453,12 @@ extractDataDefnKindVars (HsDataDefn { dd_ctxt = ctxt, dd_kindSig = ksig
     extract_con (ConDeclH98 { con_qvars = qvs
                             , con_cxt = ctxt, con_details = details }) acc
       = extract_hs_tv_bndrs (maybe [] hsQTvExplicit qvs) acc =<<
-        extract_mlctxt TypeLevel ctxt =<<
+        extract_mlctxt ctxt =<<
         extract_ltys TypeLevel (hsConDeclArgTys details) emptyFKTV
 
 extract_mlctxt :: Maybe (LHsContext RdrName) -> FreeKiTyVars -> RnM FreeKiTyVars
 extract_mlctxt Nothing     acc = return acc
-extract_mlctxt (Just ctxt) acc = extract_lctxt ctxt acc
+extract_mlctxt (Just ctxt) acc = extract_lctxt TypeLevel ctxt acc
 
 extract_lctxt :: TypeOrKind
               -> LHsContext RdrName -> FreeKiTyVars -> RnM FreeKiTyVars

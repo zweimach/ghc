@@ -69,7 +69,6 @@ import BasicTypes
 
 import Control.Monad
 import Data.List
-import Data.Monoid ( mempty )
 
 {-
 ************************************************************************
@@ -1389,8 +1388,6 @@ tcConDecl new_or_data rep_tycon tmpl_tvs res_tmpl
        ; arg_tys <- zonkTcTypeToTypes ze arg_tys
        ; ctxt    <- zonkTcTypeToTypes ze ctxt
 
-       ; let (univ_tvs, ex_tvs, eq_preds) = (tmpl_tvs, qtkvs, [])
-
        ; fam_envs <- tcGetFamInstEnvs
 
        -- Can't print univ_tvs, arg_tys etc, because we are inside the knot here
@@ -1400,9 +1397,7 @@ tcConDecl new_or_data rep_tycon tmpl_tvs res_tmpl
              { is_infix <- tcConIsInfixH98 name hs_details
              ; rep_nm   <- newTyConRepName name
 
-             ; buildDataCon fam_envs name is_infix
-                            (if is_prom then Promoted rep_nm else NotPromoted)
-                              -- Must be lazy in is_prom because it is knot-tied
+             ; buildDataCon fam_envs name is_infix rep_nm
                             stricts Nothing field_lbls
                             tmpl_tvs qtkvs [{- no eq_preds -}] ctxt arg_tys
                             res_tmpl rep_tycon
@@ -1414,7 +1409,7 @@ tcConDecl new_or_data rep_tycon tmpl_tvs res_tmpl
        ; mapM buildOneDataCon [name]
        }
 
-tcConDecl _new_or_data is_prom rep_tycon tmpl_tvs res_tmpl
+tcConDecl _new_or_data rep_tycon tmpl_tvs res_tmpl
           (ConDeclGADT { con_names = names, con_type = ty })
   = addErrCtxt (dataConCtxtName names) $
     do { traceTc "tcConDecl 1" (ppr names)

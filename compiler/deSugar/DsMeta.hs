@@ -638,8 +638,8 @@ repC _ (L _ (ConDeclH98 { con_name = con
   = do { let (eq_ctxt, con_tv_subst) = ([], [])
        ; let con_tvs = fromMaybe (HsQTvs [] []) mcon_tvs
        ; let ctxt = unLoc $ fromMaybe (noLoc []) mcxt
-       ; let ex_tvs = HsQTvs { hsq_implicit = filterOut (in_subst con_tv_subst) (hsq_kvs con_tvs)
-                             , hsq_explicit = filterOut (in_subst con_tv_subst . hsLTyVarName) (hsq_tvs con_tvs) }
+       ; let ex_tvs = HsQTvs { hsq_implicit = filterOut (in_subst con_tv_subst) (hsq_implicit con_tvs)
+                             , hsq_explicit = filterOut (in_subst con_tv_subst . hsLTyVarName) (hsq_explicit con_tvs) }
 
        ; let binds = []
        ; b <- dsExtendMetaEnv (mkNameEnv binds) $ -- Binds some of the con_tvs
@@ -647,7 +647,7 @@ repC _ (L _ (ConDeclH98 { con_name = con
     do { con1     <- lookupLOcc con -- See Note [Binders and occurrences]
        ; c'        <- repConstr con1 details
        ; ctxt'     <- repContext (eq_ctxt ++ ctxt)
-       ; if (null (hsq_kvs ex_tvs) && null (hsq_tvs ex_tvs)
+       ; if (null (hsq_implicit ex_tvs) && null (hsq_explicit ex_tvs)
              && null (eq_ctxt ++ ctxt))
             then return c'
             else rep2 forallCName ([unC ex_bndrs, unC ctxt'] ++ [unC c']) }
@@ -658,8 +658,9 @@ repC tvs (L _ (ConDeclGADT { con_names = cons
   = do { (eq_ctxt, con_tv_subst) <- mkGadtCtxt tvs res_ty
        ; let ex_tvs
                = HsQTvs { hsq_implicit = []
-                        , hsq_explicit = filterOut
-                                          (in_subst con_tv_subst . hsLTyVarName)
+                        , hsq_explicit = map (noLoc . UserTyVar . noLoc) $
+                                         filterOut
+                                          (in_subst con_tv_subst)
                                           con_vars }
 
        ; binds <- mapM dupBinder con_tv_subst
