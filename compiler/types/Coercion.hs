@@ -862,6 +862,7 @@ mkNthCo n (Refl r ty)
           | otherwise
           = False
 
+mkNthCo n (TyConAppCo _ _ cos) = cos `getNth` n
 mkNthCo n co = NthCo n co
 
 mkLRCo :: LeftOrRight -> Coercion -> Coercion
@@ -870,6 +871,8 @@ mkLRCo lr co           = LRCo lr co
 
 -- | Instantiates a 'Coercion'.
 mkInstCo :: Coercion -> Coercion -> Coercion
+mkInstCo (ForAllCo tv _kind_co body_co) (Refl _ arg)
+  = substCoWith [tv] [arg] body_co
 mkInstCo co arg = InstCo co arg
 
 -- This could work harder to produce Refl coercions, but that would be
