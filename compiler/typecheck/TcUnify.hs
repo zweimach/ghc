@@ -132,7 +132,7 @@ matchExpectedFunTys herald arity orig_ty
       | n_req == 0 = return (mkTcNomReflCo ty, [], ty)
 
     go n_req ty
-      | Just ty' <- tcView ty = go n_req ty'
+      | Just ty' <- coreView ty = go n_req ty'
 
     go n_req (ForAllTy (Anon arg_ty) res_ty)
       | not (isPredTy arg_ty)
@@ -239,7 +239,7 @@ matchExpectedTyConApp tc orig_ty
   = go orig_ty
   where
     go ty
-       | Just ty' <- tcView ty
+       | Just ty' <- coreView ty
        = go ty'
 
     go ty@(TyConApp tycon args)
@@ -288,7 +288,7 @@ matchExpectedAppTy orig_ty
   = go orig_ty
   where
     go ty
-      | Just ty' <- tcView ty = go ty'
+      | Just ty' <- coreView ty = go ty'
 
       | Just (fun_ty, arg_ty) <- tcSplitAppTy_maybe ty
       = return (mkTcNomReflCo orig_ty, (fun_ty, arg_ty))
@@ -783,8 +783,8 @@ uType origin t_or_k orig_ty1 orig_ty2
         -- we'll end up saying "can't match Foo with Bool"
         -- rather than "can't match "Int with Bool".  See Trac #4535.
     go ty1 ty2
-      | Just ty1' <- tcView ty1 = go ty1' ty2
-      | Just ty2' <- tcView ty2 = go ty1  ty2'
+      | Just ty1' <- coreView ty1 = go ty1' ty2
+      | Just ty2' <- coreView ty2 = go ty1  ty2'
 
     go (CastTy t1 co1) t2
       = do { co_tys <- go t1 t2
@@ -1303,7 +1303,7 @@ matchExpectedFunKind :: Arity           -- ^ # of args remaining, only for error
                                   -- ^ co :: old_kind ~ arg -> res
 matchExpectedFunKind num_args_remaining ty = go
   where
-    go k | Just k' <- tcView k = go k'
+    go k | Just k' <- coreView k = go k'
 
     go k@(TyVarTy kvar)
       | isTcTyVar kvar, isMetaTyVar kvar

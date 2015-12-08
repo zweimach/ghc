@@ -498,7 +498,7 @@ toIfaceTcArgs tc ty_args
 
     go _   _                   []     = ITC_Nil
     go env ty                  ts
-      | Just ty' <- tcView ty
+      | Just ty' <- coreView ty
       = go env ty' ts
     go env (ForAllTy bndr res) (t:ts)
       | isVisibleBinder bndr = ITC_Vis   t' ts'

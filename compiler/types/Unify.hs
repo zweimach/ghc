@@ -607,8 +607,8 @@ unify_ty :: Type -> Type   -- Types to be unified
 -- Respects newtypes, PredTypes
 
 unify_ty ty1 ty2
-  | Just ty1' <- tcView ty1 = unify_ty ty1' ty2
-  | Just ty2' <- tcView ty2 = unify_ty ty1 ty2'
+  | Just ty1' <- coreView ty1 = unify_ty ty1' ty2
+  | Just ty2' <- coreView ty2 = unify_ty ty1 ty2'
 
 unify_ty (TyVarTy tv1) ty2 = uVar tv1 ty2
 unify_ty ty1 (TyVarTy tv2)
@@ -734,7 +734,7 @@ uUnrefined :: TyVar             -- variable to be unified
 -- We know that tv1 isn't refined
 
 uUnrefined tv1 ty2 ty2'
-  | Just ty2'' <- tcView ty2'
+  | Just ty2'' <- coreView ty2'
   = uUnrefined tv1 ty2 ty2''    -- Unwrap synonyms
                 -- This is essential, in case we have
                 --      type Foo a = a

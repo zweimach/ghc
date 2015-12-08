@@ -491,7 +491,7 @@ unusedInjTvsInRHS tycon injList lhs rhs =
 isTFHeaded :: Type -> Bool
 -- See Note [Verifying injectivity annotation]. This function implements third
 -- check described there.
-isTFHeaded ty | Just ty' <- tcView ty
+isTFHeaded ty | Just ty' <- coreView ty
               = isTFHeaded ty'
 isTFHeaded ty | (TyConApp tc args) <- ty
               , isTypeFamilyTyCon tc

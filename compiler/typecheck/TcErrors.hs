@@ -1529,7 +1529,7 @@ expandSynonymsToMatch ty1 ty2 = (ty1_ret, ty2_ret)
          in (exps + sum exps', TyConApp tc1 tys1', TyConApp tc2 tys2')
       | otherwise =
         -- Try to expand type constructors
-        case (tcView t1, tcView t2) of
+        case (coreView t1, coreView t2) of
           -- When only one of the constructors is a synonym, we just
           -- expand it and continue search
           (Just t1', Nothing) ->
@@ -1548,12 +1548,12 @@ expandSynonymsToMatch ty1 ty2 = (ty1_ret, ty2_ret)
             (exps, t1, t2)
 
     go exps t1@TyConApp{} t2
-      | Just t1' <- tcView t1 = go (exps + 1) t1' t2
-      | otherwise             = (exps, t1, t2)
+      | Just t1' <- coreView t1 = go (exps + 1) t1' t2
+      | otherwise               = (exps, t1, t2)
 
     go exps t1 t2@TyConApp{}
-      | Just t2' <- tcView t2 = go (exps + 1) t1 t2'
-      | otherwise             = (exps, t1, t2)
+      | Just t2' <- coreView t2 = go (exps + 1) t1 t2'
+      | otherwise               = (exps, t1, t2)
 
     go exps (AppTy t1_1 t1_2) (AppTy t2_1 t2_2) =
       let (exps1, t1_1', t2_1') = go 0 t1_1 t2_1

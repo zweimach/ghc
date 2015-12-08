@@ -2132,6 +2132,8 @@ checkTupSize tup_size
 ************************************************************************
 -}
 
+-- AZ:TODO: Change these all to be Name instead of RdrName.
+--          Merge TcType.UserTypeContext in to it.
 data HsDocContext
   = TypeSigCtx SDoc
   | PatCtx
@@ -2144,7 +2146,7 @@ data HsDocContext
   | TySynCtx (Located RdrName)
   | TyFamilyCtx (Located RdrName)
   | FamPatCtx (Located RdrName)    -- The patterns of a type/data family instance
-  | ConDeclCtx [Located RdrName]
+  | ConDeclCtx [Located Name]
   | ClassDeclCtx (Located RdrName)
   | ExprWithTySigCtx
   | TypBrCtx

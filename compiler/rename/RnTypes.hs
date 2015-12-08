@@ -382,6 +382,14 @@ rnHsTyKi _ doc (HsBangTy b ty)
   = do { (ty', fvs) <- rnLHsType doc ty
        ; return (HsBangTy b ty', fvs) }
 
+rnHsTyKi _ doc@(ConDeclCtx names) (HsRecTy flds)
+  = do {
+       -- AZ:reviewers: is there a monadic version of concatMap?
+         flss <- mapM (lookupConstructorFields . unLoc) names
+       ; let fls = concat flss
+       ; (flds', fvs) <- rnConDeclFields fls doc flds
+       ; return (HsRecTy flds', fvs) }
+
 rnHsTyKi _ doc ty@(HsRecTy flds)
   = do { addErr (hang (ptext (sLit "Record syntax is illegal here:"))
                     2 (ppr ty))
@@ -1441,13 +1449,16 @@ extractDataDefnKindVars (HsDataDefn { dd_ctxt = ctxt, dd_kindSig = ksig
      extract_mb (extract_sig_tys . unLoc) derivs =<<
      foldrM (extract_con . unLoc) emptyFKTV cons)
   where
-    extract_con (ConDecl { con_res = ResTyGADT {} }) acc = return acc
-    extract_con (ConDecl { con_res = ResTyH98, con_qvars = qvs
-                         , con_cxt = ctxt, con_details = details }) acc
-      = extract_hs_tv_bndrs (hsQTvExplicit qvs) acc =<<
-        extract_lctxt TypeLevel ctxt =<<
+    extract_con (ConDeclGADT { }) acc = return acc
+    extract_con (ConDeclH98 { con_qvars = qvs
+                            , con_cxt = ctxt, con_details = details }) acc
+      = extract_hs_tv_bndrs (maybe [] hsQTvExplicit qvs) acc =<<
+        extract_mlctxt TypeLevel ctxt =<<
         extract_ltys TypeLevel (hsConDeclArgTys details) emptyFKTV
 
+extract_mlctxt :: Maybe (LHsContext RdrName) -> FreeKiTyVars -> RnM FreeKiTyVars
+extract_mlctxt Nothing     acc = return acc
+extract_mlctxt (Just ctxt) acc = extract_lctxt ctxt acc
 
 extract_lctxt :: TypeOrKind
               -> LHsContext RdrName -> FreeKiTyVars -> RnM FreeKiTyVars

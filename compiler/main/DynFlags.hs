@@ -527,7 +527,8 @@ data WarningFlag =
    | Opt_WarnUntickedPromotedConstructors
    | Opt_WarnDerivingTypeable
    | Opt_WarnDeferredTypeErrors
-   | Opt_WarnNonCanonicalMonadInstances
+   | Opt_WarnNonCanonicalMonadInstances   -- since 8.0
+   | Opt_WarnNonCanonicalMonoidInstances  -- since 8.0
    deriving (Eq, Show, Enum)
 
 data Language = Haskell98 | Haskell2010
@@ -2889,6 +2890,8 @@ fWarningFlags = [
   flagSpec "warn-name-shadowing"              Opt_WarnNameShadowing,
   flagSpec "warn-noncanonical-monad-instances"
                                          Opt_WarnNonCanonicalMonadInstances,
+  flagSpec "warn-noncanonical-monoid-instances"
+                                         Opt_WarnNonCanonicalMonoidInstances,
   flagSpec "warn-orphans"                     Opt_WarnOrphans,
   flagSpec "warn-overflowed-literals"         Opt_WarnOverflowedLiterals,
   flagSpec "warn-overlapping-patterns"        Opt_WarnOverlappingPatterns,
@@ -3471,6 +3474,7 @@ minusWcompatOpts :: [WarningFlag]
 minusWcompatOpts
     = [ Opt_WarnMissingMonadFailInstance
       , Opt_WarnSemigroup
+      , Opt_WarnNonCanonicalMonoidInstances
       ]
 
 enableUnusedBinds :: DynP ()

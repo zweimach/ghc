@@ -9,7 +9,7 @@
 
 module TcHsType (
         -- Type signatures
-        kcClassSigType, tcClassSigType,
+        kcHsSigType, tcClassSigType,
         tcHsSigType, tcHsSigWcType,
         funsSigCtxt, addSigCtxt,
 
@@ -161,9 +161,9 @@ tcHsSigWcType :: UserTypeCtxt -> LHsSigWcType Name -> TcM Type
 -- alrady checked this, so we can simply ignore it.
 tcHsSigWcType ctxt sig_ty = tcHsSigType ctxt (dropWildCards sig_ty)
 
-kcClassSigType :: [Located Name] -> LHsSigType Name -> TcM ()
-kcClassSigType names (HsIB { hsib_body = hs_ty
-                           , hsib_vars = sig_vars })
+kcHsSigType :: [Located Name] -> LHsSigType Name -> TcM ()
+kcHsSigType names (HsIB { hsib_body = hs_ty
+                        , hsib_vars = sig_vars })
   = addSigCtxt (funsSigCtxt names) hs_ty $
     void $ tcImplicitTKBndrs sig_vars $
            tc_lhs_type typeLevelMode hs_ty liftedTypeKind
@@ -470,9 +470,10 @@ tc_hs_type _ ty@(HsBangTy {}) _
     -- other kinds of bangs are not (eg ((!Maybe) Int)). These kinds of
     -- bangs are invalid, so fail. (#7210)
     = failWithTc (ptext (sLit "Unexpected strictness annotation:") <+> ppr ty)
-tc_hs_type _ (HsRecTy _) _ = panic "tc_hs_type: record" -- Unwrapped by con decls
+tc_hs_type _ ty@(HsRecTy _)      _
       -- Record types (which only show up temporarily in constructor
       -- signatures) should have been removed by now
+    = failWithTc (ptext (sLit "Record syntax is illegal here:") <+> ppr ty)
 
 -- This should never happen; type splices are expanded by the renamer
 tc_hs_type _ ty@(HsSpliceTy {}) _exp_kind
@@ -736,7 +737,7 @@ tc_infer_args mode orig_ty ki mb_kind_info orig_args n0
     -- typechecking, we don't.
 
     go subst fun_kind all_args n acc
-      | Just fun_kind' <- tcView fun_kind
+      | Just fun_kind' <- coreView fun_kind
       = go subst fun_kind' all_args n acc
 
       | Just tv <- getTyVar_maybe fun_kind
@@ -776,7 +777,7 @@ tcInferApps mode orig_ty ty ki args = go ty ki args 1
   where
     go fun fun_kind []   _ = return (fun, fun_kind)
     go fun fun_kind args n
-      | Just fun_kind' <- tcView fun_kind
+      | Just fun_kind' <- coreView fun_kind
       = go fun fun_kind' args n
 
       | isForAllTy fun_kind

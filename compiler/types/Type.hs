@@ -131,7 +131,7 @@ module Type (
         seqType, seqTypes,
 
         -- * Other views onto Types
-        coreView, coreViewOneStarKind, tcView,
+        coreView, coreViewOneStarKind,
 
         UnaryType, RepType(..), flattenRepType, repType,
         tyConsOfType,
@@ -310,16 +310,6 @@ coreViewOneStarKind = go Nothing
     go _ (TyConApp tc []) | isStarKindSynonymTyCon tc = go (Just t') t'
       where t' = liftedTypeKind
     go res _ = res
-
------------------------------------------------
-{-# INLINE tcView #-}
-tcView :: Type -> Maybe Type
--- ^ Historical only; 'tcView' and 'coreView' used to differ, but don't any more
-tcView = coreView
-  -- ToDo: get rid of tcView altogether
-  -- You might think that tcView belows in TcType rather than Type, but unfortunately
-  -- it is needed by Unify, which is turn imported by Coercion (for MatchEnv and matchList).
-  -- So we will leave it here to avoid module loops.
 
 -----------------------------------------------
 expandTypeSynonyms :: Type -> Type
@@ -653,7 +643,7 @@ repSplitAppTy_maybe _other = Nothing
 -- Defined here to avoid module loops between Unify and TcType.
 tcRepSplitAppTy_maybe :: Type -> Maybe (Type,Type)
 -- ^ Does the AppTy split as in 'tcSplitAppTy_maybe', but assumes that
--- any tcView stuff is already done. Refuses to look through (c => t)
+-- any coreView stuff is already done. Refuses to look through (c => t)
 tcRepSplitAppTy_maybe (ForAllTy (Anon ty1) ty2)
   | isConstraintKind (typeKind ty1)     = Nothing  -- See Note [Decomposing fat arrow c=>t]
   | otherwise                           = Just (TyConApp funTyCon [ty1], ty2)
@@ -701,7 +691,7 @@ mkNumLitTy n = LitTy (NumTyLit n)
 
 -- | Is this a numeric literal. We also look through type synonyms.
 isNumLitTy :: Type -> Maybe Integer
-isNumLitTy ty | Just ty1 <- tcView ty = isNumLitTy ty1
+isNumLitTy ty | Just ty1 <- coreView ty = isNumLitTy ty1
 isNumLitTy (LitTy (NumTyLit n)) = Just n
 isNumLitTy _                    = Nothing
 
@@ -710,7 +700,7 @@ mkStrLitTy s = LitTy (StrTyLit s)
 
 -- | Is this a symbol literal. We also look through type synonyms.
 isStrLitTy :: Type -> Maybe FastString
-isStrLitTy ty | Just ty1 <- tcView ty = isStrLitTy ty1
+isStrLitTy ty | Just ty1 <- coreView ty = isStrLitTy ty1
 isStrLitTy (LitTy (StrTyLit s)) = Just s
 isStrLitTy _                    = Nothing
 
@@ -2105,7 +2095,7 @@ tyConsOfType ty
   = go ty
   where
      go :: Type -> NameEnv TyCon  -- The NameEnv does duplicate elim
-     go ty | Just ty' <- tcView ty = go ty'
+     go ty | Just ty' <- coreView ty = go ty'
      go (TyVarTy {})               = emptyNameEnv
      go (LitTy {})                 = emptyNameEnv
      go (TyConApp tc tys)          = go_tc tc `plusNameEnv` go_s tys

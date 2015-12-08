@@ -69,6 +69,7 @@ import BasicTypes
 
 import Control.Monad
 import Data.List
+import Data.Monoid ( mempty )
 
 {-
 ************************************************************************
@@ -404,7 +405,7 @@ getInitialKind decl@(DataDecl { tcdLName = L _ name
         ; decl_kind <- zonkTcType decl_kind
         ; let main_pr = (name, AThing decl_kind)
               inner_prs = [ (unLoc con, APromotionErr RecDataConPE)
-                          | L _ con' <- cons, con <- con_names con' ]
+                          | L _ con' <- cons, con <- getConNames con' ]
         ; return (main_pr : inner_prs) }
 
 getInitialKind (FamDecl { tcdFam = decl })
@@ -507,7 +508,7 @@ kcTyClDecl (ClassDecl { tcdLName = L _ name, tcdTyVars = hs_tvs
         ; _ <- tcHsContext ctxt
         ; mapM_ (wrapLocM kc_sig)     sigs }
   where
-    kc_sig (ClassOpSig _ nms op_ty) = kcClassSigType nms op_ty
+    kc_sig (ClassOpSig _ nms op_ty) = kcHsSigType nms op_ty
     kc_sig _                        = return ()
 
 kcTyClDecl (FamDecl (FamilyDecl { fdLName  = L _ fam_tc_name
@@ -528,21 +529,27 @@ kcTyClDecl (FamDecl (FamilyDecl { fdLName  = L _ fam_tc_name
 
 -------------------
 kcConDecl :: ConDecl Name -> TcM ()
-kcConDecl (ConDecl { con_names = names, con_qvars = ex_tvs
-                   , con_cxt = ex_ctxt, con_details = details
-                   , con_res = res })
-  = addErrCtxt (dataConCtxtName names) $
+kcConDecl (ConDeclH98 { con_name = name, con_qvars = ex_tvs
+                      , con_cxt = ex_ctxt, con_details = details })
+  = addErrCtxt (dataConCtxtName [name]) $
          -- the 'False' says that the existentials don't have a CUSK, as the
          -- concept doesn't really apply here. We just need to bring the variables
          -- into scope.
-    do { _ <- kcHsTyVarBndrs False ex_tvs $ \_ _ ->
-              do { _ <- tcHsContext ex_ctxt
+    do { _ <- kcHsTyVarBndrs False ((fromMaybe (HsQTvs mempty []) ex_tvs)) $
+              \ _ _ ->
+              do { _ <- tcHsContext (fromMaybe (noLoc []) ex_ctxt)
                  ; mapM_ (tcHsOpenType . getBangType) (hsConDeclArgTys details)
-                 ; _ <- tcConRes res
                  ; return (panic "kcConDecl", ()) }
               -- We don't need to check the telescope here, because that's
               -- done in tcConDecl
        ; return () }
+
+kcConDecl (ConDeclGADT { con_names = names
+                       , con_type = ty })
+  = addErrCtxt (dataConCtxtName names) $
+      do { _ <- tcGadtSigType (ppr names) (unLoc $ head names) ty
+         ; return () }
+
 
 {-
 Note [Recursion and promoting data constructors]
@@ -1339,8 +1346,8 @@ dataDeclChecks tc_name new_or_data stupid_theta cons
 
 -----------------------------------
 consUseGadtSyntax :: [LConDecl a] -> Bool
-consUseGadtSyntax (L _ (ConDecl { con_res = ResTyGADT _ _ }) : _) = True
-consUseGadtSyntax _                                               = False
+consUseGadtSyntax (L _ (ConDeclGADT { }) : _) = True
+consUseGadtSyntax _                           = False
                  -- All constructors have same shape
 
 -----------------------------------
@@ -1358,46 +1365,73 @@ tcConDecl :: NewOrData
           -> TcM [DataCon]
 
 tcConDecl new_or_data rep_tycon tmpl_tvs res_tmpl
-          (ConDecl { con_names = names
-                   , con_qvars = hs_tvs, con_cxt = hs_ctxt
-                   , con_details = hs_details, con_res = hs_res_ty })
-  = addErrCtxt (dataConCtxtName names) $
-    do { traceTc "tcConDecl 1" (ppr names)
-       ; (ctxt, arg_tys, res_ty, field_lbls, stricts)
+          (ConDeclH98 { con_name = name
+                      , con_qvars = hs_tvs, con_cxt = hs_ctxt
+                      , con_details = hs_details })
+  = addErrCtxt (dataConCtxtName [name]) $
+    do { traceTc "tcConDecl 1" (ppr name)
+       ; (ctxt, arg_tys, field_lbls, stricts)
            <- solveEqualities $
-              tcHsQTyVars hs_tvs $
-              do { ctxt    <- tcHsContext hs_ctxt
-                 ; btys    <- tcConArgs new_or_data hs_details
-                 ; res_ty  <- tcConRes hs_res_ty
-                 ; field_lbls <- lookupConstructorFields (unLoc $ head names)
+              tcHsQTyVars (fromMaybe (HsQTvs [] []) hs_tvs) $
+              do { traceTc "tcConDecl" (ppr name <+> text "tvs:" <+> ppr hs_tvs)
+                 ; ctxt <- tcHsContext (fromMaybe (noLoc []) hs_ctxt)
+                 ; btys <- tcConArgs new_or_data hs_details
+                 ; field_lbls <- lookupConstructorFields (unLoc name)
                  ; let (arg_tys, stricts) = unzip btys
-                 ; return (ctxt, arg_tys, res_ty, field_lbls, stricts)
+                 ; return (ctxt, arg_tys, field_lbls, stricts)
                  }
 
-             -- Generalise the kind variables (returning quantified TcKindVars)
-             -- and quantify the type variables (substituting their kinds)
-             -- REMEMBER: 'tkvs' are:
-             --    ResTyH98:  the *existential* type variables only
-             --    ResTyGADT: *all* the quantified type variables
-             -- c.f. the comment on con_qvars in HsDecls
-       ; tkvs <- case res_ty of
-                   ResTyH98
-                     -> quantifyTyVars gbl_tvs (splitDepVarsOfTypes (ctxt++arg_tys))
-                     where
-                       gbl_tvs = mkVarSet tmpl_tvs
-                   ResTyGADT _ res_ty -> quantifyTyVars emptyVarSet (splitDepVarsOfTypes (res_ty:ctxt++arg_tys))
+       ; tkvs <- quantifyTyVars (mkVarSet tmpl_tvs)
+                                (splitDepVarsOfTypes (ctxt++arg_tys))
 
              -- Zonk to Types
        ; (ze, qtkvs) <- zonkTyBndrsX emptyZonkEnv tkvs
        ; arg_tys <- zonkTcTypeToTypes ze arg_tys
        ; ctxt    <- zonkTcTypeToTypes ze ctxt
-       ; res_ty  <- case res_ty of
-                      ResTyH98        -> return ResTyH98
-                      ResTyGADT ls ty -> ResTyGADT ls <$> zonkTcTypeToType ze ty
+
+       ; let (univ_tvs, ex_tvs, eq_preds) = (tmpl_tvs, qtkvs, [])
+
+       ; fam_envs <- tcGetFamInstEnvs
+
+       -- Can't print univ_tvs, arg_tys etc, because we are inside the knot here
+       ; traceTc "tcConDecl 2" (ppr name $$ ppr field_lbls)
+       ; let
+           buildOneDataCon (L _ name) = do
+             { is_infix <- tcConIsInfixH98 name hs_details
+             ; rep_nm   <- newTyConRepName name
+
+             ; buildDataCon fam_envs name is_infix
+                            (if is_prom then Promoted rep_nm else NotPromoted)
+                              -- Must be lazy in is_prom because it is knot-tied
+                            stricts Nothing field_lbls
+                            tmpl_tvs qtkvs [{- no eq_preds -}] ctxt arg_tys
+                            res_tmpl rep_tycon
+                  -- NB:  we put data_tc, the type constructor gotten from the
+                  --      constructor type signature into the data constructor;
+                  --      that way checkValidDataCon can complain if it's wrong.
+             }
+       ; traceTc "tcConDecl 2" (ppr name)
+       ; mapM buildOneDataCon [name]
+       }
+
+tcConDecl _new_or_data is_prom rep_tycon tmpl_tvs res_tmpl
+          (ConDeclGADT { con_names = names, con_type = ty })
+  = addErrCtxt (dataConCtxtName names) $
+    do { traceTc "tcConDecl 1" (ppr names)
+       ; (ctxt, stricts, field_lbls, arg_tys, res_ty,hs_details)
+           <- tcGadtSigType (ppr names) (unLoc $ head names) ty
+       ; tkvs <- quantifyTyVars emptyVarSet
+                                (splitDepVarsOfTypes (res_ty:ctxt++arg_tys))
+
+             -- Zonk to Types
+       ; (ze, qtkvs) <- zonkTyBndrsX emptyZonkEnv tkvs
+       ; arg_tys <- zonkTcTypeToTypes ze arg_tys
+       ; ctxt    <- zonkTcTypeToTypes ze ctxt
+       ; res_ty  <- zonkTcTypeToType ze res_ty
 
        ; let (univ_tvs, ex_tvs, eq_preds, res_ty', arg_subst)
                = rejigConRes tmpl_tvs res_tmpl qtkvs res_ty
-             -- NB: this is a /lazy/ binding, so we pass four thunks to buildDataCon
+             -- NB: this is a /lazy/ binding, so we pass five thunks to buildDataCon
              --     without yet forcing the guards in rejigConRes
              -- See Note [Checking GADT return types]
 
@@ -1407,7 +1441,7 @@ tcConDecl new_or_data rep_tycon tmpl_tvs res_tmpl
        ; traceTc "tcConDecl 2" (ppr names $$ ppr field_lbls)
        ; let
            buildOneDataCon (L _ name) = do
-             { is_infix <- tcConIsInfix name hs_details res_ty
+             { is_infix <- tcConIsInfixGADT name hs_details
              ; rep_nm   <- newTyConRepName name
 
              ; buildDataCon fam_envs name is_infix
@@ -1427,19 +1461,72 @@ tcConDecl new_or_data rep_tycon tmpl_tvs res_tmpl
        }
 
 
-tcConIsInfix :: Name
+tcGadtSigType :: SDoc -> Name -> LHsSigType Name
+              -> TcM ( [PredType],[HsSrcBang], [FieldLabel], [Type], Type
+                     , HsConDetails (LHsType Name)
+                                    (Located [LConDeclField Name]) )
+tcGadtSigType doc name ty@(HsIB { hsib_vars = vars })
+  = do { let (hs_details', res_ty', cxt, gtvs) = gadtDeclDetails ty
+       ; (hs_details, res_ty) <- tcUpdateConResult doc hs_details' res_ty'
+       ; (_, (ctxt, arg_tys, res_ty, field_lbls, stricts))
+           <- solveEqualities $
+              tcImplicitTKBndrs vars $
+              tcHsTyVarBndrs gtvs $ \ _ ->
+              do { ctxt <- tcHsContext cxt
+                 ; btys <- tcConArgs DataType hs_details
+                 ; ty' <- tcHsLiftedType res_ty
+                 ; field_lbls <- lookupConstructorFields name
+                 ; let (arg_tys, stricts) = unzip btys
+                 ; return (ctxt, arg_tys, ty', field_lbls, stricts)
+                 }
+       ; return (ctxt,stricts,field_lbls,arg_tys,res_ty,hs_details)
+       }
+
+tcUpdateConResult :: SDoc
+            -> HsConDetails (LHsType Name) (Located [LConDeclField Name])
+                    -- Original details
+            -> LHsType Name -- The original result type
+            -> TcM (HsConDetails (LHsType Name) (Located [LConDeclField Name]),
+                    LHsType Name)
+tcUpdateConResult doc details ty
+  = do {  let (arg_tys, res_ty) = splitHsFunType ty
+                -- We can finally split it up,
+                -- now the renamer has dealt with fixities
+                -- See Note [Sorting out the result type] in RdrHsSyn
+
+       ; case details of
+           InfixCon {}  -> pprPanic "tcUpdateConResult" (ppr ty)
+           -- See Note [Sorting out the result type] in RdrHsSyn
+
+           RecCon {}    -> do { unless (null arg_tys)
+                                       (failWithTc (badRecResTy doc))
+                                -- AZ: This error used to be reported during
+                                --     renaming, will now be reported in type
+                                --     checking. Is this a problem?
+                              ; return (details, res_ty) }
+
+           PrefixCon {} -> return (PrefixCon arg_tys, res_ty)}
+    where
+        badRecResTy :: SDoc -> SDoc
+        badRecResTy ctxt = ctxt <+>
+                        ptext (sLit "Malformed constructor signature")
+
+tcConIsInfixH98 :: Name
              -> HsConDetails (LHsType Name) (Located [LConDeclField Name])
-             -> ResType Type
              -> TcM Bool
-tcConIsInfix _   details ResTyH98
+tcConIsInfixH98 _   details
   = case details of
            InfixCon {}  -> return True
            _            -> return False
-tcConIsInfix con details (ResTyGADT _ _)
+
+tcConIsInfixGADT :: Name
+             -> HsConDetails (LHsType Name) (Located [LConDeclField Name])
+             -> TcM Bool
+tcConIsInfixGADT con details
   = case details of
            InfixCon {}  -> return True
            RecCon {}    -> return False
-           PrefixCon arg_tys           -- See Note [Infix GADT cons]
+           PrefixCon arg_tys           -- See Note [Infix GADT constructors]
                | isSymOcc (getOccName con)
                , [_ty1,_ty2] <- arg_tys
                   -> do { fix_env <- getFixityEnv
@@ -1472,11 +1559,6 @@ tcConArg new_or_data bty
         ; arg_ty <- tcHsConArgType new_or_data bty
         ; traceTc "tcConArg 2" (ppr bty)
         ; return (arg_ty, getBangStrictness bty) }
-
-tcConRes :: ResType (LHsType Name) -> TcM (ResType Type)
-tcConRes ResTyH98           = return ResTyH98
-tcConRes (ResTyGADT ls res_ty) = do { res_ty' <- tcHsLiftedType res_ty
-                                    ; return (ResTyGADT ls res_ty') }
 
 {-
 Note [Infix GADT constructors]
@@ -1534,7 +1616,7 @@ rejigConRes :: [TyVar] -> Type    -- Template for result type; e.g.
                                   --      gives template ([a,b,c], T [a] b c)
                                   -- Type must be of kind *!
             -> [TyVar]            -- where MkT :: forall x y z. ...
-            -> ResType Type       -- ResTyGADT type must be of kind *!
+            -> Type               -- res_ty type must be of kind *
             -> ([TyVar],          -- Universal
                 [TyVar],          -- Existential (distinct OccNames from univs)
                 [EqSpec],      -- Equality predicates
@@ -1543,13 +1625,7 @@ rejigConRes :: [TyVar] -> Type    -- Template for result type; e.g.
         -- We don't check that the TyCon given in the ResTy is
         -- the same as the parent tycon, because checkValidDataCon will do it
 
-rejigConRes tmpl_tvs res_ty dc_tvs ResTyH98
-  = (tmpl_tvs, dc_tvs, [], res_ty, emptyTCvSubst)
-        -- In H98 syntax the dc_tvs are the existential ones
-        --      data T a b c = forall d e. MkT ...
-        -- The universals {a,b,c} are tc_tvs, and the existentials {d,e} are dc_tvs
-
-rejigConRes tmpl_tvs res_tmpl dc_tvs (ResTyGADT _ res_ty)
+rejigConRes tmpl_tvs res_tmpl dc_tvs res_ty
         -- E.g.  data T [a] b c where
         --         MkT :: forall x y z. T [(x,y)] z z
         -- The {a,b,c} are the tmpl_tvs, and the {x,y,z} are the dc_tvs

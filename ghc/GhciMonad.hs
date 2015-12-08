@@ -19,7 +19,7 @@ module GhciMonad (
         TickArray,
         getDynFlags,
 
-        isStmt, runStmt, runDecls, resume, timeIt, recordBreak, revertCAFs,
+        runStmt, runDecls, resume, timeIt, recordBreak, revertCAFs,
 
         printForUser, printForUserPartWay, prettyLocations,
         initInterpBuffering, turnOffBuffering, flushInterpBuffers,
@@ -50,18 +50,10 @@ import System.IO
 import Control.Monad
 import GHC.Exts
 
-import qualified Lexer (ParseResult(..), unP, mkPState)
-import qualified Parser (parseStmt)
-import StringBuffer (stringToStringBuffer)
-
 import System.Console.Haskeline (CompletionFunc, InputT)
 import qualified System.Console.Haskeline as Haskeline
 import Control.Monad.Trans.Class
 import Control.Monad.IO.Class
-
-#if __GLASGOW_HASKELL__ < 709
-import Control.Applicative (Applicative(..))
-#endif
 
 -----------------------------------------------------------------------------
 -- GHCi monad
@@ -265,19 +257,6 @@ printForUserPartWay doc = do
   unqual <- GHC.getPrintUnqual
   dflags <- getDynFlags
   liftIO $ Outputable.printForUserPartWay dflags stdout (pprUserLength dflags) unqual doc
-
-isStmt :: String -> GHCi Bool
-isStmt stmt = do
-  st <- getGHCiState
-  dflags <- GHC.getInteractiveDynFlags
-
-  let buf = stringToStringBuffer stmt
-      loc = mkRealSrcLoc (fsLit "<interactive>") (line_number st) 1
-      parser = Parser.parseStmt
-
-  case Lexer.unP parser (Lexer.mkPState dflags buf loc) of
-    Lexer.POk _ _ -> return True
-    Lexer.PFailed _ _ -> return False
 
 -- | Run a single Haskell expression
 runStmt :: String -> GHC.SingleStep -> GHCi (Maybe GHC.ExecResult)

@@ -105,6 +105,7 @@ solveComplexEq solver_state@(standby, (unhandled, env)) eq@(e1, e2) = case eq of
   (_,PmExprOther _)            -> Just (standby, (True, env))
 
   (PmExprLit l1, PmExprLit l2) -> case eqPmLit l1 l2 of
+    -- See Note [Undecidable Equality for Overloaded Literals]
     True  -> Just solver_state
     False -> Nothing
 
@@ -136,7 +137,8 @@ extendSubstAndSolve x e (standby, (unhandled, env))
   where
     -- Apply the substitution to the worklist and partition them to the ones
     -- that had some progress and the rest. Then, recurse over the ones that
-    -- had some progress.
+    -- had some progress. Careful about performance:
+    -- See Note [Representation of Term Equalities] in deSugar/Check.hs
     (changed, unchanged) = partitionWith (substComplexEq x e) standby
     new_incr_state       = (unchanged, (unhandled, Map.insert x e env))
 
@@ -164,6 +166,7 @@ simplifyEqExpr e1 e2 = case (e1, e2) of
 
   -- Literals
   (PmExprLit l1, PmExprLit l2) -> case eqPmLit l1 l2 of
+    -- See Note [Undecidable Equality for Overloaded Literals]
     True  -> (truePmExpr,  True)
     False -> (falsePmExpr, True)
 
