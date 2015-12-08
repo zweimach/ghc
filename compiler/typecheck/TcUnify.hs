@@ -769,6 +769,11 @@ uType origin t_or_k orig_ty1 orig_ty2
                                   ; go ty1 ty2 }
                Unfilled ds2 -> uUnfilledVar origin t_or_k IsSwapped tv2 ds2 ty1 }
 
+      -- See Note [Expanding synonyms during unification]
+    go ty1@(TyConApp tc1 []) (TyConApp tc2 [])
+      | tc1 == tc2
+      = return $ mkReflCo Nominal ty1
+
         -- See Note [Expanding synonyms during unification]
         --
         -- Also NB that we recurse to 'go' so that we don't push a
@@ -909,6 +914,11 @@ We expand synonyms during unification, but:
    and are unifying
       Phantom Int ~ Phantom Char
    it is *wrong* to unify Int and Char.
+
+ * The problem case immediately above can happen only with arguments
+   to the tycon. So we check for nullary tycons *before* expanding.
+   This is particularly helpful when checking (* ~ *), because * is
+   now a type synonym.
 
 Note [Deferred Unification]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
