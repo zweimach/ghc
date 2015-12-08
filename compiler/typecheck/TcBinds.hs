@@ -1772,14 +1772,17 @@ tcUserTypeSig hs_sig_ty mb_name
                          Just _  -> dropTail 1 hs_ctxt
 
             ; tau <- tcHsOpenType hs_tau
-            ; return (wcs, tvs2, theta, tau) }
 
-         -- Check for validity (eg rankN etc)
-         -- The ambiguity check will happen (from checkValidType),
-         -- but unnecessarily; it will always succeed becuase there
-         -- is no quantification
-       ; phi <- zonkTcType (mkPhiTy theta tau)
-       ; checkValidType ctxt_F phi
+              -- Check for validity (eg rankN etc)
+              -- The ambiguity check will happen (from checkValidType),
+              -- but unnecessarily; it will always succeed becuase there
+              -- is no quantification
+            ; phi <- zonkTcType (mkPhiTy theta tau)
+            ; checkValidType ctxt_F phi
+                -- NB: Do this in the context of the pushTcLevel so that
+                -- the TcLevel invariant is respected
+
+            ; return (wcs, tvs2, theta, tau) }
 
        ; loc <- getSrcSpanM
        ; return $
