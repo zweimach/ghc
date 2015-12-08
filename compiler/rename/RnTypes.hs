@@ -207,11 +207,12 @@ rnImplicitBndrs no_implicit_if_forall hs_ty@(L loc _) thing_inside
   = do { rdr_env <- getLocalRdrEnv
        ; free_vars <- filterInScope rdr_env <$>
                       extractHsTyRdrTyVars hs_ty
-       ; let real_rdrs  -- Implicit quantification only if
+       ; let real_tv_rdrs  -- Implicit quantification only if
                         -- there is no explicit forall
                | no_implicit_if_forall
                , L _ (HsForAllTy {}) <- hs_ty = []
-               | otherwise                    = freeKiTyVarsAllVars free_vars
+               | otherwise                    = freeKiTyVarsTypeVars free_vars
+             real_rdrs = freeKiTyVarsKindVars free_vars ++ real_tv_rdrs
        ; traceRn (text "rnSigType" <+> (ppr hs_ty $$ ppr free_vars $$
                                         ppr real_rdrs))
        ; vars <- mapM (newLocalBndrRn . L loc . unLoc) real_rdrs
