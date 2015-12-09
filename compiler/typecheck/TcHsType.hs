@@ -1366,21 +1366,27 @@ tcHsQTyVars (HsQTvs { hsq_implicit = kv_ns, hsq_explicit = hs_tvs })
 
 tcHsTyVarBndrs :: [LHsTyVarBndr Name] -> ([TyVar] -> TcM a) -> TcM a
 -- No cloning: returned TyVars have the same Name as the incoming LHsTyVarBndrs
-tcHsTyVarBndrs hs_tvs thing_inside
-  = do { tvs <- mapM (tcHsTyVarBndr . unLoc) hs_tvs
-       ; result <- tcExtendTyVarEnv tvs $
-                   thing_inside tvs
+tcHsTyVarBndrs orig_hs_tvs thing_inside
+  = go orig_hs_tvs $ \ tvs ->
+    do { result <- thing_inside tvs
 
          -- Issue an error if the ordering is bogus.
          -- See Note [Bad telescopes] in TcValidity.
-       ; tvs <- checkZonkValidTelescope hs_tvs tvs
+       ; tvs <- checkZonkValidTelescope orig_hs_tvs tvs
 
        ; traceTc "tcHsTyVarBndrs" $
-           vcat [ text "Hs vars:" <+> ppr hs_tvs
+           vcat [ text "Hs vars:" <+> ppr orig_hs_tvs
                 , text "tvs:" <+> sep (map pprTvBndr tvs) ]
 
        ; return result
        }
+  where
+    go [] thing = thing []
+    go (L _ hs_tv : hs_tvs) thing
+      = do { tv <- tcHsTyVarBndr hs_tv
+           ; tcExtendTyVarEnv [tv] $
+             go hs_tvs $ \ tvs ->
+             thing (tv : tvs) }
 
 -- | Type-check and scope a bunch of user-written HsTyVarBndrs, but with
 -- the possibility that some are in scope. (Good for associated types, for
