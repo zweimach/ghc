@@ -57,9 +57,6 @@ import Pair
 import Util
 import Bag
 import Digraph
-#if __GLASGOW_HASKELL__ < 709
-import Data.Traversable (traverse, sequenceA)
-#endif
 import qualified Data.Data as Data
 import Outputable
 import FastString
