@@ -568,15 +568,15 @@ findTypeShape :: FamInstEnvs -> Type -> TypeShape
 -- The data type TypeShape is defined in Demand
 -- See Note [Trimming a demand to a type] in Demand
 findTypeShape fam_envs ty
-  | Just (_, ty') <- splitForAllTy_maybe ty
-  = findTypeShape fam_envs ty'
-
   | Just (tc, tc_args)  <- splitTyConApp_maybe ty
   , Just con <- isDataProductTyCon_maybe tc
   = TsProd (map (findTypeShape fam_envs) $ dataConInstArgTys con tc_args)
 
   | Just (_, res) <- splitFunTy_maybe ty
   = TsFun (findTypeShape fam_envs res)
+
+  | Just (_, ty') <- splitForAllTy_maybe ty
+  = findTypeShape fam_envs ty'
 
   | Just (_, ty') <- topNormaliseType_maybe fam_envs ty
   = findTypeShape fam_envs ty'
