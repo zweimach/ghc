@@ -69,6 +69,9 @@ import BasicTypes
 
 import Control.Monad
 import Data.List
+#if __GLASGOW_HASKELL__ < 709
+import Data.Monoid ( mempty )
+#endif
 
 {-
 ************************************************************************

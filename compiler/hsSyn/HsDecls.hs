@@ -1060,17 +1060,19 @@ getConNames :: ConDecl name -> [Located name]
 getConNames ConDeclH98  {con_name  = name}  = [name]
 getConNames ConDeclGADT {con_names = names} = names
 
-getConDetails :: ConDecl Name -> HsConDeclDetails Name
+-- don't call with RdrNames, because it can't deal with HsAppsTy
+getConDetails :: ConDecl name -> HsConDeclDetails name
 getConDetails ConDeclH98  {con_details  = details} = details
 getConDetails ConDeclGADT {con_type     = ty     } = details
   where
     (details,_,_,_) = gadtDeclDetails ty
 
-gadtDeclDetails :: LHsSigType Name
-                -> ( HsConDeclDetails Name
-                   , LHsType Name
-                   , LHsContext Name
-                   , [LHsTyVarBndr Name] )
+-- don't call with RdrNames, because it can't deal with HsAppsTy
+gadtDeclDetails :: LHsSigType name
+                -> ( HsConDeclDetails name
+                   , LHsType name
+                   , LHsContext name
+                   , [LHsTyVarBndr name] )
 gadtDeclDetails HsIB {hsib_body = lbody_ty} = (details,res_ty,cxt,tvs)
   where
     (tvs, cxt, tau) = splitLHsSigmaTy lbody_ty
