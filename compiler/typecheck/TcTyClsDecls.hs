@@ -1817,14 +1817,14 @@ mkGADTVars tmpl_tvs dc_tvs subst
               , [EqSpec]        -- GADT equalities
               , TCvSubst )       -- a substitution to fix kinds in ex_tvs
 
-    choose univs eqs _     r_sub []
+    choose univs eqs _t_sub r_sub []
       = (reverse univs, reverse eqs, r_sub)
     choose univs eqs t_sub r_sub (t_tv:t_tvs)
       | Just r_ty <- lookupTyVar subst t_tv
       = case getTyVar_maybe r_ty of
           Just r_tv
             |  not (r_tv `elem` univs)
-            ,  tyVarKind r_tv `eqType` tyVarKind t_tv
+            ,  tyVarKind r_tv `eqType` (substTy t_sub (tyVarKind t_tv))
             -> -- simple, well-kinded variable substitution.
                choose (r_tv:univs) eqs
                       (extendTCvSubst t_sub t_tv r_ty)
@@ -1836,8 +1836,7 @@ mkGADTVars tmpl_tvs dc_tvs subst
 
                -- not a simple substitution. make an equality predicate
           _ -> choose (t_tv':univs) (mkEqSpec t_tv' r_ty : eqs)
-                      (extendTCvSubst t_sub t_tv (mkTyVarTy t_tv'))
-                      r_sub t_tvs
+                      t_sub r_sub t_tvs
             where t_tv' = updateTyVarKind (substTy t_sub) t_tv
 
       | otherwise
