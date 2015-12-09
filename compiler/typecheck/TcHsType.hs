@@ -1593,9 +1593,9 @@ kcLookupKind nm
 -- See Note [Typechecking telescopes]
 splitTelescopeTvs :: Kind         -- of the head of the telescope
                   -> LHsQTyVars Name
-                  -> ( [TyVar]    -- *scoped* type variables
-                     , [TyVar]    -- *implicit* type variables (cases 1 & 2)
-                     , [TyVar]    -- *explicit* type variables (cases 3 & 4)
+                  -> ( [TyVar]    -- scoped type variables
+                     , [TyVar]    -- implicit type variables (cases 1 & 2)
+                     , [TyVar]    -- explicit type variables (cases 3 & 4)
                      , Kind )     -- result kind
 splitTelescopeTvs kind tvbs@(HsQTvs { hsq_implicit = hs_kvs
                                     , hsq_explicit = hs_tvs })

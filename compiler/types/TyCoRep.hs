@@ -639,8 +639,9 @@ instance Outputable UnivCoProvenance where
 
 -- | A coercion to be filled in by the type-checker. See Note [Coercion holes]
 data CoercionHole
-  = CoercionHole Unique   -- ^ used only for debugging
-                 (IORef (Maybe Coercion))
+  = CoercionHole { chUnique   :: Unique   -- ^ used only for debugging
+                 , chCoercion ::(IORef (Maybe Coercion))
+                 }
   deriving (Data.Typeable)
 
 instance Data.Data CoercionHole where

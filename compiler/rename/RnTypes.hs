@@ -848,11 +848,11 @@ bindLHsTyVarBndr doc mb_assoc kv_names tv_names hs_tv_bndr thing_inside
 
 bindImplicitKvs :: HsDocContext
                 -> Maybe a
-                -> [Located RdrName]  -- kind var *occurrences*, from which
+                -> [Located RdrName]  -- ^ kind var *occurrences*, from which
                                       -- intent to bind is inferred
-                -> NameSet            -- *type* variables, for type/kind
+                -> NameSet            -- ^ *type* variables, for type/kind
                                       -- misuse check for -XNoTypeInType
-                -> ([Name] -> RnM (b, FreeVars)) -- passed new kv_names
+                -> ([Name] -> RnM (b, FreeVars)) -- ^ passed new kv_names
                 -> RnM (b, FreeVars)
 bindImplicitKvs _   _        []       _        thing_inside = thing_inside []
 bindImplicitKvs doc mb_assoc free_kvs tv_names thing_inside
@@ -879,8 +879,8 @@ bindImplicitKvs doc mb_assoc free_kvs tv_names thing_inside
   where
       -- check to see if the variables free in a kind are bound as type
       -- variables. Assume -XNoTypeInType.
-    check_tv_used_in_kind :: NameSet       -- *type* variables
-                          -> Located Name  -- renamed var used in kind
+    check_tv_used_in_kind :: NameSet       -- ^ *type* variables
+                          -> Located Name  -- ^ renamed var used in kind
                           -> RnM ()
     check_tv_used_in_kind tv_names (L loc kv_name)
       = when (kv_name `elemNameSet` tv_names) $

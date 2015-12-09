@@ -287,7 +287,7 @@ tcUnifyTyWithTFs twoWay t1 t2
       Unifiable  (subst, _) -> Just $ niFixTCvSubst subst
       MaybeApart (subst, _) -> Just $ niFixTCvSubst subst
       -- we want to *succeed* in questionable cases. This is a
-      -- *pre-unification* algorithm.
+      -- pre-unification algorithm.
       SurelyApart      -> Nothing
   where
     rn_env = mkRnEnv2 $ mkInScopeSet $ tyCoVarsOfTypes [t1, t2]

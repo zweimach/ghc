@@ -542,11 +542,11 @@ tcInfer tc_check
 
 tcGen :: UserTypeCtxt -> TcType
       -> ([TcTyVar] -> TcRhoType -> TcM result)
-         -- thing_inside is passed only the *type* variables, not
+         -- ^ thing_inside is passed only the *type* variables, not
          -- *coercion* variables. They are only ever used for scoped type
          -- variables.
       -> TcM (HsWrapper, result)
-        -- The expression has type: spec_ty -> expected_ty
+         -- ^ The expression has type: spec_ty -> expected_ty
 
 tcGen ctxt expected_ty thing_inside
    -- We expect expected_ty to be a forall-type
