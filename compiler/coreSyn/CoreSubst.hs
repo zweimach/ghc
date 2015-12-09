@@ -793,8 +793,6 @@ InlVanilla.  The WARN is just so I can see if it happens a lot.
 
 Note [Getting the map/coerce RULE to work]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-TODO (RAE): Update note.
-
 We wish to allow the "map/coerce" RULE to fire:
 
   {-# RULES "map/coerce" map coerce = coerce #-}
@@ -852,7 +850,7 @@ separate actions:
      just packed and inline them. This is also done in simple_opt_expr's
      `go` function.
 
-This is all a fair amount of special-purpose hackery, but it's all for
+This is all a fair amount of special-purpose hackery, but it's for
 a good cause. And it won't hurt other RULES and such that it comes across.
 
 -}

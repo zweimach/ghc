@@ -571,7 +571,7 @@ can_eq_nc' True _rdr_env _envs ev _eq_rel _ ps_ty1 _ ps_ty2
 -- NB: This does *not* look through type synonyms. In fact, it treats type
 -- synonyms as rigid constructors. In the future, it might be convenient
 -- to look at only those arguments of type synonyms that actually appear
--- in the synonym RHS. But we're not there yet. TODO (RAE): Improve.
+-- in the synonym RHS. But we're not there yet.
 zonk_eq_types :: TcType -> TcType -> TcS (Either (Pair TcType) TcType)
 zonk_eq_types = go
   where

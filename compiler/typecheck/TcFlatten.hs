@@ -815,6 +815,10 @@ flattenManyNom ev tys
 Note that it is flatten's job to flatten *every type function it sees*.
 flatten is only called on *arguments* to type functions, by canEqGiven.
 
+Flattening a type also means flattening its kind. In the case of a type
+variable whose kind mentions a type family, this might mean that the result
+of flattening has a cast in it.
+
 Recall that in comments we use alpha[flat = ty] to represent a
 flattening skolem variable alpha which has been generated to stand in
 for ty.
@@ -896,7 +900,6 @@ flatten_many_nom (ty:tys)
   = do { (xi, co) <- flatten_one ty
        ; (xis, cos) <- flatten_many_nom tys
        ; return (xi:xis, co:cos) }
--- TODO (RAE): Document that flattening t flattens t's kindco
 ------------------
 flatten_one :: TcType -> FlatM (Xi, Coercion)
 -- Flatten a type to get rid of type function applications, returning

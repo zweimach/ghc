@@ -68,6 +68,10 @@ fix:
     the monad. We'd still need a knot, but the knot would only have to surround
     the final zonks, *not* constraint generation/solving. Vast improvement.
 
+  - DsMeta:mk_extra_tvs needs an overhaul.
+
+  - zonk_eq_types could do better with synonym expansion and injectivity tracking
+
   - We should deprecate some old kind behavior. Specifically, consider
     foo :: forall a. (a :: k) -> *
     vs

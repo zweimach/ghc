@@ -411,9 +411,6 @@ mk_extra_tvs tc tvs defn
   | otherwise
   = return tvs
   where
-    -- TODO (RAE): Fix this. It doesn't handle as many cases as it should.
-    -- TODO (RAE): Really, TH syntax should support kind signatures.
-    -- TODO (RAE): Actually, this should all get much better with D1465.
     go :: LHsKind Name -> DsM [LHsTyVarBndr Name]
     go (L loc (HsFunTy kind rest))
       = do { uniq <- newUnique
@@ -423,7 +420,6 @@ mk_extra_tvs tc tvs defn
            ; hs_tvs <- go rest
            ; return (hs_tv : hs_tvs) }
 
-       -- TODO (RAE): This fails if the result is 'TYPE Lifted'. Do I care?
     go (L _ (HsTyVar (L _ n)))
       |  isLiftedTypeKindTyConName n
       = return []
