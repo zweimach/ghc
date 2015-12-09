@@ -1967,12 +1967,11 @@ ppr_type p (LitTy l)          = ppr_tylit p l
 ppr_type p ty@(ForAllTy {})   = ppr_forall_type p ty
 
 ppr_type p (AppTy t1 t2)
-  = sdocWithDynFlags $ \dflags ->
-    if not (gopt Opt_PrintExplicitCoercions dflags)
-    then case split_app_tys t1 [t2] of
-      (CastTy head _, args) -> ppr_type p (mk_app_tys head args)
-      _                     -> ppr_app_ty
-    else ppr_app_ty
+  = if_print_coercions
+      ppr_app_ty
+      (case split_app_tys t1 [t2] of
+          (CastTy head _, args) -> ppr_type p (mk_app_tys head args)
+          _                     -> ppr_app_ty)
   where
     ppr_app_ty = maybeParen p TyConPrec $
                  ppr_type FunPrec t1 <+> ppr_type TyConPrec t2
@@ -1984,16 +1983,14 @@ ppr_type p (AppTy t1 t2)
     mk_app_tys ty1                tys2 = foldl AppTy ty1 tys2
 
 ppr_type p (CastTy ty co)
-  = sdocWithDynFlags $ \dflags ->
-    if gopt Opt_PrintExplicitCoercions dflags
-    then parens (ppr_type TopPrec ty <+> ptext (sLit "|>") <+> ppr co)
-    else ppr_type p ty
+  = if_print_coercions
+      (parens (ppr_type TopPrec ty <+> ptext (sLit "|>") <+> ppr co))
+      (ppr_type p ty)
 
 ppr_type _ (CoercionTy co)
-  = sdocWithDynFlags $ \dflags ->
-    if gopt Opt_PrintExplicitCoercions dflags
-    then parens (ppr co)
-    else text "<>"
+  = if_print_coercions
+      (parens (ppr co))
+      (text "<>")
 
 ppr_forall_type :: TyPrec -> Type -> SDoc
 ppr_forall_type p ty
@@ -2011,6 +2008,17 @@ ppr_tylit _ tl =
   case tl of
     NumTyLit n -> integer n
     StrTyLit s -> text (show s)
+
+if_print_coercions :: SDoc  -- if printing coercions
+                   -> SDoc  -- otherwise
+                   -> SDoc
+if_print_coercions yes no
+  = sdocWithDynFlags $ \dflags ->
+    getPprStyle $ \style ->
+    if gopt Opt_PrintExplicitCoercions dflags
+         || dumpStyle style || debugStyle style
+    then yes
+    else no
 
 -------------------
 ppr_sigma_type :: Bool -> Type -> SDoc
@@ -2226,7 +2234,9 @@ pprTcApp to_type p pp tc tys
     (tupleParens tup_sort $ pprWithCommas (pp TopPrec) ty_args)
 
   | otherwise
-  = sdocWithDynFlags $ pprTcApp_help to_type p pp tc tys
+  = sdocWithDynFlags $ \dflags ->
+    getPprStyle $ \style ->
+    pprTcApp_help to_type p pp tc tys dflags style
   where
 
 pprTupleApp :: TyPrec -> (TyPrec -> a -> SDoc)
@@ -2243,9 +2253,9 @@ pprTupleApp p pp tc sort tys
     tupleParens sort (pprWithCommas (pp TopPrec) tys)
 
 pprTcApp_help :: (a -> Type) -> TyPrec -> (TyPrec -> a -> SDoc)
-              -> TyCon -> [a] -> DynFlags -> SDoc
+              -> TyCon -> [a] -> DynFlags -> PprStyle -> SDoc
 -- This one has accss to the DynFlags
-pprTcApp_help to_type p pp tc tys dflags
+pprTcApp_help to_type p pp tc tys dflags style
   | print_prefix
   = pprPrefixApp p pp_tc (map (pp TyConPrec) tys_wo_kinds)
 
@@ -2274,7 +2284,9 @@ pprTcApp_help to_type p pp tc tys dflags
       | otherwise
       = (not (isSymOcc (nameOccName tc_name)), ppr tc)
 
-    print_eqs    = gopt Opt_PrintEqualityRelations dflags
+    print_eqs    = gopt Opt_PrintEqualityRelations dflags ||
+                   dumpStyle style ||
+                   debugStyle style
     tys_wo_kinds = suppressInvisibles to_type dflags tc tys
 
 ------------------

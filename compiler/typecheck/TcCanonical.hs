@@ -1411,7 +1411,15 @@ homogeniseRhsKind :: CtEvidence -- ^ the evidence to homogenise
                   -> TcS (StopOrContinue Ct)
 homogeniseRhsKind ev eq_rel lhs_tv lhs_kco rhs
   | k1 `eqType` k2
-  = continueWith (build_ct ev rhs)
+  = -- move the cast from the left to the right
+    let nlhs = mkTyVarTy lhs_tv
+        nrhs = rhs `mkCastTy` mkSymCo lhs_kco
+        lhs_co = mkTcReflCo role nlhs `mkTcCoherenceRightCo` lhs_kco
+        rhs_co = mkTcReflCo role rhs  `mkTcCoherenceLeftCo`  mkSymCo lhs_kco
+    in
+    rewriteEqEvidence ev NotSwapped nlhs nrhs lhs_co rhs_co
+    `andWhenContinue` \ new_ev ->
+    continueWith (build_ct new_ev nrhs)
 
   | CtGiven { ctev_evar = evar } <- ev
     -- tm :: (lhs :: k1) ~ (rhs :: k2)
@@ -1450,11 +1458,11 @@ homogeniseRhsKind ev eq_rel lhs_tv lhs_kco rhs
            CtDerived {} -> continueWith (build_ct (ev { ctev_pred = homo_pred })
                                                   rhs')
            CtWanted { ctev_dest = dest } -> do
-             { (type_ev, hole_co) <- newWantedEq loc (ctEvRole ev) lhs rhs'
+             { (type_ev, hole_co) <- newWantedEq loc role lhs rhs'
                   -- type_ev :: (lhs :: k1) ~ (rhs |> sym kind_ev :: k1)
              ; setWantedEq dest
                            (hole_co `mkTransCo`
-                            (mkReflCo (eqRelRole eq_rel) rhs
+                            (mkReflCo role rhs
                              `mkCoherenceLeftCo` homo_co))
 
                 -- dest := hole ; <rhs> |> homo_co :: (lhs :: k1) ~ (rhs :: k2)
@@ -1469,12 +1477,12 @@ homogeniseRhsKind ev eq_rel lhs_tv lhs_kco rhs
     kind_pty = mkHeteroPrimEqPred liftedTypeKind liftedTypeKind k1 k2
     kind_loc = mkKindLoc lhs rhs loc
 
-    loc = ctev_loc ev
+    loc  = ctev_loc ev
+    role = eqRelRole eq_rel
 
     build_ct new_ev new_rhs
       = CTyEqCan { cc_ev = new_ev, cc_tyvar = lhs_tv
-                 , cc_rhs = new_rhs `mkCastTy` mkSymCo lhs_kco
-                 , cc_eq_rel = eq_rel }
+                 , cc_rhs = new_rhs, cc_eq_rel = eq_rel }
 
 {-
 Note [Irreducible hetero equalities]
