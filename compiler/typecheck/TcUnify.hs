@@ -605,16 +605,23 @@ buildImplication :: SkolemInfo
                  -> TcM result
                  -> TcM (Bag Implication, TcEvBinds, result)
 buildImplication skol_info skol_tvs given thing_inside
-  | null skol_tvs && null given
-  = do { res <- thing_inside
-       ; return (emptyBag, emptyTcEvBinds, res) }
+  = do { tc_lvl <- getTcLevel
+       ; deferred_type_errors <- goptM Opt_DeferTypeErrors <||>
+                                 goptM Opt_DeferTypedHoles
+       ; if null skol_tvs && null given && (not deferred_type_errors ||
+                                            not (isTopTcLevel tc_lvl))
+         then do { res <- thing_inside
+                 ; return (emptyBag, emptyTcEvBinds, res) }
       -- Fast path.  We check every function argument with
       -- tcPolyExpr, which uses tcGen and hence checkConstraints.
-
-  | otherwise
-  = do { (tclvl, wanted, result) <- pushLevelAndCaptureConstraints thing_inside
+      -- But with the solver producing unlifted equalities, we need
+      -- to have an EvBindsVar for them when they might be deferred to
+      -- runtime. Otherwise, they end up as top-level unlifted bindings,
+      -- which are verboten.
+         else
+    do { (tclvl, wanted, result) <- pushLevelAndCaptureConstraints thing_inside
        ; (implics, ev_binds) <- buildImplicationFor tclvl skol_info skol_tvs given wanted
-       ; return (implics, ev_binds, result) }
+       ; return (implics, ev_binds, result) }}
 
 buildImplicationFor :: TcLevel -> SkolemInfo -> [TcTyVar]
                    -> [EvVar] -> WantedConstraints
