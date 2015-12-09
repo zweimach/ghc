@@ -1654,7 +1654,6 @@ andWhenContinue tcs1 tcs2
            ContinueWith ct -> tcs2 ct }
 infixr 0 `andWhenContinue`    -- allow chaining with ($)
 
--- no equalities here
 rewriteEvidence :: CtEvidence   -- old evidence
                 -> TcPredType   -- new predicate
                 -> TcCoercion   -- Of type :: new predicate ~ <type of old evidence>
@@ -1716,19 +1715,16 @@ rewriteEvidence ev@(CtGiven { ctev_evar = old_evar , ctev_loc = loc }) new_pred 
                                                        (ctEvRole ev)
                                                        (mkTcSymCo co))
 
-rewriteEvidence ev@(CtWanted { ctev_dest = EvVarDest evar
+rewriteEvidence ev@(CtWanted { ctev_dest = dest
                              , ctev_loc = loc }) new_pred co
-      -- the dest must be an EvVar, because this never sees equality cts
-  = do { mb_new_ev <- newWantedEvVar loc new_pred
+  = do { mb_new_ev <- newWanted loc new_pred
        ; MASSERT( tcCoercionRole co == ctEvRole ev )
-       ; setWantedEvBind evar
+       ; setWantedEvTerm dest
                    (mkEvCast (getEvTerm mb_new_ev)
                              (tcDowngradeRole Representational (ctEvRole ev) co))
        ; case mb_new_ev of
             Fresh  new_ev -> continueWith new_ev
             Cached _      -> stopWith ev "Cached wanted" }
-
-rewriteEvidence ev _ _ = pprPanic "rewriteEvidence" (ppr ev)
 
 
 rewriteEqEvidence :: CtEvidence         -- Old evidence :: olhs ~ orhs (not swapped)

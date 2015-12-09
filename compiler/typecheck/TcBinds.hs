@@ -1773,12 +1773,16 @@ tcUserTypeSig hs_sig_ty mb_name
 
             ; tau <- tcHsOpenType hs_tau
 
+                -- zonking is necessary to establish type representation
+                -- invariants
+            ; theta <- zonkTcTypes theta
+            ; tau   <- zonkTcType tau
+
               -- Check for validity (eg rankN etc)
               -- The ambiguity check will happen (from checkValidType),
               -- but unnecessarily; it will always succeed becuase there
               -- is no quantification
-            ; phi <- zonkTcType (mkPhiTy theta tau)
-            ; checkValidType ctxt_F phi
+            ; checkValidType ctxt_F (mkPhiTy theta tau)
                 -- NB: Do this in the context of the pushTcLevel so that
                 -- the TcLevel invariant is respected
 
