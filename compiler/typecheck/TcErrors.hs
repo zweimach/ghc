@@ -1447,7 +1447,7 @@ mkExpectedActualMsg ty1 ty2 (TypeEqOrigin { uo_actual = act, uo_expected = exp
       Nothing -> empty
       Just m  -> m
 
-    count_args ty = count isVisibleBinder $ fst $ splitForAllTys ty
+    count_args ty = count isVisibleBinder $ fst $ splitPiTys ty
 
     plural_n 1 doc = doc
     plural_n _ doc = doc <> char 's'

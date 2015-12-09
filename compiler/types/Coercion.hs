@@ -844,9 +844,8 @@ mkNthCoRole role n co
 
 mkNthCo :: Int -> Coercion -> Coercion
 mkNthCo 0 (Refl _ ty)
-  | Just (bndr, _) <- splitForAllTy_maybe ty
-  , isNamedBinder bndr
-  = Refl Nominal (binderType bndr)
+  | Just (tv, _) <- splitForAllTy_maybe ty
+  = Refl Nominal (tyVarKind tv)
 mkNthCo n (Refl r ty)
   = ASSERT( ok_tc_app ty n )
     mkReflCo r' (tyConAppArgN n ty)
@@ -1166,7 +1165,7 @@ instCoercion :: Pair Type -- type of the first coercion
              -> Coercion
              -> Maybe Coercion
 instCoercion (Pair lty rty) g w
-  | isNamedForAllTy lty && isNamedForAllTy rty
+  | isForAllTy lty && isForAllTy rty
   , Just w' <- setNominalRole_maybe w
   = Just $ mkInstCo g w'
   | isFunTy lty && isFunTy rty
@@ -1751,7 +1750,7 @@ coercionKind co = go co
 
       | d == 0
       , Just splits <- traverse splitForAllTy_maybe tys
-      = (binderType . fst) <$> splits
+      = (tyVarKind . fst) <$> splits
 
       | otherwise
       = pprPanic "coercionKind" (ppr g)
@@ -1802,11 +1801,10 @@ coercionKindRole = go
       = let (tys1, r) = go co1 in
         (Pair (pFst tys1) (pSnd $ coercionKind co2), r)
     go (NthCo d co)
-      | Just (bndr1, _) <- splitForAllTy_maybe ty1
-      , isNamedBinder bndr1   -- don't split (->)!
+      | Just (tv1, _) <- splitForAllTy_maybe ty1
       = ASSERT( d == 0 )
-        let (bndr2, _) = splitForAllTy ty2 in
-        (binderType <$> Pair bndr1 bndr2, Nominal)
+        let (tv2, _) = splitForAllTy ty2 in
+        (tyVarKind <$> Pair tv1 tv2, Nominal)
 
       | otherwise
       = let (tc1,  args1) = splitTyConApp ty1

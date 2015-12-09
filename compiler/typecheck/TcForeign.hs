@@ -128,10 +128,9 @@ normaliseFfiType' env ty0 = go initRecTc ty0
       | Just (tc, tys) <- splitTyConApp_maybe ty
       = go_tc_app rec_nts tc tys
 
-      | Just (bndr, inner_ty) <- splitForAllTy_maybe ty
-      = do   -- if the binder is anonymous, then the previous case snatches it
-           let tyvar = binderVar "normaliseFfiType'" bndr
-           (coi, nty1, gres1) <- go rec_nts inner_ty
+      | Just (bndr, inner_ty) <- splitPiTy_maybe ty
+      , Just tyvar <- binderVar_maybe bndr
+      = do (coi, nty1, gres1) <- go rec_nts inner_ty
            return ( mkHomoForAllCos [tyvar] coi
                   , mkForAllTy bndr nty1, gres1 )
 
@@ -246,7 +245,7 @@ tcFImport (L dloc fo@(ForeignImport { fd_name = L nloc nm, fd_sig_ty = hs_ty
        ; let
            -- Drop the foralls before inspecting the
            -- structure of the foreign type.
-             (bndrs, res_ty)   = tcSplitForAllTys norm_sig_ty
+             (bndrs, res_ty)   = tcSplitPiTys norm_sig_ty
              arg_tys           = mapMaybe binderRelevantType_maybe bndrs
              id                = mkLocalId nm sig_ty
                  -- Use a LocalId to obey the invariant that locally-defined
@@ -419,7 +418,7 @@ tcCheckFEType sig_ty (CExport (L l (CExportStatic esrc str cconv)) src) = do
   where
       -- Drop the foralls before inspecting n
       -- the structure of the foreign type.
-    (bndrs, res_ty) = tcSplitForAllTys sig_ty
+    (bndrs, res_ty) = tcSplitPiTys sig_ty
     arg_tys         = mapMaybe binderRelevantType_maybe bndrs
 
 {-

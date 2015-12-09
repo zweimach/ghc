@@ -218,7 +218,7 @@ prDFunApply dfun tys
          $ fst
          $ splitFunTys
          $ snd
-         $ splitNamedForAllTys
+         $ splitForAllTys
          $ varType dfun
 
     dictionary dflags pa pr ty tycon

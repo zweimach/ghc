@@ -1113,7 +1113,7 @@ isExpandableApp fn n_val_args
   -- This incidentally picks up the (n_val_args = 0) case
      go 0 _ = True
      go n_val_args ty
-       | Just (bndr, ty) <- splitForAllTy_maybe ty
+       | Just (bndr, ty) <- splitPiTy_maybe ty
        = caseBinder bndr
            (\_tv -> go n_val_args ty)
            (\bndr_ty -> isPredTy bndr_ty && go (n_val_args-1) ty)

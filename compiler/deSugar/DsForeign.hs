@@ -177,7 +177,7 @@ fun_type_arg_stdcall_info dflags StdCallConv ty
   | Just (tc,[arg_ty]) <- splitTyConApp_maybe ty,
     tyConUnique tc == funPtrTyConKey
   = let
-       (bndrs, _) = tcSplitForAllTys arg_ty
+       (bndrs, _) = tcSplitPiTys arg_ty
        fe_arg_tys = mapMaybe binderRelevantType_maybe bndrs
     in Just $ sum (map (widthInBytes . typeWidth . typeCmmType dflags . getPrimTyOf) fe_arg_tys)
 fun_type_arg_stdcall_info _ _other_conv _
@@ -196,7 +196,7 @@ dsFCall :: Id -> Coercion -> ForeignCall -> Maybe Header
 dsFCall fn_id co fcall mDeclHeader = do
     let
         ty                     = pFst $ coercionKind co
-        (all_bndrs, io_res_ty) = tcSplitForAllTys ty
+        (all_bndrs, io_res_ty) = tcSplitPiTys ty
         (named_bndrs, arg_tys) = partitionBindersIntoBinders all_bndrs
         tvs                    = map (binderVar "dsFCall") named_bndrs
                 -- Must use tcSplit* functions because we want to
@@ -297,7 +297,7 @@ dsPrimCall :: Id -> Coercion -> ForeignCall
 dsPrimCall fn_id co fcall = do
     let
         ty                   = pFst $ coercionKind co
-        (bndrs, io_res_ty)   = tcSplitForAllTys ty
+        (bndrs, io_res_ty)   = tcSplitPiTys ty
         (tvs, arg_tys)       = partitionBinders bndrs
                 -- Must use tcSplit* functions because we want to
                 -- see that (IO t) in the corner
@@ -349,7 +349,7 @@ dsFExport :: Id                 -- Either the exported Id,
 dsFExport fn_id co ext_name cconv isDyn = do
     let
        ty                     = pSnd $ coercionKind co
-       (bndrs, orig_res_ty)   = tcSplitForAllTys ty
+       (bndrs, orig_res_ty)   = tcSplitPiTys ty
        fe_arg_tys'            = mapMaybe binderRelevantType_maybe bndrs
        -- We must use tcSplits here, because we want to see
        -- the (IO t) in the corner of the type!
@@ -475,7 +475,7 @@ dsFExportDynamic id co0 cconv = do
 
  where
   ty                       = pFst (coercionKind co0)
-  (bndrs, fn_res_ty)       = tcSplitForAllTys ty
+  (bndrs, fn_res_ty)       = tcSplitPiTys ty
   (tvs, [arg_ty])          = partitionBinders bndrs
   Just (io_tc, res_ty)     = tcSplitIOType_maybe fn_res_ty
         -- Must have an IO type; hence Just

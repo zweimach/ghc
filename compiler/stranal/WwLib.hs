@@ -314,8 +314,7 @@ mkWWargs subst fun_ty arg_info
                   work_fn_args . (`App` varToCoreExpr id),
                   res_ty) }
 
-  | Just (bndr, fun_ty') <- splitForAllTy_maybe fun_ty
-  , Just tv <- binderVar_maybe bndr
+  | Just (tv, fun_ty') <- splitForAllTy_maybe fun_ty
   = do  { let (subst', tv') = substTyVarBndr subst tv
                 -- This substTyVarBndr clones the type variable when necy
                 -- See Note [Freshen type variables]

@@ -944,9 +944,9 @@ checkBootTyCon tc1 tc2
           name2 = idName id2
           pname1 = quotes (ppr name1)
           pname2 = quotes (ppr name2)
-          (_, rho_ty1) = splitNamedForAllTys (idType id1)
+          (_, rho_ty1) = splitForAllTys (idType id1)
           op_ty1 = funResultTy rho_ty1
-          (_, rho_ty2) = splitNamedForAllTys (idType id2)
+          (_, rho_ty2) = splitForAllTys (idType id2)
           op_ty2 = funResultTy rho_ty2
 
        eqAT (ATI tc1 def_ats1) (ATI tc2 def_ats2)

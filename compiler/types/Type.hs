@@ -32,16 +32,17 @@ module Type (
         tyConAppTyCon_maybe, tyConAppTyConPicky_maybe,
         tyConAppArgs_maybe, tyConAppTyCon, tyConAppArgs,
         splitTyConApp_maybe, splitTyConApp, tyConAppArgN, nextRole,
-        splitTyConArgs, splitListTyConApp_maybe,
+        splitListTyConApp_maybe,
         repSplitTyConApp_maybe,
 
         mkForAllTy, mkForAllTys, mkInvForAllTys, mkVisForAllTys,
         mkNamedForAllTy,
         splitForAllTy_maybe, splitForAllTys, splitForAllTy,
-        splitNamedForAllTys, splitNamedForAllTysB,
+        splitPiTy_maybe, splitPiTys, splitPiTy,
+        splitNamedPiTys,
         mkPiType, mkPiTypes, mkPiTypesPreferFunTy,
         piResultTy, piResultTys,
-        applyTys, applyTysD, applyTysX, isForAllTy, dropForAlls,
+        applyTys, applyTysD, applyTysX, dropForAlls,
 
         mkNumLitTy, isNumLitTy,
         mkStrLitTy, isStrLitTy,
@@ -53,7 +54,7 @@ module Type (
         coAxNthLHS,
         stripCoercionTy, splitCoercionType_maybe,
 
-        splitForAllTysInvisible, filterOutInvisibleTypes,
+        splitPiTysInvisible, filterOutInvisibleTypes,
         filterOutInvisibleTyVars, partitionInvisibles,
         synTyConResKind,
         tyConBinders,
@@ -94,7 +95,8 @@ module Type (
         -- ** Predicates on types
         allDistinctTyVars,
         isTyVarTy, isFunTy, isDictTy, isPredTy, isVoidTy, isCoercionTy,
-        isCoercionTy_maybe, isCoercionType, isNamedForAllTy,
+        isCoercionTy_maybe, isCoercionType, isForAllTy,
+        isPiTy,
 
         -- (Lifting and boxity)
         isUnLiftedType, isUnboxedTupleType, isAlgType, isClosedAlgType,
@@ -901,14 +903,6 @@ nextRole ty
   | otherwise
   = Nominal
 
-splitTyConArgs :: TyCon -> [KindOrType] -> ([Kind], [Type])
--- Given a tycon app (T k1 .. kn t1 .. tm), split the kind and type args
--- TyCons always have prenex kinds
-splitTyConArgs tc kts
-  = splitAtList kind_vars kts
-  where
-  (kind_vars, _) = splitForAllTys (tyConKind tc)
-
 newTyConInstRhs :: TyCon -> [Type] -> Type
 -- ^ Unwrap one 'layer' of newtype on a type constructor and its
 -- arguments, using an eta-reduced version of the @newtype@ if possible.
@@ -1000,7 +994,7 @@ mkCastTy ty co = -- NB: don't check if the coercion "from" type matches here;
     affix_co kind ty args co
       -- if kind contains any dependent quantifications, we can't push.
       -- apply arguments until it doesn't
-      = let (bndrs, _inner_ki) = splitForAllTys kind
+      = let (bndrs, _inner_ki) = splitPiTys kind
             (some_dep_bndrs, no_dep_bndrs) = spanEnd isAnonBinder bndrs
             (some_dep_args, rest_args) = splitAtList some_dep_bndrs args
             dep_subst = zipOpenTCvSubstBinders some_dep_bndrs some_dep_args
@@ -1224,52 +1218,72 @@ mkPiTypesPreferFunTy vars inner_ty = fst $ go vars inner_ty
         (qty, fvs) = go vs ty
         kind_vars  = tyCoVarsOfType $ tyVarKind v
 
--- | Take a ForAllTy apart, returning the list of binders and the result type.
+-- | Take a ForAllTy apart, returning the list of tyvars and the result type.
 -- This always succeeds, even if it returns only an empty list. Note that the
 -- result type returned may have free variables that were bound by a forall.
-splitForAllTys :: Type -> ([TyBinder], Type)
+splitForAllTys :: Type -> ([TyVar], Type)
 splitForAllTys ty = split ty ty []
   where
-    split orig_ty ty bndrs | Just ty' <- coreView ty = split orig_ty ty' bndrs
-    split _       (ForAllTy bndr ty) bndrs = split ty ty (bndr:bndrs)
-    split orig_ty _                  bndrs = (reverse bndrs, orig_ty)
+    split orig_ty ty tvs | Just ty' <- coreView ty = split orig_ty ty' tvs
+    split _       (ForAllTy (Named tv _) ty) tvs = split ty ty (tv:tvs)
+    split orig_ty _                          tvs = (reverse tvs, orig_ty)
 
--- | Like 'splitForAllTys' but split off only /named/ binders, returning
--- only the tycovars.
-splitNamedForAllTys :: Type -> ([TyVar], Type)
-splitNamedForAllTys ty = first (map $ binderVar "splitNamedForAllTys") $
-                         splitNamedForAllTysB ty
+-- | Split off all TyBinders to a type, splitting both proper foralls
+-- and functions
+splitPiTys :: Type -> ([TyBinder], Type)
+splitPiTys ty = split ty ty []
+  where
+    split orig_ty ty bs | Just ty' <- coreView ty = split orig_ty ty' bs
+    split _       (ForAllTy b res) bs  = split res res (b:bs)
+    split orig_ty _                bs  = (reverse bs, orig_ty)
 
--- | Like 'splitForAllTys' but split off only /named/ binders.
-splitNamedForAllTysB :: Type -> ([TyBinder], Type)
-splitNamedForAllTysB ty = split ty ty []
+-- | Like 'splitPiTys' but split off only /named/ binders.
+splitNamedPiTys :: Type -> ([TyBinder], Type)
+splitNamedPiTys ty = split ty ty []
   where
     split orig_ty ty bs | Just ty' <- coreView ty = split orig_ty ty' bs
     split _       (ForAllTy b@(Named {}) res) bs  = split res res (b:bs)
     split orig_ty _                           bs  = (reverse bs, orig_ty)
 
+-- | Checks whether this is a proper forall (with a named binder)
 isForAllTy :: Type -> Bool
-isForAllTy (ForAllTy {})  = True
-isForAllTy _              = False
+isForAllTy (ForAllTy (Named {}) _) = True
+isForAllTy _                       = False
 
--- | Is this a 'ForAllTy' with a named binder?
-isNamedForAllTy :: Type -> Bool
-isNamedForAllTy (ForAllTy (Named {}) _) = True
-isNamedForAllTy _                       = False
+-- | Is this a function or forall?
+isPiTy :: Type -> Bool
+isPiTy (ForAllTy {}) = True
+isPiTy _             = False
 
 -- | Take a forall type apart, or panics if that is not possible.
-splitForAllTy :: Type -> (TyBinder, Type)
+splitForAllTy :: Type -> (TyVar, Type)
 splitForAllTy ty
   | Just answer <- splitForAllTy_maybe ty = answer
   | otherwise                             = pprPanic "splitForAllTy" (ppr ty)
 
--- | Attempts to take a forall type apart
-splitForAllTy_maybe :: Type -> Maybe (TyBinder, Type)
+-- | Attempts to take a forall type apart, but only if it's a proper forall,
+-- with a named binder
+splitForAllTy_maybe :: Type -> Maybe (TyVar, Type)
 splitForAllTy_maybe ty = splitFAT_m ty
   where
     splitFAT_m ty | Just ty' <- coreView ty = splitFAT_m ty'
-    splitFAT_m (ForAllTy bndr ty) = Just (bndr, ty)
-    splitFAT_m _                  = Nothing
+    splitFAT_m (ForAllTy (Named tv _) ty) = Just (tv, ty)
+    splitFAT_m _                          = Nothing
+
+-- | Attempts to take a forall type apart; works with proper foralls and
+-- functions
+splitPiTy_maybe :: Type -> Maybe (TyBinder, Type)
+splitPiTy_maybe ty = go ty
+  where
+    go ty | Just ty' <- coreView ty = go ty'
+    go (ForAllTy bndr ty) = Just (bndr, ty)
+    go _                  = Nothing
+
+-- | Takes a forall type apart, or panics
+splitPiTy :: Type -> (TyBinder, Type)
+splitPiTy ty
+  | Just answer <- splitPiTy_maybe ty = answer
+  | otherwise                         = pprPanic "splitPiTy" (ppr ty)
 
 -- | Drops all non-anonymous ForAllTys
 dropForAlls :: Type -> Type
@@ -1318,9 +1332,9 @@ partitionInvisibles tc get_ty = go emptyTCvSubst (tyConKind tc)
     go subst ki _ = pprPanic "partitionInvisibles" (ppr subst $$ ppr ki)
 
 
--- like splitForAllTys, but returns only *invisible* binders, including constraints
-splitForAllTysInvisible :: Type -> ([TyBinder], Type)
-splitForAllTysInvisible ty = split ty ty []
+-- like splitPiTys, but returns only *invisible* binders, including constraints
+splitPiTysInvisible :: Type -> ([TyBinder], Type)
+splitPiTysInvisible ty = split ty ty []
    where
      split orig_ty ty bndrs
        | Just ty' <- coreView ty = split orig_ty ty' bndrs
@@ -1332,7 +1346,7 @@ splitForAllTysInvisible ty = split ty ty []
        = (reverse bndrs, orig_ty)
 
 tyConBinders :: TyCon -> [TyBinder]
-tyConBinders = fst . splitForAllTys . tyConKind
+tyConBinders = fst . splitPiTys . tyConKind
 
 {-
 applyTys
@@ -1374,7 +1388,7 @@ applyTysD doc orig_fun_ty arg_tys
     applyTysD doc (substTyWithBinders bndrs (take n_bndrs arg_tys) rho_ty)
                   (drop n_bndrs arg_tys)
   where
-    (bndrs, rho_ty) = splitForAllTys orig_fun_ty
+    (bndrs, rho_ty) = splitPiTys orig_fun_ty
     n_bndrs = length bndrs
     n_args  = length arg_tys
 

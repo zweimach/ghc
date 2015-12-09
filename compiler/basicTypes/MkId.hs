@@ -963,7 +963,7 @@ mkFCallId dflags uniq fcall ty
            `setArityInfo`         arity
            `setStrictnessInfo`    strict_sig
 
-    (bndrs, _)        = tcSplitForAllTys ty
+    (bndrs, _)        = tcSplitPiTys ty
     arity             = count isIdLikeBinder bndrs
 
     strict_sig      = mkClosedStrictSig (replicate arity topDmd) topRes

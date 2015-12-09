@@ -516,8 +516,8 @@ can_eq_nc' _flat _rdr_env _envs ev eq_rel ty1 _ ty2 _
 can_eq_nc' _flat _rdr_env _envs ev eq_rel
            s1@(ForAllTy (Named {}) _) _ s2@(ForAllTy (Named {}) _) _
  | CtWanted { ctev_loc = loc, ctev_dest = orig_dest } <- ev
- = do { let (bndrs1,body1) = tcSplitNamedForAllTysB s1
-            (bndrs2,body2) = tcSplitNamedForAllTysB s2
+ = do { let (bndrs1,body1) = tcSplitNamedPiTys s1
+            (bndrs2,body2) = tcSplitNamedPiTys s2
       ; if not (equalLength bndrs1 bndrs2)
            || not (map binderVisibility bndrs1 == map binderVisibility bndrs2)
         then canEqHardFailure ev s1 s2
@@ -1044,7 +1044,7 @@ canDecomposableTyConAppOK ev eq_rel tc tys1 tys2
 
       -- the following makes a better distinction between "kind" and "type"
       -- in error messages
-    (bndrs, _) = splitForAllTys (tyConKind tc)
+    (bndrs, _) = splitPiTys (tyConKind tc)
     kind_loc   = toKindLoc loc
     is_kinds   = map isNamedBinder bndrs
     new_locs | Just KindLevel <- ctLocTypeOrKind_maybe loc

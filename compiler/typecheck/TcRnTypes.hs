@@ -1193,7 +1193,7 @@ findScopedTyVars sig_ty inst_tvs
   = zipWith find sig_tvs inst_tvs
   where
     find sig_tv inst_tv = (tyVarName sig_tv, inst_tv)
-    (sig_tvs,_) = tcSplitNamedForAllTys sig_ty
+    (sig_tvs,_) = tcSplitForAllTys sig_ty
 
 instance Outputable TcSigInfo where
   ppr (TcIdSig     idsi) = ppr idsi

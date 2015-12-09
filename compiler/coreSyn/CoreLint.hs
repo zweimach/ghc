@@ -784,8 +784,7 @@ lintAltBinders scrut_ty con_ty (bndr:bndrs)
 -----------------
 lintTyApp :: OutType -> OutType -> LintM OutType
 lintTyApp fun_ty arg_ty
-  | Just (bndr,body_ty) <- splitForAllTy_maybe fun_ty
-  , Just tv <- binderVar_maybe bndr
+  | Just (tv,body_ty) <- splitForAllTy_maybe fun_ty
   = do  { lintTyKind tv arg_ty
         ; return (substTyWith [tv] [arg_ty] body_ty) }
 
@@ -1370,14 +1369,12 @@ lintCoercion co@(TransCo co1 co2)
 lintCoercion the_co@(NthCo n co)
   = do { (_, _, s, t, r) <- lintCoercion co
        ; case (splitForAllTy_maybe s, splitForAllTy_maybe t) of
-         { (Just (bndr_s, _ty_s), Just (bndr_t, _ty_t))
+         { (Just (tv_s, _ty_s), Just (tv_t, _ty_t))
              |  n == 0
-             ,  isNamedBinder bndr_s
-             ,  isNamedBinder bndr_t
              -> return (ks, kt, ts, tt, Nominal)
              where
-               ts = binderType bndr_s
-               tt = binderType bndr_t
+               ts = tyVarKind tv_s
+               tt = tyVarKind tv_t
                ks = typeKind ts
                kt = typeKind tt
 
@@ -1423,10 +1420,8 @@ lintCoercion (InstCo co arg)
        ; (k1',k2',s1,s2, r') <- lintCoercion arg
        ; lintRole arg Nominal r'
        ; case (splitForAllTy_maybe t1', splitForAllTy_maybe t2') of
-          (Just (bndr1,t1), Just (bndr2,t2))
-            | Just tv1 <- binderVar_maybe bndr1
-            , Just tv2 <- binderVar_maybe bndr2
-            , k1' `eqType` tyVarKind tv1
+          (Just (tv1,t1), Just (tv2,t2))
+            | k1' `eqType` tyVarKind tv1
             , k2' `eqType` tyVarKind tv2
             -> return (k3, k4,
                        substTyWith [tv1] [s1] t1,

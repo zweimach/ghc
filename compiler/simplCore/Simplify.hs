@@ -1160,8 +1160,7 @@ simplCast env body co0 cont0
        add_coerce co (Pair s1s2 _t1t2) cont@(ApplyToTy { sc_arg_ty = arg_ty, sc_cont = tail })
                 -- (f |> g) ty  --->   (f ty) |> (g @ ty)
                 -- This implements the PushT rule from the paper
-         | Just (bndr,_) <- splitForAllTy_maybe s1s2
-         , isNamedBinder bndr
+         | isForAllTy s1s2
          = do { cont' <- addCoerce new_cast tail
               ; return (cont { sc_cont = cont' }) }
          where

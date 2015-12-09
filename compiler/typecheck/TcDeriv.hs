@@ -936,7 +936,7 @@ inferConstraints cls inst_tys rep_tc rep_tc_args
                  ++ sc_constraints
                  ++ arg_constraints) }
   where
-    (tc_binders, _) = splitForAllTys (tyConKind rep_tc)
+    (tc_binders, _) = splitPiTys (tyConKind rep_tc)
     choose_level bndr
       | isNamedBinder bndr = KindLevel
       | otherwise          = TypeLevel

@@ -564,7 +564,7 @@ toLHsSigWcType ty
                         , hst_body = go tau })
     go (ForAllTy (Anon arg) res) = nlHsFunTy (go arg) (go res)
     go ty@(ForAllTy {})
-      | (tvs, tau) <- tcSplitNamedForAllTys ty
+      | (tvs, tau) <- tcSplitForAllTys ty
       = noLoc (HsForAllTy { hst_bndrs = map go_tv tvs
                           , hst_body = go tau })
     go (TyVarTy tv)         = nlHsTyVar (getRdrName tv)

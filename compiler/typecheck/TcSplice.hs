@@ -1093,7 +1093,7 @@ reifyTyCon tc
              resVar   = famTcResVar tc
 
              -- we need the *result kind* (see #8884)
-             (kvs, mono_kind) = splitNamedForAllTys kind
+             (kvs, mono_kind) = splitForAllTys kind
                                 -- tyConArity includes *kind* params
              (_, res_kind)    = splitFunTysN (tyConArity tc - length kvs)
                                              mono_kind
@@ -1491,7 +1491,7 @@ reify_tc_app tc tys
     peel_off_n_args :: Kind -> Arity -> Maybe Kind
     peel_off_n_args k 0 = Just k
     peel_off_n_args k n
-      | Just (_, res_k) <- splitForAllTy_maybe k
+      | Just (_, res_k) <- splitPiTy_maybe k
       = peel_off_n_args res_k (n-1)
       | otherwise
       = Nothing

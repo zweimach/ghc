@@ -1277,7 +1277,7 @@ quantifyType ty = ( filter isTyVar $
                     tyCoVarsOfTypeWellScoped rho
                   , rho)
   where
-    (_tvs, rho) = tcSplitNamedForAllTys ty
+    (_tvs, rho) = tcSplitForAllTys ty
 
 unlessM :: Monad m => m Bool -> m () -> m ()
 unlessM condM acc = condM >>= \c -> unless c acc

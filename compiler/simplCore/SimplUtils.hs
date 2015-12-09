@@ -458,8 +458,7 @@ mkArgInfo fun rules n_val_args call_cont
     -- But beware primops/datacons with no strictness
     add_type_str _ [] = []
     add_type_str fun_ty strs            -- Look through foralls
-        | Just (bndr, fun_ty') <- splitForAllTy_maybe fun_ty       -- Includes coercions
-        , isNamedBinder bndr
+        | Just (_, fun_ty') <- splitForAllTy_maybe fun_ty       -- Includes coercions
         = add_type_str fun_ty' strs
     add_type_str fun_ty (str:strs)      -- Add strict-type info
         | Just (arg_ty, fun_ty') <- splitFunTy_maybe fun_ty

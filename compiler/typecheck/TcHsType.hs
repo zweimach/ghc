@@ -218,7 +218,7 @@ tcHsDeriv hs_ty
        ; ty <- tc_hs_sig_type hs_ty (mkFunTy arg_kind constraintKind)
        ; ty <- kindGeneralizeType ty  -- also zonks
        ; arg_kind <- zonkTcType arg_kind
-       ; let (tvs, pred) = splitNamedForAllTys ty
+       ; let (tvs, pred) = splitForAllTys ty
        ; case getClassPredTys_maybe pred of
            Just (cls, tys) -> return (tvs, cls, tys, arg_kind)
            Nothing -> failWithTc (ptext (sLit "Illegal deriving item") <+> quotes (ppr hs_ty)) }
@@ -710,7 +710,7 @@ tcInferArgs fun fun_kind mb_kind_info args
   = do { (res_kind, args', leftovers, n)
            <- tc_infer_args typeLevelMode fun fun_kind mb_kind_info args 1
         -- now, we need to instantiate any remaining invisible arguments
-       ; let (invis_bndrs, really_res_kind) = splitForAllTysInvisible res_kind
+       ; let (invis_bndrs, really_res_kind) = splitPiTysInvisible res_kind
        ; (subst, invis_args)
            <- tcInstBindersX emptyTCvSubst mb_kind_info invis_bndrs
        ; return ( substTy subst really_res_kind, args' `chkAppend` invis_args
@@ -744,12 +744,12 @@ tc_infer_args mode orig_ty ki mb_kind_info orig_args n0
       , Just fun_kind' <- lookupTyVar subst tv
       = go subst fun_kind' all_args n acc
 
-      | (inv_bndrs, res_k) <- splitForAllTysInvisible fun_kind
+      | (inv_bndrs, res_k) <- splitPiTysInvisible fun_kind
       , not (null inv_bndrs)
       = do { (subst', args') <- tcInstBindersX subst mb_kind_info inv_bndrs
            ; go subst' res_k all_args n (reverse args' ++ acc) }
 
-      | Just (bndr, res_k) <- splitForAllTy_maybe fun_kind
+      | Just (bndr, res_k) <- splitPiTy_maybe fun_kind
       , arg:args <- all_args  -- this actually has to succeed
       = ASSERT( isVisibleBinder bndr )
         do { let mode' | isNamedBinder bndr = kindLevel mode
@@ -780,7 +780,7 @@ tcInferApps mode orig_ty ty ki args = go ty ki args 1
       | Just fun_kind' <- coreView fun_kind
       = go fun fun_kind' args n
 
-      | isForAllTy fun_kind
+      | isPiTy fun_kind
       = do { (res_kind, args', leftover_args, n')
                 <- tc_infer_args mode orig_ty fun_kind Nothing args n
            ; go (mkNakedAppTys fun args') res_kind leftover_args n' }
@@ -929,7 +929,7 @@ checkExpectedKind ty act_kind exp_kind
                 -> TcM ( TcType   -- the inst'ed type
                        , TcKind ) -- its new kind
     instantiate ty act_ki exp_ki
-      = let (exp_bndrs, _) = splitForAllTysInvisible exp_ki in
+      = let (exp_bndrs, _) = splitPiTysInvisible exp_ki in
         instantiateTyN (length exp_bndrs) ty act_ki
 
 -- | Instantiate a type to have at most @n@ invisible arguments.
@@ -938,7 +938,7 @@ instantiateTyN :: Int    -- ^ @n@
                -> TcKind -- ^ its kind
                -> TcM (TcType, TcKind)   -- ^ The inst'ed type with kind
 instantiateTyN n ty ki
-  = let (bndrs, inner_ki)            = splitForAllTysInvisible ki
+  = let (bndrs, inner_ki)            = splitPiTysInvisible ki
         num_to_inst                  = length bndrs - n
            -- NB: splitAt is forgiving with invalid numbers
         (inst_bndrs, leftover_bndrs) = splitAt num_to_inst bndrs
@@ -1563,7 +1563,7 @@ We now have several sorts of variables to think about:
    scope, even though it is non-dependent), and will appear in the
    hsq_explicit field of a LHsTyVarBndrs.
 
-splitTelescopeTvs walks through the output of a splitForAllTys on the
+splitTelescopeTvs walks through the output of a splitPiTys on the
 telescope head's kind (Foo, in our example), creating a list of tyvars
 to be bound within the telescope scope. It must simultaneously walk
 through the hsq_implicit and hsq_explicit fields of a LHsTyVarBndrs.
@@ -1605,7 +1605,7 @@ splitTelescopeTvs :: Kind         -- of the head of the telescope
                      , Kind )     -- result kind
 splitTelescopeTvs kind tvbs@(HsQTvs { hsq_implicit = hs_kvs
                                     , hsq_explicit = hs_tvs })
-  = let (bndrs, inner_ki) = splitForAllTys kind
+  = let (bndrs, inner_ki) = splitPiTys kind
         (scoped_tvs, imp_tvs, exp_tvs, mk_kind)
           = mk_tvs [] [] bndrs (mkNameSet hs_kvs) hs_tvs
     in
@@ -1733,7 +1733,7 @@ tcDataKindSig kind
         ; return [ mk_tv span uniq occ kind
                  | ((kind, occ), uniq) <- arg_kinds `zip` occs `zip` uniqs ] }
   where
-    (bndrs, res_kind) = splitForAllTys kind
+    (bndrs, res_kind) = splitPiTys kind
     arg_kinds         = map binderType bndrs
     mk_tv loc uniq occ kind
       = mkTyVar (mkInternalName uniq occ loc) kind

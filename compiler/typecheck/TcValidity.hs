@@ -888,7 +888,7 @@ tyConArityErr tc tks
 
     -- tc_type_arity = number of *type* args expected
     -- tc_type_args  = number of *type* args encountered
-    tc_type_arity = count isVisibleBinder $ fst $ splitForAllTys (tyConKind tc)
+    tc_type_arity = count isVisibleBinder $ fst $ splitPiTys (tyConKind tc)
     tc_type_args  = length vis_tks
 
 arityErr :: Outputable a => String -> a -> Int -> Int -> SDoc
@@ -1452,7 +1452,7 @@ checkValidFamPats fam_tc tvs cvs ty_pats
        ; let unbound_tcvs = filterOut (`elemVarSet` exactTyCoVarsOfTypes ty_pats) (tvs ++ cvs)
        ; checkTc (null unbound_tcvs) (famPatErr fam_tc unbound_tcvs ty_pats) }
   where fam_arity    = tyConArity fam_tc
-        fam_bndrs    = take fam_arity $ fst $ splitForAllTys (tyConKind fam_tc)
+        fam_bndrs    = take fam_arity $ fst $ splitPiTys (tyConKind fam_tc)
 
 wrongNumberOfParmsErr :: Arity -> SDoc
 wrongNumberOfParmsErr exp_arity

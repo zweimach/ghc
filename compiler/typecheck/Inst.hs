@@ -84,7 +84,7 @@ newMethodFromName origin name inst_ty
 
        ; let ty = piResultTy (idType id) inst_ty
              (theta, _caller_knows_this) = tcSplitPhiTy ty
-       ; wrap <- ASSERT( not (isNamedForAllTy ty) && isSingleton theta )
+       ; wrap <- ASSERT( not (isForAllTy ty) && isSingleton theta )
                  instCall origin [inst_ty] theta
 
        ; return (mkHsWrap wrap (HsVar (noLoc id))) }

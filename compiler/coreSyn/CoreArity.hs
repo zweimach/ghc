@@ -106,7 +106,7 @@ typeArity ty
   = go initRecTc ty
   where
     go rec_nts ty
-      | Just (bndr, ty')  <- splitForAllTy_maybe ty
+      | Just (bndr, ty')  <- splitPiTy_maybe ty
       = if isIdLikeBinder bndr
         then typeOneShot (binderType bndr) : go rec_nts ty'
         else go rec_nts ty'
@@ -969,7 +969,7 @@ mkEtaWW orig_n orig_expr in_scope orig_ty
        | n == 0
        = (getTCvInScope subst, reverse eis)
 
-       | Just (bndr,ty') <- splitForAllTy_maybe ty
+       | Just (bndr,ty') <- splitPiTy_maybe ty
        = let ((subst', eta_id'), new_n) = caseBinder bndr
                (\tv -> (Type.substTyVarBndr subst tv, n))
                (\arg_ty -> (freshEtaVar n subst arg_ty, n-1))

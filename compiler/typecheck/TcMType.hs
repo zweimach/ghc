@@ -286,7 +286,7 @@ tcInstType :: ([TyVar] -> TcM (TCvSubst, [TcTyVar]))
            -> TcM ([TcTyVar], TcThetaType, TcType)  -- ^ Result
                 -- (type vars, preds (incl equalities), rho)
 tcInstType inst_tyvars ty
-  = case tcSplitNamedForAllTys ty of
+  = case tcSplitForAllTys ty of
         ([],    rho) -> let     -- There may be overloading despite no type variables;
                                 --      (?x :: Int) => Int -> Int
                                 (theta, tau) = tcSplitPhiTy rho

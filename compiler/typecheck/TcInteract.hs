@@ -2005,7 +2005,7 @@ makeLitDict clas ty evLit
 matchTypeable :: Class -> [Type] -> TcS LookupInstResult
 matchTypeable clas [k,t]  -- clas = Typeable
   -- For the first two cases, See Note [No Typeable for polytypes or qualified types]
-  | isNamedForAllTy k                 = return NoInstance   -- Polytype
+  | isForAllTy k                      = return NoInstance   -- Polytype
   | isJust (tcSplitPredFunTy_maybe t) = return NoInstance   -- Qualified type
 
   -- Now cases that do work
@@ -2032,7 +2032,7 @@ onlyNamedBndrsApplied tc ks
  = all isNamedBinder used_bndrs &&
    not (any isNamedBinder leftover_bndrs)
  where
-   (bndrs, _)                   = splitForAllTys (tyConKind tc)
+   (bndrs, _)                   = splitPiTys (tyConKind tc)
    (used_bndrs, leftover_bndrs) = splitAtList ks bndrs
 
 doTyApp :: Class -> Type -> Type -> KindOrType -> TcS LookupInstResult
@@ -2044,8 +2044,7 @@ doTyApp :: Class -> Type -> Type -> KindOrType -> TcS LookupInstResult
 --    (Typeable f, Typeable Int, Typeable Char)  --> (after some simp. steps)
 --    Typeable f
 doTyApp clas ty f tk
-  | Just (bndr, _) <- splitForAllTy_maybe (typeKind f)
-  , isNamedBinder bndr
+  | isForAllTy (typeKind f)
   = return NoInstance -- We can't solve until we know the ctr.
   | otherwise
   = return $ GenInst [mk_typeable_pred clas f, mk_typeable_pred clas tk]

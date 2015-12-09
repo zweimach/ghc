@@ -274,7 +274,7 @@ matchExpectedTyConApp tc orig_ty
            ; co <- unifyType noThing (mkTyConApp tc (kappa_tys ++ tau_tys)) orig_ty
            ; return (co, kappa_tys ++ tau_tys) }
 
-    (bndrs, res_kind)     = splitForAllTys (tyConKind tc)
+    (bndrs, res_kind)     = splitPiTys (tyConKind tc)
     (kvs, arg_kinds)      = partitionBinders bndrs
 
 ----------------------
@@ -821,7 +821,7 @@ uType origin t_or_k orig_ty1 orig_ty2
         do { cos <- zipWith3M (uType origin) t_or_ks tys1 tys2
            ; return $ mkTyConAppCo Nominal tc1 cos }
       where
-        (bndrs, _) = splitForAllTys (tyConKind tc1)
+        (bndrs, _) = splitPiTys (tyConKind tc1)
         t_or_ks    = case t_or_k of
                        KindLevel -> repeat KindLevel
                        TypeLevel -> map (\bndr -> if isNamedBinder bndr

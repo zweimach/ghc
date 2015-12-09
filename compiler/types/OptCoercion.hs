@@ -351,10 +351,8 @@ opt_univ env sym prov role oty1 oty2
 
   -- can't optimize the AppTy case because we can't build the kind coercions.
 
-  | Just (bndr1, ty1) <- splitForAllTy_maybe oty1
-  , Just tv1          <- binderVar_maybe bndr1
-  , Just (bndr2, ty2) <- splitForAllTy_maybe oty2
-  , Just tv2          <- binderVar_maybe bndr2
+  | Just (tv1, ty1) <- splitForAllTy_maybe oty1
+  , Just (tv2, ty2) <- splitForAllTy_maybe oty2
       -- NB: prov isn't interesting here either
   = let k1   = tyVarKind tv1
         k2   = tyVarKind tv2
@@ -403,8 +401,7 @@ opt_nth_co env sym rep r = go []
       | Just (tc, args) <- splitTyConApp_maybe ty
       = Just (Refl (nthRole r1 tc n) (args `getNth` n))
       | n == 0
-      , Just (bndr, _) <- splitForAllTy_maybe ty
-      , Just tv        <- binderVar_maybe bndr
+      , Just (tv, _) <- splitForAllTy_maybe ty
       = Just (Refl Nominal (tyVarKind tv))
     push_nth n (TyConAppCo _ _ cos)
       = Just (cos `getNth` n)
@@ -838,10 +835,8 @@ etaForAllCo_maybe co
   = Just (tv, kind_co, r)
 
   | Pair ty1 ty2  <- coercionKind co
-  , Just (bndr1, _) <- splitForAllTy_maybe ty1
-  , Just (bndr2, _) <- splitForAllTy_maybe ty2
-  , Just tv1 <- binderVar_maybe bndr1
-  , isNamedBinder bndr2
+  , Just (tv1, _) <- splitForAllTy_maybe ty1
+  , isForAllTy ty2
   , let kind_co = mkNthCo 0 co
   = Just ( tv1, kind_co
          , mkInstCo co (mkNomReflCo (TyVarTy tv1) `mkCoherenceRightCo` kind_co) )

@@ -54,8 +54,7 @@ module TcType (
   -- Splitters
   -- These are important because they do not look through newtypes
   getTyVar,
-  tcSplitForAllTys, tcSplitNamedForAllTys, tcSplitNamedForAllTysB,
-  tcIsNamedForAllTy,
+  tcSplitForAllTys, tcSplitPiTys, tcSplitNamedPiTys,
   tcSplitPhiTy, tcSplitPredFunTy_maybe,
   tcSplitFunTy_maybe, tcSplitFunTys, tcFunArgTy, tcFunResultTy, tcSplitFunTysN,
   tcSplitTyConApp, tcSplitTyConApp_maybe, tcRepSplitTyConApp_maybe,
@@ -1026,30 +1025,25 @@ However, they are non-monadic and do not follow through mutable type
 variables.  It's up to you to make sure this doesn't matter.
 -}
 
--- | Splits a forall type into a list of 'Binder's and the inner type.
+-- | Splits a forall type into a list of 'TyBinder's and the inner type.
 -- Always succeeds, even if it returns an empty list.
-tcSplitForAllTys :: Type -> ([TyBinder], Type)
+tcSplitPiTys :: Type -> ([TyBinder], Type)
+tcSplitPiTys = splitPiTys
+
+-- | Like 'tcSplitPiTys', but splits off only named binders, returning
+-- just the tycovars.
+tcSplitForAllTys :: Type -> ([TyVar], Type)
 tcSplitForAllTys = splitForAllTys
 
--- | Like 'tcSplitForAllTys', but splits off only named binders, returning
--- just the tycovars.
-tcSplitNamedForAllTys :: Type -> ([TyVar], Type)
-tcSplitNamedForAllTys = splitNamedForAllTys
-
 -- | Like 'tcSplitForAllTys', but splits off only named binders.
-tcSplitNamedForAllTysB :: Type -> ([TyBinder], Type)
-tcSplitNamedForAllTysB = splitNamedForAllTysB
-
-tcIsForAllTy :: Type -> Bool
-tcIsForAllTy ty | Just ty' <- coreView ty = tcIsForAllTy ty'
-tcIsForAllTy (ForAllTy {}) = True
-tcIsForAllTy _             = False
+tcSplitNamedPiTys :: Type -> ([TyBinder], Type)
+tcSplitNamedPiTys = splitNamedPiTys
 
 -- | Is this a ForAllTy with a named binder?
-tcIsNamedForAllTy :: Type -> Bool
-tcIsNamedForAllTy ty | Just ty' <- coreView ty = tcIsNamedForAllTy ty'
-tcIsNamedForAllTy (ForAllTy (Named {}) _) = True
-tcIsNamedForAllTy _                       = False
+tcIsForAllTy :: Type -> Bool
+tcIsForAllTy ty | Just ty' <- coreView ty = tcIsForAllTy ty'
+tcIsForAllTy (ForAllTy (Named {}) _) = True
+tcIsForAllTy _                       = False
 
 tcSplitPredFunTy_maybe :: Type -> Maybe (PredType, Type)
 -- Split off the first predicate argument from a type
@@ -1071,7 +1065,7 @@ tcSplitPhiTy ty
 
 -- | Split a sigma type into its parts.
 tcSplitSigmaTy :: Type -> ([TyVar], ThetaType, Type)
-tcSplitSigmaTy ty = case tcSplitNamedForAllTys ty of
+tcSplitSigmaTy ty = case tcSplitForAllTys ty of
                         (tvs, rho) -> case tcSplitPhiTy rho of
                                         (theta, tau) -> (tvs, theta, tau)
 
@@ -1215,9 +1209,9 @@ tcSplitDFunTy :: Type -> ([TyVar], [Type], Class, [Type])
 -- the latter  specifically stops at PredTy arguments,
 -- and we don't want to do that here
 tcSplitDFunTy ty
-  = case tcSplitNamedForAllTys ty   of { (tvs, rho)    ->
-    case splitFunTys rho            of { (theta, tau)  ->
-    case tcSplitDFunHead tau        of { (clas, tys)   ->
+  = case tcSplitForAllTys ty   of { (tvs, rho)    ->
+    case splitFunTys rho       of { (theta, tau)  ->
+    case tcSplitDFunHead tau   of { (clas, tys)   ->
     (tvs, theta, clas, tys) }}}
 
 tcSplitDFunHead :: Type -> (Class, [Type])
@@ -1340,7 +1334,7 @@ tc_eq_type view_fun orig_ty1 orig_ty2 = go Visible orig_env orig_ty1 orig_ty2
        -- be oversaturated
       where
         k          = tyConKind tc
-        (bndrs, _) = splitForAllTys k
+        (bndrs, _) = splitPiTys k
         viss       = map binderVisibility bndrs
 
     check :: VisibilityFlag -> Bool -> Maybe VisibilityFlag
