@@ -5,7 +5,7 @@
 
 module VarEnv (
         -- * Var, Id and TyVar environments (maps)
-        VarEnv, IdEnv, TyVarEnv, CoVarEnv,
+        VarEnv, IdEnv, TyVarEnv, CoVarEnv, TyCoVarEnv,
 
         -- ** Manipulating these environments
         emptyVarEnv, unitVarEnv, mkVarEnv, mkVarEnv_Directly,
@@ -384,10 +384,11 @@ emptyTidyEnv = (emptyTidyOccEnv, emptyVarEnv)
 ************************************************************************
 -}
 
-type VarEnv elt   = UniqFM elt
-type IdEnv elt    = VarEnv elt
-type TyVarEnv elt = VarEnv elt
-type CoVarEnv elt = VarEnv elt
+type VarEnv elt     = UniqFM elt
+type IdEnv elt      = VarEnv elt
+type TyVarEnv elt   = VarEnv elt
+type TyCoVarEnv elt = VarEnv elt
+type CoVarEnv elt   = VarEnv elt
 
 emptyVarEnv       :: VarEnv a
 mkVarEnv          :: [(Var, a)] -> VarEnv a
