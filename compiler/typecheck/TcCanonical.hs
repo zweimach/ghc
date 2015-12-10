@@ -32,6 +32,7 @@ import RdrName
 import Pair
 import Util
 import Bag
+import Maybes
 import MonadUtils
 import Control.Monad
 import Data.List  ( zip4, foldl' )
@@ -391,9 +392,14 @@ canIrred old_ev
     do { -- Re-classify, in case flattening has improved its shape
        ; case classifyPredType (ctEvPred new_ev) of
            ClassPred cls tys     -> canClassNC new_ev cls tys
-           EqPred eq_rel ty1 ty2 -> canEqNC new_ev eq_rel ty1 ty2
+           EqPred eq_rel ty1 ty2 -> can_eq_nc True  -- types are flat; see below
+                                      new_ev eq_rel ty1 ty1 ty2 ty2
            _                     -> continueWith $
                                     CIrredEvCan { cc_ev = new_ev } } }
+    -- It's important to call directly to can_eq_nc True from the EqPred
+    -- case. Flattening may have introduced a (skolem_var |> co) on one
+    -- side. If we remove the cast, we can get into a loop with
+    -- Note [Irreducible hetero equalities]. So we're careful not to.
 
 canHole :: CtEvidence -> OccName -> HoleSort -> TcS (StopOrContinue Ct)
 canHole ev occ hole_sort
@@ -1262,7 +1268,7 @@ canEqTyVar2 dflags ev eq_rel swapped tv1 kco1 xi2
      -- see Note [Occurs check expansion] in TcType
   = rewriteEqEvidence ev swapped xi1 xi2' co1 (mkTcReflCo role xi2')
     `andWhenContinue` \ new_ev ->
-    homogeniseRhsKind new_ev eq_rel tv1 kco1 xi2'
+    homogeniseRhsKind new_ev eq_rel tv1 kco1 xi2' Nothing
 
   | otherwise  -- Occurs check error
   = do { traceTcS "canEqTyVar2 occurs check error" (ppr tv1 $$ ppr xi2)
@@ -1319,10 +1325,10 @@ canEqTyVarTyVar ev eq_rel swapped tv1 kco1 tv2 kco2
     xi2 = mkTyVarTy tv2 `mkCastTy` kco2
     co2 = mkTcReflCo role xi2
 
-    no_swap = canon_eq swapped            tv1 kco1 xi1 xi2 co1 co2
-    do_swap = canon_eq (flipSwap swapped) tv2 kco2 xi2 xi1 co2 co1
+    no_swap = canon_eq swapped            tv1 kco1 kco2 xi1 xi2 co1 co2
+    do_swap = canon_eq (flipSwap swapped) tv2 kco2 kco1 xi2 xi1 co2 co1
 
-    canon_eq swapped tv1 kco1 ty1 ty2 co1 co2
+    canon_eq swapped tv1 kco1 kco2 ty1 ty2 co1 co2
         -- ev  : tv1 ~ orhs  (not swapped) or   orhs ~ tv1   (swapped)
         -- co1 : xi1 ~ tv1
         -- co2 : xi2 ~ tv2
@@ -1335,7 +1341,7 @@ canEqTyVarTyVar ev eq_rel swapped tv1 kco1 tv2 kco2
                      , ppr co2 <+> dcolon <+> ppr (tcCoercionKind co2) ])
            ; rewriteEqEvidence ev swapped ty1 ty2 co1 co2
              `andWhenContinue` \ new_ev ->
-             homogeniseRhsKind new_ev eq_rel tv1 kco1 ty2 }
+             homogeniseRhsKind new_ev eq_rel tv1 kco1 ty2 (Just kco2) }
 
 {- We don't do this any more
    See Note [Orientation of equalities with fmvs] in TcFlatten
@@ -1407,15 +1413,17 @@ homogeniseRhsKind :: CtEvidence -- ^ the evidence to homogenise
                   -> EqRel
                   -> TcTyVar
                   -> CoercionN           -- ^ LHS = tv |> co
-                  -> Xi                  -- ^ original RHS
+                  -> Xi
+                  -> Maybe CoercionN     -- ^ RHS = xi |> co2 (if present)
                   -> TcS (StopOrContinue Ct)
-homogeniseRhsKind ev eq_rel lhs_tv lhs_kco rhs
+homogeniseRhsKind ev eq_rel lhs_tv lhs_kco rhs m_rhs_kco
   | k1 `eqType` k2
   = -- move the cast from the left to the right
     let nlhs = mkTyVarTy lhs_tv
-        nrhs = rhs `mkCastTy` mkSymCo lhs_kco
+        full_rhs_kco = rhs_kco `mkTcTransCo` mkSymCo lhs_kco
+        nrhs = rhs `mkCastTy` full_rhs_kco
         lhs_co = mkTcReflCo role nlhs `mkTcCoherenceRightCo` lhs_kco
-        rhs_co = mkTcReflCo role rhs  `mkTcCoherenceLeftCo`  mkSymCo lhs_kco
+        rhs_co = mkTcReflCo role rhs  `mkTcCoherenceLeftCo`  full_rhs_kco
     in
     rewriteEqEvidence ev NotSwapped nlhs nrhs lhs_co rhs_co
     `andWhenContinue` \ new_ev ->
@@ -1430,7 +1438,8 @@ homogeniseRhsKind ev eq_rel lhs_tv lhs_kco rhs
        ; let kind_ev = CtGiven { ctev_pred = kind_pty
                                , ctev_evar = kind_ev_id
                                , ctev_loc  = kind_loc }
-             homo_co = mkSymCo (lhs_kco `mkTransCo` mkCoVarCo kind_ev_id)
+             homo_co = rhs_kco `mkTransCo`
+                       mkSymCo (lhs_kco `mkTransCo` mkCoVarCo kind_ev_id)
              rhs'    = mkCastTy rhs homo_co
        ; traceTcS "Hetero equality gives rise to given kind equality"
            (ppr kind_ev_id <+> dcolon <+> ppr kind_pty)
@@ -1449,8 +1458,8 @@ homogeniseRhsKind ev eq_rel lhs_tv lhs_kco rhs
        ; traceTcS "Hetero equality gives rise to wanted kind equality" $
            ppr (kind_ev)
        ; emitWorkNC [kind_ev]
-       ; let homo_co   = mkSymCo (lhs_kco `mkTransCo` kind_co)
-           -- homo_co :: k2 ~ k1
+       ; let homo_co   = rhs_kco `mkTransCo` mkSymCo (lhs_kco `mkTransCo` kind_co)
+           -- homo_co :: rhs's kind ~ k1
              rhs'      = mkCastTy rhs homo_co
              homo_pred = mkTcEqPredLikeEv ev lhs rhs'
        ; case ev of
@@ -1472,7 +1481,9 @@ homogeniseRhsKind ev eq_rel lhs_tv lhs_kco rhs
     lhs = mkTyVarTy lhs_tv `mkCastTy` lhs_kco
 
     k1  = typeKind lhs
-    k2  = typeKind rhs
+    k2  = fmap (pSnd . coercionKind) m_rhs_kco `orElse` typeKind rhs
+
+    rhs_kco = m_rhs_kco `orElse` mkTcReflCo Nominal k2
 
     kind_pty = mkHeteroPrimEqPred liftedTypeKind liftedTypeKind k1 k2
     kind_loc = mkKindLoc lhs rhs loc
