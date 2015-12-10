@@ -995,7 +995,7 @@ mkCastTy ty co = -- NB: don't check if the coercion "from" type matches here;
       -- if kind contains any dependent quantifications, we can't push.
       -- apply arguments until it doesn't
       = let (bndrs, _inner_ki) = splitPiTys kind
-            (some_dep_bndrs, no_dep_bndrs) = spanEnd isAnonBinder bndrs
+            (no_dep_bndrs, some_dep_bndrs) = spanEnd isAnonBinder bndrs
             (some_dep_args, rest_args) = splitAtList some_dep_bndrs args
             dep_subst = zipOpenTCvSubstBinders some_dep_bndrs some_dep_args
             used_no_dep_bndrs = takeList rest_args no_dep_bndrs
