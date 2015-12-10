@@ -369,7 +369,7 @@ zonkLocalBinds env (HsValBinds (ValBindsOut binds sigs))
 zonkLocalBinds env (HsIPBinds (IPBinds binds dict_binds)) = do
     new_binds <- mapM (wrapLocM zonk_ip_bind) binds
     let
-        env1 = extendZonkEnv env [ n | L _ (IPBind (Right n) _) <- new_binds]
+        env1 = extendIdZonkEnvRec env [ n | L _ (IPBind (Right n) _) <- new_binds]
     (env2, new_dict_binds) <- zonkTcEvBinds env1 dict_binds
     return (env2, HsIPBinds (IPBinds new_binds new_dict_binds))
   where
@@ -874,7 +874,7 @@ zonkStmt :: ZonkEnv
 zonkStmt env _ (ParStmt stmts_w_bndrs mzip_op bind_op)
   = do { new_stmts_w_bndrs <- mapM zonk_branch stmts_w_bndrs
        ; let new_binders = [b | ParStmtBlock _ bs _ <- new_stmts_w_bndrs, b <- bs]
-             env1 = extendZonkEnv env new_binders
+             env1 = extendIdZonkEnvRec env new_binders
        ; new_mzip <- zonkExpr env1 mzip_op
        ; new_bind <- zonkExpr env1 bind_op
        ; return (env1, ParStmt new_stmts_w_bndrs new_mzip new_bind) }
@@ -894,13 +894,13 @@ zonkStmt env zBody (RecStmt { recS_stmts = segStmts, recS_later_ids = lvs, recS_
        ; new_ret_id  <- zonkExpr env ret_id
        ; new_mfix_id <- zonkExpr env mfix_id
        ; new_bind_id <- zonkExpr env bind_id
-       ; let env1 = extendZonkEnv env new_rvs
+       ; let env1 = extendIdZonkEnvRec env new_rvs
        ; (env2, new_segStmts) <- zonkStmts env1 zBody segStmts
         -- Zonk the ret-expressions in an envt that
         -- has the polymorphic bindings in the envt
        ; new_later_rets <- mapM (zonkExpr env2) later_rets
        ; new_rec_rets <- mapM (zonkExpr env2) rec_rets
-       ; return (extendZonkEnv env new_lvs,     -- Only the lvs are needed
+       ; return (extendIdZonkEnvRec env new_lvs,     -- Only the lvs are needed
                  RecStmt { recS_stmts = new_segStmts, recS_later_ids = new_lvs
                          , recS_rec_ids = new_rvs, recS_ret_fn = new_ret_id
                          , recS_mfix_fn = new_mfix_id, recS_bind_fn = new_bind_id
@@ -929,7 +929,7 @@ zonkStmt env _ (TransStmt { trS_stmts = stmts, trS_bndrs = binderMap
     ; return_op' <- zonkExpr env' return_op
     ; bind_op'   <- zonkExpr env' bind_op
     ; liftM_op'  <- zonkExpr env' liftM_op
-    ; let env'' = extendZonkEnv env' (map snd binderMap')
+    ; let env'' = extendIdZonkEnvRec env' (map snd binderMap')
     ; return (env'', TransStmt { trS_stmts = stmts', trS_bndrs = binderMap'
                                , trS_by = by', trS_form = form, trS_using = using'
                                , trS_ret = return_op', trS_bind = bind_op', trS_fmap = liftM_op' }) }
@@ -1197,7 +1197,7 @@ zonkRule env (HsRule name act (vars{-::[RuleBndr TcId]-}) lhs fv_lhs rhs fv_rhs)
 
    zonk_it env v
      | isId v     = do { v' <- zonkIdBndr env v
-                       ; return (extendZonkEnv env [v'], v') }
+                       ; return (extendIdZonkEnvRec env [v'], v') }
      | otherwise  = ASSERT( isImmutableTyVar v)
                     zonkTyBndrX env v
                     -- DV: used to be return (env,v) but that is plain

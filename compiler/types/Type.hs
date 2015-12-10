@@ -1329,8 +1329,8 @@ partitionInvisibles tc get_ty = go emptyTCvSubst (tyConKind tc)
         subst' = extendTCvSubstBinder subst bndr (get_ty x)
     go subst (TyVarTy tv) xs
       | Just ki <- lookupTyVar subst tv = go subst ki xs
-    go subst ki _ = pprPanic "partitionInvisibles" (ppr subst $$ ppr ki)
-
+    go _ _ xs = ([], xs)  -- something is ill-kinded. But this can happen
+                          -- when printing errors. Assume everything is visible.
 
 -- like splitPiTys, but returns only *invisible* binders, including constraints
 splitPiTysInvisible :: Type -> ([TyBinder], Type)

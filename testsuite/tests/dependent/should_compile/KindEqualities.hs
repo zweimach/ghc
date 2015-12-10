@@ -23,5 +23,3 @@ zero :: forall (a :: *). TyRep a -> a
 zero TyInt = 0
 zero TyBool = False
 zero (TyApp TyMaybe _) = Nothing
-zero _ = undefined
-

@@ -198,7 +198,8 @@ tc_hs_sig_type :: LHsSigType Name -> Kind -> TcM Type
 -- Does not do validity checking or zonking
 tc_hs_sig_type (HsIB { hsib_body = hs_ty
                      , hsib_vars = sig_vars }) kind
-  = do { (tkvs, ty) <- tcImplicitTKBndrs sig_vars $
+  = do { (tkvs, ty) <- solveEqualities $
+                       tcImplicitTKBndrs sig_vars $
                        tc_lhs_type typeLevelMode hs_ty kind
        ; return (mkInvForAllTys tkvs ty) }
 
@@ -215,7 +216,9 @@ tcHsDeriv hs_ty
   = do { arg_kind <- newMetaKindVar
                     -- always safe to kind-generalize, because there
                     -- can be no covars in an outer scope
-       ; ty <- tc_hs_sig_type hs_ty (mkFunTy arg_kind constraintKind)
+       ; ty <- checkNoErrs $
+                 -- avoid redundant error report with "illegal deriving", below
+               tc_hs_sig_type hs_ty (mkFunTy arg_kind constraintKind)
        ; ty <- kindGeneralizeType ty  -- also zonks
        ; arg_kind <- zonkTcType arg_kind
        ; let (tvs, pred) = splitForAllTys ty
