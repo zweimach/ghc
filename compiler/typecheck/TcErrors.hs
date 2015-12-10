@@ -1393,8 +1393,8 @@ mkExpectedActualMsg ty1 ty2 (TypeEqOrigin { uo_actual = act, uo_expected = exp
         -> msg5 th
 
       _ | not (act `pickyEqType` exp)
-        -> vcat [ text "   Expected" <+> sort <> colon <+> ppr exp
-                , text "     Actual" <+> sort <> colon <+> ppr act
+        -> vcat [ text "Expected" <+> sort <> colon <+> ppr exp
+                , text "Actual" <+> sort <> colon <+> ppr act
                 , if printExpanded then expandedTys else empty ]
 
         | otherwise
