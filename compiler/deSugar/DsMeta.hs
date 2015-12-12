@@ -1937,7 +1937,7 @@ repFun (MkC nm) (MkC b) = rep2 funDName [nm, b]
 
 repData :: Core TH.CxtQ -> Core TH.Name -> Core [TH.TyVarBndr]
         -> Maybe (Core [TH.TypeQ])
-        -> Core [TH.ConQ] -> Core [TH.Name] -> DsM (Core TH.DecQ)
+        -> Core [TH.ConQ] -> Core TH.CxtQ -> DsM (Core TH.DecQ)
 repData (MkC cxt) (MkC nm) (MkC tvs) Nothing (MkC cons) (MkC derivs)
   = rep2 dataDName [cxt, nm, tvs, cons, derivs]
 repData (MkC cxt) (MkC nm) (MkC _) (Just (MkC tys)) (MkC cons) (MkC derivs)
@@ -1945,7 +1945,7 @@ repData (MkC cxt) (MkC nm) (MkC _) (Just (MkC tys)) (MkC cons) (MkC derivs)
 
 repNewtype :: Core TH.CxtQ -> Core TH.Name -> Core [TH.TyVarBndr]
            -> Maybe (Core [TH.TypeQ])
-           -> Core TH.ConQ -> Core [TH.Name] -> DsM (Core TH.DecQ)
+           -> Core TH.ConQ -> Core TH.CxtQ -> DsM (Core TH.DecQ)
 repNewtype (MkC cxt) (MkC nm) (MkC tvs) Nothing (MkC con) (MkC derivs)
   = rep2 newtypeDName [cxt, nm, tvs, con, derivs]
 repNewtype (MkC cxt) (MkC nm) (MkC _) (Just (MkC tys)) (MkC con) (MkC derivs)
