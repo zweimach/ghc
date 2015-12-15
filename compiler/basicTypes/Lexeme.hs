@@ -87,6 +87,22 @@ isLexConId ""          = False
 isLexConId "[]"        = True
 isLexConId (c:_)       = startsDataConId c
 
+-- | Is a lexeme possibly a valid data constructor which can be used in prefix
+-- position?
+-- e.g. @Foo@
+isLexTypeConId :: String -> Bool
+isLexTypeConId         = isLexConId
+
+-- | Is a lexeme possibly a valid data constructor which can be used in prefix
+-- position?
+-- e.g. @Foo@
+isLexDataConId :: String -> Bool
+isLexDataConId         = isLexConId
+
+-- | Is a lexeme a valid non-symbol type variable?
+isLexTyVarId :: String -> Bool
+isLexTyVarId = isLexVarId
+
 -- | Is a lexeme a valid term-level identifier which can be used in prefix
 -- position?
 -- e.g. @x@ and @_x@
@@ -119,10 +135,6 @@ isLexVarSym (c:cs)
   | startsVarSym c     = null cs || okSymChar (head cs)
     -- See note [Classification of generated names]
   | otherwise          = False
-
--- | Is a lexeme a valid non-symbol type variable?
-isLexTyVarId :: String -> Bool
-isLexTyVarId = isLexVarId
 
 -- | Is a lexeme a valid type variable which can be used in infix position?
 -- There are no examples.
@@ -243,7 +255,7 @@ okIdOcc str
                           -- of course, `all` says "True" to an empty list
 
 -- | Is this character acceptable in an identifier (after the first letter)?
--- See alexGetByte in Lexer.x
+-- See 'alexGetByte' in @Lexer.x@
 okIdChar :: Char -> Bool
 okIdChar c = case generalCategory c of
   UppercaseLetter -> True
@@ -255,14 +267,14 @@ okIdChar c = case generalCategory c of
   _               -> c == '\'' || c == '_'
 
 -- | Is this character acceptable in the suffix of an identifier.
--- See alexGetByte in Lexer.x
+-- See 'alexGetByte' in @Lexer.x@
 okIdSuffixChar :: Char -> Bool
 okIdSuffixChar c = case generalCategory c of
   ModifierLetter  -> True  -- See #10196
   _               -> False
 
 -- | Is this character acceptable in a symbol (after the first char)?
--- See alexGetByte in Lexer.x
+-- See 'alexGetByte' in @Lexer.x@
 okSymChar :: Char -> Bool
 okSymChar c
   | isSpecial c
