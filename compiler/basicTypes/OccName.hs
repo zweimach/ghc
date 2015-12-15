@@ -79,7 +79,8 @@ module OccName (
         isVarOcc, isTvOcc, isTcOcc, isDataOcc, isDataSymOcc, isSymOcc, isValOcc,
         parenSymOcc, startsWithUnderscore,
 
-        isTcClsNameSpace, isTvNameSpace, isDataConNameSpace, isVarNameSpace, isValNameSpace,
+        isTcClsNameSpace, isTvNameSpace, isDataConNameSpace, isVarNameSpace,
+        isValNameSpace,
 
         -- * The 'OccEnv' type
         OccEnv, emptyOccEnv, unitOccEnv, extendOccEnv, mapOccEnv,
@@ -505,17 +506,17 @@ isDataOcc _                    = False
 -- | Test if the 'OccName' is a data constructor that starts with
 -- a symbol (e.g. @:@, or @[]@)
 isDataSymOcc :: OccName -> Bool
-isDataSymOcc (OccName DataName s) = isLexConSym s
+isDataSymOcc (OccName DataName s) = isLexDataConSym (unpackFS s)
 isDataSymOcc _                    = False
 -- Pretty inefficient!
 
 -- | Test if the 'OccName' is that for any operator (whether
 -- it is a data constructor or variable or whatever)
 isSymOcc :: OccName -> Bool
-isSymOcc (OccName DataName s)  = isLexConSym s
-isSymOcc (OccName TcClsName s) = isLexSym s
-isSymOcc (OccName VarName s)   = isLexSym s
-isSymOcc (OccName TvName s)    = isLexSym s
+isSymOcc (OccName DataName s)  = isLexDataConSym (unpackFS s)
+isSymOcc (OccName TcClsName s) = isLexTyConSym   (unpackFS s)
+isSymOcc (OccName VarName s)   = isLexVarSym     (unpackFS s)
+isSymOcc (OccName TvName s)    = isLexTyVarSym   (unpackFS s)
 -- Pretty inefficient!
 
 parenSymOcc :: OccName -> SDoc -> SDoc

@@ -62,7 +62,7 @@ import StaticFlags (opt_PprStyle_Debug)
 import Util( filterOut, filterByList )
 import InstEnv
 import DataCon (SrcStrictness(..), SrcUnpackedness(..))
-import Lexeme (isLexSym)
+import Lexeme (isLexVarSym)
 
 import Control.Monad
 import System.IO.Unsafe
@@ -722,7 +722,7 @@ pprIfaceDecl ss (IfaceClass { ifATs = ats, ifSigs = sigs, ifRec = isrec
       pprMinDef minDef = ppUnless (isTrue minDef) $ -- hide empty definitions
         ptext (sLit "{-# MINIMAL") <+>
         pprBooleanFormula
-          (\_ def -> cparen (isLexSym def) (ppr def)) 0 minDef <+>
+          (\_ def -> cparen (isLexVarSym (unpackFS def)) (ppr def)) 0 minDef <+>
         ptext (sLit "#-}")
 
 pprIfaceDecl ss (IfaceSynonym { ifName    = tc

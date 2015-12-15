@@ -10,23 +10,40 @@
 --
 module GHC.Lexeme (
           -- * Lexical characteristics of Haskell names
-        startsVarSym, startsVarId, startsConSym, startsConId,
-        startsVarSymASCII, isVarSymChar
+        isSpecial, startsVarSym, startsVarId, startsDataConSym,
+        startsTyConSym, startsDataConId, startsTyConId
   ) where
 
 import Data.Char
 
-startsVarSym, startsVarId, startsConSym, startsConId :: Char -> Bool
-startsVarSym c = startsVarSymASCII c || (ord c > 0x7f && isSymbol c)  -- Infix Ids
-startsConSym c = c == ':'               -- Infix data constructors
+isSpecial, startsVarSym, startsDataConSym, startsTyConSym,
+  startsVarId, startsDataConId, startsTyConId :: Char -> Bool
+
+-- | The @special@ character class as defined by Section 2.2 of the Haskell 2010
+-- Report.
+isSpecial c = c `elem` "(),;[]`{}"
+-- This should remain is sync with the $special character set in Lexer.x
+
+startsVarSym c =
+  (isPunctuation c || isSymbol c)
+  && c `notElem` ":_\"'"
+  && not (isSpecial c)
+
+startsDataConSym = startsTyConSym     -- Infix data constructors
+
+startsTyConSym c                      -- Infix type constructors
+  | c == ':'  = True
+  | otherwise = (isPunctuation c || isSymbol c) &&
+                not ((c `elem` "_\"'") || isSpecial c)
+
+
 startsVarId c  = c == '_' || case generalCategory c of  -- Ordinary Ids
   LowercaseLetter -> True
   OtherLetter     -> True   -- See #1103
   _               -> False
-startsConId c  = isUpper c || c == '('  -- Ordinary type constructors and data constructors
 
-startsVarSymASCII :: Char -> Bool
-startsVarSymASCII c = c `elem` "!#$%&*+./<=>?@\\^|~-"
+startsDataConId c = c == '(' || case generalCategory c of
+  UppercaseLetter -> True
+  _               -> False
 
-isVarSymChar :: Char -> Bool
-isVarSymChar c = c == ':' || startsVarSym c
+startsTyConId = startsDataConId

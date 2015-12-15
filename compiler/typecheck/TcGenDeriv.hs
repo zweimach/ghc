@@ -1202,7 +1202,7 @@ wrapOpBackquotes s | isSym s   = s
 
 isSym :: String -> Bool
 isSym ""      = False
-isSym (c : _) = startsVarSym c || startsConSym c
+isSym (c : _) = startsVarSym c || startsDataConSym c
 
 -- | showString :: String -> ShowS
 mk_showString_app :: String -> LHsExpr RdrName

@@ -5,29 +5,36 @@
 -- in Lexer.x, but sadly there seems to be way to merge them.
 
 module Lexeme (
-          -- * Lexical characteristics of Haskell names
+        -- * Classifying names
 
-          -- | Use these functions to figure what kind of name a 'FastString'
-          -- represents; these functions do /not/ check that the identifier
-          -- is valid.
+        -- | Use these functions to figure what kind of name a 'String'
+        -- might represent. These functions only /classify/ a lexeme; they are
+        -- necessary but not sufficient conditions for the /validity/
+        -- of the lexeme. For the latter see the functions in the Validating
+        -- identifiers section of this module.
+        isLexDataCon, isLexTyCon, isLexVar,
+        -- ** Testing for identifiers
+        isLexTyConId, isLexDataConId, isLexVarId, isLexTyVarId,
+        -- ** Testing for symbols
+        isLexTyConSym, isLexDataConSym, isLexVarSym, isLexTyVarSym,
 
-        isLexCon, isLexVar, isLexId, isLexSym,
-        isLexConId, isLexConSym, isLexVarId, isLexVarSym,
-        startsVarSym, startsVarId, startsConSym, startsConId,
+        -- ** Character predicates
+        isSpecial,
+        startsVarSym, startsVarId, startsDataConSym, startsTyConSym,
+        startsDataConId,
 
-          -- * Validating identifiers
+        -- * Validating identifiers
 
-          -- | These functions (working over plain old 'String's) check
-          -- to make sure that the identifier is valid.
-        okVarOcc, okConOcc, okTcOcc,
-        okVarIdOcc, okVarSymOcc, okConIdOcc, okConSymOcc
+        -- | These functions (working over plain old 'String's) check
+        -- to make sure that the identifier is valid.
+        okVarOcc, okDataConOcc, okTyVarOcc, okTyConOcc,
+        okVarIdOcc, okVarSymOcc, okDataConIdOcc, okTyConIdOcc,
+        okDataConSymOcc, okTyConSymOcc
 
         -- Some of the exports above are not used within GHC, but may
         -- be of value to GHC API users.
-
   ) where
 
-import FastString
 import Util ((<||>))
 
 import Data.Char
@@ -53,40 +60,74 @@ Some names generated for internal use can show up in debugging output,
 e.g.  when using -ddump-simpl. These generated names start with a $
 but should still be pretty-printed using prefix notation. We make sure
 this is the case in isLexVarSym by only classifying a name as a symbol
-if all its characters are symbols, not just its first one.
+if its first two characters are symbols, not just its first one.
 -}
 
-isLexCon,   isLexVar,    isLexId,    isLexSym    :: FastString -> Bool
-isLexConId, isLexConSym, isLexVarId, isLexVarSym :: FastString -> Bool
+-- | Is a lexeme a valid data constructor name?
+isLexDataCon :: String -> Bool
+isLexDataCon cs =
+  isLexConId cs || isLexDataConSym cs
 
-isLexCon cs = isLexConId  cs || isLexConSym cs
-isLexVar cs = isLexVarId  cs || isLexVarSym cs
+-- | Is a lexeme a valid type constructor name?
+isLexTyCon :: String -> Bool
+isLexTyCon cs =
+  isLexConId cs || isLexTyConSym cs
 
-isLexId  cs = isLexConId  cs || isLexVarId  cs
-isLexSym cs = isLexConSym cs || isLexVarSym cs
+-- | Is a lexeme a valid term-level variable name?
+isLexVar :: String -> Bool
+isLexVar cs =
+  isLexVarId cs || isLexVarSym cs
 
--------------
-isLexConId cs                           -- Prefix type or data constructors
-  | nullFS cs          = False          --      e.g. "Foo", "[]", "(,)"
-  | cs == (fsLit "[]") = True
-  | otherwise          = startsConId (headFS cs)
+-- this function is not exported
+-- | Is a lexeme a valid data or type constructor which can be used in
+-- prefix position?
+-- e.g. @Foo@, @[]@, and @(,)@
+isLexConId :: String -> Bool
+isLexConId ""          = False
+isLexConId "[]"        = True
+isLexConId (c:_)       = startsDataConId c
 
-isLexVarId cs                           -- Ordinary prefix identifiers
-  | nullFS cs         = False           --      e.g. "x", "_x"
-  | otherwise         = startsVarId (headFS cs)
+-- | Is a lexeme a valid term-level identifier which can be used in prefix
+-- position?
+-- e.g. @x@ and @_x@
+isLexVarId :: String -> Bool
+isLexVarId ""          = False
+isLexVarId (c:_)       = startsVarId c
 
-isLexConSym cs                          -- Infix type or data constructors
-  | nullFS cs          = False          --      e.g. ":-:", ":", "->"
-  | cs == (fsLit "->") = True
-  | otherwise          = startsConSym (headFS cs)
+-- | Is a lexeme a valid type constructor which can be used in infix position?
+-- e.g. @:-:@, @:@, @->@, and @+@
+isLexTyConSym :: String -> Bool
+isLexTyConSym ""       = False
+isLexTyConSym "->"     = True
+isLexTyConSym (c:_)    = startsTyConSym c
 
-isLexVarSym fs                          -- Infix identifiers e.g. "+"
-  | fs == (fsLit "~R#") = True
-  | otherwise
-  = case (if nullFS fs then [] else unpackFS fs) of
-      [] -> False
-      (c:cs) -> startsVarSym c && all isVarSymChar cs
-        -- See Note [Classification of generated names]
+-- | Is a lexeme a valid data constructor which can be used in infix position?
+-- e.g. @:-:@ and @:@
+isLexDataConSym :: String -> Bool
+isLexDataConSym ""     = False
+isLexDataConSym "->"   = True
+isLexDataConSym cs     = startsDataConSym (head cs)
+  -- See note [Classification of generated names]
+
+-- | Is a lexeme a valid term-level identifier which can be used in
+-- infix position?
+-- e.g. @+@
+isLexVarSym :: String -> Bool
+isLexVarSym ""         = False
+isLexVarSym "~R#"      = True
+isLexVarSym (c:cs)
+  | startsVarSym c     = null cs || okSymChar (head cs)
+    -- See note [Classification of generated names]
+  | otherwise          = False
+
+-- | Is a lexeme a valid non-symbol type variable?
+isLexTyVarId :: String -> Bool
+isLexTyVarId = isLexVarId
+
+-- | Is a lexeme a valid type variable which can be used in infix position?
+-- There are no examples.
+isLexTyVarSym :: String -> Bool
+isLexTyVarSym _ = False   -- no symbols are type variables.
 
 {-
 
@@ -111,30 +152,32 @@ okVarOcc str@(c:_)
   = okVarSymOcc str
 okVarOcc _ = False
 
--- | Is this an acceptable constructor name?
-okConOcc :: String -> Bool
-okConOcc str@(c:_)
-  | startsConId c
-  = okConIdOcc str
-  | startsConSym c
-  = okConSymOcc str
+-- | Is this an acceptable data constructor name?
+okDataConOcc :: String -> Bool
+okDataConOcc str@(c:_)
+  | startsDataConId c
+  = okDataConIdOcc str
+  | startsDataConSym c
+  = okDataConSymOcc str
   | str == "[]"
   = True
-okConOcc _ = False
+okDataConOcc _ = False
 
--- | Is this an acceptable type name?
-okTcOcc :: String -> Bool
-okTcOcc "[]" = True
-okTcOcc "->" = True
-okTcOcc "~"  = True
-okTcOcc str@(c:_)
-  | startsConId c
-  = okConIdOcc str
-  | startsConSym c
-  = okConSymOcc str
-  | startsVarSym c
-  = okVarSymOcc str
-okTcOcc _ = False
+-- | Is this an acceptable type variable name?
+okTyVarOcc :: String -> Bool
+okTyVarOcc = okIdOcc
+
+-- | Is this an acceptable type constructor name?
+okTyConOcc :: String -> Bool
+okTyConOcc "[]" = True
+okTyConOcc "->" = True
+okTyConOcc "~"  = True
+okTyConOcc str@(c:_)
+  | startsTyConId c
+  = okTyConIdOcc str
+  | startsTyConSym c
+  = okTyConSymOcc str
+okTyConOcc _ = False
 
 -- | Is this an acceptable alphanumeric variable name, assuming it starts
 -- with an acceptable letter?
@@ -151,10 +194,10 @@ okVarSymOcc str = all okSymChar str &&
                   not (str `Set.member` reservedOps) &&
                   not (isDashes str)
 
--- | Is this an acceptable alphanumeric constructor name, assuming it
+-- | Is this an acceptable alphanumeric data constructor name, assuming it
 -- starts with an acceptable letter?
-okConIdOcc :: String -> Bool
-okConIdOcc str = okIdOcc str ||
+okDataConIdOcc :: String -> Bool
+okDataConIdOcc str = okIdOcc str ||
                  is_tuple_name1 str
   where
     -- check for tuple name, starting at the beginning
@@ -168,11 +211,22 @@ okConIdOcc str = okIdOcc str ||
       | isSpace ws              = is_tuple_name2 rest
     is_tuple_name2 _            = False
 
--- | Is this an acceptable symbolic constructor name, assuming it
+-- | Is this an acceptable alphanumeric type constructor name, assuming it
 -- starts with an acceptable character?
-okConSymOcc :: String -> Bool
-okConSymOcc ":" = True
-okConSymOcc str = all okSymChar str &&
+okTyConIdOcc :: String -> Bool
+okTyConIdOcc = okDataConIdOcc
+
+-- | Is this an acceptable symbolic data constructor name, assuming it
+-- starts with an acceptable character?
+okDataConSymOcc :: String -> Bool
+okDataConSymOcc ":" = True
+okDataConSymOcc str = all okSymChar str &&
+                  not (str `Set.member` reservedOps)
+
+-- | Is this an acceptable symbolic type constructor name, assuming it
+-- starts with an acceptable character?
+okTyConSymOcc :: String -> Bool
+okTyConSymOcc str = all okSymChar str &&
                   not (str `Set.member` reservedOps)
 
 ----------------------
@@ -211,7 +265,7 @@ okIdSuffixChar c = case generalCategory c of
 -- See alexGetByte in Lexer.x
 okSymChar :: Char -> Bool
 okSymChar c
-  | c `elem` specialSymbols
+  | isSpecial c
   = False
   | c `elem` "_\"'"
   = False
@@ -233,10 +287,6 @@ reservedIds = Set.fromList [ "case", "class", "data", "default", "deriving"
                            , "infix", "infixl", "infixr", "instance", "let"
                            , "module", "newtype", "of", "then", "type", "where"
                            , "_" ]
-
--- | All punctuation that cannot appear in symbols. See $special in Lexer.x.
-specialSymbols :: [Char]
-specialSymbols = "(),;[]`{}"
 
 -- | All reserved operators. Taken from section 2.4 of the 2010 Report.
 reservedOps :: Set.Set String

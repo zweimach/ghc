@@ -1280,9 +1280,10 @@ cvtName ctxt_ns (TH.Name occ flavour)
 
 okOcc :: OccName.NameSpace -> String -> Bool
 okOcc ns str
-  | OccName.isVarNameSpace ns     = okVarOcc str
-  | OccName.isDataConNameSpace ns = okConOcc str
-  | otherwise                     = okTcOcc  str
+  | OccName.isVarNameSpace ns     = okVarOcc     str
+  | OccName.isDataConNameSpace ns = okDataConOcc str
+  | OccName.isTvNameSpace ns      = okTyVarOcc   str
+  | otherwise                     = okTyConOcc   str
 
 -- Determine the name space of a name in a type
 --
@@ -1328,18 +1329,30 @@ thRdrName loc ctxt_ns th_occ th_name
     occ = mk_occ ctxt_ns th_occ
 
 thOrigRdrName :: String -> TH.NameSpace -> PkgName -> ModName -> RdrName
-thOrigRdrName occ th_ns pkg mod = (mkOrig $! (mkModule (mk_pkg pkg) (mk_mod mod))) $! (mk_occ (mk_ghc_ns th_ns) occ)
+thOrigRdrName occ th_ns pkg mod =
+    let !mod' = mkModule (mk_pkg pkg) (mk_mod mod)
+        !occ' = mk_occ (mk_ghc_ns th_ns) occ
+    in mkOrig mod' occ'
 
 thRdrNameGuesses :: TH.Name -> [RdrName]
 thRdrNameGuesses (TH.Name occ flavour)
-  -- This special case for NameG ensures that we don't generate duplicates in the output list
+  -- This special case for NameG ensures that we don't generate duplicates in
+  -- the output list
   | TH.NameG th_ns pkg mod <- flavour = [ thOrigRdrName occ_str th_ns pkg mod]
   | otherwise                         = [ thRdrName noSrcSpan gns occ_str flavour
-                                        | gns <- guessed_nss]
+                                        | gns <- data_ns ++ ty_ns ++ var_ns]
   where
-    -- guessed_ns are the name spaces guessed from looking at the TH name
-    guessed_nss | isLexCon (mkFastString occ_str) = [OccName.tcName,  OccName.dataName]
-                | otherwise                       = [OccName.varName, OccName.tvName]
+    -- data_ns, ty_ns, and var_ns are the name spaces guessed from looking at
+    -- the TH name
+    data_ns | isLexDataCon occ_str = [OccName.dataName]
+            | otherwise = []
+
+    ty_ns   | isLexTyCon occ_str   = [OccName.tcName]
+            | otherwise = []
+
+    var_ns  | isLexVar occ_str     = [OccName.varName, OccName.tvName]
+            | otherwise = []
+
     occ_str = TH.occString occ
 
 -- The packing and unpacking is rather turgid :-(

@@ -927,16 +927,17 @@ lookupName is_type_name s
   where
     th_name = TH.mkName s       -- Parses M.x into a base of 'x' and a module of 'M'
 
-    occ_fs :: FastString
-    occ_fs = mkFastString (TH.nameBase th_name)
+    occ_str :: String
+    occ_str = TH.nameBase th_name
 
     occ :: OccName
     occ | is_type_name
-        = if isLexCon occ_fs then mkTcOccFS    occ_fs
-                             else mkTyVarOccFS occ_fs
+        = if isLexTyCon occ_str then mkTcOccFS    occ_fs
+                                else mkTyVarOccFS occ_fs
         | otherwise
-        = if isLexCon occ_fs then mkDataOccFS occ_fs
-                             else mkVarOccFS  occ_fs
+        = if isLexDataCon occ_str then mkDataOccFS occ_fs
+                                  else mkVarOccFS  occ_fs
+        where occ_fs = mkFastString occ_str
 
     rdr_name = case TH.nameModule th_name of
                  Nothing  -> mkRdrUnqual occ

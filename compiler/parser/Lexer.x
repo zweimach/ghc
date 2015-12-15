@@ -108,6 +108,7 @@ import DynFlags
 
 -- compiler/basicTypes
 import SrcLoc
+import Lexeme
 import Module
 import BasicTypes     ( InlineSpec(..), RuleMatchInfo(..), FractionalLit(..),
                         SourceText )
@@ -904,7 +905,8 @@ notFollowedBy char _ _ _ (AI _ buf)
 
 notFollowedBySymbol :: AlexAccPred ExtsBitmap
 notFollowedBySymbol _ _ _ (AI _ buf)
-  = nextCharIsNot buf (`elem` "!#$%&*+./<=>?@\\^|-~")
+  = nextCharIsNot buf (\c -> (isPunctuation c || isSymbol c) &&
+                             not ((c `elem` "_\"'") || isSpecial c))
 
 followedByDigit :: AlexAccPred ExtsBitmap
 followedByDigit _ _ _ (AI _ buf)
