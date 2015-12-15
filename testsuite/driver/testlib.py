@@ -1704,12 +1704,20 @@ def normalise_callstacks(str):
     # Ignore line number differences in call stacks (#10834).
     return re.sub(', called at (.+):[\\d]+:[\\d]+ in [\\w\-\.]+:', repl, str)
 
+def normalise_type_reps(str):
+    """ Normalise out fingerprints from Typeable TyCon representations """
+    return re.sub(r'TyCon\s*[0-9]+##\s*[0-9]+##',
+                  'TyCon FINGERPRINT FINGERPRINT',
+                  str,
+                  flags=re.MULTILINE)
+
 def normalise_errmsg( str ):
     # remove " error:" and lower-case " Warning:" to make patch for
     # trac issue #10021 smaller
     str = modify_lines(str, lambda l: re.sub(' error:', '', l))
     str = modify_lines(str, lambda l: re.sub(' Warning:', ' warning:', l))
     str = normalise_callstacks(str)
+    str = normalise_type_reps(str)
 
     # If somefile ends in ".exe" or ".exe:", zap ".exe" (for Windows)
     #    the colon is there because it appears in error messages; this
