@@ -206,7 +206,7 @@ Consider
 We give 'f' the type (alpha -> beta), and then want to unify
 the alpha with (forall a. a->a).  We want to the arg and result
 of (->) to be sort-polymorphic, and this also permits foralls, so
-we are ok. See Note [Sort-polymorphic tyvars accept foralls] in TcUnify
+we are ok. See Note [Sort-polymorphic tyvars accept foralls] in TcMType
 and Note [TYPE] in TysPrim.
 -}
 

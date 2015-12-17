@@ -727,7 +727,7 @@ Notice the levity polymophism. This ensures that
   * unboxed as well as boxed types
   * polymorphic types
 This is OK because it never returns, so the return type is irrelevant.
-See Note [Sort-polymorphic tyvars accept foralls] in TcUnify.
+See Note [Sort-polymorphic tyvars accept foralls] in TcMType.
 
 
 ************************************************************************
