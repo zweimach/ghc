@@ -1458,7 +1458,7 @@ mkGenSyms :: [Name] -> DsM [GenSymBind]
 --
 -- Nevertheless, it's monadic because we have to generate nameTy
 mkGenSyms ns = do { var_ty <- lookupType nameTyConName
-                  ; return [(nm, mkLocalId (localiseName nm) var_ty NoSigId) | nm <- ns] }
+                  ; return [(nm, mkLocalId (localiseName nm) var_ty) | nm <- ns] }
 
 
 addBinds :: [GenSymBind] -> DsM a -> DsM a

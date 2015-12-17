@@ -62,7 +62,7 @@ module Var (
 
         -- ** Modifying 'TyVar's
         setTyVarName, setTyVarUnique, setTyVarKind, updateTyVarKind,
-        updateTyVarKindM, toSpecifiedTyVar, toInferredTyVar
+        updateTyVarKindM
 
     ) where
 
@@ -289,17 +289,6 @@ updateTyVarKindM :: (Monad m) => (Kind -> m Kind) -> TyVar -> m TyVar
 updateTyVarKindM update tv
   = do { k' <- update (tyVarKind tv)
        ; return $ tv {varType = k'} }
-
--- | Change a tyvar's name to be Internal. Used in the final zonk.
--- See also Note [Visible type application] in TcType
-toSpecifiedTyVar :: TyVar -> TyVar
-toSpecifiedTyVar tv = setTyVarName tv (toInternalName (getName tv))
-
--- | Change a tyvar's name to be System. Used when reading in interface
--- files with some ids without type signatures.
--- See also Note [Visible type application] in TcType
-toInferredTyVar :: TyVar -> TyVar
-toInferredTyVar tv = setTyVarName tv (toSystemName (getName tv))
 
 mkTyVar :: Name -> Kind -> TyVar
 mkTyVar name kind = TyVar { varName    = name

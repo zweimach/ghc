@@ -308,8 +308,7 @@ tc_iface_decl :: TyConParent    -- For nested declarations
 tc_iface_decl _ ignore_prags (IfaceId {ifName = occ_name, ifType = iface_type,
                                        ifIdDetails = details, ifIdInfo = info})
   = do  { name <- lookupIfaceTop occ_name
-        ; ty <- toInferredType (ifaceIdDetailsHasSig details) <$>
-                tcIfaceType iface_type
+        ; ty <- tcIfaceType iface_type
         ; details <- tcIdDetails ty details
         ; info <- tcIdInfo ignore_prags name ty info
         ; return (AnId (mkGlobalId details name ty info)) }
@@ -1017,7 +1016,7 @@ tcIfaceExpr (IfaceCase scrut case_bndr alts)  = do
     case_bndr_name <- newIfaceName (mkVarOccFS case_bndr)
     let
         scrut_ty   = exprType scrut'
-        case_bndr' = mkLocalId case_bndr_name scrut_ty NoSigId
+        case_bndr' = mkLocalId case_bndr_name scrut_ty
         tc_app     = splitTyConApp scrut_ty
                 -- NB: Won't always succeed (polymorphic case)
                 --     but won't be demanded in those cases
@@ -1029,12 +1028,12 @@ tcIfaceExpr (IfaceCase scrut case_bndr alts)  = do
      alts' <- mapM (tcIfaceAlt scrut' tc_app) alts
      return (Case scrut' case_bndr' (coreAltsType alts') alts')
 
-tcIfaceExpr (IfaceLet (IfaceNonRec (IfLetBndr fs ty has_sig info) rhs) body)
+tcIfaceExpr (IfaceLet (IfaceNonRec (IfLetBndr fs ty info) rhs) body)
   = do  { name    <- newIfaceName (mkVarOccFS fs)
-        ; ty'     <- toInferredType has_sig <$> tcIfaceType ty
+        ; ty'     <- tcIfaceType ty
         ; id_info <- tcIdInfo False {- Don't ignore prags; we are inside one! -}
                               name ty' info
-        ; let id = mkLocalIdWithInfo name ty' has_sig id_info
+        ; let id = mkLocalIdWithInfo name ty' id_info
         ; rhs' <- tcIfaceExpr rhs
         ; body' <- extendIfaceIdEnv [id] (tcIfaceExpr body)
         ; return (Let (NonRec id rhs') body') }
@@ -1046,11 +1045,11 @@ tcIfaceExpr (IfaceLet (IfaceRec pairs) body)
        ; body' <- tcIfaceExpr body
        ; return (Let (Rec pairs') body') } }
  where
-   tc_rec_bndr (IfLetBndr fs ty has_sig _)
+   tc_rec_bndr (IfLetBndr fs ty _)
      = do { name <- newIfaceName (mkVarOccFS fs)
-          ; ty'  <- toInferredType has_sig <$> tcIfaceType ty
-          ; return (mkLocalId name ty' has_sig) }
-   tc_pair (IfLetBndr _ _ _ info, rhs) id
+          ; ty'  <- tcIfaceType ty
+          ; return (mkLocalId name ty') }
+   tc_pair (IfLetBndr _ _ info, rhs) id
      = do { rhs' <- tcIfaceExpr rhs
           ; id_info <- tcIdInfo False {- Don't ignore prags; we are inside one! -}
                                 (idName id) (idType id) info
@@ -1154,7 +1153,7 @@ tcIfaceDataAlt con inst_tys arg_strs rhs
 -}
 
 tcIdDetails :: Type -> IfaceIdDetails -> IfL IdDetails
-tcIdDetails _  (IfVanillaId has_sig) = return (VanillaId has_sig)
+tcIdDetails _  IfVanillaId = return VanillaId
 tcIdDetails ty IfDFunId
   = return (DFunId (isNewTyCon (classTyCon cls)))
   where
@@ -1370,10 +1369,10 @@ tcIfaceExtId name = do { thing <- tcIfaceGlobal name
 -}
 
 bindIfaceBndr :: IfaceBndr -> (CoreBndr -> IfL a) -> IfL a
-bindIfaceBndr (IfaceIdBndr (fs, ty, has_sig)) thing_inside
+bindIfaceBndr (IfaceIdBndr (fs, ty)) thing_inside
   = do  { name <- newIfaceName (mkVarOccFS fs)
-        ; ty' <- toInferredType has_sig <$> tcIfaceType ty
-        ; let id = mkLocalId name ty' has_sig
+        ; ty' <- tcIfaceType ty
+        ; let id = mkLocalId name ty'
         ; extendIfaceIdEnv [id] (thing_inside id) }
 bindIfaceBndr (IfaceTvBndr bndr) thing_inside
   = bindIfaceTyVar bndr thing_inside

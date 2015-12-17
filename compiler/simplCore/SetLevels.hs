@@ -1061,7 +1061,7 @@ newLvlVar :: LevelledExpr        -- The RHS of the new binding
           -> LvlM Id
 newLvlVar lvld_rhs is_bot
   = do { uniq <- getUniqueM
-       ; return (add_bot_info (mkLocalId (mk_name uniq) rhs_ty NoSigId)) }
+       ; return (add_bot_info (mkLocalId (mk_name uniq) rhs_ty)) }
   where
     add_bot_info var  -- We could call annotateBotStr always, but the is_bot
                       -- flag just tells us when we don't need to do so

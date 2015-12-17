@@ -290,7 +290,7 @@ zonkTyBndrX :: ZonkEnv -> TyVar -> TcM (ZonkEnv, TyVar)
 zonkTyBndrX env tv
   = do { ki <- zonkTcTypeToType env (tyVarKind tv)
                -- Internal names tidy up better, for iface files.
-       ; let tv' = mkTyVar (toInternalName $ tyVarName tv) ki
+       ; let tv' = mkTyVar (tyVarName tv) ki
        ; return (extendTyZonkEnv1 env tv', tv') }
 
 zonkTopExpr :: HsExpr TcId -> TcM (HsExpr Id)
@@ -1409,10 +1409,7 @@ zonkTyVarOcc env@(ZonkEnv zonk_unbound_tyvar tv_env _) tv
                  ; case cts of
                       Flexi -> do { kind <- {-# SCC "zonkKind1" #-}
                                             zonkTcTypeToType env (tyVarKind tv)
-                                    -- See Note [Visible type application]
-                                    -- in TcType about the toSpecifiedTyVar
-                                  ; zonk_unbound_tyvar (toSpecifiedTyVar $
-                                                        setTyVarKind tv kind) }
+                                  ; zonk_unbound_tyvar (setTyVarKind tv kind) }
                       Indirect ty -> do { zty <- zonkTcTypeToType env ty
                                         -- Small optimisation: shortern-out indirect steps
                                         -- so that the old type may be more easily collected.
@@ -1423,9 +1420,7 @@ zonkTyVarOcc env@(ZonkEnv zonk_unbound_tyvar tv_env _) tv
   where
     lookup_in_env    -- Look up in the env just as we do for Ids
       = case lookupVarEnv tv_env tv of
-                        -- See Note [Visible type application]
-                        -- in TcType about the toSpecifiedTyVar
-          Nothing  -> return (mkTyVarTy $ toSpecifiedTyVar tv)
+          Nothing  -> return (mkTyVarTy tv)
           Just tv' -> return (mkTyVarTy tv')
 
 zonkTcTypeToType :: ZonkEnv -> TcType -> TcM Type

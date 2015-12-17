@@ -38,7 +38,6 @@ module TcType (
   isAmbiguousTyVar, metaTvRef, metaTyVarInfo,
   isFlexi, isIndirect, isRuntimeUnkSkol,
   isTypeVar, isKindVar,
-  isInferredTyVar, isSpecifiedTyVar,
   metaTyVarTcLevel, setMetaTyVarTcLevel, metaTyVarTcLevel_maybe,
   isTouchableMetaTyVar, isTouchableOrFmv,
   isFloatedTouchableMetaTyVar,
@@ -81,7 +80,6 @@ module TcType (
   orphNamesOfTypes, orphNamesOfCoCon,
   getDFunTyKey,
   evVarPred_maybe, evVarPred,
-  toInferredType,
 
   ---------------------------------
   -- Predicate types
@@ -163,7 +161,6 @@ import Kind
 import TypeRep
 import Class
 import Var
-import Id   ( HasSigFlag(..) )
 import ForeignCall
 import VarSet
 import Coercion
@@ -834,16 +831,6 @@ isRuntimeUnkSkol :: TyVar -> Bool
 isRuntimeUnkSkol x
   | isTcTyVar x, RuntimeUnk <- tcTyVarDetails x = True
   | otherwise                                   = False
-
--- | Is this TyVar inferred by GHC? (Used with visible type application)
--- See Note [Visible type application]
-isInferredTyVar :: TyVar -> Bool
-isInferredTyVar = isSystemName . tyVarName
-
--- | Is this TyVar specified by the user? (Used with visible type application)
--- See Note [Visible type application]
-isSpecifiedTyVar :: TyVar -> Bool
-isSpecifiedTyVar = isInternalName . tyVarName
 
 {-
 ************************************************************************
@@ -1530,27 +1517,8 @@ is imported). We write the type of g as forall {a}. a -> forall b. b -> b.
 Note that the a is in braces, meaning it cannot be instantiated with
 visible type application.
 
-Tracking specified vs. inferred variables is done conveniently by looking at
-Names. A System name (from mkSystemName or a variant) is an inferred
-variable; an Internal name is a specified one. Simple. This works out
-because skolemiseUnboundMetaTyVar always produces a System name.
-
-The only wrinkle with this scheme is in tidying. If all inferred names
-are System names, then tidying will append lots of 0s. This pollutes
-interface files and Haddock output. So we convert System tyvars to
-Internal ones during the final zonk. This works because type-checking
-is fully complete, and therefore the distinction between specified and
-inferred is no longer relevant.
-
-If using System vs. Internal to perform type-checking seems suspicious,
-the alternative approach would mean adding a field to ForAllTy to track
-specified vs. inferred. That seems considerably more painful. And, anyway,
-once the (* :: *) branch is merged, this will be redesigned somewhat
-to move away from using Names. That's because the (* :: *) branch already
-has more structure available in ForAllTy, and there, it's easy to squeeze
-in another specified-vs.-inferred bit.
-
-TODO (RAE): Update this Note in the (* :: *) branch when merging.
+Tracking specified vs. inferred variables is done conveniently by a field
+in TyBinder.
 
 -}
 
@@ -1558,18 +1526,6 @@ deNoteType :: Type -> Type
 -- Remove all *outermost* type synonyms and other notes
 deNoteType ty | Just ty' <- tcView ty = deNoteType ty'
 deNoteType ty = ty
-
--- | If the flag says NoSigId, changes all binders in this type to
--- be inferred, instead of specified. This is necessary after reading
--- an iface file, where all type variables are Internal.
--- See Note [Visible type application]
-toInferredType :: HasSigFlag -> Type -> Type
-toInferredType HasSigId ty = ty
-toInferredType NoSigId  ty = go [] ty
-  where
-    go tvs (ForAllTy tv inner_ty) = go (tv:tvs) inner_ty
-    go tvs other_ty               = mkForAllTys tvs' other_ty
-      where tvs' = map toInferredTyVar $ reverse tvs
 
 tcTyVarsOfType :: Type -> TcTyVarSet
 -- Just the *TcTyVars* free in the type

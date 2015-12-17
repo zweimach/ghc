@@ -194,7 +194,7 @@ mkWildEvBinder pred = mkWildValBinder pred
 -- easy to get into difficulties with shadowing.  That's why it is used so little.
 -- See Note [WildCard binders] in SimplEnv
 mkWildValBinder :: Type -> Id
-mkWildValBinder ty = mkLocalId wildCardName ty NoSigId
+mkWildValBinder ty = mkLocalId wildCardName ty
 
 mkWildCase :: CoreExpr -> Type -> Type -> [CoreAlt] -> CoreExpr
 -- Make a case expression whose case binder is unused
@@ -741,7 +741,7 @@ Notice the 'OpenKind' (manifested as openAlphaTyVar in the code). This ensures t
   * unboxed as well as boxed types
   * polymorphic types
 This is OK because it never returns, so the return type is irrelevant.
-See Note [OpenTypeKind accepts foralls] in TcMType.
+See Note [OpenTypeKind accepts foralls] in TcUnify.
 
 
 ************************************************************************

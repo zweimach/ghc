@@ -843,7 +843,7 @@ mkInferredPolyId poly_name qtvs theta mono_ty
        ; addErrCtxtM (mk_bind_msg True False poly_name inferred_poly_ty) $
          checkValidType (InfSigCtxt poly_name) inferred_poly_ty
 
-       ; return (mkLocalId poly_name inferred_poly_ty NoSigId) }
+       ; return (mkLocalId poly_name inferred_poly_ty) }
 
 mk_bind_msg :: Bool -> Bool -> Name -> TcType -> TidyEnv -> TcM (TidyEnv, SDoc)
 mk_bind_msg inferred want_ambig poly_name poly_ty tidy_env
@@ -993,7 +993,7 @@ recoveryCode binder_names sig_fn
       , Just poly_id <- completeSigPolyId_maybe sig
       = poly_id
       | otherwise
-      = mkLocalId name forall_a_a NoSigId
+      = mkLocalId name forall_a_a
 
 forall_a_a :: TcType
 forall_a_a = mkForAllTy openAlphaTyVar (mkTyVarTy openAlphaTyVar)
@@ -1509,13 +1509,12 @@ tcLhs sig_fn no_gen (FunBind { fun_id = L nm_loc name, fun_infix = inf, fun_matc
        --               see Note [Partial type signatures and generalisation]
        -- Both InferGen and CheckGen gives rise to LetLclBndr
     do  { mono_name <- newLocalName name
-        ; sigflag <- case s_bndr of
+        ; case s_bndr of
             PartialSig { sig_nwcs = nwcs }
-              -> do { addErrCtxt (typeSigCtxt s_bndr) $
-                      emitWildcardHoleConstraints nwcs
-                    ; return NoSigId }
-            CompleteSig {} -> return HasSigId
-        ; let mono_id = mkLocalId mono_name (sig_tau sig) sigflag
+              -> addErrCtxt (typeSigCtxt s_bndr) $
+                 emitWildcardHoleConstraints nwcs
+            CompleteSig {} -> return ()
+        ; let mono_id = mkLocalId mono_name (sig_tau sig)
         ; return (TcFunBind (MBI { mbi_poly_name = name
                                  , mbi_sig       = Just sig
                                  , mbi_mono_id   = mono_id
@@ -1799,7 +1798,7 @@ instTcTySig :: UserTypeCtxt
 instTcTySig ctxt hs_ty sigma_ty extra_cts nwcs name
   = do { (inst_tvs, theta, tau) <- tcInstType tcInstSigTyVars sigma_ty
        ; let bndr | isNothing extra_cts && null nwcs
-                  = CompleteSig $ mkLocalId name sigma_ty HasSigId  -- non-partial
+                  = CompleteSig (mkLocalId name sigma_ty)
                   | otherwise
                   = PartialSig { sig_name = name, sig_nwcs = nwcs
                                , sig_cts = extra_cts, sig_hs_ty = hs_ty }

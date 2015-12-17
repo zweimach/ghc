@@ -20,7 +20,7 @@ module IfaceSyn (
 
         -- Misc
         ifaceDeclImplicitBndrs, visibleIfConDecls,
-        ifaceDeclFingerprints, ifaceIdDetailsHasSig,
+        ifaceDeclFingerprints,
 
         -- Free Names
         freeNamesIfDecl, freeNamesIfRule, freeNamesIfFamInst,
@@ -39,7 +39,6 @@ import Demand
 import Class
 import NameSet
 import CoAxiom ( BranchIndex, Role )
-import Id      ( HasSigFlag(..) )
 import Name
 import CostCentre
 import Literal
@@ -299,13 +298,9 @@ data IfaceUnfolding
 -- interface files
 
 data IfaceIdDetails
-  = IfVanillaId HasSigFlag
+  = IfVanillaId
   | IfRecSelId IfaceTyCon Bool
   | IfDFunId
-
-ifaceIdDetailsHasSig :: IfaceIdDetails -> HasSigFlag
-ifaceIdDetailsHasSig (IfVanillaId has_sig) = has_sig
-ifaceIdDetailsHasSig _                     = HasSigId
 
 {-
 Note [Versioning of instances]
@@ -453,7 +448,7 @@ data IfaceBinding
 -- IfaceLetBndr is like IfaceIdBndr, but has IdInfo too
 -- It's used for *non-top-level* let/rec binders
 -- See Note [IdInfo on nested let-bindings]
-data IfaceLetBndr = IfLetBndr IfLclName IfaceType HasSigFlag IfaceIdInfo
+data IfaceLetBndr = IfLetBndr IfLclName IfaceType IfaceIdInfo
 
 {-
 Note [Empty case alternatives]
@@ -971,8 +966,8 @@ ppr_con_bs :: IfaceConAlt -> [IfLclName] -> SDoc
 ppr_con_bs con bs = ppr con <+> hsep (map ppr bs)
 
 ppr_bind :: (IfaceLetBndr, IfaceExpr) -> SDoc
-ppr_bind (IfLetBndr b ty has_sig info, rhs)
-  = sep [hang (ppr b <+> dcolon <+> ppr ty) 2 (ppr has_sig $$ ppr info),
+ppr_bind (IfLetBndr b ty info, rhs)
+  = sep [hang (ppr b <+> dcolon <+> ppr ty) 2 (ppr info),
          equals <+> pprIfaceExpr noParens rhs]
 
 ------------------
@@ -998,8 +993,7 @@ instance Outputable IfaceConAlt where
 
 ------------------
 instance Outputable IfaceIdDetails where
-  ppr (IfVanillaId HasSigId) = Outputable.empty
-  ppr (IfVanillaId NoSigId)  = text "inferred"
+  ppr IfVanillaId       = Outputable.empty
   ppr (IfRecSelId tc b) = ptext (sLit "RecSel") <+> ppr tc
                           <+> if b
                                 then ptext (sLit "<naughty>")
@@ -1193,7 +1187,7 @@ freeNamesIfLetBndr :: IfaceLetBndr -> NameSet
 -- Remember IfaceLetBndr is used only for *nested* bindings
 -- The IdInfo can contain an unfolding (in the case of
 -- local INLINE pragmas), so look there too
-freeNamesIfLetBndr (IfLetBndr _name ty _ info) = freeNamesIfType ty
+freeNamesIfLetBndr (IfLetBndr _name ty info) = freeNamesIfType ty
                                              &&& freeNamesIfIdInfo info
 
 freeNamesIfTvBndr :: IfaceTvBndr -> NameSet
@@ -1201,7 +1195,7 @@ freeNamesIfTvBndr (_fs,k) = freeNamesIfKind k
     -- kinds can have Names inside, because of promotion
 
 freeNamesIfIdBndr :: IfaceIdBndr -> NameSet
-freeNamesIfIdBndr (_fs,t,_has_sig) = freeNamesIfType t
+freeNamesIfIdBndr = freeNamesIfTvBndr
 
 freeNamesIfIdInfo :: IfaceIdInfo -> NameSet
 freeNamesIfIdInfo NoInfo      = emptyNameSet
@@ -1607,15 +1601,15 @@ instance Binary IfaceAnnotation where
         return (IfaceAnnotation a1 a2)
 
 instance Binary IfaceIdDetails where
-    put_ bh (IfVanillaId has_sig) = putByte bh 0 >> put_ bh has_sig
+    put_ bh IfVanillaId      = putByte bh 0
     put_ bh (IfRecSelId a b) = putByte bh 1 >> put_ bh a >> put_ bh b
     put_ bh IfDFunId         = putByte bh 2
     get bh = do
         h <- getByte bh
         case h of
-            0 -> do { a <- get bh; return (IfVanillaId a) }
+            0 -> return IfVanillaId
             1 -> do { a <- get bh; b <- get bh; return (IfRecSelId a b) }
-            _ -> return IfDFunId
+            _ -> return IfDFunId 
 
 instance Binary IfaceIdInfo where
     put_ bh NoInfo      = putByte bh 0
@@ -1839,16 +1833,14 @@ instance Binary IfaceBinding where
             _ -> do { ac <- get bh; return (IfaceRec ac) }
 
 instance Binary IfaceLetBndr where
-    put_ bh (IfLetBndr a b c d) = do
+    put_ bh (IfLetBndr a b c) = do
             put_ bh a
             put_ bh b
             put_ bh c
-            put_ bh d
     get bh = do a <- get bh
                 b <- get bh
                 c <- get bh
-                d <- get bh
-                return (IfLetBndr a b c d)
+                return (IfLetBndr a b c)
 
 instance Binary IfaceTyConParent where
     put_ bh IfNoParent = putByte bh 0

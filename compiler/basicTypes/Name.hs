@@ -49,7 +49,6 @@ module Name (
         nameUnique, setNameUnique,
         nameOccName, nameModule, nameModule_maybe,
         setNameLoc,
-        toInternalName, toSystemName,
         tidyNameOcc,
         localiseName,
         mkLocalisedOccName,
@@ -369,16 +368,6 @@ setNameUnique name uniq = name {n_uniq = getKeyFastInt uniq}
 -- entity, but edit the location to refer to the reexport site
 setNameLoc :: Name -> SrcSpan -> Name
 setNameLoc name loc = name {n_loc = loc}
-
--- | Convert a name into an Internal name. Used in zonking.
--- See Note [Visible type application] in TcType
-toInternalName :: Name -> Name
-toInternalName name = name { n_sort = Internal }
-
--- | Convert a name into a System name. Used when reading inferface files.
--- See Note [Visible type application] in TcType
-toSystemName :: Name -> Name
-toSystemName name = name { n_sort = System }
 
 tidyNameOcc :: Name -> OccName -> Name
 -- We set the OccName of a Name when tidying

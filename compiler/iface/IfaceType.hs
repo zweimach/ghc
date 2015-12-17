@@ -89,7 +89,7 @@ data IfaceBndr          -- Local (non-top-level) binders
   = IfaceIdBndr {-# UNPACK #-} !IfaceIdBndr
   | IfaceTvBndr {-# UNPACK #-} !IfaceTvBndr
 
-type IfaceIdBndr  = (IfLclName, IfaceType, HasSigFlag)
+type IfaceIdBndr  = (IfLclName, IfaceType)
 type IfaceTvBndr  = (IfLclName, IfaceKind)
 
 
@@ -484,9 +484,8 @@ pprIfaceLamBndr :: IfaceLamBndr -> SDoc
 pprIfaceLamBndr (b, IfaceNoOneShot) = ppr b
 pprIfaceLamBndr (b, IfaceOneShot)   = ppr b <> text "[OneShot]"
 
-pprIfaceIdBndr :: (IfLclName, IfaceType, HasSigFlag) -> SDoc
-pprIfaceIdBndr (name, ty, has_sig) = hsep [ ppr name, dcolon, ppr ty
-                                          , brackets (ppr has_sig) ]
+pprIfaceIdBndr :: (IfLclName, IfaceType) -> SDoc
+pprIfaceIdBndr (name, ty) = hsep [ppr name, dcolon, ppr ty]
 
 pprIfaceTvBndr :: IfaceTvBndr -> SDoc
 pprIfaceTvBndr (tv, IfaceTyConApp tc ITC_Nil)
@@ -1019,9 +1018,8 @@ instance Binary IfaceCoercion where
 ----------------
 toIfaceTvBndr :: TyVar -> (IfLclName, IfaceType)
 toIfaceTvBndr tyvar   = (occNameFS (getOccName tyvar), toIfaceKind (tyVarKind tyvar))
-toIfaceIdBndr :: Id -> (IfLclName, IfaceType, HasSigFlag)
-toIfaceIdBndr id      = ( occNameFS (getOccName id),    toIfaceType (idType id)
-                        , idHasSig id)
+toIfaceIdBndr :: Id -> (IfLclName, IfaceType)
+toIfaceIdBndr id      = (occNameFS (getOccName id),    toIfaceType (idType id))
 toIfaceTvBndrs :: [TyVar] -> [(IfLclName, IfaceType)]
 toIfaceTvBndrs tyvars = map toIfaceTvBndr tyvars
 

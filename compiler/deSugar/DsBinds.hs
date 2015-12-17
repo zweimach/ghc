@@ -454,7 +454,7 @@ dsSpec mb_poly_rhs (L loc (SpecPrag poly_id spec_co spec_inl))
              unf_fvs   = stableUnfoldingVars fn_unf `orElse` emptyVarSet
              in_scope  = mkInScopeSet (unf_fvs `unionVarSet` exprsFreeVars args)
              spec_unf  = specUnfolding dflags (mkEmptySubst in_scope) bndrs args fn_unf
-             spec_id   = mkLocalId spec_name spec_ty HasSigId
+             spec_id   = mkLocalId spec_name spec_ty
                             `setInlinePragma` inl_prag
                             `setIdUnfolding`  spec_unf
              rule =  mkRule this_mod False {- Not auto -} is_local_id
@@ -608,7 +608,7 @@ decomposeRuleLhs orig_bndrs orig_lhs
 
         -- Add extra dict binders: Note [Free dictionaries]
    mk_extra_dict_bndrs fn_id args
-     = [ mkLocalId (localiseName (idName d)) (idType d) (idHasSig d)
+     = [ mkLocalId (localiseName (idName d)) (idType d)
        | d <- varSetElems (exprsFreeVars args `delVarSetList` (fn_id : orig_bndrs))
               -- fn_id: do not quantify over the function itself, which may
               -- itself be a dictionary (in pathological cases, Trac #10251)
@@ -1086,7 +1086,7 @@ dsTcCoercion co thing_inside
        ; return (foldr (wrap_in_case result_ty) result_expr eqvs_covs) }
   where
     mk_co_var :: Id -> Unique -> (Id, Id)
-    mk_co_var eqv uniq = (eqv, mkUserLocal occ uniq ty NoSigId loc)
+    mk_co_var eqv uniq = (eqv, mkUserLocal occ uniq ty loc)
        where
          eq_nm = idName eqv
          occ = nameOccName eq_nm
