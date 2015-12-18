@@ -203,7 +203,7 @@ tc_hs_sig_type (HsIB { hsib_body = hs_ty
   = do { (tkvs, ty) <- solveEqualities $
                        tcImplicitTKBndrsType sig_vars $
                        tc_lhs_type typeLevelMode hs_ty kind
-       ; return (mkInvForAllTys tkvs ty) }
+       ; return (mkSpecForAllTys tkvs ty) }
 
 -----------------
 tcHsDeriv :: LHsSigType Name -> TcM ([TyVar], Class, [Type], Kind)
@@ -245,7 +245,7 @@ tcHsClsInstType user_ctxt hs_inst_ty@(HsIB { hsib_vars = sig_vars
                        ; head_ty' <- tc_lhs_type typeLevelMode
                                                  head_ty constraintKind
                        ; return (mkPhiTy theta head_ty') }
-       ; let inst_ty = mkInvForAllTys tkvs phi_ty
+       ; let inst_ty = mkSpecForAllTys tkvs phi_ty
        ; inst_ty <- kindGeneralizeType inst_ty
        ; inst_ty <- zonkTcType inst_ty
        ; checkValidInstance user_ctxt hs_inst_ty inst_ty }

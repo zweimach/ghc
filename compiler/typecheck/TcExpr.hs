@@ -1289,11 +1289,11 @@ tcExprSig expr sig@(TISI { sig_bndr  = s_bndr
        ; tau <- zonkTcType tau
        ; let inferred_theta = map evVarPred givens
              tau_tvs        = tyCoVarsOfType tau
-       ; (my_tv_set, my_theta) <- chooseInferredQuantifiers inferred_theta tau_tvs (Just sig)
-       ; let my_tvs = filter (`elemVarSet` my_tv_set) qtvs   -- Maintain original order
-             inferred_sigma = mkInvSigmaTy qtvs   inferred_theta tau
-             my_sigma       = mkInvSigmaTy my_tvs my_theta       tau
-       ; wrap <- if inferred_sigma `eqType` my_sigma
+       ; (binders, my_theta) <- chooseInferredQuantifiers inferred_theta
+                                   tau_tvs qtvs (Just sig)
+       ; let inferred_sigma = mkInvSigmaTy qtvs inferred_theta tau
+             my_sigma       = mkForAllTys binders (mkPhiTy  my_theta tau)
+       ; wrap <- if inferred_sigma `eqType` my_sigma -- NB: eqType ignores vis.
                  then return idHsWrapper  -- Fast path; also avoids complaint when we infer
                                           -- an ambiguouse type and have AllowAmbiguousType
                                           -- e..g infer  x :: forall a. F a -> Int
@@ -1303,7 +1303,7 @@ tcExprSig expr sig@(TISI { sig_bndr  = s_bndr
                          <.> mkWpTyLams qtvs
                          <.> mkWpLams givens
                          <.> mkWpLet  ev_binds
-       ; return (mkLHsWrap poly_wrap expr', mkInvSigmaTy qtvs theta tau) }
+       ; return (mkLHsWrap poly_wrap expr', my_sigma) }
 
   | otherwise = panic "tcExprSig"   -- Can't happen
   where

@@ -1422,7 +1422,7 @@ mkMethIds sig_fn clas tyvars dfun_ev_vars inst_tys sel_id
                   do { inst_sigs <- xoptM LangExt.InstanceSigs
                      ; checkTc inst_sigs (misplacedInstSig sel_name lhs_ty)
                      ; sig_ty  <- tcHsSigType (FunSigCtxt sel_name False) lhs_ty
-                     ; let poly_sig_ty = mkInvSigmaTy tyvars theta sig_ty
+                     ; let poly_sig_ty = mkSpecSigmaTy tyvars theta sig_ty
                            ctxt = FunSigCtxt sel_name True
                      ; tc_sig  <- instTcTySig ctxt lhs_ty sig_ty local_meth_name
                      ; hs_wrap <- addErrCtxtM (methSigCtxt sel_name poly_sig_ty poly_meth_ty) $
@@ -1443,7 +1443,7 @@ mkMethIds sig_fn clas tyvars dfun_ev_vars inst_tys sel_id
     sel_name      = idName sel_id
     sel_occ       = nameOccName sel_name
     local_meth_ty = instantiateMethod clas sel_id inst_tys
-    poly_meth_ty  = mkInvSigmaTy tyvars theta local_meth_ty
+    poly_meth_ty  = mkSpecSigmaTy tyvars theta local_meth_ty
     theta         = map idType dfun_ev_vars
 
 methSigCtxt :: Name -> TcType -> TcType -> TidyEnv -> TcM (TidyEnv, MsgDoc)

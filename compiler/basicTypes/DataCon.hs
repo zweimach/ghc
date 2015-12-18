@@ -1024,8 +1024,8 @@ dataConUserType (MkData { dcUnivTyVars = univ_tvs,
                           dcExTyVars = ex_tvs, dcEqSpec = eq_spec,
                           dcOtherTheta = theta, dcOrigArgTys = arg_tys,
                           dcOrigResTy = res_ty })
-  = mkInvForAllTys ((univ_tvs `minusList` map eqSpecTyVar eq_spec) ++
-                    ex_tvs) $
+  = mkSpecForAllTys ((univ_tvs `minusList` map eqSpecTyVar eq_spec) ++
+                      ex_tvs) $
     mkFunTys theta $
     mkFunTys arg_tys $
     res_ty

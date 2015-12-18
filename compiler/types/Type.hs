@@ -35,7 +35,8 @@ module Type (
         splitListTyConApp_maybe,
         repSplitTyConApp_maybe,
 
-        mkForAllTy, mkForAllTys, mkInvForAllTys, mkVisForAllTys,
+        mkForAllTy, mkForAllTys, mkInvForAllTys, mkSpecForAllTys,
+        mkVisForAllTys,
         mkNamedForAllTy,
         splitForAllTy_maybe, splitForAllTys, splitForAllTy,
         splitPiTy_maybe, splitPiTys, splitPiTy,
@@ -83,6 +84,7 @@ module Type (
         predTypeEqRel,
 
         -- ** Binders
+        sameVis,
         mkNamedBinder, mkAnonBinder, isNamedBinder, isAnonBinder,
         isIdLikeBinder, binderVisibility, binderVar_maybe,
         binderVar, binderRelevantType_maybe, caseBinder,
@@ -1182,6 +1184,12 @@ mkInvForAllTys :: [TyVar] -> Type -> Type
 mkInvForAllTys tvs = ASSERT( all isTyVar tvs )
                      mkForAllTys (map (flip Named Invisible) tvs)
 
+-- | Like mkForAllTys, but assumes all variables are dependent and specified,
+-- a common case
+mkSpecForAllTys :: [TyVar] -> Type -> Type
+mkSpecForAllTys tvs = ASSERT( all isTyVar tvs )
+                      mkForAllTys (map (flip Named Specified) tvs)
+
 -- | Like mkForAllTys, but assumes all variables are dependent and visible
 mkVisForAllTys :: [TyVar] -> Type -> Type
 mkVisForAllTys tvs = ASSERT( all isTyVar tvs )
@@ -1191,6 +1199,7 @@ mkPiType  :: Var -> Type -> Type
 -- ^ Makes a @(->)@ type or an implicit forall type, depending
 -- on whether it is given a type variable or a term variable.
 -- This is used, for example, when producing the type of a lambda.
+-- Always uses Invisible binders.
 mkPiTypes :: [Var] -> Type -> Type
 -- ^ 'mkPiType' for multiple type or value arguments
 
@@ -1409,6 +1418,15 @@ applyTysX tvs body_ty arg_tys
 %************************************************************************
 -}
 
+-- | Do these denote the same level of visibility? Except that
+-- 'Specified' and 'Invisible' are considered the same. Used
+-- for printing.
+sameVis :: VisibilityFlag -> VisibilityFlag -> Bool
+sameVis Visible Visible = True
+sameVis Visible _       = False
+sameVis _       Visible = False
+sameVis _       _       = True
+
 -- | Make a named binder
 mkNamedBinder :: Var -> VisibilityFlag -> TyBinder
 mkNamedBinder = Named
@@ -1445,7 +1463,7 @@ binderVisibility (Anon ty)
 
 -- | Does this binder bind an invisible argument?
 isInvisibleBinder :: TyBinder -> Bool
-isInvisibleBinder (Named _ vis) = vis == Invisible
+isInvisibleBinder (Named _ vis) = vis /= Visible
 isInvisibleBinder (Anon ty)     = isPredTy ty
 
 -- | Does this binder bind a visible argument?

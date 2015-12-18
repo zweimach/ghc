@@ -88,7 +88,7 @@ tcInferPatSynDecl PSB{ psb_id = lname@(L loc name), psb_args = details,
              req_theta  = map evVarPred req_dicts
 
        ; traceTc "tcInferPatSynDecl }" $ ppr name
-       ; tc_patsyn_finish lname dir is_infix lpat'
+       ; tc_patsyn_finish lname dir False {- no sig -} is_infix lpat'
                           (univ_tvs, req_theta, ev_binds, req_dicts)
                           (ex_tvs, mkTyVarTys ex_tvs, prov_theta, emptyTcEvBinds, map EvId prov_dicts)
                           (zip args $ repeat idHsWrapper)
@@ -161,7 +161,7 @@ tcCheckPatSynDecl PSB{ psb_id = lname@(L loc name), psb_args = details,
        ; _ <- simplifyTop (emptyWC `addImplics` (implic1 `unionBags` implic2))
 
        ; traceTc "tcCheckPatSynDecl }" $ ppr name
-       ; tc_patsyn_finish lname dir is_infix lpat'
+       ; tc_patsyn_finish lname dir True {- has a sig -} is_infix lpat'
                           (univ_tvs, req_theta, req_ev_binds, req_dicts)
                           (ex_tvs, ex_tys, prov_theta, prov_ev_binds, prov_dicts)
                           wrapped_args
@@ -193,6 +193,7 @@ wrongNumberOfParmsErr ty_arity
 -- Shared by both tcInferPatSyn and tcCheckPatSyn
 tc_patsyn_finish :: Located Name  -- ^ PatSyn Name
                  -> HsPatSynDir Name  -- ^ PatSyn type (Uni/Bidir/ExplicitBidir)
+                 -> Bool              -- ^ True <=> signature provided
                  -> Bool              -- ^ Whether infix
                  -> LPat Id           -- ^ Pattern of the PatSyn
                  -> ([TcTyVar], [PredType], TcEvBinds, [EvVar])
@@ -202,7 +203,7 @@ tc_patsyn_finish :: Located Name  -- ^ PatSyn Name
                  -> [Name]              -- ^ Selector names
                  -- ^ Whether fields, empty if not record PatSyn
                  -> TcM (LHsBinds Id, TcGblEnv)
-tc_patsyn_finish lname dir is_infix lpat'
+tc_patsyn_finish lname dir has_sig is_infix lpat'
                  (univ_tvs, req_theta, req_ev_binds, req_dicts)
                  (ex_tvs, subst, prov_theta, prov_ev_binds, prov_dicts)
                  wrapped_args
@@ -230,7 +231,7 @@ tc_patsyn_finish lname dir is_infix lpat'
            ppr pat_ty
 
        -- Make the 'matcher'
-       ; (matcher_id, matcher_bind) <- tcPatSynMatcher lname lpat'
+       ; (matcher_id, matcher_bind) <- tcPatSynMatcher has_sig lname lpat'
                                          (univ_tvs, req_theta, req_ev_binds, req_dicts)
                                          (ex_tvs, subst, prov_theta, prov_ev_binds, prov_dicts)
                                          wrapped_args  -- Not necessarily zonked
@@ -238,7 +239,7 @@ tc_patsyn_finish lname dir is_infix lpat'
 
 
        -- Make the 'builder'
-       ; builder_id <- mkPatSynBuilderId dir lname qtvs theta
+       ; builder_id <- mkPatSynBuilderId has_sig dir lname qtvs theta
                                          arg_tys pat_ty
 
          -- TODO: Make this have the proper information
@@ -280,7 +281,8 @@ tc_patsyn_finish lname dir is_infix lpat'
 ************************************************************************
 -}
 
-tcPatSynMatcher :: Located Name
+tcPatSynMatcher :: Bool  -- True <=> signature provided
+                -> Located Name
                 -> LPat Id
                 -> ([TcTyVar], ThetaType, TcEvBinds, [EvVar])
                 -> ([TcTyVar], [TcType], ThetaType, TcEvBinds, [EvTerm])
@@ -288,7 +290,7 @@ tcPatSynMatcher :: Located Name
                 -> TcType
                 -> TcM ((Id, Bool), LHsBinds Id)
 -- See Note [Matchers and builders for pattern synonyms] in PatSyn
-tcPatSynMatcher (L loc name) lpat
+tcPatSynMatcher has_sig (L loc name) lpat
                 (univ_tvs, req_theta, req_ev_binds, req_dicts)
                 (ex_tvs, ex_tys, prov_theta, prov_ev_binds, prov_dicts)
                 wrapped_args pat_ty
@@ -306,10 +308,11 @@ tcPatSynMatcher (L loc name) lpat
                | otherwise   = unzip [ (varType arg, mkLHsWrap wrap $ nlHsVar arg)
                                      | (arg, wrap) <- wrapped_args
                                      ]
-             cont_ty = mkInvSigmaTy ex_tvs prov_theta $
-                       mkFunTys cont_arg_tys res_ty
+             mk_sigma = if has_sig then mkSpecSigmaTy else mkInvSigmaTy
+             cont_ty  = mk_sigma ex_tvs prov_theta $
+                        mkFunTys cont_arg_tys res_ty
 
-             fail_ty = mkFunTy voidPrimTy res_ty
+             fail_ty  = mkFunTy voidPrimTy res_ty
 
        ; matcher_name <- newImplicitBinder name mkMatcherOcc
        ; scrutinee    <- newSysLocalId (fsLit "scrut") pat_ty
@@ -392,15 +395,17 @@ isUnidirectional ExplicitBidirectional{} = False
 ************************************************************************
 -}
 
-mkPatSynBuilderId :: HsPatSynDir a -> Located Name
+mkPatSynBuilderId :: Bool  -- True <=> signature provided
+                  -> HsPatSynDir a -> Located Name
                   -> [TyVar] -> ThetaType -> [Type] -> Type
                   -> TcM (Maybe (Id, Bool))
-mkPatSynBuilderId dir  (L _ name) qtvs theta arg_tys pat_ty
+mkPatSynBuilderId has_sig dir  (L _ name) qtvs theta arg_tys pat_ty
   | isUnidirectional dir
   = return Nothing
   | otherwise
   = do { builder_name <- newImplicitBinder name mkBuilderOcc
-       ; let builder_sigma = mkInvSigmaTy qtvs theta (mkFunTys builder_arg_tys pat_ty)
+       ; let mk_sigma      = if has_sig then mkSpecSigmaTy else mkInvSigmaTy
+             builder_sigma = mk_sigma qtvs theta (mkFunTys builder_arg_tys pat_ty)
              builder_id    =
               -- See Note [Exported LocalIds] in Id
               mkExportedLocalId VanillaId builder_name builder_sigma

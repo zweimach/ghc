@@ -228,19 +228,22 @@ data TyBinder
   | Anon Type   -- visibility is determined by the type (Constraint vs. *)
     deriving (Data.Typeable, Data.Data)
 
--- | Is something required to appear in source Haskell ('Visible') or
--- prohibited from appearing in source Haskell ('Invisible')?
-data VisibilityFlag = Visible | Invisible
+-- | Is something required to appear in source Haskell ('Visible'),
+-- permitted by request ('Specified') (visible type application), or
+-- prohibited entirely from appearing in source Haskell ('Invisible')?
+data VisibilityFlag = Visible | Specified | Invisible
   deriving (Eq, Data.Typeable, Data.Data)
 
 instance Binary VisibilityFlag where
   put_ bh Visible   = putByte bh 0
-  put_ bh Invisible = putByte bh 1
+  put_ bh Specified = putByte bh 1
+  put_ bh Invisible = putByte bh 2
 
   get bh = do
     h <- getByte bh
     case h of
       0 -> return Visible
+      1 -> return Specified
       _ -> return Invisible
 
 type KindOrType = Type -- See Note [Arguments to type constructors]
@@ -2060,7 +2063,7 @@ pprUserForAll bndrs
       = not (isEmptyVarSet (tyCoVarsOfType (binderType bndr)))
 
 pprForAllImplicit :: [TyVar] -> SDoc
-pprForAllImplicit tvs = pprForAll (zipWith Named tvs (repeat Invisible))
+pprForAllImplicit tvs = pprForAll (zipWith Named tvs (repeat Specified))
 
 -- | Render the "forall ... ." or "forall ... ->" bit of a type.
 -- Do not pass in anonymous binders!
@@ -2072,8 +2075,8 @@ pprForAll bndrs@(Named _ vis : _)
     (bndrs', doc) = ppr_tv_bndrs bndrs vis
 
     add_separator stuff = case vis of
-                            Invisible -> stuff <>  dot
                             Visible   -> stuff <+> arrow
+                            _inv      -> stuff <>  dot
 pprForAll bndrs = pprPanic "pprForAll: anonymous binder" (ppr bndrs)
 
 pprTvBndrs :: [TyVar] -> SDoc
@@ -2086,8 +2089,12 @@ ppr_tv_bndrs :: [TyBinder]
              -> VisibilityFlag  -- ^ visibility of the first binder in the list
              -> ([TyBinder], SDoc)
 ppr_tv_bndrs all_bndrs@(Named tv vis : bndrs) vis1
-  | vis == vis1 = let (bndrs', doc) = ppr_tv_bndrs bndrs vis1 in
-                  (bndrs', pprTvBndr tv <+> doc)
+  | vis `sameVis` vis1 = let (bndrs', doc) = ppr_tv_bndrs bndrs vis1
+                             pp_tv | Invisible <- vis
+                                   = braces (pprTvBndrNoParens tv)
+                                   | otherwise
+                                   = pprTvBndr tv
+                         (bndrs', pp_tv <+> doc)
   | otherwise   = (all_bndrs, empty)
 ppr_tv_bndrs [] _ = ([], empty)
 ppr_tv_bndrs bndrs _ = pprPanic "ppr_tv_bndrs: anonymous binder" (ppr bndrs)
@@ -2099,13 +2106,22 @@ pprTvBndr tv
              where
                kind = tyVarKind tv
 
+pprTvBndrNoParens :: TyVar -> SDoc
+pprTvBndrNoParens tv
+  | isLiftedTypeKind kind = ppr_tvar tv
+  | otherwise             = ppr_tvar tv <+> dcolon <+> pprKind kind
+             where
+               kind = tyVarKind tv
+
 instance Outputable TyBinder where
   ppr (Named v Visible)   = ppr v
+  ppr (Named v Specified) = char '@' <> ppr v
   ppr (Named v Invisible) = braces (ppr v)
   ppr (Anon ty)       = text "[anon]" <+> ppr ty
 
 instance Outputable VisibilityFlag where
   ppr Visible   = text "[vis]"
+  ppr Specified = text "[spec]"
   ppr Invisible = text "[invis]"
 
 -----------------
@@ -2163,7 +2179,7 @@ pprDataConWithArgs :: DataCon -> SDoc
 pprDataConWithArgs dc = sep [forAllDoc, thetaDoc, ppr dc <+> argsDoc]
   where
     (univ_tvs, ex_tvs, eq_spec, theta, arg_tys, _res_ty) = dataConFullSig dc
-    forAllDoc = pprUserForAll $ map (\tv -> Named tv Invisible) $
+    forAllDoc = pprUserForAll $ map (\tv -> Named tv Specified) $
                 ((univ_tvs `minusList` map eqSpecTyVar eq_spec) ++ ex_tvs)
     thetaDoc  = pprThetaArrowTy theta
     argsDoc   = hsep (fmap pprParendType arg_tys)

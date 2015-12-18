@@ -614,10 +614,10 @@ initialRoleEnv1 is_boot annots_env tc
               _                              -> replicate num_exps Nothing
         default_roles = build_default_roles visflags role_annots
 
-        build_default_roles (Invisible : viss) ras
-          = Nominal : build_default_roles viss ras
         build_default_roles (Visible : viss) (m_annot : ras)
           = (m_annot `orElse` default_role) : build_default_roles viss ras
+        build_default_roles (_inv    : viss) ras
+          = Nominal : build_default_roles viss ras
         build_default_roles [] [] = []
         build_default_roles _ _ = pprPanic "initialRoleEnv1 (2)"
                                            (vcat [ppr tc, ppr role_annots])
@@ -873,7 +873,7 @@ mkDefaultMethodIds tycons
   where
     mk_dm_ty :: Class -> Id -> DefMethSpec Type -> Type
     mk_dm_ty _ sel_id VanillaDM        = idType sel_id
-    mk_dm_ty cls _   (GenericDM dm_ty) = mkInvSigmaTy cls_tvs [pred] dm_ty
+    mk_dm_ty cls _   (GenericDM dm_ty) = mkSpecSigmaTy cls_tvs [pred] dm_ty
        where
          cls_tvs = classTyVars cls
          pred    = mkClassPred cls (mkTyVarTys cls_tvs)
@@ -948,14 +948,16 @@ mkOneRecordSelector all_cons idDetails fl
 
     -- Selector type; Note [Polymorphic selectors]
     field_ty   = conLikeFieldType con1 lbl
-    data_tvs   = tyCoVarsOfType data_ty
+    data_tvs   = filter (`notElemTCvSubst` eq_subst) univ_tvs
     is_naughty = not (tyCoVarsOfType field_ty `subVarSet` data_tvs)
     (field_tvs, field_theta, field_tau) = tcSplitSigmaTy field_ty
     sel_ty | is_naughty = unitTy  -- See Note [Naughty record selectors]
-           | otherwise  = mkInvForAllTys (varSetElemsWellScoped data_tvs) $
+           | otherwise  = ASSERT( tyCoVarsOfType data_ty `subVarSet`
+                                  mkVarSet data_tvs )
+                          mkSpecForAllTys data_tvs          $
                           mkPhiTy (conLikeStupidTheta con1) $   -- Urgh!
                           mkFunTy data_ty                   $
-                          mkInvForAllTys field_tvs          $
+                          mkSpecForAllTys field_tvs         $
                           mkPhiTy field_theta               $
                           -- req_theta is empty for normal DataCon
                           mkPhiTy req_theta                 $
@@ -1005,7 +1007,8 @@ mkOneRecordSelector all_cons idDetails fl
 
     (univ_tvs, _, eq_spec, _, req_theta, _, data_ty) = conLikeFullSig con1
 
-    inst_tys = substTyVars (mkTopTCvSubst (map eqSpecPair eq_spec)) univ_tvs
+    eq_subst = mkTopTCvSubst (map eqSpecPair eq_spec)
+    inst_tys = substTyVars eq_subst univ_tvs
 
     unit_rhs = mkLHsTupleExpr []
     msg_lit = HsStringPrim "" (fastStringToByteString lbl)

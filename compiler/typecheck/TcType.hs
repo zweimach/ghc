@@ -45,9 +45,9 @@ module TcType (
 
   --------------------------------
   -- Builders
-  mkPhiTy, mkInvSigmaTy, mkSigmaTy,
+  mkPhiTy, mkInvSigmaTy, mkSpecSigmaTy, mkSigmaTy,
   mkNakedTyConApp, mkNakedAppTys, mkNakedAppTy, mkNakedFunTy,
-  mkNakedInvSigmaTy, mkNakedCastTy, mkNakedPhiTy,
+  mkNakedInvSigmaTy, mkNakedSpecSigamTy, mkNakedCastTy, mkNakedPhiTy,
 
   --------------------------------
   -- Splitters
@@ -127,11 +127,12 @@ module TcType (
   -- Rexported from Type
   Type, PredType, ThetaType, TyBinder, VisibilityFlag(..),
 
-  mkForAllTy, mkForAllTys, mkInvForAllTys, mkNamedForAllTy,
+  mkForAllTy, mkForAllTys, mkInvForAllTys, mkSpecForAllTys, mkNamedForAllTy,
   mkFunTy, mkFunTys,
   mkTyConApp, mkAppTy, mkAppTys, applyTys,
   mkTyConTy, mkTyVarTy,
   mkTyVarTys,
+  mkNamedBinder,
 
   isClassPred, isEqPred, isNomEqPred, isIPPred,
   mkClassPred,
@@ -973,6 +974,12 @@ mkInvSigmaTy :: [TyVar] -> [PredType] -> Type -> Type
 mkInvSigmaTy tyvars
   = mkSigmaTy (zipWith mkNamedBinder tyvars (repeat Invisible))
 
+-- | Make a sigma ty where all type variables are "specified". That is,
+-- they can be used with visible type application
+mkSpecSigmaTy :: [TyVar] -> [PredType] -> Type -> Type
+mkSpecSigmaTy tyvars
+  = mkSigmaTy (zipWith mkNamedBinder tyvars (repeat Specified))
+
 mkPhiTy :: [PredType] -> Type -> Type
 mkPhiTy = mkFunTys
 
@@ -984,6 +991,11 @@ mkNakedInvSigmaTy :: [TyVar] -> [PredType] -> Type -> Type
 -- See Note [Type-checking inside the knot] in TcHsType
 mkNakedInvSigmaTy tyvars
   = mkNakedSigmaTy (zipWith mkNamedBinder tyvars (repeat Invisible))
+
+mkNakedSpecSigmaTy :: [TyVar] -> [PredType] -> Type -> Type
+-- See Note [Type-checking inside the knot] in TcHsType
+mkNakedSpecSigmaTy tyvars
+  = mkNakedSigmaTy (zipWith mkNamedBinder tyvars (repeat Specified))
 
 mkNakedPhiTy :: [PredType] -> Type -> Type
 -- See Note [Type-checking inside the knot] in TcHsType
@@ -1327,8 +1339,8 @@ tcEqTypeVis ty1 ty2
 (<!>) :: Maybe VisibilityFlag -> Maybe VisibilityFlag -> Maybe VisibilityFlag
 Nothing        <!> x            = x
 Just Visible   <!> _            = Just Visible
-Just Invisible <!> Just Visible = Just Visible
-Just Invisible <!> _            = Just Invisible
+Just _inv      <!> Just Visible = Just Visible
+Just inv       <!> _            = Just inv
 infixr 3 <!>
 
 -- | Real worker for 'tcEqType'. No kind check!

@@ -1206,7 +1206,7 @@ instance Outputable TcIdSigInfo where
     ppr (TISI { sig_bndr = bndr, sig_skols = tyvars
               , sig_theta = theta, sig_tau = tau })
         = ppr (tcIdSigBndrName bndr) <+> dcolon <+>
-          vcat [ pprSigmaType (mkInvSigmaTy (map snd tyvars) theta tau)
+          vcat [ pprSigmaType (mkSpecSigmaTy (map snd tyvars) theta tau)
                , ppr (map fst tyvars) ]
 
 instance Outputable TcIdSigBndr where

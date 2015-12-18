@@ -809,8 +809,11 @@ mkExport prag_fn qtvs theta
         -- NB: we have already done checkValidType, including an ambiguity check,
         --     on the type; either when we checked the sig or in mkInferredPolyId
         ; let sel_poly_ty = mkInvSigmaTy qtvs theta inst_ty
+                -- this type is just going into tcSubType, so Inv vs. Spec doesn't
+                -- matter
+
               poly_ty     = idType poly_id
-        ; wrap <- if sel_poly_ty `eqType` poly_ty
+        ; wrap <- if sel_poly_ty `eqType` poly_ty  -- NB: eqType ignores visibility
                   then return idHsWrapper  -- Fast path; also avoids complaint when we infer
                                            -- an ambiguouse type and have AllowAmbiguousType
                                            -- e..g infer  x :: forall a. F a -> Int
@@ -845,13 +848,12 @@ mkInferredPolyId qtvs inferred_theta poly_name mb_sig mono_ty
                -- We can discard the coercion _co, because we'll reconstruct
                -- it in the call to tcSubType below
 
-       ; (my_tvs, theta') <- chooseInferredQuantifiers
-                                inferred_theta (tyCoVarsOfType mono_ty') mb_sig
+       ; (binders, theta') <- chooseInferredQuantifiers inferred_theta
+                                (tyCoVarsOfType mono_ty') qtvs mb_sig
 
-       ; let qtvs' = filter (`elemVarSet` my_tvs) qtvs   -- Maintain original order
-             inferred_poly_ty = mkInvSigmaTy qtvs' theta' mono_ty'
+       ; let inferred_poly_ty = mkForAllTys binders (mkPhiTy theta' mono_ty')
 
-       ; traceTc "mkInferredPolyId" (vcat [ppr poly_name, ppr qtvs, ppr my_tvs, ppr theta'
+       ; traceTc "mkInferredPolyId" (vcat [ppr poly_name, ppr qtvs, ppr theta'
                                           , ppr inferred_poly_ty])
        ; addErrCtxtM (mk_inf_msg poly_name inferred_poly_ty) $
          checkValidType (InfSigCtxt poly_name) inferred_poly_ty
@@ -860,25 +862,32 @@ mkInferredPolyId qtvs inferred_theta poly_name mb_sig mono_ty
        ; return (mkLocalIdOrCoVar poly_name inferred_poly_ty) }
 
 
-chooseInferredQuantifiers :: TcThetaType -> TcTyVarSet -> Maybe TcIdSigInfo
-                          -> TcM (TcTyVarSet, TcThetaType)
-chooseInferredQuantifiers inferred_theta tau_tvs Nothing
+chooseInferredQuantifiers :: TcThetaType   -- inferred
+                          -> TcTyVarSet    -- tvs free in tau type
+                          -> [TcTyVar]     -- inferred quantified tvs
+                          -> Maybe TcIdSigInfo
+                          -> TcM ([TcTyBinder], TcThetaType)
+chooseInferredQuantifiers inferred_theta tau_tvs qtvs Nothing
   = do { let free_tvs = closeOverKinds (growThetaTyVars inferred_theta tau_tvs)
                         -- Include kind variables!  Trac #7916
              my_theta = pickQuantifiablePreds free_tvs inferred_theta
-       ; return (free_tvs, my_theta) }
+             binders  = [ mkNamedBinder tv Invisible
+                        | tv <- qtvs
+                        , tv `elemVarSet` free_tvs ]
+       ; return (binders, my_theta) }
 
-chooseInferredQuantifiers inferred_theta tau_tvs
+chooseInferredQuantifiers inferred_theta tau_tvs qtvs
                           (Just (TISI { sig_bndr = bndr_info
                                       , sig_ctxt = ctxt
-                                      , sig_theta = annotated_theta }))
+                                      , sig_theta = annotated_theta
+                                      , sig_skols = annotated_tvs }))
   | PartialSig { sig_cts = extra } <- bndr_info
   , Nothing <- extra
   = do { annotated_theta <- zonkTcTypes annotated_theta
        ; let free_tvs = closeOverKinds (tyCoVarsOfTypes annotated_theta
                                         `unionVarSet` tau_tvs)
        ; traceTc "ciq" (vcat [ ppr bndr_info, ppr annotated_theta, ppr free_tvs])
-       ; return (free_tvs, annotated_theta) }
+       ; return (mk_binders free_tvs, annotated_theta) }
 
   | PartialSig { sig_cts = extra } <- bndr_info
   , Just loc <- extra
@@ -907,7 +916,7 @@ chooseInferredQuantifiers inferred_theta tau_tvs
                 | otherwise         -> return ()
            False                    -> reportError msg
 
-       ; return (free_tvs, final_theta) }
+       ; return (mk_binders free_tvs, final_theta) }
 
   | otherwise = pprPanic "chooseInferredQuantifiers" (ppr bndr_info)
 
@@ -919,6 +928,19 @@ chooseInferredQuantifiers inferred_theta tau_tvs
               , if suppress_hint then empty else pts_hint
               , typeSigCtxt ctxt bndr_info ]
 
+    spec_tv_set = mkVarSet $ map snd annotated_tvs
+    mk_binders free_tvs
+      = [ mkNamedBinder tv vis
+        | tv <- qtvs
+        , tv `elemVarSet` free_tvs
+        , let vis | tv `elemVarSet` spec_tv_set = Specified
+                  | otherwise                   = Invisible ]
+               ; let binders = [ mkNamedBinder tv vis
+                       | tv <- qtvs
+                       , tv `elemVarSet` my_tvs
+                       , let vis | tv `elemVarSet` spec_tvs = Specified
+                                 | otherwise                = Invisible ]
+                          -- Pulling from qtvs maintains original order
 
 mk_impedence_match_msg :: MonoBindInfo
                        -> TcType -> TcType
@@ -1060,7 +1082,7 @@ recoveryCode binder_names sig_fn
       = mkLocalId name forall_a_a
 
 forall_a_a :: TcType
-forall_a_a = mkInvForAllTys [levity1TyVar, openAlphaTyVar] openAlphaTy
+forall_a_a = mkSpecForAllTys [levity1TyVar, openAlphaTyVar] openAlphaTy
 
 {- *********************************************************************
 *                                                                      *
