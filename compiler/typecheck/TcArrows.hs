@@ -252,7 +252,7 @@ tc_cmd env
               arg_tys = map hsLPatType pats'
               cmd' = HsCmdLam (MG { mg_alts = L l [match'], mg_arg_tys = arg_tys
                                   , mg_res_ty = res_ty, mg_origin = origin })
-        ; return (mkHsCmdWrap (coToHsWrapper co) cmd') }
+        ; return (mkHsCmdWrap (mkWpCastN co) cmd') }
   where
     n_pats     = length pats
     match_ctxt = (LambdaExpr :: HsMatchContext Name)    -- Maybe KappaExpr?
@@ -274,7 +274,7 @@ tc_cmd env
 tc_cmd env (HsCmdDo (L l stmts) _) (cmd_stk, res_ty)
   = do  { co <- unifyType noThing unitTy cmd_stk  -- Expecting empty argument stack
         ; stmts' <- tcStmts ArrowExpr (tcArrDoStmt env) stmts res_ty
-        ; return (mkHsCmdWrap (coToHsWrapper co) (HsCmdDo (L l stmts') res_ty)) }
+        ; return (mkHsCmdWrap (mkWpCastN co) (HsCmdDo (L l stmts') res_ty)) }
 
 
 -----------------------------------------------------------------

@@ -447,16 +447,16 @@ nlHsTyConApp tycon tys  = foldl nlHsAppTy (nlHsTyVar tycon) tys
 
 -- | Extract a type argument from an HsExpr, with the list of wildcards in
 -- the type
-isLHsTypeExpr_maybe :: LHsExpr name -> Maybe (LHsType name, PostRn name [Name])
+isLHsTypeExpr_maybe :: LHsExpr name -> Maybe (LHsWcType name)
 isLHsTypeExpr_maybe (L _ (HsPar e))       = isLHsTypeExpr_maybe e
-isLHsTypeExpr_maybe (L _ (HsType ty wcs)) = Just (ty, wcs)
+isLHsTypeExpr_maybe (L _ (HsType ty))     = Just ty
   -- the HsTypeOut case is ill-typed. We never need it here anyway.
 isLHsTypeExpr_maybe _                     = Nothing
 
 -- | Is an expression a visible type application?
 isLHsTypeExpr :: LHsExpr name -> Bool
 isLHsTypeExpr (L _ (HsPar e))     = isLHsTypeExpr e
-isLHsTypeExpr (L _ (HsType _ _))  = True
+isLHsTypeExpr (L _ (HsType _))    = True
 isLHsTypeExpr (L _ (HsTypeOut _)) = True
 isLHsTypeExpr _                   = False
 

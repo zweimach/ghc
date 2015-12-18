@@ -297,9 +297,9 @@ rnExpr (HsMultiIf _ty alts)
        -- ; return (HsMultiIf ty alts', fvs) }
        ; return (HsMultiIf placeHolderType alts', fvs) }
 
-rnExpr (HsType a _)
-  = do { (t, fvT, wcs) <- rnLHsTypeWithWildCards HsTypeCtx a
-       ; return (HsType t wcs, fvT) }
+rnExpr (HsType ty)
+  = do { (ty', fvT) <- rnHsWcType HsTypeCtx ty
+       ; return (HsType ty', fvT) }
 
 rnExpr (ArithSeq _ _ seq)
   = do { opt_OverloadedLists <- xoptM LangExt.OverloadedLists

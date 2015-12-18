@@ -804,14 +804,14 @@ matchExpectedConTy (PE { pe_orig = orig }) data_tc pat_ty
              co2 = mkTcUnbranchedAxInstCo co_tc tys' []
              -- co2 : T (ty1,ty2) ~R T7 ty1 ty2
 
-       ; return ( wrap <.> (coToHsWrapperR $
+       ; return ( wrap <.> (mkWpCastR $
                             mkTcSubCo (mkTcSymCo co1) `mkTcTransCo` co2)
                 , tys') }
 
   | otherwise
   = do { (wrap, pat_rho) <- topInstantiate orig pat_ty
        ; (coi, tys) <- matchExpectedTyConApp data_tc pat_rho
-       ; return (coToHsWrapper (mkTcSymCo coi) <.> wrap, tys) }
+       ; return (mkWpCastN (mkTcSymCo coi) <.> wrap, tys) }
 
 {-
 Note [Matching constructor patterns]

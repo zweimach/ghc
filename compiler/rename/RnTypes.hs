@@ -655,11 +655,11 @@ rnExtraConstraintWildCard ctxt wc
                      ; discardErrs (rnWildCard ctxt wc) }
   where
     mb_bad | not (extraConstraintWildCardsAllowed ctxt)
-           = Just (ptext (sLit "Extra-contraint wildcard") <+> quotes (ppr wc)
+           = Just (ptext (sLit "Extra-constraint wildcard") <+> quotes (ppr wc)
                    <+> ptext (sLit "not allowed"))
            | isNamedWildCard wc
            = Just (hang (ptext (sLit "Named wildcard") <+> quotes (ppr wc)
-                         <+> ptext (sLit "not allowed as an extra-contraint"))
+                         <+> ptext (sLit "not allowed as an extra-constraint"))
                       2 (ptext (sLit "Use an anonymous wildcard instead")))
            | otherwise
            = Nothing

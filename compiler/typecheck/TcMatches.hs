@@ -230,7 +230,7 @@ tcMatches ctxt pat_tys rhs_ty group@(MG { mg_alts = L l matches
                     ; (matches', _)
                         <- mapAndUnzipM (tcMatch ctxt pat_tys rhs_ty') matches
                     ; wrap <- tcSubTypeHR (Shouldn'tHappenOrigin "tcMatches1")
-                                          rhs_ty' rhs_ty
+                                          noThing rhs_ty' rhs_ty
                     ; return ( matches', wrap, rhs_ty'
                              , Shouldn'tHappenOrigin "tcMatches2" ) }
         ; return (wrap, MG { mg_alts = L l matches'

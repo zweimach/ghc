@@ -506,13 +506,10 @@ data HsExpr id
   -- 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnAt'
 
   -- For details on above see note [Api annotations] in ApiAnnotation
-  | HsType      (LHsType id) -- Explicit type argument; e.g  f @Int x y
-                (PostRn id [Name])      -- After renaming, the list of Names
-                                        -- contains the named and unnamed
-                                        -- wildcards brought in scope by the
-                                        -- signature
+  | HsType      (LHsWcType id) -- Explicit type argument; e.g  f @Int x y
+                               -- NB: Has wildcards, but no implicit quant.
 
-  | HsTypeOut   (LHsType Name)  -- just for pretty-printing
+  | HsTypeOut   (LHsWcType Name)  -- just for pretty-printing
 
   ---------------------------------------
   -- Finally, HsWrap appears only in typechecker output
@@ -772,8 +769,10 @@ ppr_expr (HsSCC _ (StringLiteral _ lbl) expr)
           pprParendExpr expr ]
 
 ppr_expr (HsWrap co_fn e) = pprHsWrapper (pprExpr e) co_fn
-ppr_expr (HsType ty _)    = char '@' <> pprParendHsType (unLoc ty)
-ppr_expr (HsTypeOut ty)   = char '@' <> pprParendHsType (unLoc ty)
+ppr_expr (HsType (HsWC { hswc_body = ty }))
+  = char '@' <> pprParendHsType (unLoc ty)
+ppr_expr (HsTypeOut (HsWC { hswc_body = ty }))
+  = char '@' <> pprParendHsType (unLoc ty)
 
 ppr_expr (HsSpliceE s)         = pprSplice s
 ppr_expr (HsBracket b)         = pprHsBracket b

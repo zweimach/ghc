@@ -534,15 +534,17 @@ tcSubTypeDS ctxt m_expr ty_actual ty_expected
 
 -- | Like 'tcSubTypeDS', but takes a 'CtOrigin' to use when instantiating
 -- the "actual" type
-tcSubTypeDS_O :: CtOrigin -> UserTypeCtxt -> TcSigmaType -> TcRhoType
+tcSubTypeDS_O :: Outputable a
+              => CtOrigin -> UserTypeCtxt
+              -> Maybe a -> TcSigmaType -> TcRhoType
               -> TcM HsWrapper
-tcSubTypeDS_O orig ctxt ty_actual ty_expected
+tcSubTypeDS_O orig ctxt maybe_thing ty_actual ty_expected
   = addSubTypeCtxt ty_actual ty_expected $
     do { traceTc "tcSubTypeDS_O" (vcat [ pprCtOrigin orig
                                        , pprUserTypeCtxt ctxt
                                        , ppr ty_actual
                                        , ppr ty_expected ])
-       ; tcSubTypeDS_NC_O orig ctxt ty_actual ty_expected }
+       ; tcSubTypeDS_NC_O orig ctxt maybe_thing ty_actual ty_expected }
 
 addSubTypeCtxt :: TcType -> TcType -> TcM a -> TcM a
 addSubTypeCtxt ty_actual ty_expected thing_inside
@@ -580,7 +582,7 @@ tcSubTypeDS_NC :: Outputable a
                -> TcSigmaType -> TcRhoType -> TcM HsWrapper
 tcSubTypeDS_NC ctxt maybe_thing ty_actual ty_expected
   = do { traceTc "tcSubTypeDS_NC" (vcat [pprUserTypeCtxt ctxt, ppr ty_actual, ppr ty_expected])
-       ; tcSubTypeDS_NC_O origin ctxt ty_actual ty_expected }
+       ; tcSubTypeDS_NC_O origin ctxt maybe_thing ty_actual ty_expected }
   where
     origin = TypeEqOrigin { uo_actual   = ty_actual
                           , uo_expected = ty_expected
@@ -646,7 +648,7 @@ tc_sub_type_ds eq_orig inst_orig ctxt ty_actual ty_expected
                  do { traceTc "tcSubTypeDS_NC_O following filled act meta-tyvar:"
                         (ppr tv_a <+> text "-->" <+> ppr ty_a')
                     ; tc_sub_type_ds eq_orig inst_orig ctxt ty_a' ty_e }
-               Unfilled _   -> coToHsWrapper <$> unify }
+               Unfilled _   -> mkWpCastN <$> unify }
 
 
     go ty_a (TyVarTy tv_e)
@@ -661,7 +663,7 @@ tc_sub_type_ds eq_orig inst_orig ctxt ty_actual ty_expected
                Unfilled details
                  |  canUnifyWithPolyType dflags details
                     && isTouchableMetaTyVar tclvl tv_e  -- don't want skolems here
-                 -> coToHsWrapper <$> unify
+                 -> mkWpCastN <$> unify
 
      -- We've avoided instantiating ty_actual just in case ty_expected is
      -- polymorphic. But we've now assiduously determined that it is *not*
@@ -708,7 +710,7 @@ tc_sub_type_ds eq_orig inst_orig ctxt ty_actual ty_expected
 
       | otherwise   -- Revert to unification
       = do { cow <- unify
-           ; return (coToHsWrapper cow) }
+           ; return (mkWpCastN cow) }
 
      -- use versions without synonyms expanded
     unify = uType eq_orig ty_actual ty_expected

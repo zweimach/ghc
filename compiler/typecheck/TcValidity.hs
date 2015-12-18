@@ -1063,15 +1063,8 @@ checkValidInstance :: UserTypeCtxt -> LHsSigType Name -> Type
 checkValidInstance ctxt hs_type ty
   | Just (clas,inst_tys) <- getClassPredTys_maybe tau
   , inst_tys `lengthIs` classArity clas
-  = do  { let (tidy_env0, tidy_tys)   = tidyOpenTypes emptyTidyEnv inst_tys
-              (tidy_env1, tidy_theta) = tidyOpenTypes tidy_env0 theta
-              (_,         tidy_ty)    = tidyOpenType  tidy_env1 ty
-           -- even though the inst_tys are user-specified, we still must
-           -- tidy, because of the possibility of kind variables. See,
-           -- for example, test case polykinds/TidyClassKinds
-
-        ; setSrcSpan head_loc (checkValidInstHead ctxt clas tidy_tys)
-        ; checkValidTidyTheta ctxt tidy_theta
+  = do  { setSrcSpan head_loc (checkValidInstHead ctxt clas tidy_tys)
+        ; checkValidTheta ctxt theta
 
         -- The Termination and Coverate Conditions
         -- Check that instance inference will terminate (if we care)

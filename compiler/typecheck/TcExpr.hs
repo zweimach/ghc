@@ -258,7 +258,7 @@ tcExpr (ExprWithTySig expr sig_ty) res_ty
        ; let expr'' = ExprWithTySigOut expr' sig_ty
        ; tcWrapResult expr'' poly_ty res_ty ExprSigOrigin }
 
-tcExpr (HsType ty _) _
+tcExpr (HsType ty) _
   = failWithTc (sep [ text "Type argument used outside of a function argument:"
                     , ppr ty ])
 
@@ -386,7 +386,7 @@ tcExpr expr@(OpApp arg1 op fix arg2) res_ty
              -- op' :: (a2_ty -> res_ty) -> a2_ty -> res_ty
 
              -- wrap1 :: arg1_ty "->" (a2_ty -> res_ty)
-             wrap1 = mkWpFun (coToHsWrapper (mkTcSymCo co_a))
+             wrap1 = mkWpFun (mkWpCastN (mkTcSymCo co_a))
                        wrap_res a2_ty res_ty <.> wrap_arg1
 
              -- arg2' :: arg2_sigma
@@ -1161,7 +1161,7 @@ tcArgs fun orig_fun_ty fun_orig orig_args herald
     go _ _ fun_ty [] = return (idHsWrapper, [], fun_ty)
 
     go mk_full_ty n fun_ty (arg:args)
-      | Just hs_ty_arg@(hs_ty, _wcs) <- isLHsTypeExpr_maybe arg
+      | Just hs_ty_arg <- isLHsTypeExpr_maybe arg
       = do { (wrap1, upsilon_ty) <- topInstantiateInferred fun_orig fun_ty
                -- wrap1 :: fun_ty "->" upsilon_ty
            ; case tcSplitForAllTy_maybe upsilon_ty of
@@ -1175,9 +1175,9 @@ tcArgs fun orig_fun_ty fun_orig orig_args herald
                    -- inner_wrap :: insted_ty "->" (map typeOf args') -> res_ty
                     ; let inst_wrap = mkWpTyApps [ty_arg]
                     ; return ( inner_wrap <.> inst_wrap <.> wrap1
-                             , L (getLoc arg) (HsTypeOut hs_ty) : args'
+                             , L (getLoc arg) (HsTypeOut hs_ty_arg) : args'
                              , res_ty ) }
-               Nothing -> ty_app_err upsilon_ty hs_ty }
+               Nothing -> ty_app_err upsilon_ty hs_ty_arg }
 
       | otherwise   -- not a type application.
       = do { (wrap, [arg_ty], res_ty)
@@ -1578,7 +1578,7 @@ tcTagToEnum loc fun_name args res_ty
        ; let fun' = L loc (HsWrap (WpTyApp rep_ty) (HsVar (L loc fun)))
              rep_ty = mkTyConApp rep_tc rep_args
 
-       ; return (coToHsWrapperR (mkTcSymCo coi), fun', [arg']) }
+       ; return (mkWpCastR (mkTcSymCo coi), fun', [arg']) }
                  -- coi is a Representational coercion
   where
     doc1 = vcat [ ptext (sLit "Specify the type by giving a type signature")
