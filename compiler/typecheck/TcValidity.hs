@@ -309,11 +309,12 @@ checkValidType ctxt ty
                  RuleSigCtxt _  -> rank1
                  TySynCtxt _    -> rank0
 
-                 ExprSigCtxt     -> rank1
-                 FunSigCtxt {}   -> rank1
-                 InfSigCtxt _    -> ArbitraryRank        -- Inferred type
-                 ConArgCtxt _    -> rank1 -- We are given the type of the entire
-                                          -- constructor, hence rank 1
+                 ExprSigCtxt    -> rank1
+                 TypeAppCtxt    -> rank0
+                 FunSigCtxt {}  -> rank1
+                 InfSigCtxt _   -> ArbitraryRank        -- Inferred type
+                 ConArgCtxt _   -> rank1 -- We are given the type of the entire
+                                         -- constructor, hence rank 1
 
                  ForSigCtxt _   -> rank1
                  SpecInstCtxt   -> rank1
@@ -337,7 +338,7 @@ checkValidType ctxt ty
        -- Check for ambiguous types.  See Note [When to call checkAmbiguity]
        -- NB: this will happen even for monotypes, but that should be cheap;
        --     and there may be nested foralls for the subtype test to examine
-       ; checkAmbiguity ctxt ty
+       ; checkAmbiguity ctxt tidy_ty
 
        ; traceTc "checkValidType done" (ppr ty <+> text "::" <+> ppr (typeKind ty)) }
 
@@ -381,6 +382,7 @@ expectedKindInCtxt GhciCtxt        = AnythingKind
 -- The types in a 'default' decl can have varying kinds
 -- See Note [Extended defaults]" in TcEnv
 expectedKindInCtxt DefaultDeclCtxt = AnythingKind
+expectedKindInCtxt TypeAppCtxt     = AnythingKind
 expectedKindInCtxt (ForSigCtxt _)  = TheKind liftedTypeKind
 expectedKindInCtxt InstDeclCtxt    = TheKind constraintKind
 expectedKindInCtxt SpecInstCtxt    = TheKind constraintKind
@@ -791,6 +793,7 @@ okIPCtxt :: UserTypeCtxt -> Bool
 okIPCtxt (FunSigCtxt {})    = True
 okIPCtxt (InfSigCtxt {})    = True
 okIPCtxt ExprSigCtxt        = True
+okIPCtxt TypeAppCtxt        = True
 okIPCtxt PatSigCtxt         = True
 okIPCtxt ResSigCtxt         = True
 okIPCtxt GenSigCtxt         = True
@@ -1060,8 +1063,15 @@ checkValidInstance :: UserTypeCtxt -> LHsSigType Name -> Type
 checkValidInstance ctxt hs_type ty
   | Just (clas,inst_tys) <- getClassPredTys_maybe tau
   , inst_tys `lengthIs` classArity clas
-  = do  { setSrcSpan head_loc (checkValidInstHead ctxt clas inst_tys)
-        ; checkValidTheta ctxt theta
+  = do  { let (tidy_env0, tidy_tys)   = tidyOpenTypes emptyTidyEnv inst_tys
+              (tidy_env1, tidy_theta) = tidyOpenTypes tidy_env0 theta
+              (_,         tidy_ty)    = tidyOpenType  tidy_env1 ty
+           -- even though the inst_tys are user-specified, we still must
+           -- tidy, because of the possibility of kind variables. See,
+           -- for example, test case polykinds/TidyClassKinds
+
+        ; setSrcSpan head_loc (checkValidInstHead ctxt clas tidy_tys)
+        ; checkValidTidyTheta ctxt tidy_theta
 
         -- The Termination and Coverate Conditions
         -- Check that instance inference will terminate (if we care)
@@ -1076,12 +1086,12 @@ checkValidInstance ctxt hs_type ty
         ; undecidable_ok <- xoptM LangExt.UndecidableInstances
         ; traceTc "cvi" (ppr undecidable_ok $$ ppr ty)
         ; if undecidable_ok
-          then checkAmbiguity ctxt ty
-          else checkInstTermination inst_tys theta
+          then checkAmbiguity ctxt tidy_ty
+          else checkInstTermination tidy_tys tidy_theta
 
-        ; case (checkInstCoverage undecidable_ok clas theta inst_tys) of
-            IsValid  -> return ()   -- Check succeeded
-            NotValid msg -> addErrTc (instTypeErr clas inst_tys msg)
+        ; case (checkInstCoverage undecidable_ok clas tidy_theta tidy_tys) of
+            IsValid      -> return ()   -- Check succeeded
+            NotValid msg -> addErrTc (instTypeErr clas tidy_tys msg)
 
         ; return (tvs, theta, clas, inst_tys) }
 

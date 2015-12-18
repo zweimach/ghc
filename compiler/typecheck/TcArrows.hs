@@ -5,7 +5,7 @@
 Typecheck arrow notation
 -}
 
-{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RankNTypes, TupleSections #-}
 
 module TcArrows ( tcProc ) where
 
@@ -142,15 +142,17 @@ tc_cmd env (HsCmdLet (L l binds) (L body_loc body)) res_ty
                              tc_cmd env body res_ty
         ; return (HsCmdLet (L l binds') (L body_loc body')) }
 
-tc_cmd env in_cmd@(HsCmdCase scrut matches) (stk, res_ty)
+tc_cmd env in_cmd@(HsCmdCase scrut matches _) (stk, res_ty)
   = addErrCtxt (cmdCtxt in_cmd) $ do
       (scrut', scrut_ty) <- tcInferRho scrut
-      matches' <- tcMatchesCase match_ctxt scrut_ty matches res_ty
-      return (HsCmdCase scrut' matches')
+      (wrap, matches', _orig)
+        <- tcMatchesCase match_ctxt scrut_ty matches res_ty
+      return (HsCmdCase scrut' matches' wrap)
   where
     match_ctxt = MC { mc_what = CaseAlt,
                       mc_body = mc_body }
-    mc_body body res_ty' = tcCmd env body (stk, res_ty')
+    mc_body body res_ty' = (, Shouldn'tHappenOrigin "HsCmdCase") <$>
+                           tcCmd env body (stk, res_ty')
 
 tc_cmd env (HsCmdIf Nothing pred b1 b2) res_ty    -- Ordinary 'if'
   = do  { pred' <- tcMonoExpr pred boolTy
@@ -250,7 +252,7 @@ tc_cmd env
               arg_tys = map hsLPatType pats'
               cmd' = HsCmdLam (MG { mg_alts = L l [match'], mg_arg_tys = arg_tys
                                   , mg_res_ty = res_ty, mg_origin = origin })
-        ; return (mkHsCmdCast co cmd') }
+        ; return (mkHsCmdWrap (coToHsWrapper co) cmd') }
   where
     n_pats     = length pats
     match_ctxt = (LambdaExpr :: HsMatchContext Name)    -- Maybe KappaExpr?
@@ -272,7 +274,7 @@ tc_cmd env
 tc_cmd env (HsCmdDo (L l stmts) _) (cmd_stk, res_ty)
   = do  { co <- unifyType noThing unitTy cmd_stk  -- Expecting empty argument stack
         ; stmts' <- tcStmts ArrowExpr (tcArrDoStmt env) stmts res_ty
-        ; return (mkHsCmdCast co (HsCmdDo (L l stmts') res_ty)) }
+        ; return (mkHsCmdWrap (coToHsWrapper co) (HsCmdDo (L l stmts') res_ty)) }
 
 
 -----------------------------------------------------------------

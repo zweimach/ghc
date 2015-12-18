@@ -91,7 +91,8 @@ module TcRnTypes(
         ctLocTypeOrKind_maybe,
         ctLocDepth, bumpCtLocDepth,
         setCtLocOrigin, setCtLocEnv, setCtLocSpan,
-        CtOrigin(..), ErrorThing(..), mkErrorThing, errorThingNumArgs_maybe,
+        CtOrigin(..), combineCtOrigins,
+        ErrorThing(..), mkErrorThing, errorThingNumArgs_maybe,
         TypeOrKind(..), isTypeLevel, isKindLevel,
         pprCtOrigin, pprCtLoc,
         pushErrCtxt, pushErrCtxtSameOrigin,
@@ -2627,6 +2628,7 @@ data CtOrigin
   | MCompPatOrigin (LPat Name) -- Arising from a failable pattern in a
                                -- monad comprehension
   | IfOrigin            -- Arising from an if statement
+  | CaseOrigin          -- Arising from a case expression
   | ProcOrigin          -- Arising from a proc expression
   | AnnOrigin           -- An annotation
 
@@ -2641,12 +2643,16 @@ data CtOrigin
         -- is pinned on the entire error message
 
   | HoleOrigin
-  | UnboundOccurrenceOf RdrName
+  | UnboundOccurrenceOf OccName
   | ListOrigin          -- An overloaded list
   | StaticOrigin        -- A static form
   | FailablePattern (LPat TcId) -- A failable pattern in do-notation for the
                                 -- MonadFail Proposal (MFP). Obsolete when
                                 -- actual desugaring to MonadFail.fail is live.
+  | Shouldn'tHappenOrigin String
+                            -- the user should never see this one,
+                            -- unlesss ImpredicativeTypes is on, where all
+                            -- bets are off
 
 -- | A thing that can be stored for error message generation only.
 -- It is stored with a function to zonk and tidy the thing.
@@ -2684,6 +2690,15 @@ instance Outputable CtOrigin where
 
 instance Outputable ErrorThing where
   ppr (ErrorThing thing _ _) = ppr thing
+
+-- | Combine several origins together. The typechecker arranges so that
+-- whenever multiple "actual" types are combined (like in the result of
+-- a conditional), the types are fully instantiated. So use
+-- Shouldn'tHappenOrigin if multiple types are indeed present.
+combineCtOrigins :: [CtOrigin] -> CtOrigin
+combineCtOrigins [orig] = orig
+combineCtOrigins origs  = Shouldn'tHappenOrigin $
+                          "combination " ++ show (length origs)
 
 ctoHerald :: SDoc
 ctoHerald = ptext (sLit "arising from")
@@ -2751,6 +2766,15 @@ pprCtOrigin (FailablePattern pat)
       $$
       text "(this will become an error a future GHC release)"
 
+pprCtOrigin (Shouldn'tHappenOrigin note)
+  = sdocWithDynFlags $ \dflags ->
+    if xopt Opt_ImpredicativeTypes dflags
+    then text "a situation created by impredicative types"
+    else
+    vcat [ text "<< This should not appear in error messages. If you see this"
+         , text "in an error message, please report a bug mentioning" <+> quotes (text note) <+> text "at"
+         , text "https://ghc.haskell.org/trac/ghc/wiki/ReportABug >>" ]
+
 pprCtOrigin simple_origin
   = ctoHerald <+> pprCtO simple_origin
 
@@ -2767,7 +2791,8 @@ pprCtO ExprSigOrigin         = ptext (sLit "an expression type signature")
 pprCtO PatSigOrigin          = ptext (sLit "a pattern type signature")
 pprCtO PatOrigin             = ptext (sLit "a pattern")
 pprCtO ViewPatOrigin         = ptext (sLit "a view pattern")
-pprCtO IfOrigin              = ptext (sLit "an if statement")
+pprCtO IfOrigin              = ptext (sLit "an if expression")
+pprCtO CaseOrigin            = ptext (sLit "a case expression")
 pprCtO (LiteralOrigin lit)   = hsep [ptext (sLit "the literal"), quotes (ppr lit)]
 pprCtO (ArithSeqOrigin seq)  = hsep [ptext (sLit "the arithmetic sequence"), quotes (ppr seq)]
 pprCtO (PArrSeqOrigin seq)   = hsep [ptext (sLit "the parallel array sequence"), quotes (ppr seq)]

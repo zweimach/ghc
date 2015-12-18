@@ -2,7 +2,7 @@
 tcfail206.hs:5:5: error:
     Couldn't match type ‘Bool’ with ‘Int’
     Expected type: Bool -> (Int, Bool)
-      Actual type: Bool -> (Bool, Bool)
+      Actual type: Int -> (Int, Bool)
     In the expression: (, True)
     In an equation for ‘a’: a = (, True)
 
@@ -16,20 +16,18 @@ tcfail206.hs:8:5: error:
 tcfail206.hs:11:5: error:
     Couldn't match type ‘a’ with ‘Bool’
     ‘a’ is a rigid type variable bound by
-    the type signature for:
-      c :: forall a. a -> (a, Bool)
-    at tcfail206.hs:10:6
+        the type signature for: c :: a -> (a, Bool) at tcfail206.hs:10:6
     Expected type: a -> (a, Bool)
-      Actual type: a -> (a, a)
-    In the expression: (True || False,)
-    In an equation for ‘c’: c = (True || False,)
+      Actual type: Bool -> (a, Bool)
     Relevant bindings include
       c :: a -> (a, Bool) (bound at tcfail206.hs:11:1)
+    In the expression: (True || False,)
+    In an equation for ‘c’: c = (True || False,)
 
 tcfail206.hs:14:5: error:
     Couldn't match type ‘Bool’ with ‘Int’
     Expected type: Bool -> (# Int, Bool #)
-      Actual type: Bool -> (# Bool, Bool #)
+      Actual type: Int -> (# Int, Bool #)
     In the expression: (# , True #)
     In an equation for ‘d’: d = (# , True #)
 
@@ -44,12 +42,11 @@ tcfail206.hs:17:5: error:
 tcfail206.hs:20:5: error:
     Couldn't match type ‘a’ with ‘Bool’
     ‘a’ is a rigid type variable bound by
-    the type signature for:
-      f :: forall a. a -> (# a, Bool #)
-    at tcfail206.hs:19:6
+        the type signature for: f :: a -> (# a, Bool #)
+        at tcfail206.hs:19:6
     Expected type: a -> (# a, Bool #)
-      Actual type: a -> (# a, a #)
-    In the expression: (# True || False, #)
-    In an equation for ‘f’: f = (# True || False, #)
+      Actual type: Bool -> (# a, Bool #)
     Relevant bindings include
       f :: a -> (# a, Bool #) (bound at tcfail206.hs:20:1)
+    In the expression: (# True || False, #)
+    In an equation for ‘f’: f = (# True || False, #)

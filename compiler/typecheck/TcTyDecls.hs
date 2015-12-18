@@ -951,15 +951,15 @@ mkOneRecordSelector all_cons idDetails fl
     data_tvs   = tyCoVarsOfType data_ty
     is_naughty = not (tyCoVarsOfType field_ty `subVarSet` data_tvs)
     (field_tvs, field_theta, field_tau) = tcSplitSigmaTy field_ty
-    all_tvs    = varSetElemsWellScoped $ data_tvs `extendVarSetList` field_tvs
     sel_ty | is_naughty = unitTy  -- See Note [Naughty record selectors]
-           | otherwise  = ASSERT( all isTyVar all_tvs )
-                          mkInvForAllTys all_tvs            $
+           | otherwise  = mkInvForAllTys (varSetElemsWellScoped data_tvs) $
                           mkPhiTy (conLikeStupidTheta con1) $   -- Urgh!
-                          mkPhiTy field_theta               $   -- Urgh!
+                          mkFunTy data_ty                   $
+                          mkInvForAllTys field_tvs          $
+                          mkPhiTy field_theta               $
                           -- req_theta is empty for normal DataCon
                           mkPhiTy req_theta                 $
-                          mkFunTy data_ty field_tau
+                          field_tau
 
     -- Make the binding: sel (C2 { fld = x }) = x
     --                   sel (C7 { fld = x }) = x
@@ -1013,14 +1013,14 @@ mkOneRecordSelector all_cons idDetails fl
 {-
 Note [Polymorphic selectors]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-When a record has a polymorphic field, we pull the foralls out to the front.
-   data T = MkT { f :: forall a. [a] -> a }
-Then f :: forall a. T -> [a] -> a
-NOT  f :: T -> forall a. [a] -> a
+We take care to build the type of a polymorphic selector in the right
+order, so that visible type application works.
 
-This is horrid.  It's only needed in deeply obscure cases, which I hate.
-The only case I know is test tc163, which is worth looking at.  It's far
-from clear that this test should succeed at all!
+  data Ord a => T a = MkT { field :: forall b. (Num a, Show b) => (a, b) }
+
+We want
+
+  field :: forall a. Ord a => T a -> forall b. (Num a, Show b) => (a, b)
 
 Note [Naughty record selectors]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

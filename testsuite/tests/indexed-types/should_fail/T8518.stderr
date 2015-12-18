@@ -1,6 +1,11 @@
 
-T8518.hs:14:18:
+T8518.hs:14:18: error:
     Couldn't match expected type ‘Maybe (F c)’ with actual type ‘F c’
+    Relevant bindings include
+      b :: B c (bound at T8518.hs:14:14)
+      z :: Z c (bound at T8518.hs:14:12)
+      c :: c (bound at T8518.hs:14:10)
+      callCont :: c -> Z c -> B c -> Maybe (F c) (bound at T8518.hs:14:1)
     In the expression: rpt (4 :: Int) c z b
     In an equation for ‘callCont’:
         callCont c z b
@@ -8,21 +13,20 @@ T8518.hs:14:18:
           where
               rpt 0 c' z' b' = fromJust (fst <$> (continue c' z' b'))
               rpt i c' z' b' = let ... in rpt (i - 1) c''
-    Relevant bindings include
-      b :: B c (bound at T8518.hs:14:14)
-      z :: Z c (bound at T8518.hs:14:12)
-      c :: c (bound at T8518.hs:14:10)
-      callCont :: c -> Z c -> B c -> Maybe (F c) (bound at T8518.hs:14:1)
 
-T8518.hs:17:78:
-    Couldn't match expected type ‘F a1’
-                with actual type ‘Z a1 -> B a1 -> F a1’
+T8518.hs:17:78: error:
+    Couldn't match expected type ‘F a0’
+                with actual type ‘Z a0 -> B a0 -> F a0’
+    Relevant bindings include
+      c'' :: a0 (bound at T8518.hs:17:30)
+      b' :: B a0 (bound at T8518.hs:17:21)
+      z' :: Z a0 (bound at T8518.hs:17:18)
+      c' :: a0 (bound at T8518.hs:17:15)
+      rpt :: a1 -> a0 -> Z a0 -> B a0 -> F a0 (bound at T8518.hs:16:9)
     In the expression: rpt (i - 1) c''
     In the expression:
       let c'' = fromJust (snd <$> (continue c' z' b')) in rpt (i - 1) c''
-    Relevant bindings include
-      c'' :: a1 (bound at T8518.hs:17:30)
-      b' :: B a1 (bound at T8518.hs:17:21)
-      z' :: Z a1 (bound at T8518.hs:17:18)
-      c' :: a1 (bound at T8518.hs:17:15)
-      rpt :: a -> a1 -> Z a1 -> B a1 -> F a1 (bound at T8518.hs:16:9)
+    In an equation for ‘rpt’:
+        rpt i c' z' b'
+          = let c'' = fromJust (snd <$> (continue c' z' b'))
+            in rpt (i - 1) c''

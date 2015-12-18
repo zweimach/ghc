@@ -297,9 +297,9 @@ rnExpr (HsMultiIf _ty alts)
        -- ; return (HsMultiIf ty alts', fvs) }
        ; return (HsMultiIf placeHolderType alts', fvs) }
 
-rnExpr (HsType a)
-  = do { (t, fvT) <- rnLHsType HsTypeCtx a
-       ; return (HsType t, fvT) }
+rnExpr (HsType a _)
+  = do { (t, fvT, wcs) <- rnLHsTypeWithWildCards HsTypeCtx a
+       ; return (HsType t wcs, fvT) }
 
 rnExpr (ArithSeq _ _ seq)
   = do { opt_OverloadedLists <- xoptM LangExt.OverloadedLists
@@ -501,10 +501,10 @@ rnCmd (HsCmdPar e)
   = do  { (e', fvs_e) <- rnLCmd e
         ; return (HsCmdPar e', fvs_e) }
 
-rnCmd (HsCmdCase expr matches)
+rnCmd (HsCmdCase expr matches ph)
   = do { (new_expr, e_fvs) <- rnLExpr expr
        ; (new_matches, ms_fvs) <- rnMatchGroup CaseAlt rnLCmd matches
-       ; return (HsCmdCase new_expr new_matches, e_fvs `plusFV` ms_fvs) }
+       ; return (HsCmdCase new_expr new_matches ph, e_fvs `plusFV` ms_fvs) }
 
 rnCmd (HsCmdIf _ p b1 b2)
   = do { (p', fvP) <- rnLExpr p
@@ -523,7 +523,7 @@ rnCmd (HsCmdDo (L l stmts) _)
             rnStmts ArrowExpr rnLCmd stmts (\ _ -> return ((), emptyFVs))
         ; return ( HsCmdDo (L l stmts') placeHolderType, fvs ) }
 
-rnCmd cmd@(HsCmdCast {}) = pprPanic "rnCmd" (ppr cmd)
+rnCmd cmd@(HsCmdWrap {}) = pprPanic "rnCmd" (ppr cmd)
 
 ---------------------------------------------------
 type CmdNeeds = FreeVars        -- Only inhabitants are
@@ -540,7 +540,7 @@ methodNamesCmd (HsCmdArrApp _arrow _arg _ HsFirstOrderApp _rtl)
 methodNamesCmd (HsCmdArrApp _arrow _arg _ HsHigherOrderApp _rtl)
   = unitFV appAName
 methodNamesCmd (HsCmdArrForm {}) = emptyFVs
-methodNamesCmd (HsCmdCast _ cmd) = methodNamesCmd cmd
+methodNamesCmd (HsCmdWrap _ cmd) = methodNamesCmd cmd
 
 methodNamesCmd (HsCmdPar c) = methodNamesLCmd c
 
@@ -552,7 +552,7 @@ methodNamesCmd (HsCmdDo (L _ stmts) _) = methodNamesStmts stmts
 methodNamesCmd (HsCmdApp c _)          = methodNamesLCmd c
 methodNamesCmd (HsCmdLam match)        = methodNamesMatch match
 
-methodNamesCmd (HsCmdCase _ matches)
+methodNamesCmd (HsCmdCase _ matches _)
   = methodNamesMatch matches `addOneFV` choiceAName
 
 --methodNamesCmd _ = emptyFVs
@@ -1818,7 +1818,8 @@ sectionErr expr
 
 patSynErr :: HsExpr RdrName -> RnM (HsExpr Name, FreeVars)
 patSynErr e = do { addErr (sep [ptext (sLit "Pattern syntax in expression context:"),
-                                nest 4 (ppr e)])
+                                nest 4 (ppr e)] $$
+                           text "Did you mean to enable TypeApplications?")
                  ; return (EWildPat, emptyFVs) }
 
 badIpBinds :: Outputable a => SDoc -> a -> SDoc

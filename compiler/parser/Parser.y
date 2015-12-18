@@ -414,6 +414,7 @@ output it generates.
  '-<<'          { L _ (ITLarrowtail _) }            -- for arrow notation
  '>>-'          { L _ (ITRarrowtail _) }            -- for arrow notation
  '.'            { L _ ITdot }
+ TYPEAPP        { L _ ITtypeApp }
 
  '{'            { L _ ITocurly }                        -- special symbols
  '}'            { L _ ITccurly }
@@ -2260,7 +2261,11 @@ fexp    :: { LHsExpr RdrName }
 
 aexp    :: { LHsExpr RdrName }
         : qvar '@' aexp         {% ams (sLL $1 $> $ EAsPat $1 $3) [mj AnnAt $2] }
+            -- If you change the parsing, make sure to understand
+	    -- Note [Lexing type applications] in Lexer.x
+
         | '~' aexp              {% ams (sLL $1 $> $ ELazyPat $2) [mj AnnTilde $1] }
+        | TYPEAPP atype         {% ams (sLL $1 $> $ HsType $2 PlaceHolder) [mj AnnAt $1] }
         | aexp1                 { $1 }
 
 aexp1   :: { LHsExpr RdrName }
@@ -2977,6 +2982,10 @@ var     :: { Located RdrName }
         | '(' varsym ')'        {% ams (sLL $1 $> (unLoc $2))
                                        [mop $1,mj AnnVal $2,mcp $3] }
 
+ -- Lexing type applications depends subtly on what characters can possibly
+ -- end a qvar. Currently (June 2015), only $idchars and ")" can end a qvar.
+ -- If you're changing this, please see Note [Lexing type applications] in
+ -- Lexer.x.
 qvar    :: { Located RdrName }
         : qvarid                { $1 }
         | '(' varsym ')'        {% ams (sLL $1 $> (unLoc $2))

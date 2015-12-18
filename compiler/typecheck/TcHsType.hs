@@ -15,6 +15,7 @@ module TcHsType (
 
         tcHsClsInstType,
         tcHsDeriv, tcHsVectInst,
+        tcHsTypeApp,
         UserTypeCtxt(..),
         tcImplicitTKBndrs, tcImplicitTKBndrsType, tcHsTyVarBndrs,
 
@@ -266,6 +267,19 @@ tcHsVectInst ty
            _ -> failWithTc (text "Too many arguments passed to" <+> ppr cls_name) }
   | otherwise
   = failWithTc $ ptext (sLit "Malformed instance type")
+
+----------------------------------------------
+-- | Type-check a visible type application, passed in with the names
+-- of the wildcards in the type
+tcHsTypeApp :: (LHsType Name, [Name]) -> Kind -> TcM Type
+tcHsTypeApp (hs_ty, wcs) kind
+  = tcWildcardBinders wcs $ \ wc_prs ->
+    do { ty <- tcCheckLHsType hs_ty kind
+       ; checkValidType TypeAppCtxt ty
+       ; return ty }
+        -- NB: we don't call emitWildcardHoleConstraints here, because
+        -- we want any holes in visible type applications to be used
+        -- without fuss. No errors, warnings, extensions, etc.
 
 {-
         These functions are used during knot-tying in

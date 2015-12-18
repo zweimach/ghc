@@ -162,20 +162,23 @@ dsHsBind dflags
          (AbsBinds { abs_tvs = tyvars, abs_ev_vars = dicts
                    , abs_exports = [export]
                    , abs_ev_binds = ev_binds, abs_binds = binds })
-  | ABE { abe_wrap = wrap, abe_poly = global
+  | ABE { abe_inst_wrap = inst_wrap, abe_wrap = wrap, abe_poly = global
         , abe_mono = local, abe_prags = prags } <- export
   , not (xopt LangExt.Strict dflags)             -- handle strict binds
   , not (anyBag (isBangedPatBind . unLoc) binds) -- in the next case
   = -- push type constraints deeper for pattern match check
+    -- See Note [AbsBinds wrappers] in HsBinds
     addDictsDs (toTcTypeBag (listToBag dicts)) $
      do { (_, bind_prs) <- ds_lhs_binds binds
         ; let core_bind = Rec bind_prs
         ; ds_binds <- dsTcEvBinds_s ev_binds
+        ; inner_rhs <- dsHsWrapper inst_wrap $
+                       Let core_bind $
+                       Var local
         ; rhs <- dsHsWrapper wrap $  -- Usually the identity
                  mkLams tyvars $ mkLams dicts $
                  mkCoreLets ds_binds $
-                 Let core_bind $
-                 Var local
+                 inner_rhs
 
         ; (spec_binds, rules) <- dsSpecs rhs prags
 
@@ -214,13 +217,17 @@ dsHsBind dflags
         -- Note [Desugar Strict binds]
         ; (exported_force_vars, extra_exports) <- get_exports local_force_vars
 
-        ; let mk_bind (ABE { abe_wrap = wrap, abe_poly = global
+        ; let mk_bind (ABE { abe_inst_warp = inst_wrap, wrap = wrap
+                           , abe_poly = global
                            , abe_mono = local, abe_prags = spec_prags })
+                         -- See Note [AbsBinds wrappers] in HsBinds
                 = do { tup_id  <- newSysLocalDs tup_ty
+                     ; inner_rhs <- dsHsWrapper inst_wrap $
+                                    mkTupleSelector all_locals local tup_id $
+                                    mkVarApps (Var poly_tup_id) (tyvars ++ dicts)
                      ; rhs <- dsHsWrapper wrap $
-                                 mkLams tyvars $ mkLams dicts $
-                                 mkTupleSelector all_locals local tup_id $
-                                 mkVarApps (Var poly_tup_id) (tyvars ++ dicts)
+                              mkLams tyvars $ mkLams dicts $
+                              inner_rhs
                      ; let rhs_for_spec = Let (NonRec poly_tup_id poly_tup_rhs) rhs
                      ; (spec_binds, rules) <- dsSpecs rhs_for_spec spec_prags
                      ; let global' = (global `setInlinePragma` defaultInlinePragma)
@@ -965,10 +972,10 @@ dsHsWrapper (WpLet ev_binds)  e = do bs <- dsTcEvBinds ev_binds
                                      return (mkCoreLets bs e)
 dsHsWrapper (WpCompose c1 c2) e = do { e1 <- dsHsWrapper c2 e
                                      ; dsHsWrapper c1 e1 }
-dsHsWrapper (WpFun c1 c2 t1 _) e = do { x <- newSysLocalDs t1
-                                      ; e1 <- dsHsWrapper c1 (Var x)
-                                      ; e2 <- dsHsWrapper c2 (mkCoreAppDs (text "dsHsWrapper") e e1)
-                                      ; return (Lam x e2) }
+dsHsWrapper (WpFun c1 c2 t1)  e = do { x <- newSysLocalDs t1
+                                     ; e1 <- dsHsWrapper c1 (Var x)
+                                     ; e2 <- dsHsWrapper c2 (mkCoreAppDs (text "dsHsWrapper") e e1)
+                                     ; return (Lam x e2) }
 dsHsWrapper (WpCast co)       e = ASSERT(coercionRole co == Representational)
                                   return $ mkCastDs e co
 dsHsWrapper (WpEvLam ev)      e = return $ Lam ev e

@@ -1,102 +1,62 @@
 
 ==================== Tidy Core ====================
-Result size of Tidy Core = {terms: 32, types: 17, coercions: 0}
-
--- RHS size: {terms: 2, types: 0, coercions: 0}
-T7116.$trModule2 :: GHC.Types.TrName
-[GblId,
- Caf=NoCafRefs,
- Str=DmdType m1,
- Unf=Unf{Src=<vanilla>, TopLvl=True, Value=True, ConLike=True,
-         WorkFree=True, Expandable=True, Guidance=IF_ARGS [] 30 20}]
-T7116.$trModule2 = GHC.Types.TrNameS "main"#
-
--- RHS size: {terms: 2, types: 0, coercions: 0}
-T7116.$trModule1 :: GHC.Types.TrName
-[GblId,
- Caf=NoCafRefs,
- Str=DmdType m1,
- Unf=Unf{Src=<vanilla>, TopLvl=True, Value=True, ConLike=True,
-         WorkFree=True, Expandable=True, Guidance=IF_ARGS [] 40 20}]
-T7116.$trModule1 = GHC.Types.TrNameS "T7116"#
-
--- RHS size: {terms: 3, types: 0, coercions: 0}
-T7116.$trModule :: GHC.Types.Module
-[GblId[ReflectionId],
- Caf=NoCafRefs,
- Str=DmdType m,
- Unf=Unf{Src=<vanilla>, TopLvl=True, Value=True, ConLike=True,
-         WorkFree=True, Expandable=True, Guidance=IF_ARGS [] 10 30}]
-T7116.$trModule =
-  GHC.Types.Module T7116.$trModule2 T7116.$trModule1
+Result size of Tidy Core = {terms: 22, types: 14, coercions: 0}
 
 -- RHS size: {terms: 8, types: 3, coercions: 0}
-dr :: Double -> Double
-[GblId,
- Arity=1,
- Caf=NoCafRefs,
- Str=DmdType <S,1*U(U)>m,
- Unf=Unf{Src=InlineStable, TopLvl=True, Value=True, ConLike=True,
-         WorkFree=True, Expandable=True,
-         Guidance=ALWAYS_IF(arity=1,unsat_ok=True,boring_ok=False)
-         Tmpl= \ (x [Occ=Once!] :: Double) ->
-                 case x of _ [Occ=Dead] { GHC.Types.D# x1 ->
-                 GHC.Types.D# (GHC.Prim.+## x1 x1)
-                 }}]
-dr =
-  \ (x :: Double) ->
-    case x of _ [Occ=Dead] { GHC.Types.D# x1 ->
-    GHC.Types.D# (GHC.Prim.+## x1 x1)
-    }
-
--- RHS size: {terms: 1, types: 0, coercions: 0}
 dl :: Double -> Double
-[GblId,
+[GblId[sig],
  Arity=1,
  Caf=NoCafRefs,
  Str=DmdType <S,1*U(U)>m,
  Unf=Unf{Src=InlineStable, TopLvl=True, Value=True, ConLike=True,
          WorkFree=True, Expandable=True,
          Guidance=ALWAYS_IF(arity=1,unsat_ok=True,boring_ok=False)
-         Tmpl= \ (x [Occ=Once!] :: Double) ->
-                 case x of _ [Occ=Dead] { GHC.Types.D# y ->
-                 GHC.Types.D# (GHC.Prim.+## y y)
-                 }}]
-dl = dr
-
--- RHS size: {terms: 8, types: 3, coercions: 0}
-fr :: Float -> Float
-[GblId,
- Arity=1,
- Caf=NoCafRefs,
- Str=DmdType <S,1*U(U)>m,
- Unf=Unf{Src=InlineStable, TopLvl=True, Value=True, ConLike=True,
-         WorkFree=True, Expandable=True,
-         Guidance=ALWAYS_IF(arity=1,unsat_ok=True,boring_ok=False)
-         Tmpl= \ (x [Occ=Once!] :: Float) ->
-                 case x of _ [Occ=Dead] { GHC.Types.F# x1 ->
-                 GHC.Types.F# (GHC.Prim.plusFloat# x1 x1)
-                 }}]
-fr =
-  \ (x :: Float) ->
-    case x of _ [Occ=Dead] { GHC.Types.F# x1 ->
-    GHC.Types.F# (GHC.Prim.plusFloat# x1 x1)
-    }
+         Tmpl= \ (ds [Occ=Once!] :: Double) ->
+                 case ds of _ [Occ=Dead] { D# y -> D# (+## y y) }}]
+dl =
+  \ (ds :: Double) ->
+    case ds of _ [Occ=Dead] { D# y -> D# (+## y y) }
 
 -- RHS size: {terms: 1, types: 0, coercions: 0}
-fl :: Float -> Float
-[GblId,
+dr :: Double -> Double
+[GblId[sig],
  Arity=1,
  Caf=NoCafRefs,
  Str=DmdType <S,1*U(U)>m,
  Unf=Unf{Src=InlineStable, TopLvl=True, Value=True, ConLike=True,
          WorkFree=True, Expandable=True,
          Guidance=ALWAYS_IF(arity=1,unsat_ok=True,boring_ok=False)
-         Tmpl= \ (x [Occ=Once!] :: Float) ->
-                 case x of _ [Occ=Dead] { GHC.Types.F# y ->
-                 GHC.Types.F# (GHC.Prim.plusFloat# y y)
-                 }}]
-fl = fr
+         Tmpl= \ (ds [Occ=Once!] :: Double) ->
+                 case ds of _ [Occ=Dead] { D# x -> D# (+## x x) }}]
+dr = dl
+
+-- RHS size: {terms: 8, types: 3, coercions: 0}
+fl :: Float -> Float
+[GblId[sig],
+ Arity=1,
+ Caf=NoCafRefs,
+ Str=DmdType <S,1*U(U)>m,
+ Unf=Unf{Src=InlineStable, TopLvl=True, Value=True, ConLike=True,
+         WorkFree=True, Expandable=True,
+         Guidance=ALWAYS_IF(arity=1,unsat_ok=True,boring_ok=False)
+         Tmpl= \ (ds [Occ=Once!] :: Float) ->
+                 case ds of _ [Occ=Dead] { F# y -> F# (plusFloat# y y) }}]
+fl =
+  \ (ds :: Float) ->
+    case ds of _ [Occ=Dead] { F# y -> F# (plusFloat# y y) }
+
+-- RHS size: {terms: 1, types: 0, coercions: 0}
+fr :: Float -> Float
+[GblId[sig],
+ Arity=1,
+ Caf=NoCafRefs,
+ Str=DmdType <S,1*U(U)>m,
+ Unf=Unf{Src=InlineStable, TopLvl=True, Value=True, ConLike=True,
+         WorkFree=True, Expandable=True,
+         Guidance=ALWAYS_IF(arity=1,unsat_ok=True,boring_ok=False)
+         Tmpl= \ (ds [Occ=Once!] :: Float) ->
+                 case ds of _ [Occ=Dead] { F# x -> F# (plusFloat# x x) }}]
+fr = fl
 
 
 

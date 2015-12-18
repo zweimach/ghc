@@ -32,9 +32,8 @@ module TcType (
   -- MetaDetails
   UserTypeCtxt(..), pprUserTypeCtxt, pprSigCtxt, isSigMaybe,
   TcTyVarDetails(..), pprTcTyVarDetails, vanillaSkolemTv, superSkolemTv,
-  MetaDetails(Flexi, Indirect), MetaInfo(..),
-  isImmutableTyVar, isSkolemTyVar,
-  isMetaTyVar,  isMetaTyVarTy, isTyVarTy,
+  MetaDetails(Flexi, Indirect), MetaInfo(..), TauTvFlavour(..),
+  isImmutableTyVar, isSkolemTyVar, isMetaTyVar,  isMetaTyVarTy, isTyVarTy,
   isSigTyVar, isOverlappableTyVar,  isTyConableTyVar,
   isFskTyVar, isFmvTyVar, isFlattenTyVar, isReturnTyVar,
   isAmbiguousTyVar, metaTvRef, metaTyVarInfo,
@@ -54,6 +53,7 @@ module TcType (
   -- Splitters
   -- These are important because they do not look through newtypes
   getTyVar,
+  tcSplitForAllTy_maybe,
   tcSplitForAllTys, tcSplitPiTys, tcSplitNamedPiTys,
   tcSplitPhiTy, tcSplitPredFunTy_maybe,
   tcSplitFunTy_maybe, tcSplitFunTys, tcFunArgTy, tcFunResultTy, tcSplitFunTysN,
@@ -390,6 +390,10 @@ instance Outputable MetaDetails where
   ppr Flexi         = ptext (sLit "Flexi")
   ppr (Indirect ty) = ptext (sLit "Indirect") <+> ppr ty
 
+data TauTvFlavour
+  = VanillaTau
+  | WildcardTau    -- ^ A tyvar that originates from a type wildcard.
+
 data MetaInfo
    = TauTv         -- This MetaTv is an ordinary unification variable
                    -- A TauTv is always filled in with a tau-type, which
@@ -429,7 +433,7 @@ data UserTypeCtxt
 
   | InfSigCtxt Name     -- Inferred type for function
   | ExprSigCtxt         -- Expression type signature
-
+  | TypeAppCtxt         -- Visible type application
   | ConArgCtxt Name     -- Data constructor argument
   | TySynCtxt Name      -- RHS of a type synonym decl
   | PatSynCtxt Name     -- Type sig for a pattern synonym
@@ -616,6 +620,7 @@ pprUserTypeCtxt (FunSigCtxt n _)  = ptext (sLit "the type signature for") <+> qu
 pprUserTypeCtxt (InfSigCtxt n)    = ptext (sLit "the inferred type for") <+> quotes (ppr n)
 pprUserTypeCtxt (RuleSigCtxt n)   = ptext (sLit "a RULE for") <+> quotes (ppr n)
 pprUserTypeCtxt ExprSigCtxt       = ptext (sLit "an expression type signature")
+pprUserTypeCtxt TypeAppCtxt       = ptext (sLit "a type argument")
 pprUserTypeCtxt (ConArgCtxt c)    = ptext (sLit "the type of the constructor") <+> quotes (ppr c)
 pprUserTypeCtxt (TySynCtxt c)     = ptext (sLit "the RHS of the type synonym") <+> quotes (ppr c)
 pprUserTypeCtxt (PatSynCtxt c)    = ptext (sLit "the type signature for pattern synonym") <+> quotes (ppr c)
@@ -1063,6 +1068,11 @@ variables.  It's up to you to make sure this doesn't matter.
 -- Always succeeds, even if it returns an empty list.
 tcSplitPiTys :: Type -> ([TyBinder], Type)
 tcSplitPiTys = splitPiTys
+
+tcSplitForAllTy_maybe :: Type -> Maybe (TyVar, Type)
+tcSplitForAllTy_maybe ty | Just ty' <- tcView ty = tcSplitForAllTy_maybe ty'
+tcSplitForAllTy_maybe (ForAllTy tv ty) = Just (tv, ty)
+tcSplitForAllTy_maybe _                = Nothing
 
 -- | Like 'tcSplitPiTys', but splits off only named binders, returning
 -- just the tycovars.
@@ -1585,7 +1595,7 @@ occurCheckExpand dflags tv ty
 canUnifyWithPolyType :: DynFlags -> TcTyVarDetails -> Bool
 canUnifyWithPolyType dflags details
   = case details of
-      MetaTv { mtv_info = ReturnTv } -> True      -- See Note [ReturnTv]
+      MetaTv { mtv_info = ReturnTv } -> True   -- See Note [ReturnTv]
       MetaTv { mtv_info = SigTv }    -> False
       MetaTv { mtv_info = TauTv }    -> xopt LangExt.ImpredicativeTypes dflags
       _other                         -> True
@@ -1996,6 +2006,40 @@ to_tc_type = mapType to_tc_mapper
 \subsection{Misc}
 *                                                                      *
 ************************************************************************
+
+Note [Visible type application]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+GHC implements a generalisation of the algorithm described in the
+"Visible Type Application" paper (available from
+http://www.cis.upenn.edu/~sweirich/publications.html). A key part
+of that algorithm is to distinguish user-specified variables from inferred
+variables. For example, the following should typecheck:
+
+  f :: forall a b. a -> b -> b
+  f = const id
+
+  g = const id
+
+  x = f @Int @Bool 5 False
+  y = g 5 @Bool False
+
+The idea is that we wish to allow visible type application when we are
+instantiating a specified, fixed variable. In practice, specified, fixed
+variables are either written in a type signature (or
+annotation), OR are imported from another module. (We could do better here,
+for example by doing SCC analysis on parts of a module and considering any
+type from outside one's SCC to be fully specified, but this is very confusing to
+users. The simple rule above is much more straightforward and predictable.)
+
+So, both of f's quantified variables are specified and may be instantiated.
+But g has no type signature, so only id's variable is specified (because id
+is imported). We write the type of g as forall {a}. a -> forall b. b -> b.
+Note that the a is in braces, meaning it cannot be instantiated with
+visible type application.
+
+Tracking specified vs. inferred variables is done conveniently by a field
+in TyBinder.
+
 -}
 
 deNoteType :: Type -> Type

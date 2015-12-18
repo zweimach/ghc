@@ -26,6 +26,7 @@ module TcMType (
   newMetaKindVar, newMetaKindVars,
   cloneMetaTyVar,
   newFmvTyVar, newFskTyVar,
+  tauTvsForReturnTvs,
 
   newMetaTyVar, readMetaTyVar, writeMetaTyVar, writeMetaTyVarRef,
   newMetaDetails, isFilledMetaTyVar, isUnfilledMetaTyVar,
@@ -652,6 +653,40 @@ newOpenReturnTyVar
        ; tv <- newReturnTyVar k
        ; return (tv, k) }
 
+-- | Replace all the ReturnTvs in a type with TauTvs. These types are
+-- *not* then unified. The caller may wish to do that. No variables
+-- are looked through here. Similarly, no synonyms are looked through,
+-- as doing so won't expose more ReturnTvs.
+tauTvsForReturnTvs :: TcType -> TcM TcType
+tauTvsForReturnTvs = mapType mapper emptyTCvSubst
+  where
+    mapper = TyCoMapper { tcm_smart = False
+                        , tcm_tyvar = tyvar
+                        , tcm_covar = covar
+                        , tcm_hole  = hole
+                        , tcm_tybinder = tybinder }
+
+    tyvar :: TCvSubst -> TcTyVar -> TcM TcType
+    tyvar env tv
+      | isReturnTyVar tv = newFlexiTyVarTy (substTy env (tyVarKind tv))
+      | otherwise        = return $ substTyVar env tv
+
+    covar :: TCvSubst -> CoVar -> TcM Coercion
+    covar env cv = return $ mkCoVarCo cv
+
+    hole :: TCvSubst -> CoercionHole -> Role -> Type -> Type -> TcM Coercion
+    hole env hole role ty1 ty2
+      = do { ty1' <- mapType mapper env ty1
+           ; ty2' <- mapType mapper env ty2
+           ; return $ mkHoleCo hole role ty1' ty2' }
+
+    tybinder :: TCvSubst -> TyVar -> VisibilityFlag -> TcM (TCvSubst, TyVar)
+    tybinder env tv vis
+      = do { k <- mapType mapper env (tyVarKind tv)
+           ; let tv' = setTyVarKind tv k
+                 env' = extendTCvSubst env tv (TyVarTy tv')
+           ; return (env', tv') }
+
 tcInstTyVars :: [TyVar] -> TcM (TCvSubst, [TcTyVar])
 -- Instantiate with META type variables
 -- Note that this works for a sequence of kind, type, and coercion variables
@@ -668,9 +703,8 @@ tcInstTyVarX :: TCvSubst -> TyVar -> TcM (TCvSubst, TcTyVar)
 tcInstTyVarX subst tyvar
   = do  { uniq <- newUnique
                -- See Note [Levity polymorphic variables accept foralls]
-        ; let info = if isLevityPolymorphic (tyVarKind tyvar)
-                     then ReturnTv
-                     else TauTv
+        ; let info | isLevityPolymorphic (tyVarKind tyvar) = ReturnTv
+                   | otherwise                             = TauTv
         ; details <- newMetaDetails info
         ; let name   = mkSystemName uniq (getOccName tyvar)
                        -- See Note [Name of an instantiated type variable]

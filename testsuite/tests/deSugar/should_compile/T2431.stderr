@@ -1,8 +1,8 @@
 
 ==================== Tidy Core ====================
-Result size of Tidy Core = {terms: 36, types: 30, coercions: 1}
+Result size of Tidy Core = {terms: 8, types: 19, coercions: 1}
 
--- RHS size: {terms: 2, types: 4, coercions: 1}
+-- RHS size: {terms: 2, types: 3, coercions: 1}
 T2431.$WRefl [InlPrag=INLINE] :: forall a. a :~: a
 [GblId[DataConWrapper],
  Caf=NoCafRefs,
@@ -10,49 +10,14 @@ T2431.$WRefl [InlPrag=INLINE] :: forall a. a :~: a
  Unf=Unf{Src=InlineStable, TopLvl=True, Value=True, ConLike=True,
          WorkFree=True, Expandable=True,
          Guidance=ALWAYS_IF(arity=0,unsat_ok=False,boring_ok=False)
-         Tmpl= \ (@ a) -> T2431.Refl @ a @ a @~ (<a>_N :: a GHC.Prim.~# a)}]
-T2431.$WRefl =
-  \ (@ a) -> T2431.Refl @ a @ a @~ (<a>_N :: a GHC.Prim.~# a)
+         Tmpl= \ (@ a) -> T2431.Refl @ a @ a @~ (<a>_N :: a ~# a)}]
+T2431.$WRefl = \ (@ a) -> T2431.Refl @ a @ a @~ (<a>_N :: a ~# a)
 
--- RHS size: {terms: 2, types: 0, coercions: 0}
-a :: GHC.Types.TrName
-[GblId, Caf=NoCafRefs, Str=DmdType]
-a = GHC.Types.TrNameS "main"#
-
--- RHS size: {terms: 2, types: 0, coercions: 0}
-a1 :: GHC.Types.TrName
-[GblId, Caf=NoCafRefs, Str=DmdType]
-a1 = GHC.Types.TrNameS "T2431"#
-
--- RHS size: {terms: 3, types: 0, coercions: 0}
-T2431.$trModule :: GHC.Types.Module
-[GblId[ReflectionId], Caf=NoCafRefs, Str=DmdType]
-T2431.$trModule = GHC.Types.Module a a1
-
--- RHS size: {terms: 2, types: 0, coercions: 0}
-a2 :: GHC.Types.TrName
-[GblId, Caf=NoCafRefs, Str=DmdType]
-a2 = GHC.Types.TrNameS "'Refl"#
-
--- RHS size: {terms: 5, types: 0, coercions: 0}
-T2431.$tc'Refl :: GHC.Types.TyCon
-[GblId[ReflectionId], Caf=NoCafRefs, Str=DmdType]
-T2431.$tc'Refl = GHC.Types.TyCon 0## 0## T2431.$trModule a2
-
--- RHS size: {terms: 2, types: 0, coercions: 0}
-a3 :: GHC.Types.TrName
-[GblId, Caf=NoCafRefs, Str=DmdType]
-a3 = GHC.Types.TrNameS ":~:"#
-
--- RHS size: {terms: 5, types: 0, coercions: 0}
-T2431.$tc:~: :: GHC.Types.TyCon
-[GblId[ReflectionId], Caf=NoCafRefs, Str=DmdType]
-T2431.$tc:~: = GHC.Types.TyCon 0## 0## T2431.$trModule a3
-
--- RHS size: {terms: 4, types: 8, coercions: 0}
+-- RHS size: {terms: 4, types: 7, coercions: 0}
 absurd :: forall a. Int :~: Bool -> a
-[GblId, Arity=1, Caf=NoCafRefs, Str=DmdType <L,U>b]
-absurd = \ (@ a4) (x :: Int :~: Bool) -> case x of _ [Occ=Dead] { }
+[GblId[sig], Arity=1, Caf=NoCafRefs, Str=DmdType <L,U>b]
+absurd =
+  \ (@ a) (ds :: Int :~: Bool) -> case ds of _ [Occ=Dead] { }
 
 
 

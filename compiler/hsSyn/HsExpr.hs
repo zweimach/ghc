@@ -502,7 +502,17 @@ data HsExpr id
   -- For details on above see note [Api annotations] in ApiAnnotation
   | ELazyPat    (LHsExpr id) -- ~ pattern
 
-  | HsType      (LHsType id) -- Explicit type argument; e.g  f {| Int |} x y
+  -- | Use for type application in expressions.
+  -- 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnAt'
+
+  -- For details on above see note [Api annotations] in ApiAnnotation
+  | HsType      (LHsType id) -- Explicit type argument; e.g  f @Int x y
+                (PostRn id [Name])      -- After renaming, the list of Names
+                                        -- contains the named and unnamed
+                                        -- wildcards brought in scope by the
+                                        -- signature
+
+  | HsTypeOut   (LHsType Name)  -- just for pretty-printing
 
   ---------------------------------------
   -- Finally, HsWrap appears only in typechecker output
@@ -762,7 +772,8 @@ ppr_expr (HsSCC _ (StringLiteral _ lbl) expr)
           pprParendExpr expr ]
 
 ppr_expr (HsWrap co_fn e) = pprHsWrapper (pprExpr e) co_fn
-ppr_expr (HsType id)      = ppr id
+ppr_expr (HsType ty _)    = char '@' <> pprParendHsType (unLoc ty)
+ppr_expr (HsTypeOut ty)   = char '@' <> pprParendHsType (unLoc ty)
 
 ppr_expr (HsSpliceE s)         = pprSplice s
 ppr_expr (HsBracket b)         = pprHsBracket b
@@ -864,6 +875,8 @@ hsExprNeedsParens (HsTcBracketOut {}) = False
 hsExprNeedsParens (HsDo sc _ _)
        | isListCompExpr sc            = False
 hsExprNeedsParens (HsRecFld{})        = False
+hsExprNeedsParens (HsType {})         = False
+hsExprNeedsParens (HsTypeOut {})      = False
 hsExprNeedsParens _ = True
 
 
@@ -936,6 +949,7 @@ data HsCmd id
 
   | HsCmdCase   (LHsExpr id)
                 (MatchGroup id (LHsCmd id))     -- bodies are HsCmd's
+                (PostTc id HsWrapper)
     -- ^ - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnCase',
     --       'ApiAnnotation.AnnOf','ApiAnnotation.AnnOpen' @'{'@,
     --       'ApiAnnotation.AnnClose' @'}'@
@@ -970,10 +984,10 @@ data HsCmd id
 
     -- For details on above see note [Api annotations] in ApiAnnotation
 
-  | HsCmdCast   TcCoercionN    -- A simpler version of HsWrap in HsExpr
+  | HsCmdWrap   HsWrapper
                 (HsCmd id)     -- If   cmd :: arg1 --> res
-                               --       co :: arg1 ~ arg2
-                               -- Then (HsCmdCast co cmd) :: arg2 --> res
+                               --      wrap :: arg1 "->" arg2
+                               -- Then (HsCmdWrap wrap cmd) :: arg2 --> res
   deriving (Typeable)
 deriving instance (DataId id) => Data (HsCmd id)
 
@@ -1035,7 +1049,7 @@ ppr_cmd (HsCmdApp c e)
 ppr_cmd (HsCmdLam matches)
   = pprMatches (LambdaExpr :: HsMatchContext id) matches
 
-ppr_cmd (HsCmdCase expr matches)
+ppr_cmd (HsCmdCase expr matches _wrap)
   = sep [ sep [ptext (sLit "case"), nest 4 (ppr expr), ptext (sLit "of {")],
           nest 2 (pprMatches (CaseAlt :: HsMatchContext id) matches <+> char '}') ]
 
@@ -1054,9 +1068,9 @@ ppr_cmd (HsCmdLet (L _ binds) cmd)
   = sep [hang (ptext (sLit "let")) 2 (pprBinds binds),
          hang (ptext (sLit "in"))  2 (ppr cmd)]
 
-ppr_cmd (HsCmdDo (L  _ stmts) _)  = pprDo ArrowExpr stmts
-ppr_cmd (HsCmdCast co cmd) = sep [ ppr_cmd cmd
-                                 , ptext (sLit "|>") <+> ppr co ]
+ppr_cmd (HsCmdDo (L _ stmts) _)  = pprDo ArrowExpr stmts
+
+ppr_cmd (HsCmdWrap w cmd) = pprHsWrapper (ppr_cmd cmd) w
 
 ppr_cmd (HsCmdArrApp arrow arg _ HsFirstOrderApp True)
   = hsep [ppr_lexpr arrow, larrowt, ppr_lexpr arg]
@@ -1185,6 +1199,13 @@ isInfixMatch match = case m_fixity match of
 
 isEmptyMatchGroup :: MatchGroup id body -> Bool
 isEmptyMatchGroup (MG { mg_alts = ms }) = null $ unLoc ms
+
+-- | Is there only one RHS in this group?
+singletonMatchGroup_maybe :: MatchGroup id body -> Maybe (LMatch id body)
+singletonMatchGroup_maybe (MG { mg_alts = [match] })
+  | L _ (Match { m_grhss = GRHSs { grhssGRHSs = [_] } }) <- match
+  = Just match
+singletonMatchGroup_maybe _ = Nothing
 
 matchGroupArity :: MatchGroup id body -> Arity
 -- Precondition: MatchGroup is non-empty
