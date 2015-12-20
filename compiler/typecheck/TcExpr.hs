@@ -780,10 +780,7 @@ following.
 tcExpr expr@(RecordUpd { rupd_expr = record_expr, rupd_flds = rbnds }) res_ty
   = ASSERT( notNull rbnds )
     do  { -- STEP -2: typecheck the record_expr, the record to be updated
-          --          we need to instantiate any datatype tyvars
-          (record_expr', record_sigma, record_orig) <- tcInferFun record_expr
-        ; (record_wrap, record_rho) <- topInstantiate record_orig record_sigma
-               -- record_wrap :: record_sigma "->" record_rho
+          (record_expr', record_rho) <- tcInferRho record_expr
 
         -- STEP -1  See Note [Disambiguating record fields]
         -- After this we know that rbinds is unambiguous
@@ -895,7 +892,10 @@ tcExpr expr@(RecordUpd { rupd_expr = record_expr, rupd_flds = rbnds }) res_ty
 
         ; wrap_res <- tcSubTypeHR (Shouldn'tHappenOrigin "RecUpd")
                                   (Just expr) rec_res_ty res_ty
-        ; co_scrut <- unifyType (Just record_expr) record_tau scrut_ty
+        ; co_scrut <- unifyType (Just record_expr) record_rho scrut_ty
+                -- NB: normal unification is OK here (as opposed to subsumption),
+                -- because for this to work out, both record_rho and scrut_ty have
+                -- to be normal datatypes -- no contravariant stuff can go on
 
         -- STEP 5
         -- Typecheck the bindings
@@ -1135,9 +1135,9 @@ tcInferFun (L loc (HsVar (L _ name)))
        ; return (L loc fun, ty, OccurrenceOf name) }
 
 tcInferFun (L loc (HsRecFld f))
-  = do { (fun, ty) <- setSrcSpan loc (tcInferRecSelId f)
+  = do { (fun, ty, orig) <- setSrcSpan loc (tcInferRecSelId f)
                -- Don't wrap a context around a plain Id
-       ; return (L loc fun, ty, OccurrenceOfRecSel (rdrNameAmbiguousFieldOcc f)) }
+       ; return (L loc fun, ty, orig) }
 
 tcInferFun fun
   = do { (fun, fun_ty, orig) <- tcInferSigma fun
@@ -1182,7 +1182,7 @@ tcArgs fun orig_fun_ty fun_orig orig_args herald
                     ; return ( inner_wrap <.> inst_wrap <.> wrap1
                              , L (getLoc arg) (HsTypeOut hs_ty_arg) : args'
                              , res_ty ) }
-               Nothing -> ty_app_err upsilon_ty hs_ty_arg }
+               _ -> ty_app_err upsilon_ty hs_ty_arg }
 
       | otherwise   -- not a type application.
       = do { (wrap, [arg_ty], res_ty)
@@ -1328,11 +1328,11 @@ tcCheckId name res_ty
        ; addFunResCtxt False (HsVar (noLoc name)) actual_res_ty res_ty $
          fst <$> tcWrapResult expr actual_res_ty res_ty (OccurrenceOf name) }
 
-tcCheckRecSelId :: AmbiguousFieldOcc Name -> TcRhoType -> TcM (HsExpr TcId)
+tcCheckRecSelId :: AmbiguousFieldOcc Name -> TcRhoType -> TcM (HsExpr TcId, CtOrigin)
 tcCheckRecSelId f@(Unambiguous _ _) res_ty
-  = do { (expr, actual_res_ty) <- tcInferRecSelId f
+  = do { (expr, actual_res_ty, orig) <- tcInferRecSelId f
        ; addFunResCtxt False (HsRecFld f) actual_res_ty res_ty $
-         tcWrapResult expr actual_res_ty res_ty }
+         tcWrapResult expr actual_res_ty res_ty orig }
 tcCheckRecSelId (Ambiguous lbl _) res_ty
   = case tcSplitFunTy_maybe res_ty of
       Nothing       -> ambiguousSelector lbl
@@ -1344,9 +1344,11 @@ tcInferId :: Name -> TcM (HsExpr TcId, TcSigmaType)
 -- Infer type, and deeply instantiate
 tcInferId n = tcInferIdWithOrig (OccurrenceOf n) (nameRdrName n) n
 
-tcInferRecSelId :: AmbiguousFieldOcc Name -> TcM (HsExpr TcId, TcRhoType)
+tcInferRecSelId :: AmbiguousFieldOcc Name -> TcM (HsExpr TcId, TcRhoType, CtOrigin)
 tcInferRecSelId (Unambiguous lbl sel)
-  = tcInferIdWithOrig (OccurrenceOfRecSel lbl) lbl sel
+  = do { (expr', ty) <- tcInferIdWithOrig origin lbl sel
+       ; return (expr', ty, origin) }
+  where origin = OccurrenceOfRecSel lbl
 tcInferRecSelId (Ambiguous lbl _)
   = ambiguousSelector lbl
 
@@ -1525,7 +1527,7 @@ tcSeq loc fun_name args res_ty
               -> do { lev_ty <- newFlexiTyVarTy levityTy
                     ; ty_arg2 <- tcHsTypeApp hs_ty_arg2 (tYPE lev_ty)
                                    -- see Note [Typing rule for seq]
-                    ; _ <- unifyType ty_arg2 res_ty
+                    ; _ <- unifyType noThing ty_arg2 res_ty
                     ; return (term_arg1, term_arg2) }
             [term_arg1, term_arg2] -> return (term_arg1, term_arg2)
             _ -> too_many_args
@@ -1556,7 +1558,7 @@ tcTagToEnum loc fun_name args res_ty
            [ty_arg_expr, term_arg]
              | Just hs_ty_arg <- isLHsTypeExpr_maybe ty_arg_expr
              -> do { ty_arg <- tcHsTypeApp hs_ty_arg liftedTypeKind
-                   ; _ <- unifyType ty_arg res_ty
+                   ; _ <- unifyType noThing ty_arg res_ty
                      -- other than influencing res_ty, we just
                      -- don't care about a type arg passed in.
                      -- So drop the evidence.
@@ -1820,7 +1822,7 @@ See also Note [HsRecField and HsRecUpdField] in HsPat.
 -- Given a RdrName that refers to multiple record fields, and the type
 -- of its argument, try to determine the name of the selector that is
 -- meant.
-disambiguateSelector :: RdrName -> Type -> RnM Name
+disambiguateSelector :: RdrName -> Type -> TcM Name
 disambiguateSelector rdr parent_type
  = do { fam_inst_envs <- tcGetFamInstEnvs
       ; case tyConOf fam_inst_envs parent_type of
@@ -1835,7 +1837,7 @@ disambiguateSelector rdr parent_type
 
 -- This field name really is ambiguous, so add a suitable "ambiguous
 -- occurrence" error, then give up.
-ambiguousSelector :: RdrName -> RnM a
+ambiguousSelector :: RdrName -> TcM a
 ambiguousSelector rdr
   = do { env <- getGlobalRdrEnv
        ; let gres = lookupGRE_RdrName rdr env
@@ -1844,10 +1846,10 @@ ambiguousSelector rdr
 
 -- Disambiguate the fields in a record update.
 -- See Note [Disambiguating record fields]
-disambiguateRecordBinds :: LHsExpr Name -> TcType
+disambiguateRecordBinds :: LHsExpr Name -> TcRhoType
                         -> [LHsRecUpdField Name] -> Type
                         -> TcM [LHsRecField' (AmbiguousFieldOcc Id) (LHsExpr Name)]
-disambiguateRecordBinds record_expr record_tau rbnds res_ty
+disambiguateRecordBinds record_expr record_rho rbnds res_ty
     -- Are all the fields unambiguous?
   = case mapM isUnambiguous rbnds of
                      -- If so, just skip to looking up the Ids
@@ -1895,7 +1897,7 @@ disambiguateRecordBinds record_expr record_tau rbnds res_ty
         -- Does the expression being updated have a type signature?
         -- If so, try to extract a parent TyCon from it
             | Just {} <- obviousSig (unLoc record_expr)
-            , Just tc <- tyConOf fam_inst_envs record_tau
+            , Just tc <- tyConOf fam_inst_envs record_rho
             -> return (RecSelData tc)
 
         -- Nothing else we can try...

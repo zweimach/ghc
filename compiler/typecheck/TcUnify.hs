@@ -347,9 +347,9 @@ matchExpectedTyConApp tc orig_ty
        = do { cts <- readMetaTyVar tv
             ; case cts of
                 Indirect ty -> go ty
-                Flexi       -> defer (isReturnTyVar tv) }
+                Flexi       -> defer }
 
-    go _ = defer False
+    go _ = defer
 
     -- If the common case does not occur, instantiate a template
     -- T k1 .. kn t1 .. tm, and unify with the original type
@@ -361,12 +361,12 @@ matchExpectedTyConApp tc orig_ty
     --    (a::*) ~ Maybe
     -- because that'll make types that are utterly ill-kinded.
     -- This happened in Trac #7368
-    defer is_return
+    defer
       = ASSERT2( classifiesTypeWithValues res_kind, ppr tc )
         do { (k_subst, kvs') <- tcInstTyVars kvs
            ; let arg_kinds' = substTys k_subst arg_kinds
                  kappa_tys  = mkTyVarTys kvs'
-           ; tau_tys <- mapM (newMaybeReturnTyVarTy is_return) arg_kinds'
+           ; tau_tys <- mapM newFlexiTyVarTy arg_kinds'
            ; co <- unifyType noThing (mkTyConApp tc (kappa_tys ++ tau_tys)) orig_ty
            ; return (co, kappa_tys ++ tau_tys) }
 
@@ -394,14 +394,14 @@ matchExpectedAppTy orig_ty
       = do { cts <- readMetaTyVar tv
            ; case cts of
                Indirect ty -> go ty
-               Flexi       -> defer (isReturnTyVar tv) }
+               Flexi       -> defer }
 
-    go _ = defer False
+    go _ = defer
 
     -- Defer splitting by generating an equality constraint
-    defer is_return
-      = do { ty1 <- newMaybeReturnTyVarTy is_return kind1
-           ; ty2 <- newMaybeReturnTyVarTy is_return kind2
+    defer
+      = do { ty1 <- newFlexiTyVarTy kind1
+           ; ty2 <- newFlexiTyVarTy kind2
            ; co <- unifyType noThing (mkAppTy ty1 ty2) orig_ty
            ; return (co, (ty1, ty2)) }
 
