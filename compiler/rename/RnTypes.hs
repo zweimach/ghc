@@ -640,6 +640,7 @@ wildCardsAllowed ctxt
        RuleCtx {}          -> True
        FamPatCtx {}        -> True   -- Not named wildcards though
        GHCiCtx {}          -> True
+       HsTypeCtx {}        -> True
        _                   -> False
 
 rnExtraConstraintWildCard :: HsDocContext -> HsWildCardInfo RdrName

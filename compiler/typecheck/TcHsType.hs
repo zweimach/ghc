@@ -274,7 +274,6 @@ tcHsTypeApp :: LHsWcType Name -> Kind -> TcM Type
 tcHsTypeApp wc_ty kind
   | HsWC { hswc_wcs = sig_wcs, hswc_ctx = extra, hswc_body = hs_ty } <- wc_ty
   = ASSERT( isNothing extra )  -- handled in RnTypes.rnExtraConstraintWildCard
-    addSigCtxt TypeAppCtxt hs_ty $
     tcWildCardBinders sig_wcs $ \ _ ->
     do { ty <- tcCheckLHsType hs_ty kind
        ; ty <- zonkTcType ty
@@ -521,7 +520,7 @@ tc_hs_type mode hs_ty@(HsForAllTy { hst_bndrs = hs_tvs, hst_body = ty }) exp_kin
     -- Why exp_kind?  See Note [Body kind of forall]
     do { ty' <- tc_lhs_type mode ty exp_kind
        ; let bound_vars = allBoundVariables ty'
-       ; return (mkNakedInvSigmaTy tvs' [] ty', bound_vars) }
+       ; return (mkNakedSpecSigmaTy tvs' [] ty', bound_vars) }
 
 tc_hs_type mode (HsQualTy { hst_ctxt = ctxt, hst_body = ty }) exp_kind
   = do { ctxt' <- tc_hs_context mode ctxt

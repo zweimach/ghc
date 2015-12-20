@@ -47,7 +47,7 @@ module TcType (
   -- Builders
   mkPhiTy, mkInvSigmaTy, mkSpecSigmaTy, mkSigmaTy,
   mkNakedTyConApp, mkNakedAppTys, mkNakedAppTy, mkNakedFunTy,
-  mkNakedInvSigmaTy, mkNakedSpecSigmaTy, mkNakedCastTy, mkNakedPhiTy,
+  mkNakedSpecSigmaTy, mkNakedCastTy, mkNakedPhiTy,
 
   --------------------------------
   -- Splitters
@@ -986,11 +986,6 @@ mkPhiTy = mkFunTys
 mkNakedSigmaTy :: [TyBinder] -> [PredType] -> Type -> Type
 -- See Note [Type-checking inside the knot] in TcHsType
 mkNakedSigmaTy bndrs theta tau = mkForAllTys bndrs (mkNakedPhiTy theta tau)
-
-mkNakedInvSigmaTy :: [TyVar] -> [PredType] -> Type -> Type
--- See Note [Type-checking inside the knot] in TcHsType
-mkNakedInvSigmaTy tyvars
-  = mkNakedSigmaTy (zipWith mkNamedBinder tyvars (repeat Invisible))
 
 mkNakedSpecSigmaTy :: [TyVar] -> [PredType] -> Type -> Type
 -- See Note [Type-checking inside the knot] in TcHsType
