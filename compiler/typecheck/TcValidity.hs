@@ -338,7 +338,7 @@ checkValidType ctxt ty
        -- Check for ambiguous types.  See Note [When to call checkAmbiguity]
        -- NB: this will happen even for monotypes, but that should be cheap;
        --     and there may be nested foralls for the subtype test to examine
-       ; checkAmbiguity ctxt tidy_ty
+       ; checkAmbiguity ctxt ty
 
        ; traceTc "checkValidType done" (ppr ty <+> text "::" <+> ppr (typeKind ty)) }
 
@@ -1063,7 +1063,7 @@ checkValidInstance :: UserTypeCtxt -> LHsSigType Name -> Type
 checkValidInstance ctxt hs_type ty
   | Just (clas,inst_tys) <- getClassPredTys_maybe tau
   , inst_tys `lengthIs` classArity clas
-  = do  { setSrcSpan head_loc (checkValidInstHead ctxt clas tidy_tys)
+  = do  { setSrcSpan head_loc (checkValidInstHead ctxt clas inst_tys)
         ; checkValidTheta ctxt theta
 
         -- The Termination and Coverate Conditions
@@ -1079,12 +1079,12 @@ checkValidInstance ctxt hs_type ty
         ; undecidable_ok <- xoptM LangExt.UndecidableInstances
         ; traceTc "cvi" (ppr undecidable_ok $$ ppr ty)
         ; if undecidable_ok
-          then checkAmbiguity ctxt tidy_ty
-          else checkInstTermination tidy_tys tidy_theta
+          then checkAmbiguity ctxt ty
+          else checkInstTermination inst_tys theta
 
-        ; case (checkInstCoverage undecidable_ok clas tidy_theta tidy_tys) of
+        ; case (checkInstCoverage undecidable_ok clas theta inst_tys) of
             IsValid      -> return ()   -- Check succeeded
-            NotValid msg -> addErrTc (instTypeErr clas tidy_tys msg)
+            NotValid msg -> addErrTc (instTypeErr clas inst_tys msg)
 
         ; return (tvs, theta, clas, inst_tys) }
 

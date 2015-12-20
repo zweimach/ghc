@@ -1418,15 +1418,6 @@ applyTysX tvs body_ty arg_tys
 %************************************************************************
 -}
 
--- | Do these denote the same level of visibility? Except that
--- 'Specified' and 'Invisible' are considered the same. Used
--- for printing.
-sameVis :: VisibilityFlag -> VisibilityFlag -> Bool
-sameVis Visible Visible = True
-sameVis Visible _       = False
-sameVis _       Visible = False
-sameVis _       _       = True
-
 -- | Make a named binder
 mkNamedBinder :: Var -> VisibilityFlag -> TyBinder
 mkNamedBinder = Named

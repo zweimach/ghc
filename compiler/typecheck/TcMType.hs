@@ -672,7 +672,7 @@ tauTvsForReturnTvs = mapType mapper emptyTCvSubst
       | otherwise        = return $ substTyVar env tv
 
     covar :: TCvSubst -> CoVar -> TcM Coercion
-    covar env cv = return $ mkCoVarCo cv
+    covar _ cv = return $ mkCoVarCo cv
 
     hole :: TCvSubst -> CoercionHole -> Role -> Type -> Type -> TcM Coercion
     hole env hole role ty1 ty2
@@ -681,10 +681,10 @@ tauTvsForReturnTvs = mapType mapper emptyTCvSubst
            ; return $ mkHoleCo hole role ty1' ty2' }
 
     tybinder :: TCvSubst -> TyVar -> VisibilityFlag -> TcM (TCvSubst, TyVar)
-    tybinder env tv vis
+    tybinder env tv _
       = do { k <- mapType mapper env (tyVarKind tv)
            ; let tv' = setTyVarKind tv k
-                 env' = extendTCvSubst env tv (TyVarTy tv')
+                 env' = extendTCvSubst env tv (mkTyVarTy tv')
            ; return (env', tv') }
 
 tcInstTyVars :: [TyVar] -> TcM (TCvSubst, [TcTyVar])

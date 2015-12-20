@@ -274,8 +274,8 @@ tcHsTypeApp :: LHsWcType Name -> Kind -> TcM Type
 tcHsTypeApp wc_ty kind
   | HsWC { hswc_wcs = sig_wcs, hswc_ctx = extra, hswc_body = hs_ty } <- wc_ty
   = ASSERT( isNothing extra )  -- handled in RnTypes.rnExtraConstraintWildCard
-    addSigCtxt ctxt hs_ty $
-    tcWildCardBinders wcs $ \ _ ->
+    addSigCtxt TypeAppCtxt hs_ty $
+    tcWildCardBinders sig_wcs $ \ _ ->
     do { ty <- tcCheckLHsType hs_ty kind
        ; ty <- zonkTcType ty
        ; checkValidType TypeAppCtxt ty

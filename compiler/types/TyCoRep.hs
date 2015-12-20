@@ -38,6 +38,7 @@ module TyCoRep (
         mkFunTy, mkFunTys,
         isLiftedTypeKind, isUnliftedTypeKind,
         isCoercionType, isLevityTy, isLevityVar,
+        sameVis,
 
         -- Functions over binders
         binderType, delBinderVar,
@@ -233,6 +234,15 @@ data TyBinder
 -- prohibited entirely from appearing in source Haskell ('Invisible')?
 data VisibilityFlag = Visible | Specified | Invisible
   deriving (Eq, Data.Typeable, Data.Data)
+
+-- | Do these denote the same level of visibility? Except that
+-- 'Specified' and 'Invisible' are considered the same. Used
+-- for printing.
+sameVis :: VisibilityFlag -> VisibilityFlag -> Bool
+sameVis Visible Visible = True
+sameVis Visible _       = False
+sameVis _       Visible = False
+sameVis _       _       = True
 
 instance Binary VisibilityFlag where
   put_ bh Visible   = putByte bh 0
@@ -2094,6 +2104,7 @@ ppr_tv_bndrs all_bndrs@(Named tv vis : bndrs) vis1
                                    = braces (pprTvBndrNoParens tv)
                                    | otherwise
                                    = pprTvBndr tv
+                         in
                          (bndrs', pp_tv <+> doc)
   | otherwise   = (all_bndrs, empty)
 ppr_tv_bndrs [] _ = ([], empty)

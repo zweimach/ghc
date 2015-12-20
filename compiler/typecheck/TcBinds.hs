@@ -35,7 +35,6 @@ import ConLike
 import Inst( topInstantiate, deeplyInstantiate )
 import FamInstEnv( normaliseType )
 import FamInst( tcGetFamInstEnvs )
-import Type( tidyOpenTypes, tidyOpenType )
 import TyCon
 import TcType
 import TysPrim
@@ -43,7 +42,7 @@ import TysWiredIn
 import Id
 import Var
 import VarSet
-import VarEnv( TidyEnv, emptyTidyEnv )
+import VarEnv( TidyEnv )
 import Module
 import Name
 import NameSet
@@ -935,18 +934,14 @@ chooseInferredQuantifiers inferred_theta tau_tvs qtvs
         , tv `elemVarSet` free_tvs
         , let vis | tv `elemVarSet` spec_tv_set = Specified
                   | otherwise                   = Invisible ]
-               ; let binders = [ mkNamedBinder tv vis
-                       | tv <- qtvs
-                       , tv `elemVarSet` my_tvs
-                       , let vis | tv `elemVarSet` spec_tvs = Specified
-                                 | otherwise                = Invisible ]
                           -- Pulling from qtvs maintains original order
 
 mk_impedence_match_msg :: MonoBindInfo
                        -> TcType -> TcType
                        -> TidyEnv -> TcM (TidyEnv, SDoc)
 -- This is a rare but rather awkward error messages
-mk_impedence_match_msg (name, mb_sig, _) inf_ty sig_ty tidy_env
+mk_impedence_match_msg (MBI { mbi_poly_name = name, mbi_sig = mb_sig })
+                       inf_ty sig_ty tidy_env
  = do { (tidy_env1, inf_ty) <- zonkTidyTcType tidy_env  inf_ty
       ; (tidy_env2, sig_ty) <- zonkTidyTcType tidy_env1 sig_ty
       ; let msg = vcat [ ptext (sLit "When checking that the inferred type")

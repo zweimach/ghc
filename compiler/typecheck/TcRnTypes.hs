@@ -165,6 +165,7 @@ import Outputable
 import ListSetOps
 import FastString
 import GHC.Fingerprint
+import qualified GHC.LanguageExtensions as LangExt
 
 import Control.Monad (ap, liftM, msum)
 #if __GLASGOW_HASKELL__ > 710
@@ -2768,7 +2769,7 @@ pprCtOrigin (FailablePattern pat)
 
 pprCtOrigin (Shouldn'tHappenOrigin note)
   = sdocWithDynFlags $ \dflags ->
-    if xopt Opt_ImpredicativeTypes dflags
+    if xopt LangExt.ImpredicativeTypes dflags
     then text "a situation created by impredicative types"
     else
     vcat [ text "<< This should not appear in error messages. If you see this"

@@ -47,7 +47,7 @@ module TcType (
   -- Builders
   mkPhiTy, mkInvSigmaTy, mkSpecSigmaTy, mkSigmaTy,
   mkNakedTyConApp, mkNakedAppTys, mkNakedAppTy, mkNakedFunTy,
-  mkNakedInvSigmaTy, mkNakedSpecSigamTy, mkNakedCastTy, mkNakedPhiTy,
+  mkNakedInvSigmaTy, mkNakedSpecSigmaTy, mkNakedCastTy, mkNakedPhiTy,
 
   --------------------------------
   -- Splitters
@@ -1081,8 +1081,8 @@ variables.  It's up to you to make sure this doesn't matter.
 tcSplitPiTys :: Type -> ([TyBinder], Type)
 tcSplitPiTys = splitPiTys
 
-tcSplitForAllTy_maybe :: Type -> Maybe (TyVar, Type)
-tcSplitForAllTy_maybe ty | Just ty' <- tcView ty = tcSplitForAllTy_maybe ty'
+tcSplitForAllTy_maybe :: Type -> Maybe (TyBinder, Type)
+tcSplitForAllTy_maybe ty | Just ty' <- coreView ty = tcSplitForAllTy_maybe ty'
 tcSplitForAllTy_maybe (ForAllTy tv ty) = Just (tv, ty)
 tcSplitForAllTy_maybe _                = Nothing
 

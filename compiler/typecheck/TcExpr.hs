@@ -50,6 +50,7 @@ import Name
 import RdrName
 import TyCon
 import Type
+import TysPrim        ( tYPE )
 import TcEvidence
 import VarSet
 import TysWiredIn
@@ -231,7 +232,7 @@ tcExpr (HsOverLabel l) res_ty  -- See Note [Type-checking overloaded labels]
        ; let proxy_arg = L loc (mkHsWrap (mkWpTyApps [typeSymbolKind, lbl])
                                          (HsVar (L loc proxyHashId)))
              tm = L loc (fromDict pred (HsVar (L loc var))) `HsApp` proxy_arg
-       ; tcWrapResult tm alpha res_ty }
+       ; tcWrapResult tm alpha res_ty origin }
   where
   -- Coerces a dictionary for `IsLabel "x" t` into `Proxy# x -> t`.
   fromDict pred = HsWrap $ mkWpCastR $ unwrapIP pred
@@ -369,7 +370,7 @@ tcExpr expr@(OpApp arg1 op fix arg2) res_ty
        -- so we don't need to check anything for that
        ; a2_tv <- newReturnTyVar liftedTypeKind
        ; let a2_ty = mkTyVarTy a2_tv
-       ; co_a <- unifyType (Just args2) arg2_sigma a2_ty    -- arg2_sigma ~N a2_ty
+       ; co_a <- unifyType (Just arg2) arg2_sigma a2_ty    -- arg2_sigma ~N a2_ty
 
        ; wrap_res <- tcSubTypeHR orig1 (Just expr) op_res_ty res_ty
                        -- op_res -> res
@@ -778,12 +779,15 @@ following.
 
 tcExpr expr@(RecordUpd { rupd_expr = record_expr, rupd_flds = rbnds }) res_ty
   = ASSERT( notNull rbnds )
-    do  { -- STEP -2: typecheck the record_expr, the record to bd updated
-          (record_expr', record_tau) <- tcInferFun record_expr
+    do  { -- STEP -2: typecheck the record_expr, the record to be updated
+          --          we need to instantiate any datatype tyvars
+          (record_expr', record_sigma, record_orig) <- tcInferFun record_expr
+        ; (record_wrap, record_rho) <- topInstantiate record_orig record_sigma
+               -- record_wrap :: record_sigma "->" record_rho
 
         -- STEP -1  See Note [Disambiguating record fields]
         -- After this we know that rbinds is unambiguous
-        ; rbinds <- disambiguateRecordBinds record_expr record_tau rbnds res_ty
+        ; rbinds <- disambiguateRecordBinds record_expr record_rho rbnds res_ty
         ; let upd_flds = map (unLoc . hsRecFieldLbl . unLoc) rbinds
               upd_fld_occs = map (occNameFS . rdrNameOcc . rdrNameAmbiguousFieldOcc) upd_flds
               sel_ids      = map selectorAmbiguousFieldOcc upd_flds
@@ -1133,7 +1137,7 @@ tcInferFun (L loc (HsVar (L _ name)))
 tcInferFun (L loc (HsRecFld f))
   = do { (fun, ty) <- setSrcSpan loc (tcInferRecSelId f)
                -- Don't wrap a context around a plain Id
-       ; return (L loc fun, ty) }
+       ; return (L loc fun, ty, OccurrenceOfRecSel (rdrNameAmbiguousFieldOcc f)) }
 
 tcInferFun fun
   = do { (fun, fun_ty, orig) <- tcInferSigma fun
@@ -1165,8 +1169,9 @@ tcArgs fun orig_fun_ty fun_orig orig_args herald
       = do { (wrap1, upsilon_ty) <- topInstantiateInferred fun_orig fun_ty
                -- wrap1 :: fun_ty "->" upsilon_ty
            ; case tcSplitForAllTy_maybe upsilon_ty of
-               Just (tv, inner_ty) ->
-                 ASSERT( isSpecifiedTyVar tv )
+               Just (binder, inner_ty)
+                 | Just tv <- binderVar_maybe binder ->
+                 ASSERT( binderVisibility binder == Specified )
                  do { let kind = tyVarKind tv
                     ; ty_arg <- tcHsTypeApp hs_ty_arg kind
                     ; let insted_ty = substTyWith [tv] [ty_arg] inner_ty
@@ -1326,7 +1331,7 @@ tcCheckId name res_ty
 tcCheckRecSelId :: AmbiguousFieldOcc Name -> TcRhoType -> TcM (HsExpr TcId)
 tcCheckRecSelId f@(Unambiguous _ _) res_ty
   = do { (expr, actual_res_ty) <- tcInferRecSelId f
-       ; addErrCtxtM (funResCtxt False (HsRecFld f) actual_res_ty res_ty) $
+       ; addFunResCtxt False (HsRecFld f) actual_res_ty res_ty $
          tcWrapResult expr actual_res_ty res_ty }
 tcCheckRecSelId (Ambiguous lbl _) res_ty
   = case tcSplitFunTy_maybe res_ty of
@@ -1437,7 +1442,7 @@ tcUnboundId :: OccName -> TcRhoType -> TcM (HsExpr TcId, CtOrigin)
 tcUnboundId occ res_ty
  = do { ty <- newFlexiTyVarTy liftedTypeKind
       ; name <- newSysName occ
-      ; let ev = mkLocalId name ty NoSigId
+      ; let ev = mkLocalId name ty
       ; loc <- getCtLocM HoleOrigin Nothing
       ; let can = CHoleCan { cc_ev = CtWanted { ctev_pred = ty
                                               , ctev_dest = EvVarDest ev
@@ -1517,7 +1522,9 @@ tcSeq loc fun_name args res_ty
         ; (arg1, arg2) <- case args1 of
             [ty_arg_expr2, term_arg1, term_arg2]
               | Just hs_ty_arg2 <- isLHsTypeExpr_maybe ty_arg_expr2
-              -> do { ty_arg2 <- tcHsTypeApp hs_ty_arg2 openTypeKind
+              -> do { lev_ty <- newFlexiTyVarTy levityTy
+                    ; ty_arg2 <- tcHsTypeApp hs_ty_arg2 (tYPE lev_ty)
+                                   -- see Note [Typing rule for seq]
                     ; _ <- unifyType ty_arg2 res_ty
                     ; return (term_arg1, term_arg2) }
             [term_arg1, term_arg2] -> return (term_arg1, term_arg2)

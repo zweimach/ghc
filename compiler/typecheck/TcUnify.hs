@@ -515,10 +515,10 @@ tcSubType :: Outputable a
 tcSubType ctxt maybe_thing ty_actual ty_expected
   = addSubTypeCtxt ty_actual ty_expected $
     do { traceTc "tcSubType" (vcat [ pprUserTypeCtxt ctxt
-                                   , ppr maybe_id
+                                   , ppr maybe_thing
                                    , ppr ty_actual
                                    , ppr ty_expected ])
-       ; tc_sub_type origin ctxt ty_actual ty_expected }
+       ; tc_sub_type origin origin ctxt ty_actual ty_expected }
   where
     origin = TypeEqOrigin { uo_actual   = ty_actual
                           , uo_expected = ty_expected
@@ -638,8 +638,8 @@ tc_sub_type_ds :: CtOrigin    -- used when calling uType
 tc_sub_type_ds eq_orig inst_orig ctxt ty_actual ty_expected
   = go ty_actual ty_expected
   where
-    go ty_a ty_e | Just ty_a' <- tcView ty_a = go ty_a' ty_e
-                 | Just ty_e' <- tcView ty_e = go ty_a  ty_e'
+    go ty_a ty_e | Just ty_a' <- coreView ty_a = go ty_a' ty_e
+                 | Just ty_e' <- coreView ty_e = go ty_a  ty_e'
 
     go (TyVarTy tv_a) ty_e
       = do { lookup_res <- lookupTcTyVar tv_a
@@ -679,17 +679,19 @@ tc_sub_type_ds eq_orig inst_orig ctxt ty_actual ty_expected
                            -- an arrow, it's better not to update.
                        ; let eq_orig' = case eq_orig of
                                TypeEqOrigin { uo_actual   = orig_ty_actual
-                                            , uo_expected = orig_ty_expected }
+                                            , uo_expected = orig_ty_expected
+                                            , uo_thing    = thing }
                                  |  orig_ty_actual `tcEqType` ty_actual
                                  -> TypeEqOrigin
                                       { uo_actual = rho_a
-                                      , uo_expected = orig_ty_expected }
+                                      , uo_expected = orig_ty_expected
+                                      , uo_thing    = thing }
                                _ -> eq_orig
 
                        ; cow <- uType eq_orig' TypeLevel rho_a ty_expected
                        ; return (mkWpCastN cow <.> wrap) } }
 
-    go (FunTy act_arg act_res) (FunTy exp_arg exp_res)
+    go (ForAllTy (Anon act_arg) act_res) (ForAllTy (Anon exp_arg) exp_res)
       | not (isPredTy act_arg)
       , not (isPredTy exp_arg)
       = -- See Note [Co/contra-variance of subsumption checking]
@@ -713,7 +715,7 @@ tc_sub_type_ds eq_orig inst_orig ctxt ty_actual ty_expected
            ; return (mkWpCastN cow) }
 
      -- use versions without synonyms expanded
-    unify = uType eq_orig ty_actual ty_expected
+    unify = uType eq_orig TypeLevel ty_actual ty_expected
 
 -----------------
 tcWrapResult :: HsExpr TcId -> TcSigmaType -> TcRhoType -> CtOrigin

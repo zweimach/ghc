@@ -157,7 +157,7 @@ topInstantiate :: CtOrigin -> TcSigmaType -> TcM (HsWrapper, TcRhoType)
 -- then  wrap e :: rho
 topInstantiate = top_instantiate True
 
--- | Instantiate all outer *inferred* type variables
+-- | Instantiate all outer 'Invisible' binders
 -- and any context. Never looks through arrows or specified type variables.
 -- Used for visible type application.
 topInstantiateInferred :: CtOrigin -> TcSigmaType
@@ -170,14 +170,14 @@ topInstantiateInferred = top_instantiate False
 top_instantiate :: Bool   -- True <=> instantiate *all* variables
                 -> CtOrigin -> TcSigmaType -> TcM (HsWrapper, TcRhoType)
 top_instantiate inst_all orig ty
-  | not (null tvs && null theta)
-  = do { let (inst_tvs, leave_tvs)     = span should_inst tvs
+  | not (null binders && null theta)
+  = do { let (inst_bndrs, leave_bndrs) = span should_inst binders
              (inst_theta, leave_theta)
-               | null leave_tvs = (theta, [])
-               | otherwise      = ([], theta)
-       ; (subst, inst_tvs') <- tcInstTyVars inst_tvs
+               | null leave_bndrs = (theta, [])
+               | otherwise        = ([], theta)
+       ; (subst, inst_tvs') <- tcInstTyVars (map (binderVar "top_inst") inst_bndrs)
        ; let inst_theta' = substTheta subst inst_theta
-             sigma'      = substTy    subst (mkForAllTys leave_tvs $
+             sigma'      = substTy    subst (mkForAllTys leave_bndrs $
                                              mkFunTys leave_theta rho)
 
        ; wrap1 <- instCall orig (mkTyVarTys inst_tvs') inst_theta'
@@ -189,7 +189,7 @@ top_instantiate inst_all orig ty
                        , text "theta:" <+>  ppr inst_theta' ])
 
        ; (wrap2, rho2) <-
-           if null leave_tvs
+           if null leave_bndrs
 
          -- account for types like forall a. Num a => forall b. Ord b => ...
            then top_instantiate inst_all orig sigma'
@@ -201,11 +201,12 @@ top_instantiate inst_all orig ty
 
   | otherwise = return (idHsWrapper, ty)
   where
-    (tvs, theta, rho) = tcSplitSigmaTy ty
+    (binders, phi) = tcSplitNamedPiTys ty
+    (theta, rho)   = tcSplitPhiTy phi
 
-    should_inst
-      | inst_all  = const True
-      | otherwise = isInferredTyVar
+    should_inst bndr
+      | inst_all  = True
+      | otherwise = binderVisibility bndr == Invisible
 
 deeplyInstantiate :: CtOrigin -> TcSigmaType -> TcM (HsWrapper, TcRhoType)
 --   Int -> forall a. a -> a  ==>  (\x:Int. [] x alpha) :: Int -> alpha

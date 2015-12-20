@@ -217,7 +217,7 @@ dsHsBind dflags
         -- Note [Desugar Strict binds]
         ; (exported_force_vars, extra_exports) <- get_exports local_force_vars
 
-        ; let mk_bind (ABE { abe_inst_warp = inst_wrap, wrap = wrap
+        ; let mk_bind (ABE { abe_inst_wrap = inst_wrap, abe_wrap = wrap
                            , abe_poly = global
                            , abe_mono = local, abe_prags = spec_prags })
                          -- See Note [AbsBinds wrappers] in HsBinds
@@ -286,6 +286,7 @@ dsHsBind dflags
          return (ABE {abe_poly = global
                      ,abe_mono = local
                      ,abe_wrap = WpHole
+                     ,abe_inst_wrap = WpHole
                      ,abe_prags = SpecPrags []})
 
 dsHsBind _ (PatSynBind{}) = panic "dsHsBind: PatSynBind"
