@@ -1426,14 +1426,6 @@ mkNamedBinder = Named
 mkAnonBinder :: Type -> TyBinder
 mkAnonBinder = Anon
 
-isNamedBinder :: TyBinder -> Bool
-isNamedBinder (Named {}) = True
-isNamedBinder _          = False
-
-isAnonBinder :: TyBinder -> Bool
-isAnonBinder (Anon {}) = True
-isAnonBinder _         = False
-
 -- | Does this binder bind a variable that is /not/ erased? Returns
 -- 'True' for anonymous binders.
 isIdLikeBinder :: TyBinder -> Bool
@@ -1451,15 +1443,6 @@ binderVisibility (Named _ vis) = vis
 binderVisibility (Anon ty)
   | isVisibleType ty = Visible
   | otherwise        = Invisible
-
--- | Does this binder bind an invisible argument?
-isInvisibleBinder :: TyBinder -> Bool
-isInvisibleBinder (Named _ vis) = vis /= Visible
-isInvisibleBinder (Anon ty)     = isPredTy ty
-
--- | Does this binder bind a visible argument?
-isVisibleBinder :: TyBinder -> Bool
-isVisibleBinder = not . isInvisibleBinder
 
 -- | Extract a bound variable in a binder, if any
 binderVar_maybe :: TyBinder -> Maybe Var

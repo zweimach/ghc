@@ -41,7 +41,8 @@ module TyCoRep (
         sameVis,
 
         -- Functions over binders
-        binderType, delBinderVar,
+        binderType, delBinderVar, isInvisibleBinder, isVisibleBinder,
+        isNamedBinder, isAnonBinder,
 
         -- Functions over coercions
         pickLR,
@@ -415,6 +416,23 @@ delBinderVar vars (Anon {})    = vars
 delBinderVarFV :: TyBinder -> FV -> FV
 delBinderVarFV (Named tv _) vars fv_cand in_scope acc = delFV tv vars fv_cand in_scope acc
 delBinderVarFV (Anon {})    vars fv_cand in_scope acc = vars fv_cand in_scope acc
+
+-- | Does this binder bind an invisible argument?
+isInvisibleBinder :: TyBinder -> Bool
+isInvisibleBinder (Named _ vis) = vis /= Visible
+isInvisibleBinder (Anon ty)     = isPredTy ty
+
+-- | Does this binder bind a visible argument?
+isVisibleBinder :: TyBinder -> Bool
+isVisibleBinder = not . isInvisibleBinder
+
+isNamedBinder :: TyBinder -> Bool
+isNamedBinder (Named {}) = True
+isNamedBinder _          = False
+
+isAnonBinder :: TyBinder -> Bool
+isAnonBinder (Anon {}) = True
+isAnonBinder _         = False
 
 -- | Create the plain type constructor type which has been applied to no type arguments at all.
 mkTyConTy :: TyCon -> Type
@@ -2008,10 +2026,11 @@ ppr_type _ (CoercionTy co)
 
 ppr_forall_type :: TyPrec -> Type -> SDoc
 ppr_forall_type p ty
-  = maybeParen p FunPrec $ ppr_sigma_type True ty
+  = maybeParen p FunPrec $
+    sdocWithDynFlags $ \dflags ->
+    ppr_sigma_type dflags True ty
     -- True <=> we always print the foralls on *nested* quantifiers
     -- Opt_PrintExplicitForalls only affects top-level quantifiers
-    -- False <=> we don't print an extra-constraints wildcard
 
 ppr_tvar :: TyVar -> SDoc
 ppr_tvar tv  -- Note [Infix type variables]
@@ -2035,13 +2054,27 @@ if_print_coercions yes no
     else no
 
 -------------------
-ppr_sigma_type :: Bool -> Type -> SDoc
--- First Bool <=> Show the foralls unconditionally
--- Second Bool <=> Show an extra-constraints wildcard
-ppr_sigma_type show_foralls_unconditionally ty
-  = sep [ if   show_foralls_unconditionally
-          then pprForAll bndrs
-          else pprUserForAll bndrs
+ppr_sigma_type :: DynFlags
+               -> Bool -- ^ True <=> Show the foralls unconditionally
+               -> Type -> SDoc
+-- Suppose we have (forall a. Show a => forall b. a -> b). When we're not
+-- printing foralls, we want to drop both the (forall a) and the (forall b).
+-- This logic does so.
+ppr_sigma_type dflags False orig_ty
+  | not (gopt Opt_PrintExplicitForalls dflags)
+  , all (isEmptyVarSet . tyCoVarsOfType . binderType) named
+      -- See Note [When to print foralls]
+  = sep [ pprThetaArrowTy (map binderType ctxt)
+        , pprArrowChain TopPrec (ppr_fun_tail tau) ]
+  where
+    (invis_bndrs, tau) = split [] orig_ty
+    (named, ctxt)      = partition isNamedBinder invis_bndrs
+
+    split acc (ForAllTy bndr ty) | isInvisibleBinder bndr = split (bndr:acc) ty
+    split acc ty                                          = (reverse acc, ty)
+
+ppr_sigma_type _ _ ty
+  = sep [ pprForAll bndrs
         , pprThetaArrowTy ctxt
         , pprArrowChain TopPrec (ppr_fun_tail tau) ]
   where
@@ -2055,12 +2088,13 @@ ppr_sigma_type show_foralls_unconditionally ty
     split2 ps ty                                       = (reverse ps, ty)
 
     -- We don't want to lose synonyms, so we mustn't use splitFunTys here.
-    ppr_fun_tail (ForAllTy (Anon ty1) ty2)
-      | not (isPredTy ty1) = ppr_type FunPrec ty1 : ppr_fun_tail ty2
-    ppr_fun_tail other_ty = [ppr_type TopPrec other_ty]
+ppr_fun_tail :: Type -> [SDoc]
+ppr_fun_tail (ForAllTy (Anon ty1) ty2)
+  | not (isPredTy ty1) = ppr_type FunPrec ty1 : ppr_fun_tail ty2
+ppr_fun_tail other_ty = [ppr_type TopPrec other_ty]
 
 pprSigmaType :: Type -> SDoc
-pprSigmaType ty = ppr_sigma_type False ty
+pprSigmaType ty = sdocWithDynFlags $ \dflags -> ppr_sigma_type dflags False ty
 
 pprUserForAll :: [TyBinder] -> SDoc
 -- Print a user-level forall; see Note [When to print foralls]
@@ -2100,10 +2134,11 @@ ppr_tv_bndrs :: [TyBinder]
              -> ([TyBinder], SDoc)
 ppr_tv_bndrs all_bndrs@(Named tv vis : bndrs) vis1
   | vis `sameVis` vis1 = let (bndrs', doc) = ppr_tv_bndrs bndrs vis1
-                             pp_tv | Invisible <- vis
-                                   = braces (pprTvBndrNoParens tv)
-                                   | otherwise
-                                   = pprTvBndr tv
+                             pp_tv = sdocWithDynFlags $ \dflags ->
+                                     if Invisible == vis &&
+                                        gopt Opt_PrintExplicitForalls dflags
+                                     then braces (pprTvBndrNoParens tv)
+                                     else pprTvBndr tv
                          in
                          (bndrs', pp_tv <+> doc)
   | otherwise   = (all_bndrs, empty)
