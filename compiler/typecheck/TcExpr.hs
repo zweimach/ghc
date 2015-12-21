@@ -1823,7 +1823,7 @@ See also Note [HsRecField and HsRecUpdField] in HsPat.
 -- of its argument, try to determine the name of the selector that is
 -- meant.
 disambiguateSelector :: Located RdrName -> Type -> TcM Name
-disambiguateSelector lr@(L _rdr) parent_type
+disambiguateSelector lr@(L _ rdr) parent_type
  = do { fam_inst_envs <- tcGetFamInstEnvs
       ; case tyConOf fam_inst_envs parent_type of
           Nothing -> ambiguousSelector lr
