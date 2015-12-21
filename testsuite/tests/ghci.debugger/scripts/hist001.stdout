@@ -12,20 +12,20 @@ _result :: [a] = _
 -9  : mymap (../Test3.hs:(1,1)-(2,31))
 <end of history>
 Logged breakpoint at ../Test3.hs:(1,1)-(2,31)
-_result :: [a]
-_result :: [a] = _
+_result :: [a2]
+_result :: [a2] = _
 Logged breakpoint at ../Test3.hs:2:22-31
-_result :: [a]
-f :: t -> a
+_result :: [a2]
+f :: t -> a2
 xs :: [t]
 xs :: [t] = []
-f :: t -> a = _
-_result :: [a] = _
+f :: t -> a2 = _
+_result :: [a2] = _
 *** Ignoring breakpoint
 _result = []
 Logged breakpoint at ../Test3.hs:2:18-20
-_result :: a
-f :: Integer -> a
+_result :: a2
+f :: Integer -> a2
 x :: Integer
 Logged breakpoint at ../Test3.hs:2:22-31
-_result :: [a]
+_result :: [a2]

@@ -48,7 +48,7 @@ end Rec }
 
 -- RHS size: {terms: 24, types: 13, coercions: 0}
 T4908.$wf [InlPrag=[0]] :: Int# -> (Int, Int) -> Bool
-[GblId[sig],
+[GblId,
  Arity=2,
  Caf=NoCafRefs,
  Str=DmdType <S,1*U><L,1*U(A,U(U))>,
@@ -71,7 +71,7 @@ T4908.$wf =
 
 -- RHS size: {terms: 8, types: 6, coercions: 0}
 f [InlPrag=INLINE[0]] :: Int -> (Int, Int) -> Bool
-[GblId[sig],
+[GblId,
  Arity=2,
  Caf=NoCafRefs,
  Str=DmdType <S(S),1*U(1*U)><L,1*U(A,U(U))>,

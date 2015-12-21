@@ -19,7 +19,7 @@ T9400.$trModule = GHC.Types.Module a a1
 
 -- RHS size: {terms: 22, types: 15, coercions: 0}
 main :: IO ()
-[GblId[sig], Str=DmdType]
+[GblId, Str=DmdType]
 main =
   >>
     @ IO

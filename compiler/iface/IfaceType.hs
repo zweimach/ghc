@@ -720,7 +720,10 @@ pprIfaceForAllCoBndrs :: [(IfLclName, IfaceCoercion)] -> SDoc
 pprIfaceForAllCoBndrs bndrs = hsep $ map pprIfaceForAllCoBndr bndrs
 
 pprIfaceForAllBndr :: IfaceForAllBndr -> SDoc
-pprIfaceForAllBndr (IfaceTv tv Invisible) = braces $ pprIfaceTvBndr tv
+pprIfaceForAllBndr (IfaceTv tv Invisible) = sdocWithDynFlags $ \dflags ->
+                                            if gopt Opt_PrintExplicitForalls dflags
+                                            then braces $ pprIfaceTvBndr tv
+                                            else pprIfaceTvBndr tv
 pprIfaceForAllBndr (IfaceTv tv _)         = pprIfaceTvBndr tv
 
 pprIfaceForAllCoBndr :: (IfLclName, IfaceCoercion) -> SDoc

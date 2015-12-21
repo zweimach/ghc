@@ -1,5 +1,5 @@
 
 NamedExtraConstraintsWildcard.hs:4:15: error:
-    Named wildcard ‘_a’ not allowed as an extra-contraint
+    Named wildcard ‘_a’ not allowed as an extra-constraint
       Use an anonymous wildcard instead
       in the type signature for ‘foo’

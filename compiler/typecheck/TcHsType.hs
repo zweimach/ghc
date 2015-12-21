@@ -1291,12 +1291,15 @@ kcHsTyVarBndrs cusk (HsQTvs { hsq_implicit = kv_ns
     do { (full_kind, _, stuff) <- bind_telescope hs_tvs (thing_inside kvs)
        ; let qkvs = filter (not . isMetaTyVar) $
                     tyCoVarsOfTypeWellScoped full_kind
+                      -- these have to be the vars made with new_skolem_tv
+                      -- above. Thus, they are known to the user and should
+                      -- be Specified, not Invisible, when kind-generalizing
 
                 -- the free non-meta variables in the returned kind will
                 -- contain both *mentioned* kind vars and *unmentioned* kind
                 -- vars (See case (1) under Note [Typechecking telescopes])
              gen_kind  = if cusk
-                         then mkInvForAllTys qkvs $ full_kind
+                         then mkSpecForAllTys qkvs $ full_kind
                          else full_kind
        ; return (gen_kind, stuff) } }
   where

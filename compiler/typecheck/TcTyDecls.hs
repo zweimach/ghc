@@ -948,14 +948,12 @@ mkOneRecordSelector all_cons idDetails fl
 
     -- Selector type; Note [Polymorphic selectors]
     field_ty   = conLikeFieldType con1 lbl
-    data_tvs   = filter (`notElemTCvSubst` eq_subst) univ_tvs
+    data_tvs   = tyCoVarsOfTypeWellScoped data_ty
     data_tv_set= mkVarSet data_tvs
     is_naughty = not (tyCoVarsOfType field_ty `subVarSet` data_tv_set)
     (field_tvs, field_theta, field_tau) = tcSplitSigmaTy field_ty
     sel_ty | is_naughty = unitTy  -- See Note [Naughty record selectors]
-           | otherwise  = ASSERT( tyCoVarsOfType data_ty `subVarSet`
-                                  data_tv_set )
-                          mkSpecForAllTys data_tvs          $
+           | otherwise  = mkSpecForAllTys data_tvs          $
                           mkPhiTy (conLikeStupidTheta con1) $   -- Urgh!
                           mkFunTy data_ty                   $
                           mkSpecForAllTys field_tvs         $

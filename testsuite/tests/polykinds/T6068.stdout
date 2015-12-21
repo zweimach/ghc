@@ -1,1 +1,1 @@
-exists Nothing :: Floop a0 mp0 => Existential mp0
+exists Nothing :: Floop a mp => Existential mp

@@ -1,27 +1,28 @@
 
 T10438.hs:7:22: warning:
-    Found type wildcard ‘_’ standing for ‘t1’
-    Where: ‘t1’ is a rigid type variable bound by
-                the inferred type of g :: t1 -> t1 at T10438.hs:6:9
-    Relevant bindings include
-      r :: t1 (bound at T10438.hs:6:11)
-      g :: t1 -> t1 (bound at T10438.hs:6:9)
-      f :: r0 (bound at T10438.hs:5:5)
-      foo :: r0 -> forall t0. t0 -> t0 (bound at T10438.hs:5:1)
-    In the type signature for:
-      x :: _
-    In an equation for ‘g’:
-        g r
-          = x
-          where
-              x :: _
-              x = r
-    In an equation for ‘foo’:
-        foo f
-          = g
-          where
-              g r
-                = x
-                where
-                    x :: _
-                    x = r
+    • Found type wildcard ‘_’ standing for ‘r2’
+      Where: ‘r2’ is a rigid type variable bound by
+               the inferred type of g :: r2 -> r2 at T10438.hs:6:9
+    • In the type signature:
+        x :: _
+      In an equation for ‘g’:
+          g r
+            = x
+            where
+                x :: _
+                x = r
+      In an equation for ‘foo’:
+          foo f
+            = g
+            where
+                g r
+                  = x
+                  where
+                      x :: _
+                      x = r
+    • Relevant bindings include
+        x :: r2 (bound at T10438.hs:8:17)
+        r :: r2 (bound at T10438.hs:6:11)
+        g :: r2 -> r2 (bound at T10438.hs:6:9)
+        f :: r (bound at T10438.hs:5:5)
+        foo :: r -> forall r1. r1 -> r1 (bound at T10438.hs:5:1)

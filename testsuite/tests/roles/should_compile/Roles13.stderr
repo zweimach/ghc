@@ -64,7 +64,7 @@ a6 = \ (ds :: Wrap Age) -> ds
 
 -- RHS size: {terms: 1, types: 0, coercions: 5}
 convert :: Wrap Age -> Int
-[GblId[sig], Arity=1, Caf=NoCafRefs, Str=DmdType]
+[GblId, Arity=1, Caf=NoCafRefs, Str=DmdType]
 convert =
   a6
   `cast` (<Wrap Age>_R -> Roles13.NTCo:Wrap[0] Roles13.NTCo:Age[0]

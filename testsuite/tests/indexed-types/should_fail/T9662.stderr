@@ -1,102 +1,35 @@
 
-T9662.hs:46:4: error:
-    Couldn't match type ‘k’ with ‘m’
-    ‘k’ is a rigid type variable bound by
+T9662.hs:47:8: error:
+    • Couldn't match type ‘k’ with ‘Int’
+      ‘k’ is a rigid type variable bound by
         the type signature for:
+          test :: forall sh k m n.
+                  Shape (((sh :. k) :. m) :. n) -> Shape (((sh :. m) :. n) :. k)
+        at T9662.hs:44:9
+      Expected type: Exp (((sh :. m) :. n) :. k)
+                     -> Exp (((sh :. m) :. n) :. k)
+        Actual type: Exp
+                       (Tuple (((Atom a0 :. Atom Int) :. Atom Int) :. Atom Int))
+                     -> Exp
+                          (Plain (((Unlifted (Atom a0) :. Exp Int) :. Exp Int) :. Exp Int))
+    • In the first argument of ‘backpermute’, namely
+        ‘(modify
+            (atom :. atom :. atom :. atom)
+            (\ (sh :. k :. m :. n) -> (sh :. m :. n :. k)))’
+      In the expression:
+        backpermute
+          (modify
+             (atom :. atom :. atom :. atom)
+             (\ (sh :. k :. m :. n) -> (sh :. m :. n :. k)))
+          id
+      In an equation for ‘test’:
+          test
+            = backpermute
+                (modify
+                   (atom :. atom :. atom :. atom)
+                   (\ (sh :. k :. m :. n) -> (sh :. m :. n :. k)))
+                id
+    • Relevant bindings include
         test :: Shape (((sh :. k) :. m) :. n)
                 -> Shape (((sh :. m) :. n) :. k)
-        at T9662.hs:44:9
-    ‘m’ is a rigid type variable bound by
-        the type signature for:
-        test :: Shape (((sh :. k) :. m) :. n)
-                -> Shape (((sh :. m) :. n) :. k)
-        at T9662.hs:44:9
-    Expected type: Shape (((sh :. k) :. m) :. n)
-                   -> Shape (((sh :. m) :. n) :. k)
-      Actual type: Shape (((sh :. m) :. n) :. k)
-                   -> Shape (((sh :. m) :. n) :. k)
-    Relevant bindings include
-      test :: Shape (((sh :. k) :. m) :. n)
-              -> Shape (((sh :. m) :. n) :. k)
-        (bound at T9662.hs:45:1)
-    In the expression:
-      backpermute
-        (modify
-           (atom :. atom :. atom :. atom)
-           (\ (sh :. k :. m :. n) -> (sh :. m :. n :. k)))
-        id
-    In an equation for ‘test’:
-        test
-          = backpermute
-              (modify
-                 (atom :. atom :. atom :. atom)
-                 (\ (sh :. k :. m :. n) -> (sh :. m :. n :. k)))
-              id
-
-T9662.hs:46:4: error:
-    Couldn't match type ‘m’ with ‘n’
-    ‘m’ is a rigid type variable bound by
-        the type signature for:
-        test :: Shape (((sh :. k) :. m) :. n)
-                -> Shape (((sh :. m) :. n) :. k)
-        at T9662.hs:44:9
-    ‘n’ is a rigid type variable bound by
-        the type signature for:
-        test :: Shape (((sh :. k) :. m) :. n)
-                -> Shape (((sh :. m) :. n) :. k)
-        at T9662.hs:44:9
-    Expected type: Shape (((sh :. k) :. m) :. n)
-                   -> Shape (((sh :. m) :. n) :. k)
-      Actual type: Shape (((sh :. m) :. n) :. k)
-                   -> Shape (((sh :. m) :. n) :. k)
-    Relevant bindings include
-      test :: Shape (((sh :. k) :. m) :. n)
-              -> Shape (((sh :. m) :. n) :. k)
-        (bound at T9662.hs:45:1)
-    In the expression:
-      backpermute
-        (modify
-           (atom :. atom :. atom :. atom)
-           (\ (sh :. k :. m :. n) -> (sh :. m :. n :. k)))
-        id
-    In an equation for ‘test’:
-        test
-          = backpermute
-              (modify
-                 (atom :. atom :. atom :. atom)
-                 (\ (sh :. k :. m :. n) -> (sh :. m :. n :. k)))
-              id
-
-T9662.hs:46:4: error:
-    Couldn't match type ‘n’ with ‘k’
-    ‘n’ is a rigid type variable bound by
-        the type signature for:
-        test :: Shape (((sh :. k) :. m) :. n)
-                -> Shape (((sh :. m) :. n) :. k)
-        at T9662.hs:44:9
-    ‘k’ is a rigid type variable bound by
-        the type signature for:
-        test :: Shape (((sh :. k) :. m) :. n)
-                -> Shape (((sh :. m) :. n) :. k)
-        at T9662.hs:44:9
-    Expected type: Shape (((sh :. k) :. m) :. n)
-                   -> Shape (((sh :. m) :. n) :. k)
-      Actual type: Shape (((sh :. m) :. n) :. k)
-                   -> Shape (((sh :. m) :. n) :. k)
-    Relevant bindings include
-      test :: Shape (((sh :. k) :. m) :. n)
-              -> Shape (((sh :. m) :. n) :. k)
-        (bound at T9662.hs:45:1)
-    In the expression:
-      backpermute
-        (modify
-           (atom :. atom :. atom :. atom)
-           (\ (sh :. k :. m :. n) -> (sh :. m :. n :. k)))
-        id
-    In an equation for ‘test’:
-        test
-          = backpermute
-              (modify
-                 (atom :. atom :. atom :. atom)
-                 (\ (sh :. k :. m :. n) -> (sh :. m :. n :. k)))
-              id
+          (bound at T9662.hs:45:1)
