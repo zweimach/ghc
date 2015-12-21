@@ -1,4 +1,4 @@
 
-as-pattern.hs:4:18:
-    Pattern synonym definition cannot contain as-patterns (@):
+as-pattern.hs:4:18: error:
+    Pattern synonym definition cannot contain as-patterns (@) which contain free variables:
       x@(Just y)

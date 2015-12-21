@@ -128,3 +128,6 @@ test('SigTvKinds', normal, compile, [''])
 test('SigTvKinds2', expect_broken(11203), compile_fail, [''])
 test('T9017', normal, compile_fail, [''])
 test('TidyClassKinds', normal, compile_fail, ['-fprint-explicit-kinds'])
+test('T11249', normal, compile, [''])
+test('T11248', normal, compile, [''])
+

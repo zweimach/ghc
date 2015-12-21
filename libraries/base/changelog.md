@@ -34,15 +34,7 @@
 
   * New `GHC.Generics.packageName` operation
 
-  * New `GHC.Stack.Types` module now contains the definition of
-    `CallStack` and `SrcLoc`
-
-  * New `GHC.Stack.Types.pushCallStack` function pushes a call-site onto a `CallStack`
-
-  * `GHC.SrcLoc` has been removed
-
-  * `GHC.Stack.showCallStack` and `GHC.SrcLoc.showSrcLoc` are now called
-    `GHC.Stack.prettyCallStack` and `GHC.Stack.prettySrcLoc` respectively
+  * New `GHC.Stack.CallStack` data type
 
   * `Complex` now has `Generic`, `Generic1`, `Functor`, `Foldable`, `Traversable`,
     `Applicative`, and `Monad` instances
@@ -72,6 +64,10 @@
 
   * New module `Control.Monad.IO.Class` (previously provided by `transformers`
     package). (#10773)
+
+  * New modules `Data.Functor.Classes`, `Data.Functor.Compose`,
+    `Data.Functor.Product`, and `Data.Functor.Sum` (previously provided by
+    `transformers` package). (#11135)
 
   * New module `Control.Monad.Fail` providing new `MonadFail(fail)`
     class (#10751)
@@ -104,6 +100,21 @@
 
   * Redesign `GHC.Generics` to use type-level literals to represent the
     metadata of generic representation types (#9766)
+
+  * The `IsString` instance for `[Char]` has been modified to eliminate
+    ambiguity arising from overloaded strings and functions like `(++)`.
+
+  * Move `Const` from `Control.Applicative` to its own module in
+   `Data.Functor.Const`. (#11135)
+
+  * Enable `PolyKinds` in the `Data.Functor.Const` module to give `Const`
+    the kind `* -> k -> *`. (#10039)
+
+  * Re-export `Const` from `Control.Applicative` for backwards compatibility.
+
+  * Expand `Floating` class to include operations that allow for better
+    precision: `log1p`, `expm1`, `log1pexp` and `log1mexp`. These are not
+    available from `Prelude`, but the full class is exported from `Numeric`.
 
 ## 4.8.2.0  *Oct 2015*
 

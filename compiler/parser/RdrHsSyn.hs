@@ -465,8 +465,9 @@ recordPatSynErr loc pat =
 mkPatSynMatchGroup :: Located RdrName
                    -> Located (OrdList (LHsDecl RdrName))
                    -> P (MatchGroup RdrName (LHsExpr RdrName))
-mkPatSynMatchGroup (L _ patsyn_name) (L _ decls) =
+mkPatSynMatchGroup (L loc patsyn_name) (L _ decls) =
     do { matches <- mapM fromDecl (fromOL decls)
+       ; when (length matches /= 1) (wrongNumberErr loc)
        ; return $ mkMatchGroup FromSource matches }
   where
     fromDecl (L loc decl@(ValD (PatBind pat@(L _ (ConPatIn (L _ name) details)) rhs _ _ _))) =
@@ -489,6 +490,11 @@ mkPatSynMatchGroup (L _ patsyn_name) (L _ decls) =
         parseErrorSDoc loc $
         text "pattern synonym 'where' clause must bind the pattern synonym's name" <+>
         quotes (ppr patsyn_name) $$ ppr decl
+
+    wrongNumberErr loc =
+      parseErrorSDoc loc $
+      text "pattern synonym 'where' clause can not be empty." $$
+      text "In the pattern synonym declaration for: " <+> ppr (patsyn_name)
 
 mkConDeclH98 :: Located RdrName -> Maybe [LHsTyVarBndr RdrName]
                 -> LHsContext RdrName -> HsConDeclDetails RdrName
@@ -633,6 +639,7 @@ eitherToP :: Either (SrcSpan, SDoc) a -> P a
 -- Adapts the Either monad to the P monad
 eitherToP (Left (loc, doc)) = parseErrorSDoc loc doc
 eitherToP (Right thing)     = return thing
+
 checkTyVars :: SDoc -> SDoc -> Located RdrName -> [LHsType RdrName]
             -> Either (SrcSpan, SDoc) (LHsQTyVars RdrName)
 -- Check whether the given list of type parameters are all type variables
@@ -1405,7 +1412,7 @@ checkImportSpec ie@(L _ specs) =
 mkImpExpSubSpec :: [Located (Maybe RdrName)] -> P ([AddAnn], ImpExpSubSpec)
 mkImpExpSubSpec [] = return ([], ImpExpList [])
 mkImpExpSubSpec [L l Nothing] =
-  return ([\s -> addAnnotation l AnnDotdot s], ImpExpAll)
+  return ([\s -> addAnnotation s AnnDotdot l], ImpExpAll)
 mkImpExpSubSpec xs =
   if (any (isNothing . unLoc) xs)
     then return $ ([], ImpExpAllWith xs)

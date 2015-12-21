@@ -1903,6 +1903,21 @@ commonly used commands.
     available, or otherwise the module will be compiled to byte-code.
     Using the ``*`` prefix forces the module to be loaded as byte-code.
 
+``:all-types``
+    .. index::
+       single: :all-types
+
+    List all types collected for expressions and (local) bindings
+    currently loaded (while :ref:`+c` was active) with their respective
+    source-code span, e.g.
+
+    ::
+
+       GhciTypes> :all-types
+       GhciTypes.hs:(38,13)-(38,24): Maybe Id
+       GhciTypes.hs:(45,10)-(45,29): Outputable SpanInfo
+       GhciTypes.hs:(45,10)-(45,29): (Rational -> SpanInfo -> SDoc) -> Outputable SpanInfo
+
 ``:back ⟨n⟩``
     .. index::
        single: :back
@@ -2301,6 +2316,23 @@ commonly used commands.
 
     -  ``Prelude`` otherwise.
 
+``:loc-at ⟨module⟩ ⟨line⟩ ⟨col⟩ ⟨end-line⟩ ⟨end-col⟩ [⟨name⟩]``
+    .. index::
+       single: :loc-at
+
+    Tries to find the definition site of the name at the given
+    source-code span, e.g.:
+
+    ::
+
+        X> :loc-at X.hs 6 14 6 16 mu
+        X.hs:(8,7)-(8,9)
+
+    This command is useful when integrating GHCi with text editors and
+    IDEs for providing a goto-definition facility.
+
+    The ``:loc-at`` command requires :ref:`+c` to be set.
+
 ``:main ⟨arg1⟩ ... ⟨argn⟩``
     .. index::
        single: :main
@@ -2599,6 +2631,26 @@ commonly used commands.
     restriction is *not* applied to the expression during type
     inference.
 
+``:type-at ⟨module⟩ ⟨line⟩ ⟨col⟩ ⟨end-line⟩ ⟨end-col⟩ [⟨name⟩]``
+    .. index::
+       single: :type-at
+
+    Reports the inferred type at the given span/position in the module, e.g.:
+
+    ::
+
+       *X> :type-at X.hs 6 6 6 7 f
+       Int -> Int
+
+    This command is useful when integrating GHCi with text editors and
+    IDEs for providing a show-type-under-point facility.
+
+    The last string parameter is useful for when the span is out of
+    date, i.e. the file changed and the code has moved. In which case
+    ``:type-at`` falls back to a general :ref:`:type` like lookup.
+
+    The ``:type-at`` command requires :ref:`+c` to be set.
+
 ``:undef ⟨name⟩``
     .. index::
        single: :undef
@@ -2611,6 +2663,26 @@ commonly used commands.
 
     Unsets certain options. See :ref:`ghci-set` for a list of available
     options.
+
+``:uses ⟨module⟩ ⟨line⟩ ⟨col⟩ ⟨end-line⟩ ⟨end-col⟩ [⟨name⟩]``
+    .. index::
+       single: :uses
+
+    Reports all module-local uses of the thing at the given position
+    in the module, e.g.:
+
+    ::
+
+       :uses GhciFind.hs 53 66 53 70 name
+       GhciFind.hs:(46,25)-(46,29)
+       GhciFind.hs:(47,37)-(47,41)
+       GhciFind.hs:(53,66)-(53,70)
+       GhciFind.hs:(57,62)-(57,66)
+
+    This command is useful for highlighting and navigating all uses of
+    an identifier in editors and IDEs.
+
+    The ``:type-at`` command requires :ref:`+c` to be set.
 
 ``:! ⟨command⟩``
     .. index::
@@ -2648,6 +2720,14 @@ GHCi options
 GHCi options may be set using ``:set`` and unset using ``:unset``.
 
 The available GHCi options are:
+
+``+c``
+    .. index::
+       single: +c
+
+    Collect type and location information after loading modules.
+    The commands :ref:`:all-types`, :ref:`loc-at`, :ref:`type-at`,
+    and :ref:`uses` require ``+c`` to be active.
 
 ``+m``
     .. index::
@@ -2937,6 +3017,47 @@ There are disadvantages to compiling to object-code: you can't set
 breakpoints in object-code modules, for example. Only the exports of an
 object-code module will be visible in GHCi, rather than all top-level
 bindings as in interpreted modules.
+
+.. _external-interpreter:
+
+Running the interpreter in a separate process
+---------------------------------------------
+
+Normally GHCi runs the interpreted code in the same process as GHC
+itself, on top of the same RTS and sharing the same heap.  However, if
+the flag ``-fexternal-interpreter`` is given, then GHC will spawn a
+separate process for running interpreted code, and communicate with it
+using messages over a pipe.
+
+``-fexternal-interpreter``
+    .. index::
+       single: -fexternal-interpreter
+
+    Run interpreted code (for GHCi, Template Haskell, Quasi-quoting,
+    or Annotations) in a separate process.  The interpreter will run
+    in profiling mode if ``-prof`` is in effect, and in
+    dynamically-linked mode if ``-dynamic`` is in effect.
+
+    There are a couple of caveats that will hopefully be removed in
+    the future: this option is currently not implemented on Windows
+    (it is a no-op), and the external interpreter does not support the
+    GHCi debugger, so breakpoints and single-stepping don't work with
+    ``-fexternal-interpreter``.
+
+    See also the ``-pgmi`` (:ref:`replacing-phases`) and ``-opti``
+    (:ref:`forcing-options-through`) flags.
+
+Why might we want to do this?  The main reason is that the RTS running
+the interpreted code can be a different flavour (profiling or
+dynamically-linked) from GHC itself.  So for example, when compiling
+Template Haskell code with ``-prof``, we don't need to compile the
+modules without ``-prof`` first (see :ref:`th-profiling`) because we
+can run the profiled object code in the interpreter.  GHCi can also
+load and run profiled object code when run with
+``-fexternal-interpreter`` and ``-prof``.
+
+This feature is experimental in GHC 8.0.x, but it may become the
+default in future releases.
 
 .. _ghci-faq:
 

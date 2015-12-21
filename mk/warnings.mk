@@ -48,19 +48,15 @@ SRC_HC_WARNING_OPTS_STAGE2 += -Wnoncanonical-monad-instances
 libraries/bytestring_dist-install_EXTRA_HC_OPTS += -Wno-inline-rule-shadowing
 
 # Turn off import warnings for bad unused imports
-libraries/containers_dist-install_EXTRA_HC_OPTS += -Wno-unused-imports
-libraries/bytestring_dist-install_EXTRA_HC_OPTS += -Wno-unused-imports
 utils/haddock_dist_EXTRA_HC_OPTS += -Wno-unused-imports
 libraries/vector_dist-install_EXTRA_HC_OPTS += -Wno-unused-imports
 
 # haddock's attoparsec uses deprecated `inlinePerformIO`
 utils/haddock_dist_EXTRA_HC_OPTS += -Wno-deprecations
+# binary too
+libraries/binary_dist-install_EXTRA_HC_OPTS += -Wno-deprecations
 
-# containers uses bitSize at the moment
-libraries/containers_dist-install_EXTRA_HC_OPTS += -Wno-deprecations
-libraries/containers_dist-install_EXTRA_HC_OPTS += -Wno-redundant-constraints
-
-# On Windows, there are also some unused import warnings
+# On Windows, there are/were some unused import warnings
 ifeq "$(HostOS_CPP)" "mingw32"
 libraries/time_dist-install_EXTRA_HC_OPTS += -Wno-unused-imports -Wno-identities
 endif
@@ -70,15 +66,17 @@ libraries/haskeline_dist-install_EXTRA_HC_OPTS += -Wno-deprecations
 libraries/haskeline_dist-install_EXTRA_HC_OPTS += -Wno-unused-imports
 libraries/haskeline_dist-install_EXTRA_HC_OPTS += -Wno-redundant-constraints
 
-# binary upstream has some warnings, so don't use -Werror for it
-libraries/binary_dist-boot_EXTRA_HC_OPTS += -Wwarn
-libraries/binary_dist-install_EXTRA_HC_OPTS += -Wwarn
 
 # temporarily turn off unused-imports warnings for pretty
 libraries/pretty_dist-install_EXTRA_HC_OPTS += -Wno-unused-imports
 
 # primitive has a warning about deprecated use of GHC.IOBase
 libraries/primitive_dist-install_EXTRA_HC_OPTS += -Wno-unused-imports
+# primitive uses deprecated Control.Monad.Trans.Error
+libraries/primitive_dist-install_EXTRA_HC_OPTS += -Wno-deprecations
+
+# See https://github.com/haskell/random/pull/20
+libraries/random_dist-install_EXTRA_HC_OPTS += -Wno-redundant-constraints
 
 # temporarily turn off unused-imports warnings for terminfo
 libraries/terminfo_dist-boot_EXTRA_HC_OPTS += -fno-warn-unused-imports
@@ -89,6 +87,7 @@ libraries/vector_dist-install_EXTRA_HC_OPTS += -Wwarn
 
 # temporarily turn off unused-imports warnings for xhtml
 libraries/xhtml_dist-install_EXTRA_HC_OPTS += -Wno-unused-imports
+libraries/xhtml_dist-install_EXTRA_HC_OPTS += -Wno-tabs
 
 libraries/dph/dph-base_dist-install_EXTRA_HC_OPTS += -Wwarn
 libraries/dph/dph-prim-interface_dist-install_EXTRA_HC_OPTS += -Wwarn
@@ -109,16 +108,6 @@ libraries/Win32_dist-install_EXTRA_HC_OPTS += -Wno-trustworthy-safe
 # We need -Wno-deprecated-flags to avoid failure with -Werror
 GhcLibExtraHcOpts += -Wno-deprecated-flags
 GhcBootLibExtraHcOpts += -fno-warn-deprecated-flags
-
-# The warning suppression flag below is a temporary kludge. While working with
-# modules that contain tabs, please de-tab them so this flag can be eventually
-# removed. See
-# http://ghc.haskell.org/trac/ghc/wiki/Commentary/CodingStyle#TabsvsSpaces
-# for details
-#
-GhcLibExtraHcOpts += -Wno-tabs
-GhcBootLibExtraHcOpts += -fno-warn-tabs
-
 
 # Note [Order of warning flags]
 #

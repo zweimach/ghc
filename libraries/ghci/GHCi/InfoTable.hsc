@@ -11,6 +11,9 @@ module GHCi.InfoTable
   , conInfoPtr
   ) where
 
+#if !defined(TABLES_NEXT_TO_CODE)
+import Data.Maybe (fromJust)
+#endif
 import Foreign
 import Foreign.C
 import GHC.Ptr
@@ -54,15 +57,16 @@ funPtrToInt :: FunPtr a -> Int
 funPtrToInt (FunPtr a) = I## (addr2Int## a)
 
 data Arch = ArchSPARC | ArchPPC | ArchX86 | ArchX86_64 | ArchAlpha | ArchARM
+          | ArchARM64
  deriving Show
 
 platform :: Arch
 platform =
 #if defined(sparc_HOST_ARCH)
        ArchSparc
-#elif defined(ppc_HOST_ARCH)
+#elif defined(powerpc_HOST_ARCH)
        ArchPPC
-#elif defined(x86_HOST_ARCH)
+#elif defined(i386_HOST_ARCH)
        ArchX86
 #elif defined(x86_64_HOST_ARCH)
        ArchX86_64
@@ -70,6 +74,10 @@ platform =
        ArchAlpha
 #elif defined(arm_HOST_ARCH)
        ArchARM
+#elif defined(aarch64_HOST_ARCH)
+       ArchARM64
+#else
+#error Unknown architecture
 #endif
 
 mkJumpToAddr :: EntryFunPtr -> ItblCodes
@@ -173,6 +181,22 @@ mkJumpToAddr a = case platform of
                 , 0x11, 0xff, 0x2f, 0xe1
                 , byte0 w32, byte1 w32, byte2 w32, byte3 w32]
 
+    ArchARM64 { } ->
+        -- Generates:
+        --
+        --      ldr     x1, label
+        --      br      x1
+        -- label:
+        --      .quad <addr>
+        --
+        -- which looks like:
+        --     0:       58000041        ldr     x1, <label>
+        --     4:       d61f0020        br      x1
+       let w64 = fromIntegral (funPtrToInt a) :: Word64
+       in Right [ 0x58000041
+                , 0xd61f0020
+                , fromIntegral w64
+                , fromIntegral (w64 `shiftR` 32) ]
 
 byte0 :: (Integral w) => w -> Word8
 byte0 w = fromIntegral w

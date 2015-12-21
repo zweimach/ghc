@@ -851,7 +851,7 @@ TAGS: TAGS_compiler
 # Installation
 
 install: install_libs install_packages install_libexecs \
-         install_bins install_topdirs
+         install_bins install_libexec_scripts
 ifeq "$(HADDOCK_DOCS)" "YES"
 install: install_docs
 endif
@@ -910,14 +910,11 @@ ifeq "$(Windows_Host)" "NO"
 endif
 endif
 
-install_topdirs: $(INSTALL_TOPDIR_BINS) $(INSTALL_TOPDIR_SCRIPTS)
-	$(INSTALL_DIR) "$(DESTDIR)$(topdir)"
-	for i in $(INSTALL_TOPDIR_BINS); do \
-		$(INSTALL_PROGRAM) $(INSTALL_BIN_OPTS) $$i "$(DESTDIR)$(topdir)"; \
-	done
-ifneq "$(INSTALL_TOPDIR_SCRIPTS)" ""
-	for i in $(INSTALL_TOPDIR_SCRIPTS); do \
-		$(INSTALL_SCRIPT) $(INSTALL_OPTS) $$i "$(DESTDIR)$(topdir)"; \
+install_libexec_scripts: $(INSTALL_LIBEXEC_SCRIPTS)
+ifneq "$(INSTALL_LIBEXEC_SCRIPTS)" ""
+	$(INSTALL_DIR) "$(DESTDIR)$(ghclibexecdir)/bin"
+	for i in $(INSTALL_LIBEXEC_SCRIPTS); do \
+		$(INSTALL_SCRIPT) $(INSTALL_OPTS) $$i "$(DESTDIR)$(ghclibexecdir)/bin"; \
 	done
 endif
 
@@ -1035,8 +1032,6 @@ $(eval $(call bindist-list,.,\
     $(libffi_HEADERS) \
     $(INSTALL_LIBEXECS) \
     $(INSTALL_LIBEXEC_SCRIPTS) \
-    $(INSTALL_TOPDIR_BINS) \
-    $(INSTALL_TOPDIR_SCRIPTS) \
     $(INSTALL_BINS) \
     $(INSTALL_SCRIPTS) \
     $(INSTALL_MANPAGES) \
@@ -1044,7 +1039,7 @@ $(eval $(call bindist-list,.,\
     $(INSTALL_LIBRARY_DOCS) \
     $(addsuffix /*,$(INSTALL_HTML_DOC_DIRS)) \
     docs/index.html \
-    compiler/stage2/doc \
+    $(wildcard compiler/stage2/doc) \
     $(wildcard libraries/*/dist-install/doc/) \
     $(wildcard libraries/*/*/dist-install/doc/) \
     $(filter-out settings,$(INSTALL_LIBS)) \
@@ -1160,7 +1155,7 @@ SRC_DIST_TESTSUITE_TARBALL        = $(SRC_DIST_ROOT)/$(SRC_DIST_TESTSUITE_NAME).
 # Files to include in source distributions
 #
 SRC_DIST_GHC_DIRS = mk rules docs distrib bindisttest libffi includes \
-    utils docs rts compiler ghc driver libraries libffi-tarballs
+    utils docs rts compiler ghc driver libraries libffi-tarballs iserv
 SRC_DIST_GHC_FILES += \
     configure.ac config.guess config.sub configure \
     aclocal.m4 README.md ANNOUNCE HACKING.md INSTALL.md LICENSE Makefile \

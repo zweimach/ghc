@@ -1679,12 +1679,7 @@ tyapp :: { Located (HsAppType RdrName) }
 
 atype :: { LHsType RdrName }
         : ntgtycon                       { sL1 $1 (HsTyVar $1) }      -- Not including unit tuples
-        | tyvar                          {% do { nwc <- namedWildCardsEnabled -- (See Note [Unit tuples])
-                                               ; let tv@(L _ (Unqual name)) = $1
-                                               ; return $ if (startsWithUnderscore name && nwc)
-                                                          then (sL1 $1 (mkNamedWildCardTy tv))
-                                                          else (sL1 $1 (HsTyVar tv)) } }
-
+        | tyvar                          { sL1 $1 (HsTyVar $1) }      -- (See Note [Unit tuples])
         | strict_mark atype              {% ams (sLL $1 $> (HsBangTy (snd $ unLoc $1) $2))
                                                 (fst $ unLoc $1) }  -- Constructor sigs only
         | '{' fielddecls '}'             {% amms (checkRecordSyntax
@@ -1949,7 +1944,7 @@ fielddecl :: { LConDeclField RdrName }
                                               -- A list because of   f,g :: Int
         : maybe_docnext sig_vars '::' ctype maybe_docprev
             {% ams (L (comb2 $2 $4)
-                      (ConDeclField (reverse (map (fmap (flip FieldOcc PlaceHolder)) (unLoc $2))) $4 ($1 `mplus` $5)))
+                      (ConDeclField (reverse (map (\ln@(L l n) -> L l $ FieldOcc ln PlaceHolder) (unLoc $2))) $4 ($1 `mplus` $5)))
                    [mu AnnDcolon $3] }
 
 -- The outer Located is just to allow the caller to
@@ -2706,13 +2701,13 @@ fbinds1 :: { ([AddAnn],([LHsRecField RdrName (LHsExpr RdrName)], Bool)) }
         | '..'                          { ([mj AnnDotdot $1],([],   True)) }
 
 fbind   :: { LHsRecField RdrName (LHsExpr RdrName) }
-        : qvar '=' texp {% ams  (sLL $1 $> $ HsRecField (fmap mkFieldOcc $1) $3 False)
+        : qvar '=' texp {% ams  (sLL $1 $> $ HsRecField (sL1 $1 $ mkFieldOcc $1) $3 False)
                                 [mj AnnEqual $2] }
                         -- RHS is a 'texp', allowing view patterns (Trac #6038)
                         -- and, incidentaly, sections.  Eg
                         -- f (R { x = show -> s }) = ...
 
-        | qvar          { sLL $1 $> $ HsRecField (fmap mkFieldOcc $1) placeHolderPunRhs True }
+        | qvar          { sLL $1 $> $ HsRecField (sL1 $1 $ mkFieldOcc $1) placeHolderPunRhs True }
                         -- In the punning case, use a place-holder
                         -- The renamer fills in the final value
 
@@ -3347,9 +3342,6 @@ hintExplicitForall span = do
       , text "Perhaps you intended to use RankNTypes or a similar language"
       , text "extension to enable explicit-forall syntax: \x2200 <tvs>. <type>"
       ]
-
-namedWildCardsEnabled :: P Bool
-namedWildCardsEnabled = liftM ((LangExt.NamedWildCards `xopt`) . dflags) getPState
 
 {-
 %************************************************************************
