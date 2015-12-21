@@ -658,19 +658,12 @@ As there is no incentive to instantiate the RHS, tcMonoBinds will
 produce a type of forall a. Num a => a -> a -> a for `f`. This will then go
 through simplifyInfer and such, remaining unchanged.
 
-There are three problems with this:
- 1) Even though `f` does not have a type signature, its type variable `a`
-    is considered "specified" (see Note [Visible type application] in TcType),
-    allowing it to participate in visible type application. Yet, when
-    `f` is exported, it will be exported with an *inferred* type variable,
-    preventing importing modules from using visible type application with
-    `f`.
-
- 2) If the definition were `g _ = (*)`, we get a very unusual type of
+There are two problems with this:
+ 1) If the definition were `g _ = (*)`, we get a very unusual type of
     `forall {a}. a -> forall b. Num b => b -> b -> b` for `g`. This is
     surely confusing for users.
 
- 3) The monomorphism restriction can't work. The MR is dealt with in
+ 2) The monomorphism restriction can't work. The MR is dealt with in
     simplifyInfer, and simplifyInfer has no way of instantiating. This
     could perhaps be worked around, but it may be hard to know even
     when instantiation should happen.
@@ -2212,5 +2205,10 @@ instErrCtxt :: TcId -> TcType -> TidyEnv -> TcM (TidyEnv, SDoc)
 instErrCtxt id ty env
   = do { let (env', ty') = tidyOpenType env ty
        ; return (env', hang (text "When instantiating" <+> quotes (ppr id) <>
-                             text ", initially inferred to have this type:")
-                          2 (ppr ty')) }
+                             text ", initially inferred to have this overly-general type:")
+                          2 (ppr ty') $$
+                       extra) }
+  where
+    extra = sdocWithDynFlags $ \dflags ->
+            ppWhen (xopt LangExt.MonomorphismRestriction dflags) $
+            text "NB: This instantiation can be caused by the monomorphism restriction."

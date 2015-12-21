@@ -2547,7 +2547,7 @@ pprSigSkolInfo ctxt ty
                               , nest 2 (ppr ty) ]
   where
     pp_sig f = vcat [ ptext (sLit "the type signature for:")
-                    , nest 2 (pprPrefixOcc f <+> dcolon <+> pprSigmaType ty) ]
+                    , nest 2 (pprPrefixOcc f <+> dcolon <+> ppr ty) ]
 
 pprPatSkolInfo :: ConLike -> SDoc
 pprPatSkolInfo (RealDataCon dc)

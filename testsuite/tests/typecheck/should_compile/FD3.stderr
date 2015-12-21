@@ -6,7 +6,7 @@ FD3.hs:15:15: error:
           instance ‘MkA a1 a1’ at FD3.hs:12:10-16
       ‘a’ is a rigid type variable bound by
         the type signature for:
-          translate :: forall a. (String, a) -> A a
+          translate :: (String, a) -> A a
         at FD3.hs:14:14
     • In the expression: mkA a
       In an equation for ‘translate’: translate a = mkA a
