@@ -239,7 +239,7 @@ deriving instance (DataId idL, DataId idR)
 data ABExport id
   = ABE { abe_poly      :: id    -- ^ Any INLINE pragmas is attached to this Id
         , abe_mono      :: id
-        , abe_inst_wrap :: HsWrapper
+        , abe_inst_wrap :: HsWrapper    -- ^ See Note [AbsBinds wrappers]
              -- ^ Shape: abe_mono ~ abe_insted
         , abe_wrap      :: HsWrapper    -- ^ See Note [AbsBinds wrappers]
              -- Shape: (forall abs_tvs. abs_ev_vars => abe_insted) ~ abe_poly
@@ -384,7 +384,10 @@ The abe_mono type will be  forall a. Num a => a -> a -> a
 because no instantiation happens during typechecking. Before inferring
 a final type, we must instantiate this. See Note [Instantiate when inferring
 a type] in TcBinds. The abe_inst_wrap takes the uninstantiated abe_mono type
-to a proper instantiated type.
+to a proper instantiated type. In this case, the "abe_insted" is
+(b -> b -> b). Note that the value of "abe_insted" isn't important; it's
+just an intermediate form as we're going from abe_mono to abe_poly. See also
+the desugaring code in DsBinds.
 
 It's conceivable that we could combine the two wrappers, but note that there
 is a gap: neither wrapper tacks on the tvs and dicts from the outer AbsBinds.
