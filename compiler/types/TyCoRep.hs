@@ -233,6 +233,7 @@ data TyBinder
 -- | Is something required to appear in source Haskell ('Visible'),
 -- permitted by request ('Specified') (visible type application), or
 -- prohibited entirely from appearing in source Haskell ('Invisible')?
+-- Examples in Note [VisibilityFlag]
 data VisibilityFlag = Visible | Specified | Invisible
   deriving (Eq, Data.Typeable, Data.Data)
 
@@ -322,6 +323,49 @@ relation, ignores casts and coercion arguments, as long as the
 two types have the same kind. This allows us to be a little sloppier
 in keeping track of coercions, which is a good thing. It also means
 that eqType does not depend on eqCoercion, which is also a good thing.
+
+Note [VisibilityFlag]
+~~~~~~~~~~~~~~~~~~~~~
+All named binders are equipped with a visibility flag, which says
+whether or not arguments for this binder should be visible (explicit)
+in source Haskell. Historically, all named binders (that is, polytype
+binders) have been Invisible. But now it's more complicated.
+
+Invisible:
+ Argument does not ever appear in source Haskell. With visible type
+ application, only GHC-generated polytypes have Invisible binders.
+ This exactly corresponds to "generalized" variables from the
+ Visible Type Applications paper (ESOP'16).
+
+ Example: f x = x
+ `f` will be inferred to have type `forall a. a -> a`, where `a` is
+ Invisible. Note that there is no type annotation for `f`.
+
+ Printing: With -fprint-explicit-foralls, Invisible binders are written
+ in braces. Otherwise, they are printed like Specified binders.
+
+Specified:
+ The argument for this binder may appear in source Haskell only with
+ visible type application. Otherwise, it is omitted.
+
+ Example: id :: forall a. a -> a
+ `a` is a Specified binder, because you can say `id @Int` in source Haskell.
+
+ Example: const :: a -> b -> a
+ Both `a` and `b` are Specified binders, even though they are not bound
+ by an explicit forall.
+
+ Printing: a list of Specified binders are put between `forall` and `.`:
+ const :: forall a b. a -> b -> a
+
+Visible:
+ The argument must be given. Visible binders come up only with TypeInType.
+
+ Example: data Proxy k (a :: k) = P
+ The kind of Proxy is forall k -> k -> *, where k is a Visible binder.
+
+ Printing: As in the example above, Visible binders are put between `forall`
+ and `->`. This syntax is not parsed (yet), however.
 
 -------------------------------------
                 Note [PredTy]
