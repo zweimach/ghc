@@ -152,7 +152,7 @@ tcGRHSsPat grhss res_ty = tcGRHSs match_ctxt grhss res_ty
                       mc_body = tcBody }
 
 matchFunTys
-  :: SDoc       -- See Note [Herald for matchExpecteFunTys] in TcUnify
+  :: SDoc       -- See Note [Herald for matchExpectedFunTys] in TcUnify
   -> Arity
   -> TcRhoType  -- deeply skolemised
   -> ([TcSigmaType] -> TcRhoType -> TcM (HsWrapper, a, b))

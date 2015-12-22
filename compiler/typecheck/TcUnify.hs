@@ -161,6 +161,34 @@ G |- e1 e2 ==> u2[taus / as]
 In DownAbs, we want to skolemise, which typing rules represent by just
 ignoring the quantification. In App, we want to instantiate.
 
+Note [Arguments are tau-types]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Consider
+
+  f x True  = x undefined
+  f x False = x ()
+
+We wish to give f the type (() -> a) -> Bool -> a. But we must be very careful.
+The problem is that f falls into the special case in TcBinds that allows inference
+of higher-rank types. Thus x is given a ReturnTv meta-tyvar type. If we allow
+x's arguments to also be higher-rank, then the first equation leads us to give
+f the horrid type
+  ((forall (v :: Levity) (a :: TYPE v). (?callstack :: CallStack) => a) -> b) -> Bool -> b
+which then fails to line up in the second equation. Worse(?), switching the order
+of the equations fixes the problem.
+
+The solution is to make arguments tau-types (that is, not ReturnTvs). But we musn't
+do this in the Expected case, because we really do want to infer higher-rank types
+here. For example
+
+  g = \(x :: forall a. a -> a) -> ()
+
+We want g :: (forall a. a -> a) -> (). But here, g's type is an Expected type, and
+so we want to decompose that into ReturnTvs.
+
+This is all quite fiddly, and it makes me (Richard) doubt the validity of the
+special case in TcBinds.
+
 -}
 
 matchExpectedFunTys :: ExpOrAct
@@ -259,11 +287,10 @@ matchExpectedFunTysPart ea herald arity orig_ty mk_full_ty full_arity
 
     ------------
     -- If we decide that a ReturnTv (see Note [ReturnTv] in TcType) should
-    -- really be a function type, then we need to allow the argument and
-    -- result types also to be ReturnTvs.
+    -- really be a function type, then we need to allow the
+    -- result types also to be a ReturnTv.
     defer n fun_ty is_return
-      = do { arg_tys <- replicateM n new_flexi
-                        -- See Note [Foralls to left of arrow]
+      = do { arg_tys <- replicateM n new_flexi_arg
            ; res_ty  <- new_flexi
            ; let unif_fun_ty = mkFunTys arg_tys res_ty
            ; wrap    <- matchUnificationType ea unif_fun_ty fun_ty
@@ -273,6 +300,11 @@ matchExpectedFunTysPart ea herald arity orig_ty mk_full_ty full_arity
         new_flexi :: TcM TcType
         new_flexi | is_return = (mkTyVarTy . fst) <$> newOpenReturnTyVar
                   | otherwise = newOpenFlexiTyVarTy
+
+         -- See Note [Arguments are tau-types]
+        new_flexi_arg :: TcM TcType
+        new_flexi_arg | Actual {} <- ea = newOpenFlexiTyVarTy
+                      | otherwise       = new_flexi
 
     ------------
     mk_ctxt :: TcSigmaType -> TidyEnv -> TcM (TidyEnv, MsgDoc)
@@ -292,19 +324,6 @@ matchExpectedFunTysPart ea herald arity orig_ty mk_full_ty full_arity
           else sep [ptext (sLit "but its type") <+> quotes (pprType ty),
                     if n_args == 0 then ptext (sLit "has none")
                     else ptext (sLit "has only") <+> speakN n_args]
-
-{-
-Note [Foralls to left of arrow]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Consider
-  f (x :: forall a. a -> a) = x
-We give 'f' the type (alpha -> beta), and then want to unify
-the alpha with (forall a. a->a).  We want to the arg and result
-of (->) to be sort-polymorphic, and this also permits foralls, so
-we are ok. See Note [Sort-polymorphic tyvars accept foralls] in TcMType
-and Note [TYPE] in TysPrim.
--}
-
 
 ----------------------
 matchExpectedListTy :: TcRhoType -> TcM (TcCoercionN, TcRhoType)
