@@ -396,10 +396,8 @@ getInitialKind decl@(ClassDecl { tcdLName = L _ name, tcdTyVars = ktvs, tcdATs =
 getInitialKind decl@(DataDecl { tcdLName = L _ name
                               , tcdTyVars = ktvs
                               , tcdDataDefn = HsDataDefn { dd_kindSig = m_sig
-                                                         , dd_cons = cons' } })
-  = let cons = cons' -- AZ list monad coming
-    in
-     do { (decl_kind, _) <-
+                                                         , dd_cons = cons } })
+  = do  { (decl_kind, _) <-
            kcHsTyVarBndrs (hsDeclHasCusk decl) ktvs $ \_ _ ->
            do { res_k <- case m_sig of
                            Just ksig -> tcLHsKind ksig
@@ -867,9 +865,8 @@ tcDataDefn rec_info     -- Knot-tied; don't look at this eagerly
            tc_name tvs tycon_kind res_kind
          (HsDataDefn { dd_ND = new_or_data, dd_cType = cType
                      , dd_ctxt = ctxt, dd_kindSig = mb_ksig
-                     , dd_cons = cons' })
- = let cons = cons' -- AZ List monad coming
-   in do { extra_tvs <- tcDataKindSig res_kind
+                     , dd_cons = cons })
+ =  do { extra_tvs <- tcDataKindSig res_kind
        ; let final_tvs  = tvs `chkAppend` extra_tvs
              roles      = rti_roles rec_info tc_name
 
@@ -1485,7 +1482,8 @@ tcGadtSigType :: SDoc -> Name -> LHsSigType Name
                                     (Located [LConDeclField Name]) )
 tcGadtSigType doc name ty@(HsIB { hsib_vars = vars })
   = do { let (hs_details', res_ty', cxt, gtvs) = gadtDeclDetails ty
-       ; (hs_details, res_ty) <- tcUpdateConResult doc hs_details' res_ty'
+       ; (hs_details, res_ty) <-
+           updateGadtResult failWithTc doc hs_details' res_ty'
        ; (_, (ctxt, arg_tys, res_ty, field_lbls, stricts))
            <- solveEqualities $
               tcImplicitTKBndrs vars $
@@ -1502,35 +1500,6 @@ tcGadtSigType doc name ty@(HsIB { hsib_vars = vars })
                  }
        ; return (ctxt,stricts,field_lbls,arg_tys,res_ty,hs_details)
        }
-
-tcUpdateConResult :: SDoc
-            -> HsConDetails (LHsType Name) (Located [LConDeclField Name])
-                    -- Original details
-            -> LHsType Name -- The original result type
-            -> TcM (HsConDetails (LHsType Name) (Located [LConDeclField Name]),
-                    LHsType Name)
-tcUpdateConResult doc details ty
-  = do {  let (arg_tys, res_ty) = splitHsFunType ty
-                -- We can finally split it up,
-                -- now the renamer has dealt with fixities
-                -- See Note [Sorting out the result type] in RdrHsSyn
-
-       ; case details of
-           InfixCon {}  -> pprPanic "tcUpdateConResult" (ppr ty)
-           -- See Note [Sorting out the result type] in RdrHsSyn
-
-           RecCon {}    -> do { unless (null arg_tys)
-                                       (failWithTc (badRecResTy doc))
-                                -- AZ: This error used to be reported during
-                                --     renaming, will now be reported in type
-                                --     checking. Is this a problem?
-                              ; return (details, res_ty) }
-
-           PrefixCon {} -> return (PrefixCon arg_tys, res_ty)}
-    where
-        badRecResTy :: SDoc -> SDoc
-        badRecResTy ctxt = ctxt <+>
-                        ptext (sLit "Malformed constructor signature")
 
 tcConIsInfixH98 :: Name
              -> HsConDetails (LHsType Name) (Located [LConDeclField Name])

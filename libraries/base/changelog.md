@@ -7,27 +7,6 @@
   * The restore operation provided by `mask` and `uninterruptibleMask` now
     restores the previous masking state whatever the current masking state is.
 
-  * `Alt`, `Dual`, `First`, `Last`, `Product`, and `Sum` now have `Data`,
-    `MonadZip`, and `MonadFix` instances
-
-  * `Maybe` now has a `MonadZip` instance
-
-  * `All` and `Any` now have `Data` instances
-
-  * `Dual`, `First`, `Last`, `Product`, and `Sum` now have `Foldable` and
-    `Traversable` instances
-
-  * `Dual`, `Product`, and `Sum` now have `Functor`, `Applicative`, and
-    `Monad` instances
-
-  * `(,) a` now has a `Monad` instance
-
-  * `ZipList` now has `Foldable` and `Traversable` instances
-
-  * `Identity` now has a `Monoid` instance
-
-  * `()` now has a `Storable` instance
-
   * Redundant typeclass constraints have been removed:
      - `Data.Ratio.{denominator,numerator}` have no `Integral` constraint anymore
      - **TODO**
@@ -36,22 +15,28 @@
 
   * New `GHC.Stack.CallStack` data type
 
-  * `Complex` now has `Generic`, `Generic1`, `Functor`, `Foldable`, `Traversable`,
-    `Applicative`, and `Monad` instances
+  * add `Data.List.NonEmpty` and `Data.Semigroup` (to become
+    super-class of `Monoid` in the future). These modules were
+    provided by the `semigroups` package previously. (#10365)
 
-  * `System.Exit.ExitCode` now has a `Generic` instance
+  * Add `selSourceUnpackedness`, `selSourceStrictness`, and
+    `selDecidedStrictness`, three functions which look up strictness
+    information of a field in a data constructor, to the `Selector` type class
+    in `GHC.Generics` (#10716)
 
-  * `Data.Version.Version` now has a `Generic` instance
+  * Add `URec`, `UAddr`, `UChar`, `UDouble`, `UFloat`, `UInt`, and `UWord` to
+    `GHC.Generics` as part of making GHC generics capable of handling
+    unlifted types (#10868)
 
-  * `IO` now has a `Monoid` instance
+  * Keep `shift{L,R}` on `Integer` with negative shift-arguments from
+    segfaulting (#10571)
 
-  * Generalize `Debug.Trace.{traceM, traceShowM}` from `Monad` to `Applicative`
-    (#10023)
+  * Add `forkOSWithUnmask` to `Control.Concurrent`, which is like
+    `forkIOWithUnmask`, but the child is run in a bound thread.
 
-  * Generalise `forever` from `Monad` to `Applicative`
+  * The `MINIMAL` definition of `Arrow` is now `arr AND (first OR (***))`.
 
-  * Generalize `filterM`, `mapAndUnzipM`, `zipWithM`, `zipWithM_`, `replicateM`,
-    `replicateM` from `Monad` to `Applicative` (#10168)
+  * The `MINIMAL` definition of `ArrowChoice` is now `left OR (+++)`.
 
   * Exported `GiveGCStats`, `DoCostCentres`, `DoHeapProfile`, `DoTrace`,
     `RtsTime`, and `RtsNat` from `GHC.RTS.Flags`
@@ -72,29 +57,6 @@
   * New module `Control.Monad.Fail` providing new `MonadFail(fail)`
     class (#10751)
 
-  * The `Generic` instance for `Proxy` is now poly-kinded (#10775)
-
-  * add `Data.List.NonEmpty` and `Data.Semigroup` (to become
-    super-class of `Monoid` in the future). These modules were
-    provided by the `semigroups` package previously. (#10365)
-
-  * Add `URec`, `UAddr`, `UChar`, `UDouble`, `UFloat`, `UInt`, and `UWord` to
-    `GHC.Generics` as part of making GHC generics capable of handling
-    unlifted types (#10868)
-
-  * Keep `shift{L,R}` on `Integer` with negative shift-arguments from
-    segfaulting (#10571)
-
-  * Add `forkOSWithUnmask` to `Control.Concurrent`, which is like
-    `forkIOWithUnmask`, but the child is run in a bound thread.
-
-  * The `MINIMAL` definition of `Arrow` is now `arr AND (first OR (***))`.
-
-  * The `MINIMAL` definition of `ArrowChoice` is now `left OR (+++)`.
-
-  * Add `MonadPlus IO` and `Alternative IO` instances
-    (previously orphans in `transformers`) (#10755)
-
   * Add `GHC.TypeLits.TypeError` and `ErrorMessage` to allow users
     to define custom compile-time error messages.
 
@@ -107,14 +69,66 @@
   * Move `Const` from `Control.Applicative` to its own module in
    `Data.Functor.Const`. (#11135)
 
-  * Enable `PolyKinds` in the `Data.Functor.Const` module to give `Const`
-    the kind `* -> k -> *`. (#10039)
-
   * Re-export `Const` from `Control.Applicative` for backwards compatibility.
 
   * Expand `Floating` class to include operations that allow for better
     precision: `log1p`, `expm1`, `log1pexp` and `log1mexp`. These are not
     available from `Prelude`, but the full class is exported from `Numeric`.
+
+### New instances
+
+  * `Alt`, `Dual`, `First`, `Last`, `Product`, and `Sum` now have `Data`,
+    `MonadZip`, and `MonadFix` instances
+
+  * `Maybe` now has a `MonadZip` instance
+
+  * `All` and `Any` now have `Data` instances
+
+  * `Dual`, `First`, `Last`, `Product`, and `Sum` now have `Foldable` and
+    `Traversable` instances
+
+  * `Dual`, `Product`, and `Sum` now have `Functor`, `Applicative`, and
+    `Monad` instances
+
+  * `(,) a` now has a `Monad` instance
+
+  * `ZipList` now has `Foldable` and `Traversable` instances
+
+  * `Identity` now has `Semigroup` and `Monoid` instances
+
+  * `Identity` and `Const` now have `Bounded`, `Enum` and `Ix` instances
+
+  * `Identity` and `Const` now have `Storable` instances
+
+  * `()` now has a `Storable` instance
+
+  * `Complex` now has `Generic`, `Generic1`, `Functor`, `Foldable`, `Traversable`,
+    `Applicative`, and `Monad` instances
+
+  * `System.Exit.ExitCode` now has a `Generic` instance
+
+  * `Data.Version.Version` now has a `Generic` instance
+
+  * `IO` now has a `Monoid` instance
+
+  * Add `MonadPlus IO` and `Alternative IO` instances
+    (previously orphans in `transformers`) (#10755)
+
+### Generalizations
+
+  * Generalize `Debug.Trace.{traceM, traceShowM}` from `Monad` to `Applicative`
+    (#10023)
+
+  * Generalise `forever` from `Monad` to `Applicative`
+
+  * Generalize `filterM`, `mapAndUnzipM`, `zipWithM`, `zipWithM_`, `replicateM`,
+    `replicateM_` from `Monad` to `Applicative` (#10168)
+
+  * The `Generic` instance for `Proxy` is now poly-kinded (#10775)
+
+  * Enable `PolyKinds` in the `Data.Functor.Const` module to give `Const`
+    the kind `* -> k -> *`. (#10039)
+
 
 ## 4.8.2.0  *Oct 2015*
 
