@@ -9,6 +9,7 @@ TcMatches: Typecheck some @Matches@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE TupleSections #-}
 
 module TcMatches ( tcMatchesFun, tcGRHS, tcGRHSsPat, tcMatchesCase, tcMatchLambda,
                    TcMatchCtxt(..), TcStmtChecker, TcExprStmtChecker, TcCmdStmtChecker,
@@ -90,7 +91,7 @@ tcMatchesFun fun_name matches exp_ty
         ; (wrap_gen, (wrap_tauify, (wrap_fun, group)))
             <- tcSkolemise (FunSigCtxt fun_name True) exp_ty $ \ _ exp_rho ->
                   -- Note [Polymorphic expected type for tcMatchesFun]
-               tauifyMultipleMatches group exp_rho $ \exp_rho' ->
+               tauifyMultipleMatches matches exp_rho $ \exp_rho' ->
                matchFunTys herald arity exp_rho' $ \ pat_tys rhs_ty ->
                tcMatches match_ctxt pat_tys rhs_ty matches
         ; return (wrap_gen <.> wrap_tauify <.> wrap_fun, group) }
@@ -155,8 +156,7 @@ matchFunTys
   :: SDoc       -- See Note [Herald for matchExpectedFunTys] in TcUnify
   -> Arity
   -> TcRhoType  -- deeply skolemised
-  -> ([TcSigmaType] -> TcRhoType -> TcM (HsWrapper, a))
-     -- "a" is always a MatchGroup. wrapper :: a's res_ty "->" TcRhoType
+  -> ([TcSigmaType] -> TcRhoType -> TcM a)
   -> TcM (HsWrapper, a)
      -- wrapper :: (pat_tys -> a's res_ty) "->" res_ty passed in
 
@@ -167,9 +167,8 @@ matchFunTys herald arity res_ty thing_inside
   = do  { (wrap_fun, pat_tys, res_ty')
             <- matchExpectedFunTys herald arity res_ty
             -- wrap_fun :: pat_tys -> res_ty' "->" res_ty
-        ; (wrap_inner, res1) <- thing_inside pat_tys res_ty'
-        ; let wrap_inner_with_args = mkWpFuns pat_tys wrap_inner
-        ; return (wrap_fun <.> wrap_inner_with_args, res1) }
+        ; result <- thing_inside pat_tys res_ty'
+        ; return (wrap_fun, result) }
 
 {-
 ************************************************************************
@@ -226,7 +225,7 @@ tcMatches :: (Outputable (body Name)) => TcMatchCtxt body
           -> [TcSigmaType]      -- Expected pattern types
           -> TcRhoType          -- Expected result-type of the Match.
           -> MatchGroup Name (Located (body Name))
-          -> TcM (MatchGroup TcId (Located (body TcId))
+          -> TcM (MatchGroup TcId (Located (body TcId)))
 
 data TcMatchCtxt body   -- c.f. TcStmtCtxt, also in this module
   = MC { mc_what :: HsMatchContext Name,        -- What kind of thing this is
@@ -235,13 +234,13 @@ data TcMatchCtxt body   -- c.f. TcStmtCtxt, also in this module
                  -> TcRhoType
                  -> TcM (Located (body TcId)) }
 
-tcMatches ctxt pat_tys rhs_ty group@(MG { mg_alts = L l matches
-                                        , mg_origin = origin })
+tcMatches ctxt pat_tys rhs_ty (MG { mg_alts = L l matches
+                                  , mg_origin = origin })
   = ASSERT( not (null matches) )        -- Ensure that rhs_ty is filled in
-    do { matches' <- mapM (tcMatch ctxt pat_tys rhs_ty') matches
+    do { matches' <- mapM (tcMatch ctxt pat_tys rhs_ty) matches
        ; return (MG { mg_alts = L l matches'
                     , mg_arg_tys = pat_tys
-                    , mg_res_ty = rhs_ty'
+                    , mg_res_ty = rhs_ty
                     , mg_origin = origin }) }
 
 -------------
