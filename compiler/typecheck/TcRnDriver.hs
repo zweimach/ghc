@@ -2000,8 +2000,8 @@ tcRnExpr hsc_env rdr_expr
         -- it might have a rank-2 type (e.g. :t runST)
     uniq <- newUnique ;
     let { fresh_it  = itName uniq (getLoc rdr_expr) } ;
-    (tclvl, lie, (_tc_expr, res_ty, _orig)) <- pushLevelAndCaptureConstraints $
-                                               tcInferSigma rn_expr ;
+    (tclvl, lie, (_tc_expr, res_ty)) <- pushLevelAndCaptureConstraints $
+                                        tcInferSigma rn_expr ;
     ((qtvs, dicts, _), lie_top) <- captureConstraints $
                                    {-# SCC "simplifyInfer" #-}
                                    simplifyInfer tclvl

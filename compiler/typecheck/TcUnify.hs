@@ -10,7 +10,7 @@ Type subsumption and unification
 
 module TcUnify (
   -- Full-blown subsumption
-  tcWrapResult, tcSkolemise,
+  tcWrapResult, tcWrapResultO, tcSkolemise,
   tcSubTypeHR, tcSubType, tcSubType_NC, tcSubTypeDS, tcSubTypeDS_O,
   tcSubTypeDS_NC, tcSubTypeDS_NC_O,
   checkConstraints, buildImplication, buildImplicationFor,
@@ -737,15 +737,22 @@ tc_sub_type_ds eq_orig inst_orig ctxt ty_actual ty_expected
     unify = uType eq_orig TypeLevel ty_actual ty_expected
 
 -----------------
-tcWrapResult :: HsExpr TcId -> TcSigmaType -> TcRhoType -> CtOrigin
-             -> TcM (HsExpr TcId, CtOrigin)
-  -- returning the origin is very convenient in TcExpr
-tcWrapResult expr actual_ty res_ty orig
+-- needs both un-type-checked (for origins) and type-checked (for wrapping)
+-- expressions
+tcWrapResult :: HsExpr Name -> HsExpr TcId -> TcSigmaType -> TcRhoType
+             -> TcM (HsExpr TcId)
+tcWrapResult rn_expr = tcWrapResultO (exprCtOrigin rn_expr)
+
+-- | Sometimes we don't have a @HsExpr Name@ to hand, and this is more
+-- convenient.
+tcWrapResultO :: CtOrigin -> HsExpr TcId -> TcSigmaType -> TcRhoType
+               -> TcM (HsExpr TcId)
+tcWrapResultO orig expr actual_ty res_ty
   = do { traceTc "tcWrapResult" (vcat [ text "Actual:  " <+> ppr actual_ty
-                                      , text "Expected:" <+> ppr res_ty
-                                      , text "Origin:" <+> pprCtOrigin orig ])
-       ; cow <- tcSubTypeDS_NC_O orig GenSigCtxt (Just expr) actual_ty res_ty
-       ; return (mkHsWrap cow expr, orig) }
+                                      , text "Expected:" <+> ppr res_ty ])
+       ; cow <- tcSubTypeDS_NC_O orig GenSigCtxt
+                                 (Just expr) actual_ty res_ty
+       ; return (mkHsWrap cow expr) }
 
 -----------------------------------
 wrapFunResCoercion

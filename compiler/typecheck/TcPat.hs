@@ -382,11 +382,12 @@ tc_pat penv (ViewPat expr pat _) overall_pat_ty thing_inside
   = do  {
          -- Expr must have type `forall a1...aN. OPT' -> B`
          -- where overall_pat_ty is an instance of OPT'.
-        ; (expr',expr'_inferred, orig) <- tcInferSigma expr
+        ; (expr',expr'_inferred) <- tcInferSigma expr
 
          -- next, we check that expr is coercible to `overall_pat_ty -> pat_ty`
         ; (expr_wrap, pat_ty) <- tcInfer $ \ pat_ty ->
-                tcSubTypeDS_O orig GenSigCtxt (Just expr) expr'_inferred
+                tcSubTypeDS_O (exprCtOrigin (unLoc expr)) GenSigCtxt (Just expr)
+                              expr'_inferred
                               (mkFunTy overall_pat_ty pat_ty)
 
          -- pattern must have pat_ty

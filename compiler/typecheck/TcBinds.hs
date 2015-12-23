@@ -747,11 +747,11 @@ tcPolyInfer rec_tc prag_fn tc_sig_fn mono bind_list
 
   where
     deeply_instantiate :: MonoBindInfo -> TcM (HsWrapper, TcRhoType)
-    deeply_instantiate (MBI { mbi_mono_id = mono_id, mbi_orig = orig })
+    deeply_instantiate (MBI { mbi_mono_id = mono_id })
       = do { mono_ty <- zonkTcType (idType mono_id)
               -- NB: zonk to uncover any foralls
            ; addErrCtxtM (instErrCtxt mono_id mono_ty) $
-             deeplyInstantiate orig mono_ty }
+             deeplyInstantiate (InferringTypeOrigin mono_id) mono_ty }
 
 --------------
 mkExport :: TcPragEnv
@@ -1507,7 +1507,7 @@ tcMonoBinds is_rec sig_fn no_gen
                          -- use ReturnTv to allow impredicativity
         ; let rhs_ty = mkTyVarTy rhs_tv
         ; mono_id <- newNoSigLetBndr no_gen name rhs_ty
-        ; (co_fn, matches', orig)
+        ; (co_fn, matches')
             <- tcExtendIdBndrs [TcIdBndr mono_id NotTopLevel] $
                   -- We extend the error context even for a non-recursive
                   -- function so that in type error messages we show the
@@ -1520,8 +1520,7 @@ tcMonoBinds is_rec sig_fn no_gen
                                fun_co_fn = co_fn, fun_tick = [] },
                   [MBI { mbi_poly_name = name
                        , mbi_sig       = Nothing
-                       , mbi_mono_id   = mono_id
-                       , mbi_orig      = orig }]) }
+                       , mbi_mono_id   = mono_id }]) }
 
 tcMonoBinds _ sig_fn no_gen binds
   = do  { tc_binds <- mapM (wrapLocM (tcLhs sig_fn no_gen)) binds
@@ -1540,12 +1539,9 @@ tcMonoBinds _ sig_fn no_gen binds
 
         ; traceTc "tcMonoBinds" $ vcat [ ppr n <+> ppr id <+> ppr (idType id)
                                        | (n,id) <- rhs_id_env]
-        ; (binds', origss) <- tcExtendLetEnvIds NotTopLevel rhs_id_env $
-                              mapAndUnzipM (wrapLocFstM tcRhs) tc_binds
-        ; let info_origs = zipEqual "tcMonoBinds" mono_info (concat origss)
-              mono_info' = [ info { mbi_orig = orig }
-                           | (info, orig) <- info_origs ]
-        ; return (listToBag binds', mono_info') }
+        ; binds' <- tcExtendLetEnvIds NotTopLevel rhs_id_env $
+                    mapM (wrapLocM tcRhs) tc_binds
+        ; return (listToBag binds', mono_info) }
 
 ------------------------
 -- tcLhs typechecks the LHS of the bindings, to construct the environment in which
@@ -1569,9 +1565,7 @@ data TcMonoBind         -- Half completed; LHS done, RHS not done
 
 data MonoBindInfo = MBI { mbi_poly_name :: Name
                         , mbi_sig       :: Maybe TcIdSigInfo
-                        , mbi_mono_id   :: TcId
-                        , mbi_orig      :: CtOrigin }
-                               -- origin associated with RHS
+                        , mbi_mono_id   :: TcId }
 
 tcLhs :: TcSigFun -> LetBndrSpec -> HsBind Name -> TcM TcMonoBind
 tcLhs sig_fn no_gen (FunBind { fun_id = L nm_loc name, fun_matches = matches })
@@ -1587,9 +1581,7 @@ tcLhs sig_fn no_gen (FunBind { fun_id = L nm_loc name, fun_matches = matches })
         ; let mono_id = mkLocalIdOrCoVar mono_name tau
         ; return (TcFunBind (MBI { mbi_poly_name = name
                                  , mbi_sig       = Just sig
-                                 , mbi_mono_id   = mono_id
-                                 , mbi_orig      =
-                                     Shouldn'tHappenOrigin "FunBind sig" })
+                                 , mbi_mono_id   = mono_id })
                             nm_loc matches) }
 
   | otherwise
@@ -1597,9 +1589,7 @@ tcLhs sig_fn no_gen (FunBind { fun_id = L nm_loc name, fun_matches = matches })
         ; mono_id <- newNoSigLetBndr no_gen name mono_ty
         ; return (TcFunBind (MBI { mbi_poly_name = name
                                  , mbi_sig       = Nothing
-                                 , mbi_mono_id   = mono_id
-                                 , mbi_orig      =
-                                     Shouldn'tHappenOrigin "FunBind nosig" })
+                                 , mbi_mono_id   = mono_id })
                             nm_loc matches) }
 
 tcLhs sig_fn no_gen (PatBind { pat_lhs = pat, pat_rhs = grhss })
@@ -1616,9 +1606,7 @@ tcLhs sig_fn no_gen (PatBind { pat_lhs = pat, pat_rhs = grhss })
                                       _                  -> Nothing
                      ; return (MBI { mbi_poly_name = name
                                    , mbi_sig       = mb_sig
-                                   , mbi_mono_id   = mono_id
-                                   , mbi_orig      =
-                                       Shouldn'tHappenOrigin "PatBind" }) }
+                                   , mbi_mono_id   = mono_id }) }
 
         ; ((pat', infos), pat_ty) <- addErrCtxt (patMonoBindsCtxt pat grhss) $
                                      tcInfer tc_pat
@@ -1629,22 +1617,19 @@ tcLhs _ _ other_bind = pprPanic "tcLhs" (ppr other_bind)
         -- AbsBind, VarBind impossible
 
 -------------------
--- the list of CtOrigin return correspond to the MonoBindInfo(s) in the
--- provided TcMonoBind
-tcRhs :: TcMonoBind -> TcM (HsBind TcId, [CtOrigin])
+tcRhs :: TcMonoBind -> TcM (HsBind TcId)
 tcRhs (TcFunBind info@(MBI { mbi_sig = mb_sig, mbi_mono_id = mono_id })
                  loc matches)
   = tcExtendIdBinderStackForRhs [info]  $
     tcExtendTyVarEnvForRhs mb_sig       $
     do  { traceTc "tcRhs: fun bind" (ppr mono_id $$ ppr (idType mono_id))
-        ; (co_fn, matches', orig) <- tcMatchesFun (idName mono_id)
-                                                  matches (idType mono_id)
+        ; (co_fn, matches') <- tcMatchesFun (idName mono_id)
+                                 matches (idType mono_id)
         ; return ( FunBind { fun_id = L loc mono_id
                            , fun_matches = matches'
                            , fun_co_fn = co_fn
                            , bind_fvs = placeHolderNamesTc
-                           , fun_tick = [] }
-                 , [orig] ) }
+                           , fun_tick = [] } ) }
 
 -- TODO: emit Hole Constraints for wildcards
 tcRhs (TcPatBind infos pat' grhss pat_ty)
@@ -1654,13 +1639,12 @@ tcRhs (TcPatBind infos pat' grhss pat_ty)
     -- That's why we have the special case for a single FunBind in tcMonoBinds
     tcExtendIdBinderStackForRhs infos        $
     do  { traceTc "tcRhs: pat bind" (ppr pat' $$ ppr pat_ty)
-        ; (grhss', orig) <- addErrCtxt (patMonoBindsCtxt pat' grhss) $
-                            tcGRHSsPat grhss pat_ty
+        ; grhss' <- addErrCtxt (patMonoBindsCtxt pat' grhss) $
+                    tcGRHSsPat grhss pat_ty
         ; return ( PatBind { pat_lhs = pat', pat_rhs = grhss'
                            , pat_rhs_ty = pat_ty
                            , bind_fvs = placeHolderNamesTc
-                           , pat_ticks = ([],[]) }
-                 , map (const orig) infos ) }
+                           , pat_ticks = ([],[]) } ) }
 
 tcExtendTyVarEnvForRhs :: Maybe TcIdSigInfo -> TcM a -> TcM a
 tcExtendTyVarEnvForRhs Nothing thing_inside

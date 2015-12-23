@@ -91,7 +91,7 @@ module TcRnTypes(
         ctLocTypeOrKind_maybe,
         ctLocDepth, bumpCtLocDepth,
         setCtLocOrigin, setCtLocEnv, setCtLocSpan,
-        CtOrigin(..), combineCtOrigins,
+        CtOrigin(..), exprCtOrigin,
         ErrorThing(..), mkErrorThing, errorThingNumArgs_maybe,
         TypeOrKind(..), isTypeLevel, isKindLevel,
         pprCtOrigin, pprCtLoc,
@@ -2629,7 +2629,6 @@ data CtOrigin
   | MCompPatOrigin (LPat Name) -- Arising from a failable pattern in a
                                -- monad comprehension
   | IfOrigin            -- Arising from an if statement
-  | CaseOrigin          -- Arising from a case expression
   | ProcOrigin          -- Arising from a proc expression
   | AnnOrigin           -- An annotation
 
@@ -2650,6 +2649,8 @@ data CtOrigin
   | FailablePattern (LPat TcId) -- A failable pattern in do-notation for the
                                 -- MonadFail Proposal (MFP). Obsolete when
                                 -- actual desugaring to MonadFail.fail is live.
+  | InferringTypeOrigin TcId  -- from Note [Instantiate when inferring a type]
+                              -- in TcBinds
   | Shouldn'tHappenOrigin String
                             -- the user should never see this one,
                             -- unlesss ImpredicativeTypes is on, where all
@@ -2692,17 +2693,77 @@ instance Outputable CtOrigin where
 instance Outputable ErrorThing where
   ppr (ErrorThing thing _ _) = ppr thing
 
--- | Combine several origins together. The typechecker arranges so that
--- whenever multiple "actual" types are combined (like in the result of
--- a conditional), the types are fully instantiated. So use
--- Shouldn'tHappenOrigin if multiple types are indeed present.
-combineCtOrigins :: [CtOrigin] -> CtOrigin
-combineCtOrigins [orig] = orig
-combineCtOrigins origs  = Shouldn'tHappenOrigin $
-                          "combination " ++ show (length origs)
-
 ctoHerald :: SDoc
 ctoHerald = ptext (sLit "arising from")
+
+-- | Extract a suitable CtOrigin from a HsExpr
+exprCtOrigin :: HsExpr Name -> CtOrigin
+exprCtOrigin (HsVar (L _ name)) = OccurrenceOf name
+exprCtOrigin (HsUnboundVar occ) = UnboundOccurrenceOf occ
+exprCtOrigin (HsRecFld f)       = OccurrenceOfRecSel (rdrNameAmbiguousFieldOcc f)
+exprCtOrigin (HsOverLabel l)    = OverLabelOrigin l
+exprCtOrigin (HsIPVar ip)       = IPOccOrigin ip
+exprCtOrigin (HsOverLit lit)    = LiteralOrigin lit
+exprCtOrigin (HsLit {})         = Shouldn'tHappenOrigin "concrete literal"
+exprCtOrigin (HsLam matches)    = matchesCtOrigin matches
+exprCtOrigin (HsLamCase _ ms)   = matchesCtOrigin ms
+exprCtOrigin (HsApp (L _ e1) _) = exprCtOrigin e1
+exprCtOrigin (OpApp _ (L _ op) _ _) = exprCtOrigin op
+exprCtOrigin (NegApp (L _ e) _) = exprCtOrigin e
+exprCtOrigin (HsPar (L _ e))    = exprCtOrigin e
+exprCtOrigin (SectionL _ _)     = SectionOrigin
+exprCtOrigin (SectionR _ _)     = SectionOrigin
+exprCtOrigin (ExplicitTuple {}) = Shouldn'tHappenOrigin "explicit tuple"
+exprCtOrigin (HsCase _ matches) = matchesCtOrigin matches
+exprCtOrigin (HsIf (Just syn) _ _ _) = exprCtOrigin syn
+exprCtOrigin (HsIf {})          = Shouldn'tHappenOrigin "if expression"
+exprCtOrigin (HsMultiIf _ rhs)  = lGRHSCtOrigin rhs
+exprCtOrigin (HsLet _ (L _ e))  = exprCtOrigin e
+exprCtOrigin (HsDo _ _ _)       = DoOrigin
+exprCtOrigin (ExplicitList {})  = Shouldn'tHappenOrigin "list"
+exprCtOrigin (ExplicitPArr {})  = Shouldn'tHappenOrigin "parallel array"
+exprCtOrigin (RecordCon {})     = Shouldn'tHappenOrigin "record construction"
+exprCtOrigin (RecordUpd {})     = Shouldn'tHappenOrigin "record update"
+exprCtOrigin (ExprWithTySig {}) = ExprSigOrigin
+exprCtOrigin (ExprWithTySigOut {}) = panic "exprCtOrigin ExprWithTySigOut"
+exprCtOrigin (ArithSeq {})      = Shouldn'tHappenOrigin "arithmetic sequence"
+exprCtOrigin (PArrSeq {})       = Shouldn'tHappenOrigin "parallel array sequence"
+exprCtOrigin (HsSCC _ _ (L _ e))= exprCtOrigin e
+exprCtOrigin (HsCoreAnn _ _ (L _ e)) = exprCtOrigin e
+exprCtOrigin (HsBracket {})     = Shouldn'tHappenOrigin "TH bracket"
+exprCtOrigin (HsRnBracketOut {})= Shouldn'tHappenOrigin "HsRnBracketOut"
+exprCtOrigin (HsTcBracketOut {})= panic "exprCtOrigin HsTcBracketOut"
+exprCtOrigin (HsSpliceE {})     = Shouldn'tHappenOrigin "TH splice"
+exprCtOrigin (HsProc {})        = Shouldn'tHappenOrigin "proc"
+exprCtOrigin (HsStatic {})      = Shouldn'tHappenOrigin "static expression"
+exprCtOrigin (HsArrApp {})      = panic "exprCtOrigin HsArrApp"
+exprCtOrigin (HsArrForm {})     = panic "exprCtOrigin HsArrForm"
+exprCtOrigin (HsTick _ (L _ e)) = exprCtOrigin e
+exprCtOrigin (HsBinTick _ _ (L _ e)) = exprCtOrigin e
+exprCtOrigin (HsTickPragma _ _ (L _ e)) = exprCtOrigin e
+exprCtOrigin EWildPat           = panic "exprCtOrigin EWildPat"
+exprCtOrigin (EAsPat {})        = panic "exprCtOrigin EAsPat"
+exprCtOrigin (EViewPat {})      = panic "exprCtOrigin EViewPat"
+exprCtOrigin (ELazyPat {})      = panic "exprCtOrigin ELazyPat"
+exprCtOrigin (HsType {})        = Shouldn'tHappenOrigin "type application"
+exprCtOrigin (HsTypeOut {})     = panic "exprCtOrigin HsTypeOut"
+exprCtOrigin (HsWrap {})        = panic "exprCtOrigin HsWrap"
+
+-- | Extract a suitable CtOrigin from a MatchGroup
+matchesCtOrigin :: MatchGroup Name (LHsExpr Name) -> CtOrigin
+matchesCtOrigin (MG { mg_alts = alts })
+  | L _ [L _ match] <- alts
+  , Match { m_grhss = grhss } <- match
+  , GRHSs { grhssGRHSs = lgrhss } <- grhss
+  = lGRHSCtOrigin lgrhss
+
+  | otherwise
+  = Shouldn'tHappenOrigin "multi-way match"
+
+-- | Extract a suitable CtOrigin from a list of guarded RHSs
+lGRHSCtOrigin :: [LGRHS Name (LHsExpr Name)] -> CtOrigin
+lGRHSCtOrigin [L _ (GRHS _ (L _ e))] = exprCtOrigin e
+lGRHSCtOrigin _ = Shouldn'tHappenOrigin "multi-way GRHS"
 
 pprCtLoc :: CtLoc -> SDoc
 -- "arising from ... at ..."
@@ -2767,6 +2828,10 @@ pprCtOrigin (FailablePattern pat)
       $$
       text "(this will become an error a future GHC release)"
 
+pprCtOrigin (InferringTypeOrigin id)
+  = hang (ctoHerald <+> text "specialising the overly-general inferred type of")
+       2 (ppr id <+> dcolon <+> ppr (varType id))
+
 pprCtOrigin (Shouldn'tHappenOrigin note)
   = sdocWithDynFlags $ \dflags ->
     if xopt LangExt.ImpredicativeTypes dflags
@@ -2793,7 +2858,6 @@ pprCtO PatSigOrigin          = ptext (sLit "a pattern type signature")
 pprCtO PatOrigin             = ptext (sLit "a pattern")
 pprCtO ViewPatOrigin         = ptext (sLit "a view pattern")
 pprCtO IfOrigin              = ptext (sLit "an if expression")
-pprCtO CaseOrigin            = ptext (sLit "a case expression")
 pprCtO (LiteralOrigin lit)   = hsep [ptext (sLit "the literal"), quotes (ppr lit)]
 pprCtO (ArithSeqOrigin seq)  = hsep [ptext (sLit "the arithmetic sequence"), quotes (ppr seq)]
 pprCtO (PArrSeqOrigin seq)   = hsep [ptext (sLit "the parallel array sequence"), quotes (ppr seq)]
