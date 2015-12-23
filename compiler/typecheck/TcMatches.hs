@@ -164,7 +164,7 @@ matchFunTys
 
 matchFunTys herald arity res_ty thing_inside
   = do  { (wrap_fun, pat_tys, res_ty')
-            <- matchExpectedFunTys Expected herald arity res_ty
+            <- matchExpectedFunTys herald arity res_ty
             -- wrap_fun :: pat_tys -> res_ty' "->" res_ty
         ; (wrap_inner, res1) <- thing_inside pat_tys res_ty'
         ; let wrap_inner_with_args = mkWpFuns pat_tys wrap_inner

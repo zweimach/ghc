@@ -230,7 +230,7 @@ tcExpr (HsLam match) res_ty
 
 tcExpr e@(HsLamCase _ matches) res_ty
   = do {(wrap1, [arg_ty], body_ty) <-
-            matchExpectedFunTys Expected msg 1 res_ty
+            matchExpectedFunTys msg 1 res_ty
        ; (wrap2, matches')
            <- tcMatchesCase match_ctxt arg_ty matches body_ty
        ; return (mkHsWrap (wrap1 <.> mkWpFun idHsWrapper wrap2 arg_ty body_ty) $
@@ -339,7 +339,7 @@ tcExpr expr@(OpApp arg1 op fix arg2) res_ty
        ; let doc   = ptext (sLit "The first argument of ($) takes")
              orig1 = exprCtOrigin (unLoc arg1)
        ; (wrap_arg1, [arg2_sigma], op_res_ty) <-
-           matchExpectedFunTys (Actual orig1) doc 1 arg1_ty
+           matchActualFunTys doc orig1 1 arg1_ty
 
          -- We have (arg1 $ arg2)
          -- So: arg1_ty = arg2_ty -> op_res_ty
@@ -406,7 +406,7 @@ tcExpr expr@(OpApp arg1 op fix arg2) res_ty
 tcExpr expr@(SectionR op arg2) res_ty
   = do { (op', op_ty) <- tcInferFun op
        ; (wrap_fun, [arg1_ty, arg2_ty], op_res_ty) <-
-           matchExpectedFunTys (Actual SectionOrigin) (mk_op_msg op) 2 op_ty
+           matchActualFunTys (mk_op_msg op) SectionOrigin 2 op_ty
        ; wrap_res <- tcSubTypeHR SectionOrigin (Just expr)
                                  (mkFunTy arg1_ty op_res_ty) res_ty
        ; arg2' <- tcArg op (arg2, arg2_ty, 2)
@@ -420,8 +420,7 @@ tcExpr expr@(SectionL arg1 op) res_ty
                          | otherwise                            = 2
 
        ; (wrap_fn, (arg1_ty:arg_tys), op_res_ty)
-           <- matchExpectedFunTys (Actual SectionOrigin)
-                (mk_op_msg op) n_reqd_args op_ty
+           <- matchActualFunTys (mk_op_msg op) SectionOrigin n_reqd_args op_ty
        ; wrap_res <- tcSubTypeHR SectionOrigin (Just expr)
                                  (mkFunTys arg_tys op_res_ty) res_ty
        ; arg1' <- tcArg op (arg1, arg1_ty, 1)
@@ -1128,7 +1127,7 @@ tcArgs :: LHsExpr Name   -- ^ The function itself (for err msgs only)
        -> TcSigmaType    -- ^ the (uninstantiated) type of the function
        -> CtOrigin       -- ^ the origin for the function's type
        -> [LHsExpr Name] -- ^ the args
-       -> SDoc           -- ^ the herald for matchExpectedFunTys
+       -> SDoc           -- ^ the herald for matchActualFunTys
        -> TcM (HsWrapper, [LHsExpr TcId], TcSigmaType)
           -- ^ (a wrapper for the function, the tc'd args, result type)
 tcArgs fun orig_fun_ty fun_orig orig_args herald
@@ -1158,8 +1157,8 @@ tcArgs fun orig_fun_ty fun_orig orig_args herald
 
       | otherwise   -- not a type application.
       = do { (wrap, [arg_ty], res_ty)
-               <- matchExpectedFunTysPart (Actual fun_orig) herald 1 fun_ty
-                                          mk_full_ty (length orig_args)
+               <- matchActualFunTysPart herald fun_orig 1 fun_ty
+                                        mk_full_ty (length orig_args)
                -- wrap :: fun_ty "->" arg_ty -> res_ty
            ; arg' <- tcArg fun (arg, arg_ty, n)
            ; let mk_full_ty' res_ty' = mk_full_ty (mkFunTy arg_ty res_ty')
