@@ -1200,11 +1200,11 @@ isEmptyMatchGroup :: MatchGroup id body -> Bool
 isEmptyMatchGroup (MG { mg_alts = ms }) = null $ unLoc ms
 
 -- | Is there only one RHS in this group?
-singletonMatchGroup_maybe :: MatchGroup id body -> Maybe (LMatch id body)
-singletonMatchGroup_maybe (MG { mg_alts = L _ [match] })
+isSingletonMatchGroup :: MatchGroup id body -> Bool
+isSingletonMatchGroup (MG { mg_alts = L _ [match] })
   | L _ (Match { m_grhss = GRHSs { grhssGRHSs = [_] } }) <- match
-  = Just match
-singletonMatchGroup_maybe _ = Nothing
+  = True
+isSingletonMatchGroup _ = False
 
 matchGroupArity :: MatchGroup id body -> Arity
 -- Precondition: MatchGroup is non-empty

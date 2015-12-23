@@ -87,13 +87,13 @@ tcMatchesFun fun_name matches exp_ty
           traceTc "tcMatchesFun" (ppr fun_name $$ ppr exp_ty)
         ; checkArgs fun_name matches
 
-        ; (wrap_gen, (wrap_fun, group))
-            <- tcSkolemise (FunSigCtxt fun_name True) exp_ty $
-               \ _ exp_rho ->
+        ; (wrap_gen, (wrap_tauify, (wrap_fun, group)))
+            <- tcSkolemise (FunSigCtxt fun_name True) exp_ty $ \ _ exp_rho ->
                   -- Note [Polymorphic expected type for tcMatchesFun]
-               matchFunTys herald arity exp_rho $ \ pat_tys rhs_ty ->
+               tauifyMultipleMatches group exp_rho $ \exp_rho' ->
+               matchFunTys herald arity exp_rho' $ \ pat_tys rhs_ty ->
                tcMatches match_ctxt pat_tys rhs_ty matches
-        ; return (wrap_gen <.> wrap_fun, group) }
+        ; return (wrap_gen <.> wrap_tauify <.> wrap_fun, group) }
   where
     arity = matchGroupArity matches
     herald = ptext (sLit "The equation(s) for")
@@ -122,7 +122,8 @@ tcMatchesCase ctxt scrut_ty matches res_ty
                             , mg_origin = mg_origin matches })
 
   | otherwise
-  = tcMatches ctxt [scrut_ty] res_ty matches
+  = tauifyMultipleMatches matches res_ty $ \res_ty' ->
+    tcMatches ctxt [scrut_ty] res_ty' matches
 
 tcMatchLambda :: MatchGroup Name (LHsExpr Name)
               -> TcRhoType   -- deeply skolemised
@@ -199,14 +200,33 @@ But we make a special case for a one-branch case. This is so that
 still gets assigned a polytype.
 -}
 
--- | Type-check a MatchGroup. This deeply instantiates the return
--- type: it cannot be used to infer a polytype.
+-- | When the MatchGroup has multiple RHSs, convert any ReturnTvs in the
+-- expected type into TauTvs and pass the modified types into the callback.
+-- See Note [Case branches must be taus]
+tauifyMultipleMatches :: MatchGroup id body
+                      -> TcType
+                      -> (TcType -> TcM a)
+                      -> TcM (HsWrapper, a)
+             -- ^ wrapper :: type passed to thing_inside "->" type given
+tauifyMultipleMatches group exp_ty thing_inside
+  | isSingletonMatchGroup group
+  = (idHsWrapper, ) <$> thing_inside exp_ty
+
+  | otherwise
+  = do { exp_ty' <- tauTvsForReturnTvs exp_ty
+       ; result <- thing_inside exp_ty'
+       ; wrap <- tcSubTypeHR (Shouldn'tHappenOrigin "tauify")
+                             noThing exp_ty' exp_ty
+       ; return (wrap, result) }
+
+-- | Type-check a MatchGroup. If there are multiple RHSs, the expected type
+-- must already be tauified. See Note [Case branches must be taus] and
+-- tauifyMultipleMatches
 tcMatches :: (Outputable (body Name)) => TcMatchCtxt body
           -> [TcSigmaType]      -- Expected pattern types
           -> TcRhoType          -- Expected result-type of the Match.
           -> MatchGroup Name (Located (body Name))
-          -> TcM (HsWrapper, MatchGroup TcId (Located (body TcId)))
-               -- wrapper goes from MatchGroup's ty to the expected ty
+          -> TcM (MatchGroup TcId (Located (body TcId))
 
 data TcMatchCtxt body   -- c.f. TcStmtCtxt, also in this module
   = MC { mc_what :: HsMatchContext Name,        -- What kind of thing this is
@@ -218,22 +238,11 @@ data TcMatchCtxt body   -- c.f. TcStmtCtxt, also in this module
 tcMatches ctxt pat_tys rhs_ty group@(MG { mg_alts = L l matches
                                         , mg_origin = origin })
   = ASSERT( not (null matches) )        -- Ensure that rhs_ty is filled in
-    do  { (matches', wrap, rhs_ty') <-
-             case singletonMatchGroup_maybe group of
-               Just match ->
-                 do { match' <- tcMatch ctxt pat_tys rhs_ty match
-                    ; return ([match'], idHsWrapper, rhs_ty) }
-               Nothing ->
-                 do { rhs_ty' <- tauTvsForReturnTvs rhs_ty
-                      -- See Note [Case branches must be taus]
-                    ; matches' <- mapM (tcMatch ctxt pat_tys rhs_ty') matches
-                    ; wrap <- tcSubTypeHR (Shouldn'tHappenOrigin "tcMatches")
-                                          noThing rhs_ty' rhs_ty
-                    ; return (matches', wrap, rhs_ty') }
-        ; return (wrap, MG { mg_alts = L l matches'
-                           , mg_arg_tys = pat_tys
-                           , mg_res_ty = rhs_ty'
-                           , mg_origin = origin }) }
+    do { matches' <- mapM (tcMatch ctxt pat_tys rhs_ty') matches
+       ; return (MG { mg_alts = L l matches'
+                    , mg_arg_tys = pat_tys
+                    , mg_res_ty = rhs_ty'
+                    , mg_origin = origin }) }
 
 -------------
 tcMatch :: (Outputable (body Name)) => TcMatchCtxt body
