@@ -2828,6 +2828,10 @@ pprCtOrigin (FailablePattern pat)
       $$
       text "(this will become an error a future GHC release)"
 
+pprCtOrigin InferringTypeOrigin
+  = empty -- in context, the "arising from" isn't helpful.
+          -- see typecheck/should_fail/T10495
+
 pprCtOrigin (Shouldn'tHappenOrigin note)
   = sdocWithDynFlags $ \dflags ->
     if xopt LangExt.ImpredicativeTypes dflags
@@ -2873,8 +2877,6 @@ pprCtO AnnOrigin             = ptext (sLit "an annotation")
 pprCtO HoleOrigin            = ptext (sLit "a use of") <+> quotes (ptext $ sLit "_")
 pprCtO ListOrigin            = ptext (sLit "an overloaded list")
 pprCtO StaticOrigin          = ptext (sLit "a static form")
-pprCtO InferringTypeOrigin   = empty -- in context, the msg isn't helpful.
-                                     -- see typecheck/should_fail/T10495
 pprCtO _                     = panic "pprCtOrigin"
 
 {-
