@@ -2189,10 +2189,12 @@ instErrCtxt :: TcId -> TcType -> TidyEnv -> TcM (TidyEnv, SDoc)
 instErrCtxt id ty env
   = do { let (env', ty') = tidyOpenType env ty
        ; return (env', hang (text "When instantiating" <+> quotes (ppr id) <>
-                             text ", initially inferred to have this overly-general type:")
+                             text ", initially inferred to have" $$
+                             text "this overly-general type:")
                           2 (ppr ty') $$
                        extra) }
   where
     extra = sdocWithDynFlags $ \dflags ->
             ppWhen (xopt LangExt.MonomorphismRestriction dflags) $
-            text "NB: This instantiation can be caused by the monomorphism restriction."
+            text "NB: This instantiation can be caused by the" <+>
+            text "monomorphism restriction."

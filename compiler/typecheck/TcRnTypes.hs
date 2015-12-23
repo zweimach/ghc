@@ -2828,9 +2828,9 @@ pprCtOrigin (FailablePattern pat)
       $$
       text "(this will become an error a future GHC release)"
 
-pprCtOrigin (InferringTypeOrigin id)
-  = hang (ctoHerald <+> text "specialising the overly-general inferred type of")
-       2 (ppr id <+> dcolon <+> ppr (varType id))
+pprCtOrigin (InferringTypeOrigin _)
+  = empty -- in context, the "arising from" isn't helpful.
+          -- see typecheck/should_fail/T10495
 
 pprCtOrigin (Shouldn'tHappenOrigin note)
   = sdocWithDynFlags $ \dflags ->
