@@ -1198,7 +1198,7 @@ tcSyntaxOp :: CtOrigin -> HsExpr Name -> TcType -> TcM (HsExpr TcId)
 -- The operator is always a variable at this stage (i.e. renamer output)
 -- This version assumes res_ty is a monotype
 tcSyntaxOp orig (HsVar (L _ op)) res_ty
-  = do { (expr, rho) <- tcInferIdWithOrig orig (nameRdrName op) op
+  = do { (expr, rho) <- tcInferId op
        ; tcWrapResultO orig expr rho res_ty }
 
 tcSyntaxOp _ other         _      = pprPanic "tcSyntaxOp" (ppr other)
@@ -1312,23 +1312,17 @@ tcCheckRecSelId (Ambiguous lbl _) res_ty
                           ; tcCheckRecSelId (Unambiguous lbl sel_name) res_ty }
 
 ------------------------
-tcInferId :: Name -> TcM (HsExpr TcId, TcSigmaType)
--- Infer type, and deeply instantiate
-tcInferId n = tcInferIdWithOrig (OccurrenceOf n) (nameRdrName n) n
-
 tcInferRecSelId :: AmbiguousFieldOcc Name -> TcM (HsExpr TcId, TcRhoType)
 tcInferRecSelId (Unambiguous (L _ lbl) sel)
-  = do { (expr', ty) <- tcInferIdWithOrig origin lbl sel
+  = do { (expr', ty) <- tc_infer_id lbl sel
        ; return (expr', ty) }
-  where origin = OccurrenceOfRecSel lbl
 tcInferRecSelId (Ambiguous lbl _)
   = ambiguousSelector lbl
 
 ------------------------
-tcInferIdWithOrig :: CtOrigin -> RdrName -> Name -> TcM (HsExpr TcId, TcSigmaType)
+tcInferId :: Name -> TcM (HsExpr TcId, TcSigmaType)
 -- Look up an occurrence of an Id
-
-tcInferIdWithOrig orig lbl id_name
+tcInferId id_name
   | id_name `hasKey` tagToEnumKey
   = failWithTc (ptext (sLit "tagToEnum# must appear applied to one argument"))
         -- tcApp catches the case (tagToEnum# arg)
@@ -1336,26 +1330,26 @@ tcInferIdWithOrig orig lbl id_name
   | id_name `hasKey` assertIdKey
   = do { dflags <- getDynFlags
        ; if gopt Opt_IgnoreAsserts dflags
-         then tc_infer_id orig lbl id_name
-         else tc_infer_assert orig }
+         then tc_infer_id (nameRdrName id_name) id_name
+         else tc_infer_assert }
 
   | otherwise
-  = do { (expr, ty) <- tc_infer_id orig lbl id_name
-       ; traceTc "tcInferIdWithOrig" (ppr id_name <+> dcolon <+> ppr ty)
+  = do { (expr, ty) <- tc_infer_id (nameRdrName id_name) id_name
+       ; traceTc "tcInferId" (ppr id_name <+> dcolon <+> ppr ty)
        ; return (expr, ty) }
 
-tc_infer_assert :: CtOrigin -> TcM (HsExpr TcId, TcSigmaType)
+tc_infer_assert :: TcM (HsExpr TcId, TcSigmaType)
 -- Deal with an occurrence of 'assert'
 -- See Note [Adding the implicit parameter to 'assert']
-tc_infer_assert orig
+tc_infer_assert
   = do { assert_error_id <- tcLookupId assertErrorName
-       ; (wrap, id_rho) <- topInstantiate orig (idType assert_error_id)
+       ; (wrap, id_rho) <- topInstantiate (OccurrenceOf assertErrorName)
+                                          (idType assert_error_id)
        ; return (mkHsWrap wrap (HsVar (noLoc assert_error_id)), id_rho)
        }
 
-tc_infer_id :: CtOrigin -> RdrName -> Name -> TcM (HsExpr TcId, TcSigmaType)
--- Return type is deeply instantiated
-tc_infer_id orig lbl id_name
+tc_infer_id :: RdrName -> Name -> TcM (HsExpr TcId, TcSigmaType)
+tc_infer_id lbl id_name
  = do { thing <- tcLookup id_name
       ; case thing of
              ATcId { tct_id = id }
@@ -1372,7 +1366,7 @@ tc_infer_id orig lbl id_name
 
              AGlobal (AConLike cl) -> case cl of
                  RealDataCon con -> return_data_con con
-                 PatSynCon ps    -> tcPatSynBuilderOcc orig ps
+                 PatSynCon ps    -> tcPatSynBuilderOcc ps
 
              _ -> failWithTc $
                   ppr thing <+> ptext (sLit "used where a value identifier was expected") }
@@ -1391,7 +1385,7 @@ tc_infer_id orig lbl id_name
            ; let tys'   = mkTyVarTys tvs'
                  theta' = substTheta subst theta
                  rho'   = substTy subst rho
-           ; wrap <- instCall orig tys' theta'
+           ; wrap <- instCall (OccurrenceOf id_name) tys' theta'
            ; addDataConStupidTheta con tys'
            ; return (mkHsWrap wrap (HsVar (noLoc con_wrapper_id)), rho') }
 

@@ -39,7 +39,6 @@ import BuildTyCl
 import VarSet
 import MkId
 import VarEnv
-import Inst
 import TcTyDecls
 import ConLike
 import FieldLabel
@@ -405,14 +404,15 @@ mkPatSynBuilderId has_sig dir  (L _ name) qtvs theta arg_tys pat_ty
   | otherwise
   = do { builder_name <- newImplicitBinder name mkBuilderOcc
        ; let mk_sigma      = if has_sig then mkSpecSigmaTy else mkInvSigmaTy
-             builder_sigma = mk_sigma qtvs theta (mkFunTys builder_arg_tys pat_ty)
+             builder_sigma = add_void $
+                             mk_sigma qtvs theta (mkFunTys arg_tys pat_ty)
              builder_id    =
               -- See Note [Exported LocalIds] in Id
               mkExportedLocalId VanillaId builder_name builder_sigma
        ; return (Just (builder_id, need_dummy_arg)) }
   where
-    builder_arg_tys | need_dummy_arg = [voidPrimTy]
-                    | otherwise = arg_tys
+    add_void | need_dummy_arg = mkFunTy voidPrimTy
+             | otherwise      = id
     need_dummy_arg = isUnLiftedType pat_ty && null arg_tys && null theta
 
 tcPatSynBuilderBind :: PatSynBind Name Name
@@ -467,7 +467,8 @@ tcPatSynBuilderBind PSB{ psb_id = L loc name, psb_def = lpat
               InfixPatSyn arg1 arg2 -> [arg1, arg2]
               RecordPatSyn args     -> map recordPatSynPatVar args
 
-    add_dummy_arg :: MatchGroup Name (LHsExpr Name) -> MatchGroup Name (LHsExpr Name)
+    add_dummy_arg :: MatchGroup Name (LHsExpr Name)
+                  -> MatchGroup Name (LHsExpr Name)
     add_dummy_arg mg@(MG { mg_alts
                             = L l [L loc (Match NonFunBindMatch [] ty grhss)] })
       = mg { mg_alts
@@ -475,20 +476,20 @@ tcPatSynBuilderBind PSB{ psb_id = L loc name, psb_def = lpat
     add_dummy_arg other_mg = pprPanic "add_dummy_arg" $
                              pprMatches (PatSyn :: HsMatchContext Name) other_mg
 
-tcPatSynBuilderOcc :: CtOrigin -> PatSyn -> TcM (HsExpr TcId, TcSigmaType)
--- The result type should be fully instantiated
-tcPatSynBuilderOcc orig ps
+tcPatSynBuilderOcc :: PatSyn -> TcM (HsExpr TcId, TcSigmaType)
+-- monadic only for failure
+tcPatSynBuilderOcc ps
   | Just (builder_id, add_void_arg) <- builder
-  = do { let inst_fun = HsVar (noLoc builder_id)
-       ; if add_void_arg
-         then do { (wrap, rho) <- topInstantiate orig (idType builder_id)
-                 ; return ( HsApp (noLoc $ mkHsWrap wrap inst_fun)
-                                  (nlHsVar voidPrimId)
-                          , tcFunResultTy rho ) }
-         else return (inst_fun, idType builder_id) }
+  , let builder_expr = HsVar (noLoc builder_id)
+        builder_ty   = idType builder_id
+  = return $
+    if add_void_arg
+    then ( HsApp (noLoc $ builder_expr) (nlHsVar voidPrimId)
+         , tcFunResultTy builder_ty )
+    else (builder_expr, builder_ty)
 
   | otherwise  -- Unidirectional
-    = nonBidirectionalErr name
+  = nonBidirectionalErr name
   where
     name    = patSynName ps
     builder = patSynBuilder ps
