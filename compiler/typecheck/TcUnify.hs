@@ -103,47 +103,26 @@ namely:
         A function definition
      An operator section
 
-Note [Arguments are tau-types]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Consider
-
-  f x True  = x undefined
-  f x False = x ()
-
-We wish to give f the type (() -> a) -> Bool -> a. But we must be very careful.
-The problem is that f falls into the special case in TcBinds that allows inference
-of higher-rank types. Thus x is given a ReturnTv meta-tyvar type. If we allow
-x's arguments to also be higher-rank, then the first equation leads us to give
-f the horrid type
-  ((forall (v :: Levity) (a :: TYPE v). (?callstack :: CallStack) => a) -> b) -> Bool -> b
-which then fails to line up in the second equation. Worse(?), switching the order
-of the equations fixes the problem.
-
-The solution is to make arguments tau-types (that is, not ReturnTvs). But we musn't
-do this in the Expected case, because we really do want to infer higher-rank types
-here. For example
-
-  g = \(x :: forall a. a -> a) -> ()
-
-We want g :: (forall a. a -> a) -> (). But here, g's type is an Expected type, and
-so we want to decompose that into ReturnTvs.
-
-This is all quite fiddly, and it makes me (Richard) doubt the validity of the
-special case in TcBinds.
-
 -}
 
 -- Use this one when you have an "expected" type.
 matchExpectedFunTys :: SDoc   -- See Note [Herald for matchExpectedFunTys]
                     -> Arity
-                    -> TcSigmaType
+                    -> TcSigmaType  -- deeply skolemised
                     -> TcM (HsWrapper, [TcSigmaType], TcSigmaType)
+-- This function is always called with a deeply skolemised expected result
+-- type. This means that matchActualFunTys will never actually instantiate,
+-- and the returned HsWrapper will be reversible (that is, just a coercion).
+-- So we just piggyback on matchActualFunTys. This is just a bit dodgy, but
+-- it's much better than duplicating all the logic in matchActualFunTys.
+-- To keep expected/actual working out properly, we tell matchActualFunTys
+-- to swap the arguments to unifyType.
 matchExpectedFunTys herald arity ty
   = ASSERT( is_deeply_skolemised ty )
     do { (wrap, arg_tys, res_ty)
-           <- matchActualFunTys herald
-                                (Shouldn'tHappenOrigin "matchExpectedFunTys")
-                                arity ty
+           <- match_fun_tys True herald
+                            (Shouldn'tHappenOrigin "matchExpectedFunTys")
+                            arity ty id arity
        ; return $
          case symWrapper_maybe wrap of
            Just wrap' -> (wrap', arg_tys, res_ty)
@@ -158,106 +137,7 @@ matchExpectedFunTys herald arity ty
 
     is_deeply_skolemised (ForAllTy (Anon _) res) = is_deeply_skolemised res
     is_deeply_skolemised (ForAllTy (Named {}) _) = False
-{-
-matchExpectedFunTys herald full_arity orig_ty
-  = go full_arity id orig_ty
--- If    matchExpectFunTys n ty = (wrap, [t1,..,tn], ty_r)
--- then  wrap : (t1 -> ... -> tn -> ty_r) "->" ty
---
--- Does not allocate unnecessary meta variables: if the input already is
--- a function, we just take it apart.  Not only is this efficient,
--- it's important for higher rank: the argument might be of form
---              (forall a. ty) -> other
--- If allocated (fresh-meta-var1 -> fresh-meta-var2) and unified, we'd
--- hide the forall inside a meta-variable
-  where
-    go :: Arity
-       -> (TcSigmaType -> TcSigmaType)
-            -- this goes from the "remainder type" to the full type
-       -> TcSigmaType   -- the remainder of the type as we're processing
-       -> TcM (HsWrapper, [TcSigmaType], TcSigmaType)
-    go 0 _ ty = return (idHsWrapper, [], ty)
 
-    go n mk_full_ty ty
-      | not (null tvs && null theta)
-      = do { (wrap1, (wrap2, arg_tys, res_ty))
-               <- tcSkolemise GenSigCtxt ty $ \_ rho ->
-                  do { (inner_wrap, arg_tys, res_ty) <- go n mk_full_ty rho
-                     ; return (inner_wrap, arg_tys, res_ty) }
-           ; return (wrap1 <.> wrap2, arg_tys, res_ty) }
-      where
-        (tvs, theta, _) = tcSplitSigmaTy ty
-
-    go n mk_full_ty ty
-      | Just ty' <- coreView ty = go n mk_full_ty ty'
-
-    go n mk_full_ty (ForAllTy (Anon arg_ty) res_ty)
-      = ASSERT( not (isPredTy arg_ty) )
-        do { let mk_full_ty' res_ty' = mk_full_ty (mkFunTy arg_ty res_ty')
-           ; (wrap_res, tys, ty_r) <- go (n-1) mk_full_ty' res_ty
-           ; return ( mkWpFun idHsWrapper wrap_res arg_ty res_ty
-                    , arg_ty:tys, ty_r ) }
-
-    go n mk_full_ty ty@(TyVarTy tv)
-      | ASSERT( isTcTyVar tv) isMetaTyVar tv
-      = do { cts <- readMetaTyVar tv
-           ; case cts of
-               Indirect ty' -> go n mk_full_ty ty'
-               Flexi        -> defer n ty (isReturnTyVar tv) }
-
-       -- In all other cases we bale out into ordinary unification
-       -- However unlike the meta-tyvar case, we are sure that the
-       -- number of arguments doesn't match arity of the original
-       -- type, so we can add a bit more context to the error message
-       -- (cf Trac #7869).
-       --
-       -- It is not always an error, because specialized type may have
-       -- different arity, for example:
-       --
-       -- > f1 = f2 'a'
-       -- > f2 :: Monad m => m Bool
-       -- > f2 = undefined
-       --
-       -- But in that case we add specialized type into error context
-       -- anyway, because it may be useful. See also Trac #9605.
-    go n mk_full_ty ty = addErrCtxtM (mk_ctxt (mk_full_ty ty)) $
-                         defer n ty False
-
-    ------------
-    -- If we decide that a ReturnTv (see Note [ReturnTv] in TcType) should
-    -- really be a function type, then we need to allow the
-    -- result types also to be a ReturnTv.
-    defer n fun_ty is_return
-      = do { arg_tys <- replicateM n new_flexi
-           ; res_ty  <- new_flexi
-           ; let unif_fun_ty = mkFunTys arg_tys res_ty
-           ; co      <- unifyType noThing unif_fun_ty fun_ty
-           ; return (mkWpCastN co, arg_tys, res_ty) }
-      where
-        -- preserve ReturnTv-ness
-        new_flexi :: TcM TcType
-        new_flexi | is_return = (mkTyVarTy . fst) <$> newOpenReturnTyVar
-                  | otherwise = newOpenFlexiTyVarTy
-
-    ------------
-    mk_ctxt :: TcSigmaType -> TidyEnv -> TcM (TidyEnv, MsgDoc)
-    mk_ctxt full_ty env
-      = do { (env', ty) <- zonkTidyTcType env full_ty
-           ; let (args, _) = tcSplitFunTys ty
-                 n_actual = length args
-                 (env'', full_ty') = tidyOpenType env' full_ty
-           ; return (env'', mk_msg full_ty' ty n_actual) }
-
-    mk_msg full_ty ty n_args
-      = herald <+> speakNOf full_arity (text "argument") <> comma $$
-        if n_args == full_arity
-          then ptext (sLit "its type is") <+> quotes (pprType full_ty) <>
-               comma $$
-               ptext (sLit "it is specialized to") <+> quotes (pprType ty)
-          else sep [ptext (sLit "but its type") <+> quotes (pprType ty),
-                    if n_args == 0 then ptext (sLit "has none")
-                    else ptext (sLit "has only") <+> speakN n_args]
--}
 matchActualFunTys :: SDoc   -- See Note [Herald for matchExpectedFunTys]
                   -> CtOrigin
                   -> Arity
@@ -275,7 +155,19 @@ matchActualFunTysPart :: SDoc -- See Note [Herald for matchExpectedFunTys]
                       -> (TcSigmaType -> TcSigmaType) -- see (*) below
                       -> Arity   -- overall arity of the function, for errs
                       -> TcM (HsWrapper, [TcSigmaType], TcSigmaType)
-matchActualFunTysPart herald ct_orig arity orig_ty mk_full_ty full_arity
+matchActualFunTysPart = match_fun_tys False
+
+match_fun_tys :: Bool -- True <=> swap the args when unifying,
+                      -- for better expected/actual in error messages;
+                      -- see comments with matchExpectedFunTys
+              -> SDoc
+              -> CtOrigin
+              -> Arity
+              -> TcSigmaType
+              -> (TcSigmaType -> TcSigmaType)
+              -> Arity
+              -> TcM (HsWrapper, [TcSigmaType], TcSigmaType)
+match_fun_tys swap_tys herald ct_orig arity orig_ty mk_full_ty full_arity
   = go arity mk_full_ty orig_ty
 -- If    matchActualFunTys n ty = (wrap, [t1,..,tn], ty_r)
 -- then  wrap : ty "->" (t1 -> ... -> tn -> ty_r)
@@ -350,10 +242,11 @@ matchActualFunTysPart herald ct_orig arity orig_ty mk_full_ty full_arity
     -- result types also to be a ReturnTv.
     defer n fun_ty is_return
       = do { arg_tys <- replicateM n new_flexi
-                        -- See Note [Arguments are tau-types]
            ; res_ty  <- new_flexi
            ; let unif_fun_ty = mkFunTys arg_tys res_ty
-           ; co      <- unifyType noThing fun_ty unif_fun_ty
+           ; co <- if swap_tys
+                   then mkTcSymCo <$> unifyType noThing unif_fun_ty fun_ty
+                   else               unifyType noThing fun_ty unif_fun_ty
            ; return (mkWpCastN co, arg_tys, res_ty) }
       where
         -- preserve ReturnTv-ness
