@@ -138,6 +138,27 @@ matchExpectedFunTys :: SDoc   -- See Note [Herald for matchExpectedFunTys]
                     -> Arity
                     -> TcSigmaType
                     -> TcM (HsWrapper, [TcSigmaType], TcSigmaType)
+matchExpectedFunTys herald arity ty
+  = ASSERT( is_deeply_skolemised ty )
+    do { (wrap, arg_tys, res_ty)
+           <- matchActualFunTys herald
+                                (Shouldn'tHappenOrigin "matchExpectedFunTys")
+                                arity ty
+       ; return $
+         case symWrapper_maybe wrap of
+           Just wrap' -> (wrap', arg_tys, res_ty)
+           Nothing    -> pprPanic "matchExpectedFunTys" (ppr wrap $$ ppr ty) }
+  where
+    is_deeply_skolemised (TyVarTy {})    = True
+    is_deeply_skolemised (AppTy {})      = True
+    is_deeply_skolemised (TyConApp {})   = True
+    is_deeply_skolemised (LitTy {})      = True
+    is_deeply_skolemised (CastTy ty _)   = is_deeply_skolemised ty
+    is_deeply_skolemised (CoercionTy {}) = True
+
+    is_deeply_skolemised (ForAllTy (Anon _) res) = is_deeply_skolemised res
+    is_deeply_skolemised (ForAllTy (Named {}) _) = False
+{-
 matchExpectedFunTys herald full_arity orig_ty
   = go full_arity id orig_ty
 -- If    matchExpectFunTys n ty = (wrap, [t1,..,tn], ty_r)
@@ -236,7 +257,7 @@ matchExpectedFunTys herald full_arity orig_ty
           else sep [ptext (sLit "but its type") <+> quotes (pprType ty),
                     if n_args == 0 then ptext (sLit "has none")
                     else ptext (sLit "has only") <+> speakN n_args]
-
+-}
 matchActualFunTys :: SDoc   -- See Note [Herald for matchExpectedFunTys]
                   -> CtOrigin
                   -> Arity
@@ -328,7 +349,7 @@ matchActualFunTysPart herald ct_orig arity orig_ty mk_full_ty full_arity
     -- really be a function type, then we need to allow the
     -- result types also to be a ReturnTv.
     defer n fun_ty is_return
-      = do { arg_tys <- replicateM n newOpenFlexiTyVarTy
+      = do { arg_tys <- replicateM n new_flexi
                         -- See Note [Arguments are tau-types]
            ; res_ty  <- new_flexi
            ; let unif_fun_ty = mkFunTys arg_tys res_ty

@@ -9,6 +9,7 @@ module TcEvidence (
   (<.>), mkWpTyApps, mkWpEvApps, mkWpEvVarApps, mkWpTyLams,
   mkWpLams, mkWpLet, mkWpCastN, mkWpCastR,
   mkWpFun, mkWpFuns, idHsWrapper, isIdHsWrapper, pprHsWrapper,
+  symWrapper_maybe,
 
   -- Evidence bindings
   TcEvBinds(..), EvBindsVar(..),
@@ -198,6 +199,9 @@ mkWpFun :: HsWrapper -> HsWrapper
         -> TcType    -- either type of the second wrapper (used only when the
                      -- second wrapper is the identity)
         -> HsWrapper
+        -- NB: These optimisations are important, because we need
+        -- symWrapper_maybe to work in TcUnify.matchExpectedFunTys
+        -- See that function for more info.
 mkWpFun WpHole       WpHole       _  _  = WpHole
 mkWpFun WpHole       (WpCast co2) t1 _  = WpCast (mkTcFunCo Representational (mkTcRepReflCo t1) co2)
 mkWpFun (WpCast co1) WpHole       _  t2 = WpCast (mkTcFunCo Representational (mkTcSymCo co1) (mkTcRepReflCo t2))
@@ -223,6 +227,21 @@ mkWpCastN co
   | otherwise     = ASSERT2(tcCoercionRole co == Nominal, ppr co)
                     WpCast (mkTcSubCo co)
     -- The mkTcSubCo converts Nominal to Representational
+
+-- | In a few limited cases, it is possible to reverse the direction
+-- of an HsWrapper. This tries to do so.
+symWrapper_maybe :: HsWrapper -> Maybe HsWrapper
+symWrapper_maybe = go
+  where
+    go WpHole              = return WpHole
+    go (WpCompose wp1 wp2) = WpCompose <$> go wp2 <*> go wp1
+    go (WpFun {})          = Nothing
+    go (WpCast co)         = return (WpCast (mkTcSymCo co))
+    go (WpEvLam {})        = Nothing
+    go (WpEvApp {})        = Nothing
+    go (WpTyLam {})        = Nothing
+    go (WpTyApp {})        = Nothing
+    go (WpLet {})          = Nothing
 
 mkWpTyApps :: [Type] -> HsWrapper
 mkWpTyApps tys = mk_co_app_fn WpTyApp tys
