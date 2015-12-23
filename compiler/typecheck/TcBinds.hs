@@ -751,7 +751,7 @@ tcPolyInfer rec_tc prag_fn tc_sig_fn mono bind_list
       = do { mono_ty <- zonkTcType (idType mono_id)
               -- NB: zonk to uncover any foralls
            ; addErrCtxtM (instErrCtxt mono_id mono_ty) $
-             deeplyInstantiate (InferringTypeOrigin mono_id) mono_ty }
+             deeplyInstantiate InferringTypeOrigin mono_ty }
 
 --------------
 mkExport :: TcPragEnv

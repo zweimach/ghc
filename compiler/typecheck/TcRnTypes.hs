@@ -2649,8 +2649,8 @@ data CtOrigin
   | FailablePattern (LPat TcId) -- A failable pattern in do-notation for the
                                 -- MonadFail Proposal (MFP). Obsolete when
                                 -- actual desugaring to MonadFail.fail is live.
-  | InferringTypeOrigin TcId  -- from Note [Instantiate when inferring a type]
-                              -- in TcBinds
+  | InferringTypeOrigin  -- from Note [Instantiate when inferring a type]
+                         -- in TcBinds
   | Shouldn'tHappenOrigin String
                             -- the user should never see this one,
                             -- unlesss ImpredicativeTypes is on, where all
@@ -2828,10 +2828,6 @@ pprCtOrigin (FailablePattern pat)
       $$
       text "(this will become an error a future GHC release)"
 
-pprCtOrigin (InferringTypeOrigin _)
-  = empty -- in context, the "arising from" isn't helpful.
-          -- see typecheck/should_fail/T10495
-
 pprCtOrigin (Shouldn'tHappenOrigin note)
   = sdocWithDynFlags $ \dflags ->
     if xopt LangExt.ImpredicativeTypes dflags
@@ -2877,6 +2873,8 @@ pprCtO AnnOrigin             = ptext (sLit "an annotation")
 pprCtO HoleOrigin            = ptext (sLit "a use of") <+> quotes (ptext $ sLit "_")
 pprCtO ListOrigin            = ptext (sLit "an overloaded list")
 pprCtO StaticOrigin          = ptext (sLit "a static form")
+pprCtO InferringTypeOrigin   = empty -- in context, the msg isn't helpful.
+                                     -- see typecheck/should_fail/T10495
 pprCtO _                     = panic "pprCtOrigin"
 
 {-
