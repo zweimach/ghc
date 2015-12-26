@@ -4670,6 +4670,22 @@ ocVerifyImage_ELF ( ObjectCode* oc )
    return 1;
 }
 
+const char* sectionKindStr(SectionKind kind);
+const char* sectionKindStr(SectionKind kind) {
+    switch (kind) {
+    case SECTIONKIND_CODE_OR_RODATA:
+        return "code-or-rodata";
+    case SECTIONKIND_RWDATA:
+        return "rwdata";
+    case SECTIONKIND_INIT_ARRAY:
+        return "init-array";
+    case SECTIONKIND_OTHER:
+        return "other";
+    default:
+        return "unknown";
+    }
+}
+
 /* Figure out what kind of section it is.  Logic derived from
    Figure 1.14 ("Special Sections") of the ELF document
    ("Portable Formats Specification, Version 1.1"). */
@@ -4766,6 +4782,8 @@ ocGetNames_ELF ( ObjectCode* oc )
        }
    }
 
+   IF_DEBUG(linker, debugBelch("ocGetNames_ELF: %s\n",
+                               oc->archiveMemberName ? oc->archiveMemberName : oc->fileName));
    for (i = 0; i < shnum; i++) {
       int         is_bss = FALSE;
       SectionKind kind   = getSectionKind_ELF(&shdr[i], &is_bss);
@@ -4811,6 +4829,9 @@ ocGetNames_ELF ( ObjectCode* oc )
           }
           addProddableBlock(oc, start, size);
       }
+
+      IF_DEBUG(linker, debugBelch("ocGetNames_ELF:  kind=%s, %p-%p\n",
+                                  sectionKindStr(kind), start, (void*)((uintptr_t)start + size)));
 
       addSection(&sections[i], kind, alloc, start, size,
                  mapped_offset, mapped_start, mapped_size);
@@ -5632,6 +5653,8 @@ ocResolve_ELF ( ObjectCode* oc )
    const Elf_Word shnum = elf_shnum(ehdr);
 
    /* Process the relocation sections. */
+   IF_DEBUG(linker, debugBelch("ocResolve_ELF: fileName=%s\n",
+                               oc->archiveMemberName ? oc->archiveMemberName : oc->fileName));
    for (i = 0; i < shnum; i++) {
       if (shdr[i].sh_type == SHT_REL) {
          ok = do_Elf_Rel_relocations ( oc, ehdrC, shdr, i );
