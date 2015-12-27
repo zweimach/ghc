@@ -6782,6 +6782,23 @@ relocateSection(
 #define MACH_O_SECTION_ALIGNMENT 16
 
 
+static SectionKind
+getSectionKind_MachO(struct section* sect)
+{
+    SectionKind kind = SECTIONKIND_OTHER;
+    if (0==strcmp(sect->sectname, "__text")) {
+        kind = SECTIONKIND_CODE_OR_RODATA;
+    }
+    else if (0==strcmp(sect->sectname, "__const") ||
+             0==strcmp(sect->sectname, "__data") ||
+             0==strcmp(sect->sectname, "__bss") ||
+             0==strcmp(sect->sectname, "__common") ||
+             0==strcmp(sect->sectname, "__mod_init_func")) {
+        kind = SECTIONKIND_RWDATA;
+    }
+    return kind;
+}
+
 static int
 ocGetNames_MachO(ObjectCode* oc)
 {
@@ -6927,16 +6944,7 @@ ocGetNames_MachO(ObjectCode* oc)
             memcpy(addr, oc->image + offset, size);
         }
 
-        if (0==strcmp(shdr[i].sectname,"__text")) {
-            kind = SECTIONKIND_CODE_OR_RODATA;
-        }
-        else if (0==strcmp(shdr[i].sectname,"__const") ||
-                 0==strcmp(shdr[i].sectname,"__data") ||
-                 0==strcmp(shdr[i].sectname,"__bss") ||
-                 0==strcmp(shdr[i].sectname,"__common") ||
-                 0==strcmp(shdr[i].sectname,"__mod_init_func")) {
-            kind = SECTIONKIND_RWDATA;
-        }
+        SectionKind kind = getSectionKind_MachO(&shdr[i]);
 
         addSection(&sections[i], kind, alloc, addr, size, alignment, 0);
         addr += size;
@@ -7032,18 +7040,7 @@ ocGetNames_MachO(ObjectCode* oc)
                 memcpy(addr, oc->image + offset, size);
             }
 
-            SectionKind kind = SECTIONKIND_OTHER;
-
-            if (0==strcmp(shdr[i].sectname,"__text")) {
-                kind = SECTIONKIND_CODE_OR_RODATA;
-            }
-            else if (0==strcmp(shdr[i].sectname,"__const") ||
-                     0==strcmp(shdr[i].sectname,"__data") ||
-                     0==strcmp(shdr[i].sectname,"__bss") ||
-                     0==strcmp(shdr[i].sectname,"__common") ||
-                     0==strcmp(shdr[i].sectname,"__mod_init_func")) {
-                kind = SECTIONKIND_RWDATA;
-            }
+            SectionKind kind = getSectionKind_MachO(&shdr[i]);
 
             addSection(&sections[i], kind, alloc, addr, size,
                        alignment, misalignment);
