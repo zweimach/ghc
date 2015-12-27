@@ -2747,8 +2747,19 @@ static int ocAllocateSymbolExtras( ObjectCode* oc, int count, int first )
 static void
 ocFlushInstructionCache( ObjectCode *oc )
 {
+    int i;
     // Object code
-    __clear_cache(oc->image, oc->image + oc->fileSize);
+    for (i=0; i < oc->n_sections; i++) {
+        Section *s = &oc->sections[i];
+        switch (s->kind) {
+        case SECTIONKIND_CODE_OR_RODATA:
+            __clear_cache(s->start, (void*) ((uintptr_t) s->start + s->size));
+            break;
+        default:
+            break;
+        }
+    }
+
     // Jump islands
     __clear_cache(oc->symbol_extras, &oc->symbol_extras[oc->n_symbol_extras]);
 }
