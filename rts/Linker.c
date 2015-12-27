@@ -4899,7 +4899,8 @@ ocVerifyImage_ELF ( ObjectCode* oc )
 /* Figure out what kind of section it is.  Logic derived from
    Figure 1.14 ("Special Sections") of the ELF document
    ("Portable Formats Specification, Version 1.1"). */
-static int getSectionKind_ELF( Elf_Shdr *hdr, int *is_bss )
+static SectionKind
+getSectionKind_ELF( Elf_Shdr *hdr, int *is_bss )
 {
     *is_bss = FALSE;
 
