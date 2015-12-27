@@ -28,26 +28,21 @@ typedef
    SectionKind;
 
 typedef
-   enum { SECTION_NOMEM,
-          SECTION_M32,
-          SECTION_MMAP,
-          SECTION_MALLOC,
+   enum { ALLOC_NOMEM,
+          ALLOC_M32,
+          ALLOC_MMAP,
+          ALLOC_MALLOC,
         }
-   SectionAlloc;
+   AllocType;
 
 typedef
    struct _Section {
-      void* start;                /* actual start of section in memory */
+      char* start;                /* actual start of section in memory */
       StgWord size;               /* actual size of section in memory */
+      StgWord alignment;          /* required section alignment */
       SectionKind kind;
-      SectionAlloc alloc;
-
-      /*
-       * The following fields are relevant for SECTION_MMAP sections only
-       */
-      StgWord mapped_offset;      /* offset from the image of mapped_start */
-      void* mapped_start;         /* start of mmap() block */
-      StgWord mapped_size;        /* size of mmap() block */
+      AllocType alloc;            /* Allocator used */
+      StgWord misalignment;       /* Misalignment of "start" (added offset) */
    }
    Section;
 
@@ -98,14 +93,20 @@ typedef struct {
  */
 typedef struct _ObjectCode {
     OStatus    status;
-    pathchar  *fileName;
-    int        fileSize;     /* also mapped image size when using mmap() */
-    char*      formatName;            /* eg "ELF32", "DLL", "COFF", etc. */
+    char*      formatName;    /* eg "ELF32", "DLL", "COFF", etc. */
+
+    pathchar  *fileName;      /* Path to the source file (.a, .o, etc.) */
+    pathchar  *memberPath;    /* Path to the real file (for thin archives),
+                                 equal to fileName otherwise */
 
     /* If this object is a member of an archive, archiveMemberName is
      * like "libarchive.a(object.o)". Otherwise it's NULL.
      */
     char*      archiveMemberName;
+
+   /* Offset of the object file in the real file (not 0 if fileName points to
+    * an archive) */
+    long       memberOffset;
 
     /* An array containing ptrs to all the symbol names copied from
        this object into the global symbol hash table.  This is so that
@@ -114,17 +115,28 @@ typedef struct _ObjectCode {
     char**     symbols;
     int        n_symbols;
 
-    /* ptr to mem containing the object file image */
-    char*      image;
-    /* non-zero if the object file was mmap'd, otherwise malloc'd */
-    int        imageMapped;
+    char*      image;             /* object file image */
+    AllocType  imageAlloc;        /* allocator used */
+    StgWord    imageSize;         /* number of bytes addressable from image */
+    StgWord    imageMisalignment; /* record by how much image has been
+                                     deliberately misaligned after allocation,
+                                     | misalign | size .... |
+                                                ^image
+                                   */
+
+    /* When FORCE_CONTIGUOUS_SECTIONS is set, we allocate a virtual image
+     * that contains only the useful sections and the symbol extras (the jump
+     * islands) contiguously.
+     */
+    char*      virtualImage;
+    AllocType  virtualImageAlloc;
+    StgWord    virtualImageSize;
+    StgWord    virtualImageMisalignment;
+
 
     /* flag used when deciding whether to unload an object file */
     int        referenced;
 
-    /* record by how much image has been deliberately misaligned
-       after allocation, so that we can use realloc */
-    int        misalignment;
 
     /* The section-kind entries for this object module.  Linked
        list. */
@@ -149,6 +161,8 @@ typedef struct _ObjectCode {
     SymbolExtra    *symbol_extras;
     unsigned long   first_symbol_extra;
     unsigned long   n_symbol_extras;
+    AllocType       symbol_extras_alloc;
+    StgWord         symbol_extras_misalignment;
 #endif
 
     ForeignExportStablePtr *stable_ptrs;

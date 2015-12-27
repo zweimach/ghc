@@ -26,6 +26,12 @@ void *stgReallocBytes(void *p, int n, char *msg);
 void *stgCallocBytes(int n, int m, char *msg)
      GNUC3_ATTRIBUTE(__malloc__);
 
+void * stgMallocBytesAligned (int n, StgWord alignment,
+                       StgWord * misalignment,char *msg);
+
+void * stgCallocBytesAligned (int n, StgWord alignment,
+                       StgWord * misalignment,char *msg);
+
 void stgFree(void* p);
 
 /* -----------------------------------------------------------------------------

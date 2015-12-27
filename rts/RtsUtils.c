@@ -52,6 +52,8 @@ extern char *ctime_r(const time_t *, char *);
 #include <windows.h>
 #endif
 
+#define ROUND_UP(x,size) ((x + size - 1) & ~(size - 1))
+
 /* -----------------------------------------------------------------------------
    Result-checking malloc wrappers.
    -------------------------------------------------------------------------- */
@@ -97,6 +99,28 @@ stgCallocBytes (int n, int m, char *msg)
       stg_exit(EXIT_INTERNAL_ERROR);
     }
     return space;
+}
+
+void *
+stgMallocBytesAligned (int n, StgWord alignment,
+                       StgWord * misalignment,char *msg) {
+   char * p = (char*)stgMallocBytes(n+alignment,msg);
+   if (p == NULL) return NULL;
+
+   char* p2 = (char*)ROUND_UP((uintptr_t)p, alignment);
+   *misalignment = (StgWord)(p2-p);
+   return p2;
+}
+
+void *
+stgCallocBytesAligned (int n, StgWord alignment,
+                       StgWord * misalignment,char *msg) {
+   char * p = (char*)stgCallocBytes(1,n+alignment,msg);
+   if (p == NULL) return NULL;
+
+   char* p2 = (char*)ROUND_UP((uintptr_t)p, alignment);
+   *misalignment = (StgWord)(p2-p);
+   return p2;
 }
 
 /* To simplify changing the underlying allocator used
