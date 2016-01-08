@@ -125,11 +125,16 @@ def parse_flag(env, sig, signode):
     names = []
     for i, flag in enumerate(sig.split(',')):
         flag = flag.strip()
-        parts = flag.split()
+        equals = '='
+        parts = flag.split('=')
+        if len(parts) == 1:
+            equals=''
+            parts = flag.split()
         if len(parts) == 0: continue
+
         name = parts[0]
         names.append(name)
-        sig = ' '.join(parts[1:])
+        sig = equals + ' '.join(parts[1:])
         sig = re.sub(ur'<([-a-zA-Z ]+)>', ur'⟨\1⟩', sig)
         if i > 0:
             signode += addnodes.desc_name(', ', ', ')
@@ -154,6 +159,7 @@ def setup(app):
                         indextemplate='pair: %s; GHC option',
                         doc_field_types=[
                             Field('since', label='Introduced in GHC version', names=['since']),
+                            Field('default', label='Default value', names=['default']),
                             Field('static')
                         ])
 
