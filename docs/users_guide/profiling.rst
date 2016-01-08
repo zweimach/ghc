@@ -50,16 +50,14 @@ Furthermore, GHC will remember the stack of enclosing cost centres for
 any given expression at run-time and generate a call-tree of cost
 attributions.
 
-Let's take a look at an example:
-
-::
+Let's take a look at an example: ::
 
     main = print (fib 30)
     fib n = if n < 2 then 1 else fib (n-1) + fib (n-2)
 
 Compile and run this program as follows:
 
-::
+.. code-block:: none
 
     $ ghc -prof -fprof-auto -rtsopts Main.hs
     $ ./Main +RTS -p
@@ -70,7 +68,7 @@ When a GHC-compiled program is run with the ``-p`` RTS option, it
 generates a file called ``prog.prof``. In this case, the file will
 contain something like this:
 
-::
+.. code-block:: none
 
             Wed Oct 12 16:14 2011 Time and Allocation Profiling Report  (Final)
 
@@ -119,9 +117,7 @@ code covered by this cost centre stack alone, and “inherited”, which
 includes the costs incurred by all the children of this node.
 
 The usefulness of cost-centre stacks is better demonstrated by modifying
-the example slightly:
-
-::
+the example slightly: ::
 
     main = print (f 30 + g 30)
       where
@@ -133,7 +129,7 @@ the example slightly:
 Compile and run this program as before, and take a look at the new
 profiling results:
 
-::
+.. code-block:: none
 
     COST CENTRE MODULE                  no.     entries  %time %alloc   %time %alloc
 
@@ -203,9 +199,7 @@ to the compiler, it automatically inserts a cost centre annotation
 around every binding not marked INLINE in your program, but you are
 entirely free to add cost centre annotations yourself.
 
-The syntax of a cost centre annotation is
-
-::
+The syntax of a cost centre annotation is ::
 
     {-# SCC "name" #-} <expression>
 
@@ -214,15 +208,11 @@ your cost centre as it appears in the profiling output, and
 ``<expression>`` is any Haskell expression. An ``SCC`` annotation
 extends as far to the right as possible when parsing. (SCC stands for
 "Set Cost Centre"). The double quotes can be omitted if ``name`` is a
-Haskell identifier, for example:
-
-::
+Haskell identifier, for example: ::
 
     {-# SCC my_function #-} <expression>
 
-Here is an example of a program with a couple of SCCs:
-
-::
+Here is an example of a program with a couple of SCCs: ::
 
     main :: IO ()
     main = do let xs = [1..1000000]
@@ -234,7 +224,7 @@ Here is an example of a program with a couple of SCCs:
 
 which gives this profile when run:
 
-::
+.. code-block:: none
 
     COST CENTRE     MODULE                  no.     entries  %time %alloc   %time %alloc
 
@@ -682,7 +672,7 @@ large structure. To move further up the chain of retainers, we can ask
 for another retainer profile but this time restrict the profile to B
 objects, so we get a profile of the retainers of B:
 
-::
+.. code-block:: none
 
     prog +RTS -hr -hcB
 
@@ -718,9 +708,7 @@ likely to be wasted space than heap in the lag or use states.
 It is also possible to break down the heap in one or more of these
 states by a different criteria, by restricting a profile by biography.
 For example, to show the portion of the heap in the drag or void state
-by producer:
-
-::
+by producer: ::
 
     prog +RTS -hc -hbdrag,void
 
@@ -891,7 +879,7 @@ The ``FOO.hp`` file produced when you ask for the heap profile of a
 program ``FOO`` is a text file with a particularly simple structure.
 Here's a representative example, with much of the actual data omitted:
 
-::
+.. code-block:: none
 
     JOB "FOO -hC"
     DATE "Thu Dec 26 18:17 2002"
@@ -934,7 +922,7 @@ file may be incomplete, causing ``hp2ps`` to fail. If you are using a
 machine with UNIX utilities installed, it's not too hard to work around
 this problem (though the resulting command line looks rather Byzantine):
 
-::
+.. code-block:: sh
 
     head -`fgrep -n END_SAMPLE FOO.hp | tail -1 | cut -d : -f 1` FOO.hp \
         | hp2ps > FOO.ps
@@ -955,7 +943,7 @@ used to view an up-to-date heap profile of your program as it runs.
 Simply generate an incremental heap profile as described in the previous
 section. Run ``gv`` on your profile:
 
-::
+.. code-block:: sh
 
       gv -watch -orientation=seascape FOO.ps
 
@@ -965,7 +953,7 @@ the view will update automatically.
 
 This can all be encapsulated in a little script:
 
-::
+.. code-block:: sh
 
       #!/bin/sh
       head -`fgrep -n END_SAMPLE FOO.hp | tail -1 | cut -d : -f 1` FOO.hp \
@@ -983,7 +971,7 @@ slightly more complicated script works around this problem, by using the
 fact that sending a SIGHUP to gv will cause it to re-read its input
 file:
 
-::
+.. code-block:: sh
 
       #!/bin/sh
       head -`fgrep -n END_SAMPLE FOO.hp | tail -1 | cut -d : -f 1` FOO.hp \
@@ -1128,7 +1116,7 @@ remove the ``.tix`` file.
 
 Having run the program, we can generate a textual summary of coverage:
 
-::
+.. code-block:: none
 
     $ hpc report Recip
      80% expressions used (81/101)
@@ -1144,7 +1132,7 @@ Having run the program, we can generate a textual summary of coverage:
 
 We can also generate a marked-up version of the source.
 
-::
+.. code-block:: none
 
     $ hpc markup Recip
     writing Recip.hs.html
@@ -1172,7 +1160,7 @@ The hpc toolkit
 
 The hpc command has several sub-commands:
 
-::
+.. code-block:: none
 
     $ hpc
     Usage: hpc COMMAND ...
@@ -1213,7 +1201,7 @@ or exclude are used. The report is a summary unless the ``--per-module``
 flag is used. The ``--xml-output`` option allows for tools to use hpc to
 glean coverage.
 
-::
+.. code-block:: none
 
     $ hpc help report
     Usage: hpc report [OPTION] .. <TIX_FILE> [<MODULE> [<MODULE> ..]]
@@ -1237,7 +1225,7 @@ hpc markup
 
 ``hpc markup`` marks up source files into colored html.
 
-::
+.. code-block:: none
 
     $ hpc help markup
     Usage: hpc markup [OPTION] .. <TIX_FILE> [<MODULE> [<MODULE> ..]]
@@ -1263,7 +1251,7 @@ hpc sum
 ``.tix`` file. ``hpc sum`` does not change the original ``.tix`` file;
 it generates a new ``.tix`` file.
 
-::
+.. code-block:: none
 
     $ hpc help sum
     Usage: hpc sum [OPTION] .. <TIX_FILE> [<TIX_FILE> [<TIX_FILE> ..]]
@@ -1284,7 +1272,7 @@ take the difference between ``.tix`` files, to subtract one ``.tix``
 file from another, or to add two ``.tix`` files. hpc combine does not
 change the original ``.tix`` file; it generates a new ``.tix`` file.
 
-::
+.. code-block:: none
 
     $ hpc help combine
     Usage: hpc combine [OPTION] .. <TIX_FILE> <TIX_FILE>
@@ -1305,7 +1293,7 @@ hpc map
 hpc map inverts or zeros a ``.tix`` file. hpc map does not change the
 original ``.tix`` file; it generates a new ``.tix`` file.
 
-::
+.. code-block:: none
 
     $ hpc help map
     Usage: hpc map [OPTION] .. <TIX_FILE>
@@ -1327,7 +1315,7 @@ Overlays are an experimental feature of HPC, a textual description of
 coverage. hpc draft is used to generate a draft overlay from a .tix
 file, and hpc overlay generates a .tix files from an overlay.
 
-::
+.. code-block:: none
 
     % hpc help overlay
     Usage: hpc overlay [OPTION] .. <OVERLAY_FILE> [<OVERLAY_FILE> [...]]
