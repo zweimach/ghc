@@ -14,9 +14,9 @@ so much memory?".
 
 Profiling a program is a three-step process:
 
-1. Re-compile your program for profiling with the ``-prof`` option, and
+1. Re-compile your program for profiling with the :option:`ghc -prof` option, and
    probably one of the options for adding automatic annotations:
-   ``-fprof-auto`` is the most common [1]_. ``-fprof-auto``
+   :option:`ghc -fprof-auto` is the most common [1]_.
 
    If you are using external packages with ``cabal``, you may need to
    reinstall these packages with profiling support; typically this is
@@ -291,41 +291,37 @@ Compiler options for profiling
    single: profiling; options
    single: options; for profiling
 
-``-prof``
-    .. index::
-       single: -prof
+.. program:: ghc
+
+.. option:: -prof
 
     To make use of the profiling system *all* modules must be compiled
-    and linked with the ``-prof`` option. Any ``SCC`` annotations you've
+    and linked with the :option:`-prof` option. Any ``SCC`` annotations you've
     put in your source will spring to life.
 
-    Without a ``-prof`` option, your ``SCC``\ s are ignored; so you can
+    Without a :option:`-prof` option, your ``SCC``\ s are ignored; so you can
     compile ``SCC``-laden code without changing it.
 
 There are a few other profiling-related compilation options. Use them
 *in addition to* ``-prof``. These do not have to be used consistently
 for all modules in a program.
 
-``-fprof-auto``
-    .. index::
-       single: -fprof-auto
+.. option:: -fprof-auto
 
     *All* bindings not marked INLINE, whether exported or not, top level
     or nested, will be given automatic ``SCC`` annotations. Functions
     marked INLINE must be given a cost centre manually.
 
-``-fprof-auto-top``
+.. option:: -fprof-auto-top
+
     .. index::
-       single: -fprof-auto-top
        single: cost centres; automatically inserting
 
     GHC will automatically add ``SCC`` annotations for all top-level
     bindings not marked INLINE. If you want a cost centre on an INLINE
     function, you have to add it manually.
 
-``-fprof-auto-exported``
-    .. index::
-       single: -fprof-auto-top
+.. option:: -fprof-auto-exported
 
     .. index::
        single: cost centres; automatically inserting
@@ -334,7 +330,8 @@ for all modules in a program.
     functions not marked INLINE. If you want a cost centre on an INLINE
     function, you have to add it manually.
 
-``-fprof-auto-calls``
+.. option:: -fprof-auto-calls
+
     .. index::
        single: -fprof-auto-calls
 
@@ -344,28 +341,23 @@ for all modules in a program.
     module ``Debug.Trace``, or the ``-xc`` RTS flag
     (:ref:`rts-options-debugging`) for more details.
 
-``-fprof-cafs``
-    .. index::
-       single: -fprof-cafs
+.. option:: -fprof-cafs
 
     The costs of all CAFs in a module are usually attributed to one
     “big” CAF cost-centre. With this option, all CAFs get their own
     cost-centre. An “if all else fails” option…
 
-``-fno-prof-auto``
-    .. index::
-       single: -no-fprof-auto
+.. option:: -fno-prof-auto
 
-    Disables any previous ``-fprof-auto``, ``-fprof-auto-top``, or
-    ``-fprof-auto-exported`` options.
+    Disables any previous :option:`-fprof-auto`, :option:`-fprof-auto-top`, or
+    :option:`-fprof-auto-exported` options.
 
-``-fno-prof-cafs``
-    .. index::
-       single: -fno-prof-cafs
+.. option:: -fno-prof-cafs
 
     Disables any previous ``-fprof-cafs`` option.
 
-``-fno-prof-count-entries``
+.. option:: -fno-prof-count-entries
+
     .. index::
        single: -fno-prof-count-entries
 
@@ -387,11 +379,11 @@ To generate a time and allocation profile, give one of the following RTS
 options to the compiled program when you run it (RTS options should be
 enclosed between ``+RTS ... -RTS`` as usual):
 
-``-p``, ``-P``, ``-pa``
+.. program:: RTS
+
+.. option:: -p, -P, -pa
+
     .. index::
-       single: -p; RTS option
-       single: -P; RTS option
-       single: -pa; RTS option
        single: time profile
 
     The ``-p`` option produces a standard *time profile* report. It is
@@ -403,17 +395,13 @@ enclosed between ``+RTS ... -RTS`` as usual):
     The ``-pa`` option produces the most detailed report containing all
     cost centres in addition to the actual time and allocation data.
 
-``-Vsecs``
-    .. index::
-       single: -V; RTS option
+.. option:: -Vsecs
 
     Sets the interval that the RTS clock ticks at, which is also the
     sampling interval of the time and allocation profile. The default is
     0.02 seconds.
 
-``-xc``
-    .. index::
-       single: -xc; RTS option
+.. option:: -xc
 
     This option causes the runtime to print out the current cost-centre
     stack whenever an exception is raised. This can be particularly
@@ -438,7 +426,7 @@ To generate a heap profile from your program:
 1. Compile the program for profiling (:ref:`prof-compiler-options`).
 
 2. Run it with one of the heap profiling options described below (eg.
-   ``-h`` for a basic producer profile). This generates the file
+   :option:`RTS -h` for a basic producer profile). This generates the file
    ``prog.hp``.
 
 3. Run ``hp2ps`` to produce a Postscript file, ``prog.ps``. The
@@ -466,46 +454,36 @@ All the different profile types yield a graph of live heap against time,
 but they differ in how the live heap is broken down into bands. The
 following RTS options select which break-down to use:
 
-``-hc``
-    .. index::
-       single: -hc; RTS option
+.. program:: RTS
+
+.. option:: -hc
 
     (can be shortened to ``-h``). Breaks down the graph by the
     cost-centre stack which produced the data.
 
-``-hm``
-    .. index::
-       single: -hm; RTS option
+.. option:: -hm
 
     Break down the live heap by the module containing the code which
     produced the data.
 
-``-hd``
-    .. index::
-       single: -hd; RTS option
+.. option:: -hd
 
     Breaks down the graph by closure description. For actual data, the
     description is just the constructor name, for other closures it is a
     compiler-generated string identifying the closure.
 
-``-hy``
-    .. index::
-       single: -hy; RTS option
+.. option:: -hy
 
     Breaks down the graph by type. For closures which have function type
     or unknown/polymorphic type, the string will represent an
     approximation to the actual type.
 
-``-hr``
-    .. index::
-       single: -hr; RTS option
+.. option:: -hr
 
     Break down the graph by retainer set. Retainer profiling is
     described in more detail below (:ref:`retainer-prof`).
 
-``-hb``
-    .. index::
-       single: -hb; RTS option
+.. option:: -hb
 
     Break down the graph by biography. Biographical profiling is
     described in more detail below (:ref:`biography-prof`).
@@ -516,72 +494,56 @@ type but only for data produced by a certain module, or a profile by
 retainer for a certain type of data. Restrictions are specified as
 follows:
 
-``-hc ⟨name⟩``
-    .. index::
-       single: -hc; RTS option
+.. program:: RTS
+
+.. option:: -hc ⟨name⟩
 
     Restrict the profile to closures produced by cost-centre stacks with
     one of the specified cost centres at the top.
 
-``-hC ⟨name⟩``
-    .. index::
-       single: -hC; RTS option
+.. option:: -hC ⟨name⟩
 
     Restrict the profile to closures produced by cost-centre stacks with
     one of the specified cost centres anywhere in the stack.
 
-``-hm ⟨module⟩``
-    .. index::
-       single: -hm; RTS option
+.. option:: -hm ⟨module⟩
 
     Restrict the profile to closures produced by the specified modules.
 
-``-hd ⟨desc⟩``
-    .. index::
-       single: -hd; RTS option
+.. option:: -hd ⟨desc⟩
 
     Restrict the profile to closures with the specified description
     strings.
 
-``-hy ⟨type⟩``
-    .. index::
-       single: -hy; RTS option
+.. option:: -hy ⟨type⟩
 
     Restrict the profile to closures with the specified types.
 
-``-hr ⟨cc⟩``
-    .. index::
-       single: -hr; RTS option
+.. option:: -hr ⟨cc⟩
 
     Restrict the profile to closures with retainer sets containing
     cost-centre stacks with one of the specified cost centres at the
     top.
 
-``-hb ⟨bio⟩``
-    .. index::
-       single: -hb; RTS option
+.. option:: -hb ⟨bio⟩
 
     Restrict the profile to closures with one of the specified
     biographies, where ⟨bio⟩ is one of ``lag``, ``drag``, ``void``, or
     ``use``.
 
 For example, the following options will generate a retainer profile
-restricted to ``Branch`` and ``Leaf`` constructors:
-
-::
+restricted to ``Branch`` and ``Leaf`` constructors: ::
 
     prog +RTS -hr -hdBranch,Leaf
 
-There can only be one "break-down" option (eg. ``-hr`` in the example
+There can only be one "break-down" option (eg. :option:`-hr` in the example
 above), but there is no limit on the number of further restrictions that
 may be applied. All the options may be combined, with one exception: GHC
-doesn't currently support mixing the ``-hr`` and ``-hb`` options.
+doesn't currently support mixing the :option:`-hr` and :option:`-hb` options.
 
 There are three more options which relate to heap profiling:
 
-``-isecs``
-    .. index::
-       single: -i
+.. option:: -isecs
 
     Set the profiling (sampling) interval to ⟨secs⟩ seconds (the default
     is 0.1 second). Fractions are allowed: for example ``-i0.2`` will
@@ -589,25 +551,21 @@ There are three more options which relate to heap profiling:
     profiles are always sampled with the frequency of the RTS clock. See
     :ref:`prof-time-options` for changing that.
 
-``-xt``
-    .. index::
-       single: -xt; RTS option
+.. option:: -xt
 
     Include the memory occupied by threads in a heap profile. Each
     thread takes up a small area for its thread state in addition to the
     space allocated for its stack (stacks normally start small and then
     grow as necessary).
 
-    This includes the main thread, so using ``-xt`` is a good way to see
+    This includes the main thread, so using :option:`-xt` is a good way to see
     how much stack space the program is using.
 
     Memory occupied by threads and their stacks is labelled as “TSO” and
     “STACK” respectively when displaying the profile by closure
     description or type description.
 
-``-Lnum``
-    .. index::
-       single: -L; RTS option
+.. option:: -Lnum
 
     Sets the maximum length of a cost-centre stack name in a heap
     profile. Defaults to 25.
@@ -646,7 +604,8 @@ retainer sets larger than the maximum retainer set size are replaced by
 the special set ``MANY``. The maximum set size defaults to 8 and can be
 altered with the ``-R`` RTS option:
 
-``-R ⟨size⟩``
+.. option:: -R ⟨size⟩
+
     Restrict the number of elements in a retainer set to ⟨size⟩ (default
     8).
 
@@ -789,7 +748,10 @@ the HBC/LML heap profiler.
 
 The flags are:
 
-``-d``
+.. program:: hp2ps
+
+.. option:: -d
+
     In order to make graphs more readable, ``hp2ps`` sorts the shaded
     bands for each identifier. The default sort ordering is for the
     bands with the largest area to be stacked on top of the smaller
@@ -797,14 +759,16 @@ The flags are:
     series of values with the largest standard deviations) to be stacked
     on top of smoother ones.
 
-``-b``
+.. option:: -b
+
     Normally, ``hp2ps`` puts the title of the graph in a small box at
     the top of the page. However, if the JOB string is too long to fit
     in a small box (more than 35 characters), then ``hp2ps`` will choose
     to use a big box instead. The ``-b`` option forces ``hp2ps`` to use
     a big box.
 
-``-e<float>[in|mm|pt]``
+.. option:: -e<float>[in|mm|pt]
+
     Generate encapsulated PostScript suitable for inclusion in LaTeX
     documents. Usually, the PostScript graph is drawn in landscape mode
     in an area 9 inches wide by 6 inches high, and ``hp2ps`` arranges
@@ -817,19 +781,22 @@ The flags are:
     (EPS) convention, and it can be included in a LaTeX document using
     Rokicki's dvi-to-PostScript converter ``dvips``.
 
-``-g``
+.. option:: -g
+
     Create output suitable for the ``gs`` PostScript previewer (or
     similar). In this case the graph is printed in portrait mode without
     scaling. The output is unsuitable for a laser printer.
 
-``-l``
+.. option:: -l
+
     Normally a profile is limited to 20 bands with additional
     identifiers being grouped into an ``OTHER`` band. The ``-l`` flag
     removes this 20 band and limit, producing as many bands as
     necessary. No key is produced as it won't fit!. It is useful for
     creation time profiles with many bands.
 
-``-m<int>``
+.. option:: -m<int>
+
     Normally a profile is limited to 20 bands with additional
     identifiers being grouped into an ``OTHER`` band. The ``-m`` flag
     specifies an alternative band limit (the maximum is 20).
@@ -838,7 +805,8 @@ The flags are:
     necessary are produced. However no key is produced as it won't fit!
     It is useful for displaying creation time profiles with many bands.
 
-``-p``
+.. option:: -p
+
     Use previous parameters. By default, the PostScript graph is
     automatically scaled both horizontally and vertically so that it
     fills the page. However, when preparing a series of graphs for use
@@ -848,10 +816,12 @@ The flags are:
     previous run of ``hp2ps`` on ``file``. These are extracted from
     ``file@.aux``.
 
-``-s``
+.. option:: -s
+
     Use a small box for the title.
 
-``-t<float>``
+.. option:: -t<float>
+
     Normally trace elements which sum to a total of less than 1% of the
     profile are removed from the profile. The ``-t`` option allows this
     percentage to be modified (maximum 5%).
@@ -859,13 +829,16 @@ The flags are:
     ``-t0`` requests no trace elements to be removed from the profile,
     ensuring that all the data will be displayed.
 
-``-c``
+.. option:: -c
+
     Generate colour output.
 
-``-y``
+.. option:: -y
+
     Ignore marks.
 
-``-?``
+.. option:: -?
+
     Print out usage information.
 
 .. _manipulating-hp:
@@ -1144,7 +1117,10 @@ This generates one file per Haskell module, and 4 index files,
 Options for instrumenting code for coverage
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-``-fhpc``
+.. program:: hpc
+
+.. option:: -fhpc
+
     Enable code coverage for the current module or modules being
     compiled.
 
