@@ -784,7 +784,7 @@ The table below summarises where each kind of pattern synonym can be used.
 | Expression    | No             | Yes (Inferred)| Yes (Explicit)            |
 +---------------+----------------+---------------+---------------------------+
 
-.. _record-patsyns:
+.. _record-patsyn:
 
 Record Pattern Synonyms
 ~~~~~~~~~~~~~~~~~~~~~~~
