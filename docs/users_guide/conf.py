@@ -124,3 +124,12 @@ def setup(app):
                         parse_node=parse_ghci_cmd,
                         objname='GHCi command',
                         indextemplate='pair: %s; GHCi command')
+
+# This may not be terribly kosher, but it appears to work.
+from sphinx.domains import std
+from docutils.parsers.rst import directives
+
+# A static flag
+std.Cmdoption.option_spec['static'] = directives.flag
+# A mode flag
+std.Cmdoption.option_spec['mode'] = directives.flag
