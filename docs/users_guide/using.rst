@@ -222,39 +222,45 @@ Modes of operation
 
 GHC's behaviour is firstly controlled by a mode flag. Only one of these
 flags may be given, but it does not necessarily need to be the first
-option on the command-line.
+option on the command-line. For instance,
 
-If no mode flag is present, then GHC will enter make mode
+.. code-block:: none
+
+    $ ghc Main.hs --make -o my-application
+
+If no mode flag is present, then GHC will enter :ghc-flag:`--make` mode
 (:ref:`make-mode`) if there are any Haskell source files given on the
 command line, or else it will link the objects named on the command line
 to produce an executable.
 
 The available mode flags are:
 
-``ghc --interactive``
+.. ghc-flag:: --interactive
+
     .. index::
        single: interactive mode
        single: GHCi
 
-    Interactive mode, which is also available as ``ghci``. Interactive
+    Interactive mode, which is also available as :program:`ghci`. Interactive
     mode is described in more detail in :ref:`ghci`.
 
-``ghc --make``
+.. ghc-flag:: --make
+
     .. index::
        single: make mode; of GHC
-       single: --make
 
     In this mode, GHC will build a multi-module Haskell program
     automatically, figuring out dependencies for itself. If you have a
     straightforward Haskell program, this is likely to be much easier,
-    and faster, than using ``make``. Make mode is described in
+    and faster, than using :command:`make`. Make mode is described in
     :ref:`make-mode`.
 
     This mode is the default if there are any Haskell source files
-    mentioned on the command line, and in this case the ``--make``
+    mentioned on the command line, and in this case the :ghc-flag:`--make`
     option can be omitted.
 
-``ghc -e`` ⟨expr⟩
+.. ghc-flag:: -e ⟨expr⟩
+
     .. index::
        single: eval mode; of GHC
 
@@ -263,18 +269,17 @@ The available mode flags are:
     which is given on the command line. See :ref:`eval-mode` for more
     details.
 
-``ghc -E`` ``ghc -C`` ``ghc -S`` ``ghc -c``
-    .. index::
-       single: -E; GHC option
-       single: -C; GHC option
-       single: -S; GHC option
-       single: -c; GHC option
+.. ghc-flag:: -E
+              -C
+              -S
+              -c
 
     This is the traditional batch-compiler mode, in which GHC can
     compile source files one at a time, or link objects together into an
     executable. See :ref:`options-order`.
 
-``ghc -M``
+.. ghc-flag:: -M
+
     .. index::
        single: dependency-generation mode; of GHC
 
@@ -282,62 +287,50 @@ The available mode flags are:
     generate dependency information suitable for use in a ``Makefile``.
     See :ref:`makefile-dependencies`.
 
-``ghc --mk-dll``
+.. ghc-flag:: --mk-dll
+
     .. index::
        single: DLL-creation mode
 
     DLL-creation mode (Windows only). See :ref:`win32-dlls-create`.
 
-``ghc --help``, ``ghc -?``
-    .. index::
-       single: --help; GHC option
+.. ghc-flag:: --help
+              -?
 
     Cause GHC to spew a long usage message to standard output and then
     exit.
 
-``ghc --show-iface ⟨file⟩``
-    .. index::
-       single: --show-iface; GHC option
+.. ghc-flag:: --show-iface ⟨file⟩
 
     Read the interface in ⟨file⟩ and dump it as text to ``stdout``. For
     example ``ghc --show-iface M.hi``.
 
-``ghc --supported-extensions``, ``ghc --supported-languages``
-    .. index::
-       single: --supported-extensions; GHC option
-       single: --supported-languages; GHC option
+.. ghc-flag:: --supported-extensions
+              --supported-languages
 
     Print the supported language extensions.
 
-``ghc --show-options``
-    .. index::
-       single: --show-options; GHC option
+.. ghc-flag:: --show-options
 
     Print the supported command line options. This flag can be used for
     autocompletion in a shell.
 
-``ghc --info``
-    .. index::
-       single: --info
+.. ghc-flag:: --info
 
     Print information about the compiler.
 
-``ghc --version``, ``ghc -V``
-    .. index::
-       single: -V
-       single: --version
+.. ghc-flag:: --version
+              -V
 
     Print a one-line string including GHC's version number.
 
-``ghc --numeric-version``
-    .. index::
-       single: --numeric-version
+.. ghc-flag:: --numeric-version
 
     Print GHC's numeric version number only.
 
-``ghc --print-libdir``
+.. ghc-flag:: --print-libdir
+
     .. index::
-       single: --print-libdir
        single: libdir
 
     Print the path to GHC's library directory. This is the top of the

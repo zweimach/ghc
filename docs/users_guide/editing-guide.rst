@@ -331,6 +331,8 @@ Will be rendered as,
 
        Sets the context switch interval to ⟨s⟩ seconds.
 
+and will have an associated index entry generated automatically.
+
 GHCi commands
 ~~~~~~~~~~~~~
 
@@ -355,6 +357,9 @@ And later refer to it by just the command name, ``:module``,
 
     The GHCi :ghci-cmd:`:load` and :ghci-cmd:`:module` commands are used
     to modify the modules in scope.
+
+Like command-line options, GHCi commands will have associated index entries
+generated automatically.
 
 Style Conventions
 -----------------
