@@ -149,7 +149,7 @@ which provides this for us.
 
 Compiling it results in:
 
-::
+.. code-block:: none
 
     $ cat test_main.hs
     main = putStrLn "hi"
@@ -200,7 +200,7 @@ As an example, in order to load the plugin exported by ``Foo.Plugin`` in
 the package ``foo-ghc-plugin``, and give it the parameter "baz", we
 would invoke GHC like this:
 
-::
+.. code-block:: none
 
     $ ghc -fplugin Foo.Plugin -fplugin-opt Foo.Plugin:baz Test.hs
     [1 of 1] Compiling Main             ( Test.hs, Test.o )
@@ -218,44 +218,38 @@ the user import namespace.  By default, these two namespaces are
 the same; however, there are a few command line options which
 control specifically plugin packages:
 
-``-plugin-package ⟨pkg⟩``
-    .. index::
-        single: -plugin-package
+.. ghc-flag:: -plugin-package ⟨pkg⟩
 
     This option causes the installed package ⟨pkg⟩ to be exposed
-    for plugins, such as ``-fplugin``. The
+    for plugins, such as :ghc-flag:`-fplugin`. The
     package ⟨pkg⟩ can be specified in full with its version number (e.g.
     ``network-1.0``) or the version number can be omitted if there is
     only one version of the package installed. If there are multiple
-    versions of ⟨pkg⟩ installed and ``-hide-all-plugin-packages`` was not
-    specified, then all other versions will become hidden.  ``-plugin-package``
+    versions of ⟨pkg⟩ installed and :ghc-flag:`-hide-all-plugin-packages` was not
+    specified, then all other versions will become hidden.  :ghc-flag:`-plugin-package`
     supports thinning and renaming described in
     :ref:`package-thinning-and-renaming`.
 
-    Unlike ``-package``, this option does NOT cause package ⟨pkg⟩ to be linked
+    Unlike :ghc-flag:`-package`, this option does NOT cause package ⟨pkg⟩ to be linked
     into the resulting executable or shared object.
 
-``-plugin-package-id ⟨pkg-id⟩``
-    .. index::
-       single: -plugin-package-id
+.. ghc-flag:: -plugin-package-id ⟨pkg-id⟩
 
-    Exposes a package in the plugin namespace like ``-plugin-package``, but the
+    Exposes a package in the plugin namespace like :ghc-flag:`-plugin-package`, but the
     package is named by its installed package ID rather than by name. This is a
     more robust way to name packages, and can be used to select packages that
-    would otherwise be shadowed. Cabal passes ``-plugin-package-id`` flags to
-    GHC.  ``-plugin-package-id`` supports thinning and renaming described in
+    would otherwise be shadowed. Cabal passes :ghc-flag:`-plugin-package-id` flags to
+    GHC.  :ghc-flag:`-plugin-package-id` supports thinning and renaming described in
     :ref:`package-thinning-and-renaming`.
 
-``-hide-all-plugin-packages``
-    .. index::
-       single: -hide-all-plugin-packages
+.. ghc-flag:: -hide-all-plugin-packages
 
     By default, all exposed packages in the normal, source import
     namespace are also available for plugins.  This causes those
     packages to be hidden by default.
     If you use this flag, then any packages with plugins you require
     need to be explicitly exposed using
-    ``-plugin-package`` options.
+    :ghc-flag:`-plugin-package` options.
 
 To declare a dependency on a plugin, add it to the ``ghc-plugins`` field
 in Cabal.  You should only put a plugin in ``build-depends`` if you
@@ -590,7 +584,7 @@ of parsing flags and administrative nonsense which can be difficult to
 manage manually.  To load a frontend plugin exported by ``Foo.FrontendPlugin``,
 we just invoke GHC as follows:
 
-::
+.. code-block:: none
 
     $ ghc --frontend Foo.FrontendPlugin ...other options...
 
