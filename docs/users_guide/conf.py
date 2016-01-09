@@ -12,7 +12,7 @@ import os
 sys.path.insert(0, os.path.abspath('.'))
 from ghc_config import extlinks, version
 
-extensions = ['sphinx.ext.extlinks']
+extensions = ['sphinx.ext.extlinks', 'ghc_flags']
 
 templates_path = ['.templates']
 source_suffix = '.rst'
@@ -112,7 +112,6 @@ texinfo_documents = [
 ]
 
 from sphinx import addnodes
-from docutils import nodes
 
 def parse_ghci_cmd(env, sig, signode):
     name = sig.split(';')[0]
@@ -120,54 +119,11 @@ def parse_ghci_cmd(env, sig, signode):
     signode += addnodes.desc_name(name, sig)
     return name
 
-def parse_flag(env, sig, signode):
-    import re
-    names = []
-    for i, flag in enumerate(sig.split(',')):
-        flag = flag.strip()
-        equals = '='
-        parts = flag.split('=')
-        if len(parts) == 1:
-            equals=''
-            parts = flag.split()
-        if len(parts) == 0: continue
-
-        name = parts[0]
-        names.append(name)
-        sig = equals + ' '.join(parts[1:])
-        sig = re.sub(ur'<([-a-zA-Z ]+)>', ur'⟨\1⟩', sig)
-        if i > 0:
-            signode += addnodes.desc_name(', ', ', ')
-        signode += addnodes.desc_name(name, name)
-        if len(sig) > 0:
-            signode += addnodes.desc_addname(sig, sig)
-
-    return names[0]
-
 def setup(app):
-    from sphinx.util.docfields import Field, TypedField
-
     # the :ghci-cmd: directive used in ghci.rst
     app.add_object_type('ghci-cmd', 'ghci-cmd',
                         parse_node=parse_ghci_cmd,
                         objname='GHCi command',
                         indextemplate='pair: %s; GHCi command')
 
-    app.add_object_type('ghc-flag', 'ghc-flag',
-                        objname='GHC command-line option',
-                        parse_node=parse_flag,
-                        indextemplate='pair: %s; GHC option',
-                        doc_field_types=[
-                            Field('since', label='Introduced in GHC version', names=['since']),
-                            Field('default', label='Default value', names=['default']),
-                            Field('static')
-                        ])
-
-    app.add_object_type('rts-flag', 'rts-flag',
-                        objname='runtime system command-line option',
-                        parse_node=parse_flag,
-                        indextemplate='pair: %s; RTS option',
-                        doc_field_types=[
-                            Field('since', label='Introduced in GHC version', names=['since']),
-                            Field('static')
-                        ])
+    return {'version': 0.1}

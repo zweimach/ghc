@@ -3,6 +3,10 @@
 Using GHC
 =========
 
+.. flag-list::
+    :flag_type: rts-flag
+    :category: GC
+
 .. index::
    single: GHC, using
    single: using GHC
