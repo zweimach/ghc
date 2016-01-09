@@ -235,8 +235,9 @@ runStmtWithLocation source linenumber expr step = do
 runDecls :: GhcMonad m => String -> m [Name]
 runDecls = runDeclsWithLocation "<interactive>" 1
 
-runDeclsWithLocation
- :: GhcMonad m => String -> Int -> String -> m [Name]
+-- | Run some declarations and return any user-visible names that were brought
+-- into scope.
+runDeclsWithLocation :: GhcMonad m => String -> Int -> String -> m [Name]
 runDeclsWithLocation source linenumber expr =
   do
     hsc_env <- getSession
@@ -246,7 +247,13 @@ runDeclsWithLocation source linenumber expr =
     hsc_env <- getSession
     hsc_env' <- liftIO $ rttiEnvironment hsc_env
     modifySession (\_ -> hsc_env')
-    return (map getName tyThings)
+
+    -- Trac #11051: We filter out system names since the user is not interested
+    -- in them. These include,
+    --   * Data family tycons from, e.g., derived Generic instances
+    --   * Type representation (Typeable) definitions (e.g. $trMyModule)
+    --   * others
+    return $ filter (not . isSystemName) $ map getName tyThings
 
 
 withVirtualCWD :: GhcMonad m => m a -> m a
