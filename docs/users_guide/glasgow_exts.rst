@@ -1831,6 +1831,10 @@ option. The idea is that you can then import a Prelude of your own. (But
 don't call it ``Prelude``; the Haskell module namespace is flat, and you
 must not conflict with any Prelude module.)
 
+.. ghc-flag:: -XNoImplicitPrelude
+
+    Don't import ``Prelude`` by default.
+
 Suppose you are importing a Prelude of your own in order to define your
 own numeric class hierarchy. It completely defeats that purpose if the
 literal "1" means "``Prelude.fromInteger 1``", which is what the Haskell
@@ -1874,9 +1878,7 @@ In all cases (apart from arrow notation), the static semantics should be
 that of the desugared form, even if that is a little unexpected. For
 example, the static semantics of the literal ``368`` is exactly that of
 ``fromInteger (368::Integer)``; it's fine for ``fromInteger`` to have
-any of the types:
-
-::
+any of the types: ::
 
     fromInteger :: Integer -> Integer
     fromInteger :: forall a. Foo a => Integer -> a
@@ -4263,6 +4265,10 @@ The class ``Typeable`` is very special:
           A concrete type literal.
           instance Typeable 0       -- Type natural literals
           instance Typeable "Hello" -- Type-level symbols
+
+.. ghc-flag:: -XDeriveDataTypeable
+
+    Enable deriving of the ``Typeable`` typeclass
 
 .. _deriving-lift:
 

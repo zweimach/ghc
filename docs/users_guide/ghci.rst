@@ -1066,6 +1066,11 @@ module or any registered package, but only when it resides in a registered
 package will it survive a :ghci-cmd:`:cd`, :ghci-cmd:`:add`, :ghci-cmd:`:load`,
 :ghci-cmd:`:reload` or, :ghci-cmd:`:set`.
 
+.. ghc-flag:: -interactive-print <expr>
+
+    Set the function used by GHCi to print evaluation results. Expression
+    must be of type ``C a => a -> IO ()``.
+
 As an example, suppose we have following special printing module: ::
 
     module SpecPrinter where
@@ -1468,10 +1473,10 @@ example:
     Stopped at qsort.hs:5:7-47
     _result :: IO ()
 
-The command :ghci-cmd:`:step expr` begins the evaluation of ⟨expr⟩ in
+The command :ghci-cmd:`:step expr <:step>` begins the evaluation of ⟨expr⟩ in
 single-stepping mode. If ⟨expr⟩ is omitted, then it single-steps from
-the current breakpoint. :ghci-cmd:`:steplocal` and :ghci-cmd:`:stepmodule` work
-similarly.
+the current breakpoint. :ghci-cmd:`:steplocal` and :ghci-cmd:`:stepmodule`
+commands work similarly.
 
 The :ghci-cmd:`:list` command is particularly useful when single-stepping, to
 see where you currently are:
@@ -1648,11 +1653,13 @@ just like :ghci-cmd:`:step`.
 
 The history is only available when using :ghci-cmd:`:trace`; the reason for this
 is we found that logging each breakpoint in the history cuts performance
-by a factor of 2 or more. By default, GHCi remembers the last 50 steps
-in the history, but this can be changed with the :ghc-flag:`-fghci-hist-size` option).
+by a factor of 2 or more.
 
-.. index::
-   single: -fghci-hist-size
+.. ghc-flag:: -fghci-hist-size
+
+    :default: 50
+
+    Modify the depth of the evaluation history tracked by GHCi.
 
 .. _ghci-debugger-exceptions:
 
@@ -1665,7 +1672,7 @@ exception come from?". Exceptions such as those raised by ``error`` or
 particular call to ``head`` in your program resulted in the error can be
 a painstaking process, usually involving ``Debug.Trace.trace``, or
 compiling with profiling and using ``Debug.Trace.traceStack`` or
-``+RTS -xc`` (see :ref:`prof-time-options`).
+``+RTS -xc`` (see :rts-flag:`-xc`).
 
 The GHCi debugger offers a way to hopefully shed some light on these
 errors quickly and without modifying or recompiling the source code. One
@@ -1711,6 +1718,14 @@ The exception itself is bound to a new variable, ``_exception``.
 Breaking on exceptions is particularly useful for finding out what your
 program was doing when it was in an infinite loop. Just hit Control-C,
 and examine the history to find out what was going on.
+
+.. ghc-flag:: -fbreak-on-exception
+              -fbreak-on-error
+
+    Causes GHCi to halt evaluation and return to the interactive prompt
+    in the event of an exception. While :ghc-flag:`-fbreak-on-exception` breaks
+    on all exceptions, :ghc-flag:`-fbreak-on-error` breaks on only those which
+    would otherwise be uncaught.
 
 Example: inspecting functions
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1837,7 +1852,7 @@ Invoking GHCi
 GHCi is invoked with the command ``ghci`` or ``ghc --interactive``. One
 or more modules or filenames can also be specified on the command line;
 this instructs GHCi to load the specified modules or filenames (and all
-the modules they depend on), just as if you had said :ghci-cmd:`:load modules`
+the modules they depend on), just as if you had said ``:load modules``
 at the GHCi prompt (see :ref:`ghci-commands`). For example, to start
 GHCi and load the program whose topmost module is in the file
 ``Main.hs``, we could say:
@@ -2201,6 +2216,7 @@ commonly used commands.
     :ghci-cmd:`:trace`, :ghci-cmd:`:history`, :ghci-cmd:`:back`.
 
 .. ghci-cmd:: :help
+              :?
 
     Displays a list of the available commands.
 

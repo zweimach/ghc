@@ -32,7 +32,7 @@ There are four ways to set RTS options:
 -  on the command line between ``+RTS ... -RTS``, when running the
    program (:ref:`rts-opts-cmdline`)
 
--  at compile-time, using :ghc-flag:`--with-rtsopts`
+-  at compile-time, using :ghc-flag:`-with-rtsopts`
    (:ref:`rts-opts-compile-time`)
 
 -  with the environment variable :envvar:`GHCRTS`
@@ -115,18 +115,20 @@ Setting RTS options with the ``GHCRTS`` environment variable
    single: environment variable; for setting RTS options
    single: GHCRTS environment variable
 
-If the ``-rtsopts`` flag is set to something other than ``none`` when
-linking, RTS options are also taken from the environment variable
-:envvar:`GHCRTS`. For example, to set the maximum heap size to 2G
-for all GHC-compiled programs (using an ``sh``\-like shell):
+.. envvar:: GHCRTS
 
-.. code-block:: sh
+    If the ``-rtsopts`` flag is set to something other than ``none`` when
+    linking, RTS options are also taken from the environment variable
+    :envvar:`GHCRTS`. For example, to set the maximum heap size to 2G
+    for all GHC-compiled programs (using an ``sh``\-like shell):
 
-    GHCRTS='-M2G'
-    export GHCRTS
+    .. code-block:: sh
 
-RTS options taken from the :envvar:`GHCRTS` environment variable can be
-overridden by options given on the command line.
+        GHCRTS='-M2G'
+        export GHCRTS
+
+    RTS options taken from the :envvar:`GHCRTS` environment variable can be
+    overridden by options given on the command line.
 
 .. tip::
     Setting something like ``GHCRTS=-M2G`` in your environment is a
@@ -189,10 +191,10 @@ Miscellaneous RTS options
     profiler uses the RTS timer signal directly to record time profiling
     samples.
 
-    Normally, setting the ``-V`` option directly is not necessary: the
-    resolution of the RTS timer is adjusted automatically if a short
-    interval is requested with the ``-C`` or ``-i`` options. However,
-    setting ``-V`` is required in order to increase the resolution of
+    Normally, setting the :rts-flag:`-V` option directly is not necessary: the
+    resolution of the RTS timer is adjusted automatically if a short interval is
+    requested with the :rts-flag:`-C` or :rts-flag:`-i` options. However,
+    setting :rts-flag:`-V` is required in order to increase the resolution of
     the time profiler.
 
     Using a value of zero disables the RTS clock completely, and has the
@@ -346,6 +348,7 @@ performance.
        requested using the ``-G1`` option.
 
 .. rts-flag:: -c ⟨n⟩
+    :noindex:
 
     :default: 30
 
@@ -464,7 +467,7 @@ performance.
        single: idle GC
 
     In the threaded and SMP versions of the RTS (see
-    :rts-flag:`-threaded`, :ref:`options-linker`), a major GC is automatically
+    :ghc-flag:`-threaded`, :ref:`options-linker`), a major GC is automatically
     performed if the runtime has been idle (no Haskell computation has
     been running) for a period of time. The amount of idle time which
     must pass before a GC is performed is set by the ``-I ⟨seconds⟩``
@@ -1039,9 +1042,9 @@ Getting information about the RTS
     ``RTS way``
         The variant (“way”) of the runtime. The most common values are
         ``rts_v`` (vanilla), ``rts_thr`` (threaded runtime, i.e. linked
-        using the ``-threaded`` option) and ``rts_p`` (profiling runtime,
-        i.e. linked using the ``-prof`` option). Other variants include
-        ``debug`` (linked using ``-debug``), and ``dyn`` (the RTS is linked
+        using the :ghc-flag:`-threaded` option) and ``rts_p`` (profiling runtime,
+        i.e. linked using the :ghc-flag:`-prof` option). Other variants include
+        ``debug`` (linked using :ghc-flag:`-debug`), and ``dyn`` (the RTS is linked
         in dynamically, i.e. a shared library, rather than statically linked
         into the executable itself). These can be combined, e.g. you might
         have ``rts_thr_debug_p``.

@@ -73,7 +73,7 @@ Compile-time options for SMP parallelism
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 In order to make use of multiple CPUs, your program must be linked with
-the :rts-flag:`-threaded` option (see :ref:`options-linker`). Additionally, the
+the :ghc-flag:`-threaded` option (see :ref:`options-linker`). Additionally, the
 following compiler options affect parallelism:
 
 .. ghc-flag:: -feager-blackholing

@@ -354,9 +354,9 @@ Bugs in GHC
    for further discussion.
 
    If you are hit by this, you may want to compile the affected module
-   with :ghc-flag:`-fno-omit-yields` (see :ref:`options-f`). This flag ensures that
-   yield points are inserted at every function entrypoint (at the expense of a
-   bit of performance).
+   with :ghc-flag:`-fno-omit-yields <-fomit-yields>` (see :ref:`options-f`).
+   This flag ensures that yield points are inserted at every function entrypoint
+   (at the expense of a bit of performance).
 
 -  GHC's updated exhaustiveness and coverage checker (see
    :ref:`options-sanity`) is quite expressive but with a rather high

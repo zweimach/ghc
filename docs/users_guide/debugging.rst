@@ -27,6 +27,13 @@ Dumping out compiler intermediate structures
     prevent them from clogging up your standard output by passing
     :ghc-flag:`-ddump-to-file`. Some of the most useful ones are:
 
+    .. ghc-flag:: -ddump-to-file
+
+        Causes the output from all of the flags listed below to be dumped
+        to a file. The file name depends upon the output produced; for instance,
+        output from :ghc-flag:`-ddump-simpl` will end up in
+        :file:`{module}.dump-simpl`.
+
     .. ghc-flag:: -ddump-parsed
 
         Dump parser output

@@ -168,7 +168,7 @@ The actual meaning of the various columns in the output is:
     overheads) of the program made by this call and all of its
     sub-calls.
 
-In addition you can use the ``-P`` RTS option ``-P`` to get the
+In addition you can use the :rts-flag:`-P` RTS option to get the
 following additional information:
 
 ``ticks``
@@ -377,7 +377,9 @@ To generate a time and allocation profile, give one of the following RTS
 options to the compiled program when you run it (RTS options should be
 enclosed between ``+RTS ... -RTS`` as usual):
 
-.. rts-flag:: -p, -P, -pa
+.. rts-flag:: -p
+              -P
+              -pa
 
     .. index::
        single: time profile
@@ -450,7 +452,8 @@ All the different profile types yield a graph of live heap against time,
 but they differ in how the live heap is broken down into bands. The
 following RTS options select which break-down to use:
 
-.. rts-flag:: -hc, -h
+.. rts-flag:: -hc
+              -h
 
     (can be shortened to :rts-flag:`-h`). Breaks down the graph by the
     cost-centre stack which produced the data.
@@ -971,7 +974,7 @@ file:
 Profiling Parallel and Concurrent Programs
 ------------------------------------------
 
-Combining :rts-flag:`-threaded` and :rts-flag:`-prof` is perfectly fine, and
+Combining :ghc-flag:`-threaded` and :ghc-flag:`-prof` is perfectly fine, and
 indeed it is possible to profile a program running on multiple processors with
 the RTS :rts-flag:`-N` option. [3]_
 
@@ -1068,7 +1071,7 @@ indicated in brackets. ::
       putStrLn (showRecip number)
       main
 
-HPC instrumentation is enabled with the -fhpc flag:
+HPC instrumentation is enabled with the :ghc-flag:`-fhpc` flag:
 
 .. code-block:: sh
 
@@ -1125,7 +1128,7 @@ Options for instrumenting code for coverage
 
 .. program:: hpc
 
-.. option:: -fhpc
+.. ghc-flag:: -fhpc
 
     Enable code coverage for the current module or modules being
     compiled.
@@ -1134,7 +1137,7 @@ Options for instrumenting code for coverage
     compiled without it; indeed, most libraries will typically be
     compiled without :ghc-flag:`-fhpc`. When the program is run, coverage data
     will only be generated for those modules that were compiled with
-    :ghc-flag:`-fhpc`, and the ``hpc`` tool will only show information about
+    :ghc-flag:`-fhpc`, and the :command:`hpc` tool will only show information about
     those modules.
 
 The hpc toolkit
@@ -1349,7 +1352,7 @@ Take a look at its
 which includeds a link to the ticky-ticky profiling page.
 
 .. [1]
-   :ghc-flag:`-fprof-auto` was known as :ghc-flag:`-auto-all` prior to
+   :ghc-flag:`-fprof-auto` was known as ``-auto-all`` prior to
    GHC 7.4.1.
 
 .. [2]

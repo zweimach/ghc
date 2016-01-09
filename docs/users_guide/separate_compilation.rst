@@ -707,6 +707,11 @@ you must specify the full module name (unit ID, colon, and then
 module name), although in the future we may support more user-friendly
 syntax.
 
+.. ghc-flag:: -sig-of "<sig> is <package>:<module>"
+
+    Specify the module to be used at the implementation for the 
+    given signature.
+
 To just type-check an interface file, no ``-sig-of`` is necessary;
 instead, just pass the options ``-fno-code -fwrite-interface``. ``hsig``
 files will generate normal interface files which other files can also
@@ -1017,8 +1022,8 @@ module:
 
 If you use the flag :ghc-flag:`-Worphans`, GHC will warn you if you are
 creating an orphan module. Like any warning, you can switch the warning
-off with :ghc-flag:`-Wno-orphans`, and :ghc-flag:`-Werror` will make the
-compilation fail if the warning is issued.
+off with :ghc-flag:`-Wno-orphans <-Worphans>`, and :ghc-flag:`-Werror` will make
+the compilation fail if the warning is issued.
 
 You can identify an orphan module by looking in its interface file,
 ``M.hi``, using the :ghc-flag:`--show-iface` :ref:`mode <modes>`. If there is a

@@ -408,32 +408,30 @@ options:
 The ``GHC_PACKAGE_PATH`` environment variable
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. index::
-   single: Environment variable; ``GHC_PACKAGE_PATH``
-   single: GHC_PACKAGE_PATH
+.. envvar:: GHC_PACKAGE_PATH
 
-The :envvar:`GHC_PACKAGE_PATH` environment variable may be set to a
-``:``\-separated (``;``\-separated on Windows) list of files containing
-package databases. This list of package databases is used by GHC and
-ghc-pkg, with earlier databases in the list overriding later ones. This
-order was chosen to match the behaviour of the :envvar:`PATH` environment
-variable; think of it as a list of package databases that are searched
-left-to-right for packages.
+    The :envvar:`GHC_PACKAGE_PATH` environment variable may be set to a
+    ``:``\-separated (``;``\-separated on Windows) list of files containing
+    package databases. This list of package databases is used by GHC and
+    ghc-pkg, with earlier databases in the list overriding later ones. This
+    order was chosen to match the behaviour of the :envvar:`PATH` environment
+    variable; think of it as a list of package databases that are searched
+    left-to-right for packages.
 
-If :envvar:`GHC_PACKAGE_PATH` ends in a separator, then the default package
-database stack (i.e. the user and global package databases, in that
-order) is appended. For example, to augment the usual set of packages
-with a database of your own, you could say (on Unix):
+    If :envvar:`GHC_PACKAGE_PATH` ends in a separator, then the default package
+    database stack (i.e. the user and global package databases, in that
+    order) is appended. For example, to augment the usual set of packages
+    with a database of your own, you could say (on Unix):
 
-.. code-block:: none
+    .. code-block:: none
 
-     $ export GHC_PACKAGE_PATH=$HOME/.my-ghc-packages.conf:
+        $ export GHC_PACKAGE_PATH=$HOME/.my-ghc-packages.conf:
 
-(use ``;`` instead of ``:`` on Windows).
+    (use ``;`` instead of ``:`` on Windows).
 
-To check whether your :envvar:`GHC_PACKAGE_PATH` setting is doing the right
-thing, ``ghc-pkg list`` will list all the databases in use, in the
-reverse order they are searched.
+    To check whether your :envvar:`GHC_PACKAGE_PATH` setting is doing the right
+    thing, ``ghc-pkg list`` will list all the databases in use, in the
+    reverse order they are searched.
 
 .. _package-ids:
 
@@ -550,7 +548,7 @@ The :command:`ghc-pkg` tool is for querying and modifying package databases. To
 see what package databases are in use, use ``ghc-pkg list``. The stack
 of databases that :command:`ghc-pkg` knows about can be modified using the
 :envvar:`GHC_PACKAGE_PATH` environment variable (see :ref:`ghc-package-path`,
-and using :ghc-flag:`--package-db` options on the :command:`ghc-pkg` command line.
+and using :ghc-flag:`-package-db` options on the :command:`ghc-pkg` command line.
 
 When asked to modify a database, ``ghc-pkg`` modifies the global
 database by default. Specifying ``--user`` causes it to act on the user

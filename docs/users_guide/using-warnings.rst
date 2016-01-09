@@ -83,10 +83,10 @@ The following flags are simple ways to select standard "packages" of warnings:
     default, but can be useful to negate a :ghc-flag:`-Werror` flag.
 
 The full set of warning options is described below. To turn off any
-warning, simply give the corresponding :ghc-flag:`-Wno-...` option on the
+warning, simply give the corresponding ``-Wno-...`` option on the
 command line. For backwards compatibility with GHC versions prior to 8.0,
-all these warnings can still be controlled with :ghc-flag:`-f(no-)warn-*` instead
-of :ghc-flag:`-W(no-)*`.
+all these warnings can still be controlled with ``-f(no-)warn-*`` instead
+of ``-W(no-)*``.
 
 .. ghc-flag:: -Wtyped-holes
 
@@ -473,6 +473,7 @@ of :ghc-flag:`-W(no-)*`.
     and it often doesn't indicate a bug in the program.
 
 .. ghc-flag:: -Wtoo-many-guards
+              -Wno-too-many-guards
 
     .. index::
        single: too many guards, warning
@@ -531,11 +532,11 @@ of :ghc-flag:`-W(no-)*`.
           import qualified Z
           p x = f x x
 
-    The :ghc-flag:`-Wimport-lists` flag will warn about the import of ``Y``
-    but not ``X`` If module ``Y`` is later changed to export (say)
-    ``f``, then the reference to ``f`` in ``M`` will become ambiguous.
-    No warning is produced for the import of ``Z`` because extending
-    ``Z``\'s exports would be unlikely to produce ambiguity in ``M``.
+    The :ghc-flag:`-Wmissing-import-lists` flag will warn about the import of
+    ``Y`` but not ``X`` If module ``Y`` is later changed to export (say) ``f``,
+    then the reference to ``f`` in ``M`` will become ambiguous. No warning is
+    produced for the import of ``Z`` because extending ``Z``\'s exports would be
+    unlikely to produce ambiguity in ``M``.
 
 .. ghc-flag:: -Wmissing-methods
 
@@ -696,6 +697,10 @@ of :ghc-flag:`-W(no-)*`.
     explicit warning that it is being applied.
 
     This warning is off by default.
+
+.. ghc-flag:: -Wunsupported-llvm-version
+
+    Warn when using :ghc-flag:`-fllvm` with an unsupported version of LLVM.
 
 .. ghc-flag:: -Wunticked-promoted-constructors
 

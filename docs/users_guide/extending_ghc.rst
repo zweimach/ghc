@@ -190,11 +190,19 @@ restrictions are too onerous,
 Using compiler plugins
 ~~~~~~~~~~~~~~~~~~~~~~
 
-Plugins can be specified on the command line with the option
-``-fplugin=module`` where ⟨module⟩ is a module in a registered package
+Plugins can be specified on the command line with the :ghc-flag:`-fplugin`
+option. ``-fplugin=module`` where ⟨module⟩ is a module in a registered package
 that exports a plugin. Arguments can be given to plugins with the
-command line option ``-fplugin-opt=module:args``, where ⟨args⟩ are
-arguments interpreted by the plugin provided by ⟨module⟩.
+:ghc-flag:`-fplugin-opt` option.
+
+.. ghc-flag:: -fplugin=<module>
+
+    Load the plugin in the given module. The module must be a member of a package
+    registered in GHC's package database.
+
+.. ghc-flag:: -fplugin-opt=<module>:<args>
+
+    Pass arguments ⟨args⟩ to the given plugin.
 
 As an example, in order to load the plugin exported by ``Foo.Plugin`` in
 the package ``foo-ghc-plugin``, and give it the parameter "baz", we

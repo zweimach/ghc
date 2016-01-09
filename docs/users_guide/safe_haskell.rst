@@ -683,24 +683,24 @@ In summary, Safe Haskell consists of the following three language flags:
 
 And one general flag:
 
-:ghc-flag:`-fpackage-trust`
+.. ghc-flag:: -fpackage-trust
     When enabled, turn on an extra check for a trustworthy module ``M``,
     requiring the package that ``M`` resides in be considered trusted, for ``M``
     to be considered trusted.
 
 And three warning flags:
 
-:ghc-flag:`-Wunsafe`
+.. ghc-flag:: -Wunsafe
     Issue a warning if the module being compiled is regarded to be
     unsafe. Should be used to check the safety type of modules when
     using safe inference.
 
-:ghc-flag:`-Wsafe`
+.. ghc-flag:: -Wsafe
     Issue a warning if the module being compiled is regarded to be safe.
     Should be used to check the safety type of modules when using safe
     inference.
 
-:ghc-flag:`-Wtrustworthy-safe`
+.. ghc-flag:: -Wtrustworthy-safe
     Issue a warning if the module being compiled is marked as
     -XTrustworthy but it could instead be marked as
     -XSafe , a more informative bound. Can be used to detect once a Safe Haskell

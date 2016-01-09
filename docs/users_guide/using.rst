@@ -414,6 +414,12 @@ The source files for the program don't all need to be in the same
 directory; the :ghc-flag:`-i` option can be used to add directories to the
 search path (see :ref:`search-path`).
 
+.. ghc-flag:: -j <N>
+
+    Perform compilation in parallel when possible. GHC will use up to ⟨N⟩
+    threads during compilation. Note that compilation of a module may not
+    begin until its dependencies have been built.
+
 .. _eval-mode:
 
 Expression evaluation mode
@@ -495,15 +501,15 @@ to compile the Haskell source file ``Foo.hs`` to an object file
    code generator is used. See :ref:`code-generators` for more details.
 
 .. note::
-   Pre-processing is optional, the ``-cpp``\ ``-cpp`` flag turns it
+   Pre-processing is optional, the :ghc-flag:`-cpp` flag turns it
    on. See :ref:`c-pre-processor` for more details.
 
 .. note::
-   The option ``-E`` runs just the pre-processing passes of
+   The option :ghc-flag:`-E` runs just the pre-processing passes of
    the compiler, dumping the result in a file.
 
 .. note::
-   The option ``-C`` is only available when GHC is built in
+   The option :ghc-flag:`-C` is only available when GHC is built in
    unregisterised mode. See :ref:`unreg` for more details.
 
 .. _overriding-suffixes:
@@ -512,7 +518,7 @@ Overriding the default behaviour for a file
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 As described above, the way in which a file is processed by GHC depends
-on its suffix. This behaviour can be overridden using the ``-x`` option:
+on its suffix. This behaviour can be overridden using the :ghc-flag:`-x` option:
 
 .. ghc-flag:: -x <suffix>
 
