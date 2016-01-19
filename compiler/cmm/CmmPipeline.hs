@@ -99,8 +99,8 @@ cpsTop hsc_env proc =
 
        ----------- Sink and inline assignments  --------------------------------
        g <- {-# SCC "sink" #-} -- See Note [Sinking after stack layout]
-            condPass Opt_CmmSink (cmmSink dflags) g
-                     Opt_D_dump_cmm_sink "Sink assignments"
+            condPassM Opt_CmmSink (runUniqSM . cmmSink dflags) g
+                      Opt_D_dump_cmm_sink "Sink assignments"
 
        ------------- CAF analysis ----------------------------------------------
        let cafEnv = {-# SCC "cafAnal" #-} cafAnal g
@@ -144,10 +144,17 @@ cpsTop hsc_env proc =
         dumps flag name
            = mapM_ (dumpWith dflags flag name)
 
+        condPass :: GeneralFlag -> (CmmGraph -> CmmGraph) -> CmmGraph
+                 -> DumpFlag -> String -> IO CmmGraph
         condPass flag pass g dumpflag dumpname =
+            condPassM flag (pure . pass) g dumpflag dumpname
+
+        condPassM :: GeneralFlag -> (CmmGraph -> IO CmmGraph) -> CmmGraph
+                  -> DumpFlag -> String -> IO CmmGraph
+        condPassM flag pass g dumpflag dumpname =
             if gopt flag dflags
                then do
-                    g <- return $ pass g
+                    g <- pass g
                     dump dumpflag dumpname g
                     return g
                else return g

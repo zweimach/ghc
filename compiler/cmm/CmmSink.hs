@@ -14,8 +14,10 @@ import Platform (isARM, platformArch)
 
 import DynFlags
 import UniqFM
+import UniqSupply
 import PprCmm ()
 
+import Control.Monad.Trans.State
 import Data.List (partition)
 import qualified Data.Set as Set
 import Data.Maybe
@@ -144,8 +146,9 @@ type Assignments = [Assignment]
   --     y = e2
   --     x = e1
 
-cmmSink :: DynFlags -> CmmGraph -> CmmGraph
-cmmSink dflags graph = ofBlockList (g_entry graph) $ sink mapEmpty $ blocks
+cmmSink :: DynFlags -> CmmGraph -> UniqSM CmmGraph
+cmmSink dflags graph =
+    ofBlockList (g_entry graph) <$> evalStateT (mapM sink blocks) mapEmpty
   where
   liveness = cmmLocalLiveness dflags graph
   getLive l = mapFindWithDefault Set.empty l liveness
@@ -154,68 +157,66 @@ cmmSink dflags graph = ofBlockList (g_entry graph) $ sink mapEmpty $ blocks
 
   join_pts = findJoinPoints blocks
 
-  sink :: BlockEnv Assignments -> [CmmBlock] -> [CmmBlock]
-  sink _ [] = []
-  sink sunk (b:bs) =
-    -- pprTrace "sink" (ppr lbl) $
-    blockJoin first final_middle final_last : sink sunk' bs
-    where
-      lbl = entryLabel b
-      (first, middle, last) = blockSplit b
+  sink :: CmmBlock -> StateT (BlockEnv Assignments) UniqSM CmmBlock
+  sink b = StateT $ \sunk -> do
+      let lbl = entryLabel b
+          (first, middle, last) = blockSplit b
 
-      succs = successors last
+          succs = successors last
 
-      -- Annotate the middle nodes with the registers live *after*
-      -- the node.  This will help us decide whether we can inline
-      -- an assignment in the current node or not.
-      live = Set.unions (map getLive succs)
-      live_middle = gen_kill dflags last live
-      ann_middles = annotate dflags live_middle (blockToList middle)
+      let -- Annotate the middle nodes with the registers live *after*
+          -- the node.  This will help us decide whether we can inline
+          -- an assignment in the current node or not.
+          live = Set.unions (map getLive succs)
+          live_middle = gen_kill dflags last live
+          ann_middles = annotate dflags live_middle (blockToList middle)
 
-      -- Now sink and inline in this block
-      (middle', assigs) = walk dflags ann_middles (mapFindWithDefault [] lbl sunk)
-      fold_last = constantFoldNode dflags last
-      (final_last, assigs') = tryToInline dflags live fold_last assigs
+          -- Now sink and inline in this block
+          (middle', assigs) = walk dflags ann_middles (mapFindWithDefault [] lbl sunk)
+          fold_last = constantFoldNode dflags last
+          (final_last, assigs') = tryToInline dflags live fold_last assigs
 
-      -- We cannot sink into join points (successors with more than
-      -- one predecessor), so identify the join points and the set
-      -- of registers live in them.
-      (joins, nonjoins) = partition (`mapMember` join_pts) succs
-      live_in_joins = Set.unions (map getLive joins)
+          -- We cannot sink into join points (successors with more than
+          -- one predecessor), so identify the join points and the set
+          -- of registers live in them.
+          (joins, nonjoins) = partition (`mapMember` join_pts) succs
+          live_in_joins = Set.unions (map getLive joins)
 
-      -- We do not want to sink an assignment into multiple branches,
-      -- so identify the set of registers live in multiple successors.
-      -- This is made more complicated because when we sink an assignment
-      -- into one branch, this might change the set of registers that are
-      -- now live in multiple branches.
-      init_live_sets = map getLive nonjoins
-      live_in_multi live_sets r =
-         case filter (Set.member r) live_sets of
-           (_one:_two:_) -> True
-           _ -> False
+          -- We do not want to sink an assignment into multiple branches,
+          -- so identify the set of registers live in multiple successors.
+          -- This is made more complicated because when we sink an assignment
+          -- into one branch, this might change the set of registers that are
+          -- now live in multiple branches.
+          init_live_sets = map getLive nonjoins
+          live_in_multi live_sets r =
+            case filter (Set.member r) live_sets of
+              (_one:_two:_) -> True
+              _ -> False
 
-      -- Now, drop any assignments that we will not sink any further.
-      (dropped_last, assigs'') = dropAssignments dflags drop_if init_live_sets assigs'
+          -- Now, drop any assignments that we will not sink any further.
+      let (dropped_last, assigs'') = dropAssignments dflags drop_if init_live_sets assigs'
 
-      drop_if a@(r,rhs,_) live_sets = (should_drop, live_sets')
-          where
-            should_drop =  conflicts dflags a final_last
-                        || not (isTrivial dflags rhs) && live_in_multi live_sets r
-                        || r `Set.member` live_in_joins
+          drop_if a@(r,rhs,_) live_sets = (should_drop, live_sets')
+              where
+                should_drop =  conflicts dflags a final_last
+                            || not (isTrivial dflags rhs) && live_in_multi live_sets r
+                            || r `Set.member` live_in_joins
 
-            live_sets' | should_drop = live_sets
-                       | otherwise   = map upd live_sets
+                live_sets' | should_drop = live_sets
+                          | otherwise   = map upd live_sets
 
-            upd set | r `Set.member` set = set `Set.union` live_rhs
-                    | otherwise          = set
+                upd set | r `Set.member` set = set `Set.union` live_rhs
+                        | otherwise          = set
 
-            live_rhs = foldRegsUsed dflags extendRegSet emptyRegSet rhs
+                live_rhs = foldRegsUsed dflags extendRegSet emptyRegSet rhs
 
-      final_middle = foldl blockSnoc middle' dropped_last
+          final_middle = foldl blockSnoc middle' dropped_last
 
-      sunk' = mapUnion sunk $
-                 mapFromList [ (l, filterAssignments dflags (getLive l) assigs'')
-                             | l <- succs ]
+          sunk' = mapUnion sunk $
+                    mapFromList [ (l, filterAssignments dflags (getLive l) assigs'')
+                                | l <- succs ]
+      -- pprTrace "sink" (ppr lbl) $
+      pure (blockJoin first final_middle final_last, sunk')
 
 {- TODO: enable this later, when we have some good tests in place to
    measure the effect and tune it.
