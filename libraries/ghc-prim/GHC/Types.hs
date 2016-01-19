@@ -379,7 +379,7 @@ data TrName
 data TyCon = TyCon
                 Word64#  Word64#   -- Fingerprint
                 Module             -- Module in which this is defined
-                TrName              -- Type constructor name
+                TrName             -- Type constructor name
 #else
 data TyCon = TyCon
                 Word#    Word#

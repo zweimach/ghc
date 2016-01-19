@@ -1282,10 +1282,11 @@ zonkEvTerm env (EvCast tm co)     = do { tm' <- zonkEvTerm env tm
                                        ; return (mkEvCast tm' co') }
 zonkEvTerm _   (EvLit l)          = return (EvLit l)
 
-zonkEvTerm env (EvTypeable ty ev) =
+zonkEvTerm env (EvTypeable ty ev kind_ev) =
   do { ev' <- zonkEvTypeable env ev
      ; ty' <- zonkTcTypeToType env ty
-     ; return (EvTypeable ty' ev') }
+     ; kind_ev' <- zonkEvTerm env kind_ev
+     ; return (EvTypeable ty' ev' kind_ev') }
 zonkEvTerm env (EvCallStack cs)
   = case cs of
       EvCsEmpty -> return (EvCallStack cs)

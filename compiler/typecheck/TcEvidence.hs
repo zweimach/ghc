@@ -390,7 +390,11 @@ data EvTerm
 
   | EvCallStack EvCallStack      -- Dictionary for CallStack implicit parameters
 
-  | EvTypeable Type EvTypeable   -- Dictionary for (Typeable ty)
+  | EvTypeable Type EvTypeable EvTerm
+    -- ^ Dictionary for @(Typeable ty)@.
+    -- Here we include evidence to construct the
+    -- representation of both the type and its kind.
+    -- @EvTypeable ty tyEv kindEv@
 
   deriving( Data.Data, Data.Typeable )
 
@@ -687,7 +691,7 @@ evVarsOfTerm (EvCast tm co)       = evVarsOfTerm tm `unionVarSet` coVarsOfCo co
 evVarsOfTerm (EvDelayedError _ _) = emptyVarSet
 evVarsOfTerm (EvLit _)            = emptyVarSet
 evVarsOfTerm (EvCallStack cs)     = evVarsOfCallStack cs
-evVarsOfTerm (EvTypeable _ ev)    = evVarsOfTypeable ev
+evVarsOfTerm (EvTypeable _ ev kev)= evVarsOfTypeable ev `unionVarSet` evVarsOfTerm kev
 
 evVarsOfTerms :: [EvTerm] -> VarSet
 evVarsOfTerms = mapUnionVarSet evVarsOfTerm
@@ -786,7 +790,8 @@ instance Outputable EvTerm where
   ppr (EvCallStack cs)      = ppr cs
   ppr (EvDelayedError ty msg) =     text "error"
                                 <+> sep [ char '@' <> ppr ty, ppr msg ]
-  ppr (EvTypeable ty ev)      = ppr ev <+> dcolon <+> text "Typeable" <+> ppr ty
+  ppr (EvTypeable ty ev kev)  =
+      parens (ppr ev <> comma <+> ppr kev) <+> dcolon <+> text "Typeable" <+> ppr ty
 
 instance Outputable EvLit where
   ppr (EvNum n) = integer n

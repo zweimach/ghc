@@ -218,7 +218,8 @@ mkTyConRepRHS (dflags, mod_expr, pkg_str, mod_str) tycon = rep_rhs
     rep_rhs = nlHsApps (dataConWrapId trTyConDataCon)
                        [ nlHsLit (word64 high), nlHsLit (word64 low)
                        , mod_expr
-                       , trNameLit (mkFastString tycon_str) ]
+                       , trNameLit (mkFastString tycon_str)
+                       ]
 
     tycon_str = add_tick (occNameString (getOccName tycon))
     add_tick s | isPromotedDataCon tycon = '\'' : s

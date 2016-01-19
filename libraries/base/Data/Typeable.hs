@@ -38,6 +38,7 @@ module Data.Typeable
         -- * The Typeable class
         Typeable,
         typeRep,
+        kindRep,
 
         -- * Propositional equality
         (:~:)(Refl),
