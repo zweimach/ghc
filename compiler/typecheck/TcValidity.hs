@@ -427,12 +427,6 @@ forAllAllowed ArbitraryRank             = True
 forAllAllowed (LimitedRank forall_ok _) = forall_ok
 forAllAllowed _                         = False
 
-----------------------------------------
--- | Fail with error message if the type is unlifted
-check_lifted :: TidyEnv -> Type -> TcM ()
-check_lifted env ty
-  = checkTcM (not (isUnLiftedType ty)) (unliftedArgErr env ty)
-
 check_type :: TidyEnv -> UserTypeCtxt -> Rank -> Type -> TcM ()
 -- The args say what the *type context* requires, independent
 -- of *flag* settings.  You test the flag settings at usage sites.
@@ -571,8 +565,7 @@ check_arg_type env ctxt rank ty
                         --    (Ord (forall a.a)) => a -> a
                         -- and so that if it Must be a monotype, we check that it is!
 
-        ; check_type env ctxt rank' ty
-        ; check_lifted env ty }
+        ; check_type env ctxt rank' ty }
              -- NB the isUnLiftedType test also checks for
              --    T State#
              -- where there is an illegal partial application of State# (which has
@@ -598,9 +591,8 @@ forAllEscapeErr env ty tau_kind
          2 (vcat [ text "   type:" <+> ppr_tidy env ty
                  , text "of kind:" <+> ppr_tidy env tau_kind ]) )
 
-unliftedArgErr, ubxArgTyErr :: TidyEnv -> Type -> (TidyEnv, SDoc)
-unliftedArgErr  env ty = (env, sep [text "Illegal unlifted type:", ppr_tidy env ty])
-ubxArgTyErr     env ty = (env, sep [text "Illegal unboxed tuple type as function argument:", ppr_tidy env ty])
+ubxArgTyErr :: TidyEnv -> Type -> (TidyEnv, SDoc)
+ubxArgTyErr env ty = (env, sep [text "Illegal unboxed tuple type as function argument:", ppr_tidy env ty])
 
 kindErr :: TidyEnv -> Kind -> (TidyEnv, SDoc)
 kindErr env kind = (env, sep [text "Expecting an ordinary type, but found a type of kind", ppr_tidy env kind])
@@ -970,11 +962,7 @@ checkValidInstHead ctxt clas cls_args
         --      E.g.  instance C (forall a. a->a) is rejected
         -- One could imagine generalising that, but I'm not sure
         -- what all the consequences might be
-
-         -- We can't have unlifted type arguments.
-         -- check_arg_type is redundant with checkValidMonoType
-       ; env <- tcInitOpenTidyEnv (tyCoVarsOfTypes ty_args)
-       ; mapM_ (check_lifted env) ty_args
+       ; return ()
        }
 
   where
@@ -1409,11 +1397,8 @@ checkValidTyFamEqn mb_clsinfo fam_tc tvs cvs typats rhs loc
          --             type instance F Int              = forall a. a->a
          --             type instance F Int              = Int#
          -- See Trac #9357
-       ; env <- tcInitOpenTidyEnv (tyCoVarsOfTypes (rhs : typats))
        ; mapM_ checkValidMonoType typats
-       ; mapM_ (check_lifted env) typats
        ; checkValidMonoType rhs
-       ; check_lifted env rhs
 
          -- We have a decidable instance unless otherwise permitted
        ; undecidable_ok <- xoptM LangExt.UndecidableInstances
