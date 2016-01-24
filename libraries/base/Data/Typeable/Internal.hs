@@ -465,10 +465,13 @@ showsTypeRep = shows
 
 -- | Helper to fully evaluate 'TypeRep' for use as @NFData(rnf)@ implementation
 --
+-- Note, however, that this does not evaluate the type's kind, since this will
+-- ultimately be loop since (@* :: *@).
+--
 -- @since 4.8.0.0
 rnfTypeRep :: TypeRep -> ()
-rnfTypeRep (TypeRep _ tyc krs tyrs k) =
-    rnfTyCon tyc `seq` go krs `seq` go tyrs `seq` rnfTypeRep k
+rnfTypeRep (TypeRep _ tyc krs tyrs _) =
+    rnfTyCon tyc `seq` go krs `seq` go tyrs
   where
     go [] = ()
     go (x:xs) = rnfTypeRep x `seq` go xs
