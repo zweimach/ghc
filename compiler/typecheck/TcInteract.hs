@@ -2005,12 +2005,12 @@ matchTypeable clas [k,t]  -- clas = Typeable
   | k `eqType` typeNatKind                 = doTyLit knownNatClassName    t
   | k `eqType` typeSymbolKind              = doTyLit knownSymbolClassName t
     -- see Note [The representation of (->)] in Data.Typeable.Internal
-  | t `eqType` mkTyConTy funTyCon          = pprTrace "arrow type" (ppr t) $ evTypeableRepId t trArrowRepName
-  | t `eqType` mkTyConTy tYPETyCon         = pprTrace "TYPE type" empty $ evTypeableRepId t trTYPERepName
-  | t `eqType` liftedTypeKind              = pprTrace "* kind" empty $ evTypeableRepId t trStarRepName
+  | t `eqType` mkTyConTy funTyCon          = evTypeableRepId t trArrowRepName
+  | t `eqType` mkTyConTy tYPETyCon         = evTypeableRepId t trTYPERepName
+  | t `eqType` liftedTypeKind              = evTypeableRepId t trStarRepName
   | Just (tc, ks) <- splitTyConApp_maybe t -- See Note [Typeable (T a b c)]
-  , onlyNamedBndrsApplied tc ks            = pprTrace "arrow1" (ppr t $$ ppr (typeKind t)) $ doTyConApp clas t ks
-  | Just (f,kt)   <- splitAppTy_maybe t    = pprTrace "arrow2" (ppr t) $ doTyApp    clas t f kt
+  , onlyNamedBndrsApplied tc ks            = doTyConApp clas t ks
+  | Just (f,kt)   <- splitAppTy_maybe t    = doTyApp    clas t f kt
 
 matchTypeable _ _ = return NoInstance
 
