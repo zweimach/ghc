@@ -569,10 +569,18 @@ instance Binary TypeRep where
         let (ty_con, child_type_reps) = splitTyConApp type_rep
         put_ bh ty_con
         put_ bh child_type_reps
+#if MIN_VERSION_base(4,9,1)
+        put_ bh $ typeRepKind type_rep
+#endif
     get bh = do
         ty_con <- get bh
         child_type_reps <- get bh
+#if MIN_VERSION_base(4,9,1)
+        kind_rep <- get bh
+        return (mkTyConApp ty_con child_type_reps kind_rep)
+#else
         return (mkTyConApp ty_con child_type_reps)
+#endif
 
 -- -----------------------------------------------------------------------------
 -- Lazy reading/writing

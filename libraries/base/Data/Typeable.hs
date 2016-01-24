@@ -62,6 +62,7 @@ module Data.Typeable
 
         -- * Type representations
         TypeRep,        -- abstract, instance of: Eq, Show, Typeable
+        KindRep,
         typeRepFingerprint,
         rnfTypeRep,
         showsTypeRep,
@@ -87,6 +88,7 @@ module Data.Typeable
         funResultTy,    -- :: TypeRep -> TypeRep   -> Maybe TypeRep
         typeRepTyCon,   -- :: TypeRep -> TyCon
         typeRepArgs,    -- :: TypeRep -> [TypeRep]
+        typeRepKind,    -- :: TypeRep -> KindRep
   ) where
 
 import Data.Typeable.Internal

@@ -59,6 +59,7 @@ module Data.Typeable.Internal (
     rnfTypeRep,
     showsTypeRep,
     typeRepKinds,
+    typeRepKind,
 
     -- * Primitive representations
     trArrowRep, trTYPERep, trStarRep,
