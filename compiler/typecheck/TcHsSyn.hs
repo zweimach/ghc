@@ -1282,11 +1282,10 @@ zonkEvTerm env (EvCast tm co)     = do { tm' <- zonkEvTerm env tm
                                        ; return (mkEvCast tm' co') }
 zonkEvTerm _   (EvLit l)          = return (EvLit l)
 
-zonkEvTerm env (EvTypeable ty ev kind_ev) =
+zonkEvTerm env (EvTypeable ty ev) =
   do { ev' <- zonkEvTypeable env ev
      ; ty' <- zonkTcTypeToType env ty
-     ; kind_ev' <- zonkEvTerm env kind_ev
-     ; return (EvTypeable ty' ev' kind_ev') }
+     ; return (EvTypeable ty' ev') }
 zonkEvTerm env (EvCallStack cs)
   = case cs of
       EvCsEmpty -> return (EvCallStack cs)
@@ -1304,13 +1303,17 @@ zonkEvTerm env (EvDelayedError ty msg)
        ; return (EvDelayedError ty' msg) }
 
 zonkEvTypeable :: ZonkEnv -> EvTypeable -> TcM EvTypeable
-zonkEvTypeable env (EvTypeableTyCon ts)
+zonkEvTypeable env (EvTypeableTyCon ts k)
   = do { ts' <- mapM (zonkEvTerm env) ts
-       ; return $ EvTypeableTyCon ts' }
-zonkEvTypeable env (EvTypeableTyApp t1 t2)
+       ; k' <- zonkEvTerm env k
+       ; return $ EvTypeableTyCon ts' k' }
+zonkEvTypeable env (EvTypeableTyApp t1 t2 k)
   = do { t1' <- zonkEvTerm env t1
        ; t2' <- zonkEvTerm env t2
-       ; return (EvTypeableTyApp t1' t2') }
+       ; k' <- zonkEvTerm env k
+       ; return (EvTypeableTyApp t1' t2' k') }
+zonkEvTypeable env EvTypeableTYPERep = return EvTypeableTYPERep
+zonkEvTypeable env EvTypeableArrowRep = return EvTypeableArrowRep
 zonkEvTypeable env (EvTypeableTyLit t1)
   = do { t1' <- zonkEvTerm env t1
        ; return (EvTypeableTyLit t1') }

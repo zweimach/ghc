@@ -213,6 +213,7 @@ basicKnownKeyNames
         mkAppTyName,
         typeSymbolTypeRepName, typeNatTypeRepName,
         trGhcPrimModuleName,
+        trArrowRepName, trTYPERepName,
 
         -- Dynamic
         toDynName,
@@ -1139,6 +1140,8 @@ typeableClassName
   , typeNatTypeRepName
   , typeSymbolTypeRepName
   , trGhcPrimModuleName
+  , trArrowRepName
+  , trTYPERepName
   :: Name
 typeableClassName     = clsQual tYPEABLE_INTERNAL (fsLit "Typeable")       typeableClassKey
 typeRepTyConName      = tcQual  tYPEABLE_INTERNAL (fsLit "TypeRep")        typeRepTyConKey
@@ -1150,6 +1153,8 @@ typeSymbolTypeRepName = varQual tYPEABLE_INTERNAL (fsLit "typeSymbolTypeRep") ty
 -- this is the Typeable 'Module' for GHC.Prim (which has no code, so we place in GHC.Types)
 -- See Note [Grand plan for Typeable] in TcTypeable.
 trGhcPrimModuleName   = varQual gHC_TYPES         (fsLit "tr$ModuleGHCPrim")  trGhcPrimModuleKey
+trArrowRepName        = varQual tYPEABLE_INTERNAL (fsLit "trArrowRep")     trArrowRepKey
+trTYPERepName         = varQual tYPEABLE_INTERNAL (fsLit "trTYPERep")      trTYPERepKey
 
 -- Custom type errors
 errorMessageTypeErrorFamName
@@ -1794,7 +1799,7 @@ unliftedDataConKey                      = mkPreludeDataConUnique 40
 trTyConTyConKey, trTyConDataConKey,
   trModuleTyConKey, trModuleDataConKey,
   trNameTyConKey, trNameSDataConKey, trNameDDataConKey,
-  trGhcPrimModuleKey :: Unique
+  trGhcPrimModuleKey, trArrowRepKey, trTYPERepKey :: Unique
 trTyConTyConKey                         = mkPreludeDataConUnique 41
 trTyConDataConKey                       = mkPreludeDataConUnique 42
 trModuleTyConKey                        = mkPreludeDataConUnique 43
@@ -1803,16 +1808,18 @@ trNameTyConKey                          = mkPreludeDataConUnique 45
 trNameSDataConKey                       = mkPreludeDataConUnique 46
 trNameDDataConKey                       = mkPreludeDataConUnique 47
 trGhcPrimModuleKey                      = mkPreludeDataConUnique 48
+trArrowRepKey                           = mkPreludeDataConUnique 49
+trTYPERepKey                            = mkPreludeDataConUnique 50
 
 typeErrorTextDataConKey,
   typeErrorAppendDataConKey,
   typeErrorVAppendDataConKey,
   typeErrorShowTypeDataConKey
   :: Unique
-typeErrorTextDataConKey                 = mkPreludeDataConUnique 50
-typeErrorAppendDataConKey               = mkPreludeDataConUnique 51
-typeErrorVAppendDataConKey              = mkPreludeDataConUnique 52
-typeErrorShowTypeDataConKey             = mkPreludeDataConUnique 53
+typeErrorTextDataConKey                 = mkPreludeDataConUnique 60
+typeErrorAppendDataConKey               = mkPreludeDataConUnique 61
+typeErrorVAppendDataConKey              = mkPreludeDataConUnique 62
+typeErrorShowTypeDataConKey             = mkPreludeDataConUnique 63
 
 prefixIDataConKey, infixIDataConKey, leftAssociativeDataConKey,
     rightAssociativeDataConKey, notAssociativeDataConKey,
@@ -1821,23 +1828,23 @@ prefixIDataConKey, infixIDataConKey, leftAssociativeDataConKey,
     sourceStrictDataConKey, noSourceStrictnessDataConKey,
     decidedLazyDataConKey, decidedStrictDataConKey, decidedUnpackDataConKey,
     metaDataDataConKey, metaConsDataConKey, metaSelDataConKey :: Unique
-prefixIDataConKey                       = mkPreludeDataConUnique 54
-infixIDataConKey                        = mkPreludeDataConUnique 55
-leftAssociativeDataConKey               = mkPreludeDataConUnique 56
-rightAssociativeDataConKey              = mkPreludeDataConUnique 57
-notAssociativeDataConKey                = mkPreludeDataConUnique 58
-sourceUnpackDataConKey                  = mkPreludeDataConUnique 59
-sourceNoUnpackDataConKey                = mkPreludeDataConUnique 60
-noSourceUnpackednessDataConKey          = mkPreludeDataConUnique 61
-sourceLazyDataConKey                    = mkPreludeDataConUnique 62
-sourceStrictDataConKey                  = mkPreludeDataConUnique 63
-noSourceStrictnessDataConKey            = mkPreludeDataConUnique 64
-decidedLazyDataConKey                   = mkPreludeDataConUnique 65
-decidedStrictDataConKey                 = mkPreludeDataConUnique 66
-decidedUnpackDataConKey                 = mkPreludeDataConUnique 67
-metaDataDataConKey                      = mkPreludeDataConUnique 68
-metaConsDataConKey                      = mkPreludeDataConUnique 69
-metaSelDataConKey                       = mkPreludeDataConUnique 70
+prefixIDataConKey                       = mkPreludeDataConUnique 64
+infixIDataConKey                        = mkPreludeDataConUnique 65
+leftAssociativeDataConKey               = mkPreludeDataConUnique 66
+rightAssociativeDataConKey              = mkPreludeDataConUnique 67
+notAssociativeDataConKey                = mkPreludeDataConUnique 68
+sourceUnpackDataConKey                  = mkPreludeDataConUnique 69
+sourceNoUnpackDataConKey                = mkPreludeDataConUnique 70
+noSourceUnpackednessDataConKey          = mkPreludeDataConUnique 71
+sourceLazyDataConKey                    = mkPreludeDataConUnique 72
+sourceStrictDataConKey                  = mkPreludeDataConUnique 73
+noSourceStrictnessDataConKey            = mkPreludeDataConUnique 74
+decidedLazyDataConKey                   = mkPreludeDataConUnique 75
+decidedStrictDataConKey                 = mkPreludeDataConUnique 76
+decidedUnpackDataConKey                 = mkPreludeDataConUnique 77
+metaDataDataConKey                      = mkPreludeDataConUnique 78
+metaConsDataConKey                      = mkPreludeDataConUnique 79
+metaSelDataConKey                       = mkPreludeDataConUnique 80
 
 ---------------- Template Haskell -------------------
 --      THNames.hs: USES DataUniques 100-150

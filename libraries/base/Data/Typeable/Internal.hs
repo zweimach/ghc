@@ -59,6 +59,9 @@ module Data.Typeable.Internal (
     rnfTypeRep,
     showsTypeRep,
     typeRepKinds,
+
+    -- * Primitive representations
+    trArrowRep, trTYPERep,
     typeSymbolTypeRep, typeNatTypeRep
   ) where
 
@@ -250,8 +253,13 @@ funResultTy trFun trArg
 tyConOf :: Typeable a => Proxy a -> TyCon
 tyConOf = typeRepTyCon . typeRep
 
+-- | The 'TyCon' of @(->)@.
 tcFun :: TyCon
 tcFun = tyConOf (Proxy :: Proxy (Int -> Int))
+-- Note that this definition is a bit indirect: we
+-- extract the 'TyCon' from the @TypeRep@ of @(->)@
+-- saturated with arguments to ensure we
+-- TODO.
 
 tcList :: TyCon
 tcList = tyConOf (Proxy :: Proxy [])
@@ -264,6 +272,53 @@ tc'Lifted = tyConOf (Proxy :: Proxy 'Lifted)
 
 tc'Unlifted :: TyCon
 tc'Unlifted = tyConOf (Proxy :: Proxy 'Unlifted)
+
+trTYPERep :: TypeRep
+trTYPERep =
+    mkPolyTyConApp tcTYPE [] [] kind_rep
+  where
+    levity_rep = typeRep (Proxy :: Proxy Levity)
+    kind_rep = mkAppTy trArrowRep levity_rep trTYPERep
+
+-- | The representation of type-level @(->)@.
+trArrowRep :: TypeRep
+trArrowRep =
+    mkPolyTyConApp tcFun [] [] starArrStarArrStarRep
+  where
+    star :: TypeRep
+    star = typeRep (Proxy :: Proxy *)
+
+    -- | The representation of the type
+    -- @(->) (* -> *)@ or in other words @(->) ((->) * *)@.
+    -- This has kind @* -> *@.
+    starArrStarRep :: TypeRep
+    starArrStarRep =
+        mkAppTy trArrowRep starArrStarRep starArrStarRep
+
+    -- | The representation of the kind of @(->)@,
+    -- namely @* -> * -> *@.
+    starArrStarArrStarRep :: TypeRep
+    starArrStarArrStarRep =
+        mkAppTy starArrStarRep star star
+
+{-
+Note [The representation of (->)]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Defining the representations of the (->) type requires a bit of care
+if we also need a kind representation. The reason for this is that
+
+    (->) :: * -> * -> *
+
+That is, the kind of (->) itself contains (->). To avoid headaches
+we explicitly write define the representation of (->), manually
+tying-the-know in tyArrowRep.
+
+TYPE has a similar issue:
+
+    TYPE :: Levity -> TYPE 'Lifted
+
+-}
 
 -- | Adds a TypeRep argument to a TypeRep.
 mkAppTy :: TypeRep -> TypeRep -> KindRep -> TypeRep

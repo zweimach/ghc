@@ -390,11 +390,8 @@ data EvTerm
 
   | EvCallStack EvCallStack      -- Dictionary for CallStack implicit parameters
 
-  | EvTypeable Type EvTypeable EvTerm
+  | EvTypeable Type EvTypeable
     -- ^ Dictionary for @(Typeable ty)@.
-    -- Here we include evidence to construct the
-    -- representation of both the type and its kind.
-    -- @EvTypeable ty tyEv kindEv@
 
   deriving( Data.Data, Data.Typeable )
 
@@ -402,12 +399,16 @@ data EvTerm
 -- | Instructions on how to make a 'Typeable' dictionary.
 -- See Note [Typeable evidence terms]
 data EvTypeable
-  = EvTypeableTyCon [EvTerm]  -- ^ Dictionary for @Typeable (T k1..kn)@.
-                              -- The EvTerms are for the arguments
+  = EvTypeableTyCon [EvTerm] EvTerm
+    -- ^ @EvTypeableTyCon [k1..kn] k@ Dictionary for
+    -- @Typeable (T k1..kn :: k)@.
+    --
+    -- The @[EvTerm]@ is for the arguments and the @EvTerm@
+    -- is for the kind of the result.
 
-  | EvTypeableTyApp EvTerm EvTerm
-    -- ^ Dictionary for @Typeable (s t)@,
-    -- given a dictionaries for @s@ and @t@
+  | EvTypeableTyApp EvTerm EvTerm EvTerm
+    -- ^ @EvTypeableTyApp s t k@ is a dictionary for
+    -- @Typeable (s t :: k)@, given a dictionaries for @s@ and @t@.
 
   | EvTypeableTyLit EvTerm
     -- ^ Dictionary for a type literal,
@@ -691,7 +692,7 @@ evVarsOfTerm (EvCast tm co)       = evVarsOfTerm tm `unionVarSet` coVarsOfCo co
 evVarsOfTerm (EvDelayedError _ _) = emptyVarSet
 evVarsOfTerm (EvLit _)            = emptyVarSet
 evVarsOfTerm (EvCallStack cs)     = evVarsOfCallStack cs
-evVarsOfTerm (EvTypeable _ ev kev)= evVarsOfTypeable ev `unionVarSet` evVarsOfTerm kev
+evVarsOfTerm (EvTypeable _ ev)    = evVarsOfTypeable ev
 
 evVarsOfTerms :: [EvTerm] -> VarSet
 evVarsOfTerms = mapUnionVarSet evVarsOfTerm
@@ -716,9 +717,9 @@ evVarsOfCallStack cs = case cs of
 evVarsOfTypeable :: EvTypeable -> VarSet
 evVarsOfTypeable ev =
   case ev of
-    EvTypeableTyCon es    -> evVarsOfTerms es
-    EvTypeableTyApp e1 e2 -> evVarsOfTerms [e1,e2]
-    EvTypeableTyLit e     -> evVarsOfTerm e
+    EvTypeableTyCon es kev    -> evVarsOfTerms (kev:es)
+    EvTypeableTyApp e1 e2 kev -> evVarsOfTerms (kev:[e1,e2])
+    EvTypeableTyLit e         -> evVarsOfTerm e
 
 {-
 ************************************************************************
@@ -790,8 +791,8 @@ instance Outputable EvTerm where
   ppr (EvCallStack cs)      = ppr cs
   ppr (EvDelayedError ty msg) =     text "error"
                                 <+> sep [ char '@' <> ppr ty, ppr msg ]
-  ppr (EvTypeable ty ev kev)  =
-      parens (ppr ev <> comma <+> ppr kev) <+> dcolon <+> text "Typeable" <+> ppr ty
+  ppr (EvTypeable ty ev)    = parens (ppr ev <> comma)
+                                <+> dcolon <+> text "Typeable" <+> ppr ty
 
 instance Outputable EvLit where
   ppr (EvNum n) = integer n
@@ -804,9 +805,10 @@ instance Outputable EvCallStack where
     = ppr (name,loc) <+> text ":" <+> ppr tm
 
 instance Outputable EvTypeable where
-  ppr (EvTypeableTyCon ts)    = text "TC" <+> ppr ts
-  ppr (EvTypeableTyApp t1 t2) = parens (ppr t1 <+> ppr t2)
-  ppr (EvTypeableTyLit t1)    = text "TyLit" <> ppr t1
+  ppr (EvTypeableTyCon ts k)    = text "TC"
+                                  <+> parens (ppr ts <+> dcolon <+> ppr k)
+  ppr (EvTypeableTyApp t1 t2 _) = parens (ppr t1 <+> ppr t2)
+  ppr (EvTypeableTyLit t1)      = text "TyLit" <> ppr t1
 
 
 ----------------------------------------------------------------------

@@ -1048,7 +1048,7 @@ dsEvBind (EvBind { eb_lhs = v, eb_rhs = r}) = liftM ((,) v) (dsEvTerm r)
 dsEvTerm :: EvTerm -> DsM CoreExpr
 dsEvTerm (EvId v)           = return (Var v)
 dsEvTerm (EvCallStack cs)   = dsEvCallStack cs
-dsEvTerm (EvTypeable ty ev kev) = dsEvTypeable ty ev kev
+dsEvTerm (EvTypeable ty ev) = dsEvTypeable ty ev
 dsEvTerm (EvLit (EvNum n))  = mkIntegerExpr n
 dsEvTerm (EvLit (EvStr s))  = mkStringExprFS s
 
@@ -1082,18 +1082,18 @@ dsEvDelayedError ty msg
 *                                                                      *
 **********************************************************************-}
 
-dsEvTypeable :: Type -> EvTypeable -> EvTerm -> DsM CoreExpr
+dsEvTypeable :: Type -> EvTypeable -> DsM CoreExpr
 -- Return a CoreExpr :: Typeable ty
 -- This code is tightly coupled to the representation
 -- of TypeRep, in base library Data.Typeable.Internals
-dsEvTypeable ty ev kind_ev
+dsEvTypeable ty ev
   = do { tyCl <- dsLookupTyCon typeableClassName   -- Typeable
        ; let kind = typeKind ty
              Just typeable_data_con
                  = tyConSingleDataCon_maybe tyCl      -- "Data constructor"
                                                       -- for Typeable
 
-       ; rep_expr <- ds_ev_typeable ty ev kind_ev
+       ; rep_expr <- ds_ev_typeable ty ev
 
        -- Build Core for (let r::TypeRep = rep in \proxy. rep)
        -- See Note [Memoising typeOf]
@@ -1106,9 +1106,9 @@ dsEvTypeable ty ev kind_ev
        ; return $ mkConApp typeable_data_con [Type kind, Type ty, method] }
 
 
-ds_ev_typeable :: Type -> EvTypeable -> EvTerm -> DsM CoreExpr
+ds_ev_typeable :: Type -> EvTypeable -> DsM CoreExpr
 -- Returns a CoreExpr :: TypeRep ty
-ds_ev_typeable ty (EvTypeableTyCon evs) kind_ev
+ds_ev_typeable ty (EvTypeableTyCon evs kind_ev)
   | Just (tc, ks) <- splitTyConApp_maybe ty
   = do { ctr <- dsLookupGlobalId mkPolyTyConAppName
          -- mkPolyTyConApp :: TyCon -> [KindRep] -> [TypeRep] -> KindRep -> TypeRep
@@ -1125,7 +1125,7 @@ ds_ev_typeable ty (EvTypeableTyCon evs) kind_ev
 
        ; return (mkRep tcRep kArgReps [] kRep) }
 
-ds_ev_typeable ty (EvTypeableTyApp ev1 ev2) kind_ev
+ds_ev_typeable ty (EvTypeableTyApp ev1 ev2 kind_ev)
   | Just (t1,t2) <- splitAppTy_maybe ty
   = do { e1  <- getRep ev1 t1
        ; e2  <- getRep ev2 t2
@@ -1134,7 +1134,7 @@ ds_ev_typeable ty (EvTypeableTyApp ev1 ev2) kind_ev
          -- mkAppTy :: TypeRep -> TypeRep -> KindRep -> TypeRep
        ; return ( mkApps (Var ctr) [ e1, e2, kind_rep ] ) }
 
-ds_ev_typeable ty (EvTypeableTyLit ev) _kind_ev
+ds_ev_typeable ty (EvTypeableTyLit ev)
   = do { fun  <- dsLookupGlobalId tr_fun
        ; dict <- dsEvTerm ev       -- Of type KnownNat/KnownSym
        ; let proxy = mkTyApps (Var proxyHashId) [ty_kind, ty]
@@ -1150,8 +1150,8 @@ ds_ev_typeable ty (EvTypeableTyLit ev) _kind_ev
            | otherwise = panic "dsEvTypeable: unknown type lit kind"
 
 
-ds_ev_typeable ty ev kind_ev
-  = pprPanic "dsEvTypeable" (ppr ty $$ ppr ev $$ ppr kind_ev)
+ds_ev_typeable ty ev
+  = pprPanic "dsEvTypeable" (ppr ty $$ ppr ev)
 
 getRep :: EvTerm -> Type  -- EvTerm for Typeable ty, and ty
        -> DsM CoreExpr    -- Return CoreExpr :: TypeRep (of ty)

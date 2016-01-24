@@ -26,7 +26,7 @@ import PrelNames ( knownNatClassName, knownSymbolClassName,
                    heqTyConKey, ipClassKey )
 import TysWiredIn ( typeNatKind, typeSymbolKind, heqDataCon,
                     coercibleDataCon )
-import TysPrim    ( eqPrimTyCon, eqReprPrimTyCon )
+import TysPrim    ( eqPrimTyCon, eqReprPrimTyCon, tYPETyCon )
 import Id( idType )
 import CoAxiom ( Eqn, CoAxiom(..), CoAxBranch(..), fromBranches )
 import Class
@@ -2001,19 +2001,25 @@ matchTypeable clas [k,t]  -- clas = Typeable
   | isJust (tcSplitPredFunTy_maybe t) = return NoInstance   -- Qualified type
 
   -- Now cases that do work
-  | k `eqType` typeNatKind                 = doTyLit clas knownNatClassName    t
-  | k `eqType` typeSymbolKind              = doTyLit clas knownSymbolClassName t
+  | k `eqType` typeNatKind                 = doTyLit knownNatClassName    t
+  | k `eqType` typeSymbolKind              = doTyLit knownSymbolClassName t
+    -- see Note [The representation of (->)] in Data.Typeable.Internal
+  | t `eqType` mkTyConTy funTyCon          = pprTrace "arrow type" (ppr t) $ return $ GenInst [] (const $ EvId t EvTypeableArrowRep) True
+  | t `eqType` mkTyConTy tYPETyCon         = pprTrace "TYPE type" empty $ return $ GenInst [] (const $ EvId t EvTypeableTYPERep) True
   | Just (tc, ks) <- splitTyConApp_maybe t -- See Note [Typeable (T a b c)]
-  , onlyNamedBndrsApplied tc ks            = doTyConApp clas t ks
-  | Just (f,kt)   <- splitAppTy_maybe t    = doTyApp    clas t f kt
+  , onlyNamedBndrsApplied tc ks            = pprTrace "arrow1" (ppr t $$ ppr (typeKind t)) $ doTyConApp clas t ks
+  | Just (f,kt)   <- splitAppTy_maybe t    = pprTrace "arrow2" (ppr t) $ doTyApp    clas t f kt
 
 matchTypeable _ _ = return NoInstance
 
+evName :: Name -> TcS LookupInstResult
+evName name = EvId <$> tcLookupId name
 doTyConApp :: Class -> Type -> [Kind] -> TcS LookupInstResult
 -- Representation for type constructor applied to some kinds
 doTyConApp clas ty args
   = let preds = map (mk_typeable_pred clas) (typeKind ty : args)
-        mkEv (k_ev:tms) = EvTypeable ty (EvTypeableTyCon tms) k_ev
+        mkEv (k_ev:tms) = EvTypeable ty (EvTypeableTyCon tms k_ev)
+        mkEv _          = panic "doTyConApp"
     in return $ GenInst preds mkEv True
 
 -- Representation for concrete kinds.  We just use the kind itself,
@@ -2040,8 +2046,8 @@ doTyApp clas ty f tk
   = return NoInstance -- We can't solve until we know the ctr.
   | otherwise
   = let preds = map (mk_typeable_pred clas) [f, tk, typeKind ty]
-        mkEv [t1,t2,t3] = EvTypeable ty (EvTypeableTyApp t1 t2) t3
-        mkEv _          = panic "doTyApp"
+        mkEv [t1,t2,kev] = EvTypeable ty (EvTypeableTyApp t1 t2 kev)
+        mkEv _           = panic "doTyApp"
     in return $ GenInst preds mkEv True
 
 -- Emit a `Typeable` constraint for the given type.
@@ -2051,14 +2057,13 @@ mk_typeable_pred clas ty = mkClassPred clas [ typeKind ty, ty ]
   -- Typeable is implied by KnownNat/KnownSymbol. In the case of a type literal
   -- we generate a sub-goal for the appropriate class. See #10348 for what
   -- happens when we fail to do this.
-doTyLit :: Class -> Name -> Type -> TcS LookupInstResult
-doTyLit clas kc t =
+doTyLit :: Name -> Type -> TcS LookupInstResult
+doTyLit kc t =
   do { kc_clas <- tcLookupClass kc
      ; let kc_pred    = mkClassPred kc_clas [ t ]
-           kind_pred  = mk_typeable_pred clas (typeKind t)
-           mk_ev [ev, kind_ev] = EvTypeable t (EvTypeableTyLit ev) kind_ev
+           mk_ev [ev] = EvTypeable t (EvTypeableTyLit ev)
            mk_ev _    = panic "doTyLit"
-     ; return (GenInst [kc_pred, kind_pred] mk_ev True) }
+     ; return (GenInst [kc_pred] mk_ev True) }
 
 {- Note [Typeable (T a b c)]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
