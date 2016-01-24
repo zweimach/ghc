@@ -467,8 +467,8 @@ showsTypeRep = shows
 --
 -- @since 4.8.0.0
 rnfTypeRep :: TypeRep -> ()
-rnfTypeRep (TypeRep _ tyc krs tyrs _) =
-    rnfTyCon tyc `seq` go krs `seq` go tyrs
+rnfTypeRep (TypeRep _ tyc krs tyrs k) =
+    rnfTyCon tyc `seq` go krs `seq` go tyrs `seq` rnfTypeRep k
   where
     go [] = ()
     go (x:xs) = rnfTypeRep x `seq` go xs
