@@ -1,4 +1,5 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# LANGUAGE CPP #-}
 -- This module is full of orphans, unfortunately
 module GHCi.TH.Binary () where
 
@@ -66,10 +67,19 @@ instance Binary TyCon where
     get = mkTyCon3 <$> get <*> get <*> get
 
 instance Binary TypeRep where
-    put type_rep = put (splitTyConApp type_rep)
+    put type_rep = do
+#if MIN_VERSION_base(4,9,1)
+        put (typeRepKind type_rep)
+#endif
+        put (splitTyConApp type_rep)
     get = do
         (ty_con, child_type_reps) <- get
+#if MIN_VERSION_base(4,9,1)
+        kind_rep <- get
+        return (mkTyConApp ty_con child_type_reps kind_rep)
+#else
         return (mkTyConApp ty_con child_type_reps)
+#endif
 
 instance Binary Serialized where
     put (Serialized tyrep wds) = put tyrep >> put (B.pack wds)
