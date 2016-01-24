@@ -1312,8 +1312,6 @@ zonkEvTypeable env (EvTypeableTyApp t1 t2 k)
        ; t2' <- zonkEvTerm env t2
        ; k' <- zonkEvTerm env k
        ; return (EvTypeableTyApp t1' t2' k') }
-zonkEvTypeable env EvTypeableTYPERep = return EvTypeableTYPERep
-zonkEvTypeable env EvTypeableArrowRep = return EvTypeableArrowRep
 zonkEvTypeable env (EvTypeableTyLit t1)
   = do { t1' <- zonkEvTerm env t1
        ; return (EvTypeableTyLit t1') }

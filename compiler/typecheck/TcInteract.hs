@@ -23,6 +23,7 @@ import TcType
 import Name
 import PrelNames ( knownNatClassName, knownSymbolClassName,
                    typeableClassName, coercibleTyConKey,
+                   trArrowRepName, trTYPERepName,
                    heqTyConKey, ipClassKey )
 import TysWiredIn ( typeNatKind, typeSymbolKind, heqDataCon,
                     coercibleDataCon )
@@ -2004,16 +2005,20 @@ matchTypeable clas [k,t]  -- clas = Typeable
   | k `eqType` typeNatKind                 = doTyLit knownNatClassName    t
   | k `eqType` typeSymbolKind              = doTyLit knownSymbolClassName t
     -- see Note [The representation of (->)] in Data.Typeable.Internal
-  | t `eqType` mkTyConTy funTyCon          = pprTrace "arrow type" (ppr t) $ return $ GenInst [] (const $ EvId t EvTypeableArrowRep) True
-  | t `eqType` mkTyConTy tYPETyCon         = pprTrace "TYPE type" empty $ return $ GenInst [] (const $ EvId t EvTypeableTYPERep) True
+  | t `eqType` mkTyConTy funTyCon          = pprTrace "arrow type" (ppr t) $ evName trArrowRepName
+  | t `eqType` mkTyConTy tYPETyCon         = pprTrace "TYPE type" empty $ evName trTYPERepName
   | Just (tc, ks) <- splitTyConApp_maybe t -- See Note [Typeable (T a b c)]
   , onlyNamedBndrsApplied tc ks            = pprTrace "arrow1" (ppr t $$ ppr (typeKind t)) $ doTyConApp clas t ks
   | Just (f,kt)   <- splitAppTy_maybe t    = pprTrace "arrow2" (ppr t) $ doTyApp    clas t f kt
 
 matchTypeable _ _ = return NoInstance
 
+-- | Construct evidence from an in-scope name; assumed to be safe.
 evName :: Name -> TcS LookupInstResult
-evName name = EvId <$> tcLookupId name
+evName name
+  = do { id <- tcLookupId name
+       ; return $ GenInst [] (const $ EvId id) True }
+
 doTyConApp :: Class -> Type -> [Kind] -> TcS LookupInstResult
 -- Representation for type constructor applied to some kinds
 doTyConApp clas ty args
