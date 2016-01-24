@@ -61,7 +61,7 @@ module Data.Typeable.Internal (
     typeRepKinds,
 
     -- * Primitive representations
-    trArrowRep, trTYPERep,
+    trArrowRep, trTYPERep, trStarRep,
     typeSymbolTypeRep, typeNatTypeRep
   ) where
 
@@ -267,18 +267,26 @@ tcList = tyConOf (Proxy :: Proxy [])
 tcTYPE :: TyCon
 tcTYPE = tyConOf (Proxy :: Proxy TYPE)
 
+trLevityRep :: TypeRep
+trLevityRep = typeRep (Proxy :: Proxy Levity)
+
 tc'Lifted :: TyCon
 tc'Lifted = tyConOf (Proxy :: Proxy 'Lifted)
 
 tc'Unlifted :: TyCon
 tc'Unlifted = tyConOf (Proxy :: Proxy 'Unlifted)
 
+trStarRep :: TypeRep
+trStarRep =
+    mkAppTy trTYPERep trLiftedRep trStarRep
+  where
+    trLiftedRep = mkPolyTyConApp tc'Lifted [] [] trLevityRep
+
 trTYPERep :: TypeRep
 trTYPERep =
     mkPolyTyConApp tcTYPE [] [] kind_rep
   where
-    levity_rep = typeRep (Proxy :: Proxy Levity)
-    kind_rep = mkAppTy trArrowRep levity_rep trTYPERep
+    kind_rep = mkAppTy trArrowRep trLevityRep trTYPERep
 
 -- | The representation of type-level @(->)@.
 trArrowRep :: TypeRep

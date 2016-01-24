@@ -1315,6 +1315,9 @@ zonkEvTypeable env (EvTypeableTyApp t1 t2 k)
 zonkEvTypeable env (EvTypeableTyLit t1)
   = do { t1' <- zonkEvTerm env t1
        ; return (EvTypeableTyLit t1') }
+zonkEvTypeable env (EvTypeableRepId v)
+  = do { let v' = zonkIdOcc env v
+       ; return (EvTypeableRepId v') }
 
 zonkTcEvBinds_s :: ZonkEnv -> [TcEvBinds] -> TcM (ZonkEnv, [TcEvBinds])
 zonkTcEvBinds_s env bs = do { (env, bs') <- mapAccumLM zonk_tc_ev_binds env bs

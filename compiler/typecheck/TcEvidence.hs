@@ -416,6 +416,9 @@ data EvTypeable
     -- The 'EvTerm' is evidence of, e.g., @KnownNat 3@
     -- (see Trac #10348)
 
+  | EvTypeableRepId EvId
+    -- ^ Construct a dictionary from the named @TypeRep@.
+
   deriving ( Data.Data, Data.Typeable )
 
 data EvLit
@@ -720,6 +723,7 @@ evVarsOfTypeable ev =
     EvTypeableTyCon es kev    -> evVarsOfTerms (kev:es)
     EvTypeableTyApp e1 e2 kev -> evVarsOfTerms (kev:[e1,e2])
     EvTypeableTyLit e         -> evVarsOfTerm e
+    EvTypeableRepId v         -> unitVarSet v
 
 {-
 ************************************************************************
@@ -809,6 +813,7 @@ instance Outputable EvTypeable where
                                   <+> parens (ppr ts <+> dcolon <+> ppr k)
   ppr (EvTypeableTyApp t1 t2 _) = parens (ppr t1 <+> ppr t2)
   ppr (EvTypeableTyLit t1)      = text "TyLit" <> ppr t1
+  ppr (EvTypeableRepId v)       = ppr v <+> dcolon <+> text "TypeRep"
 
 
 ----------------------------------------------------------------------

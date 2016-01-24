@@ -1149,6 +1149,9 @@ ds_ev_typeable ty (EvTypeableTyLit ev)
            | ty_kind `eqType` typeSymbolKind = typeSymbolTypeRepName
            | otherwise = panic "dsEvTypeable: unknown type lit kind"
 
+ds_ev_typeable _ty (EvTypeableRepId id)
+    -- id :: TypeRep
+  = pure $ Var id
 
 ds_ev_typeable ty ev
   = pprPanic "dsEvTypeable" (ppr ty $$ ppr ev)

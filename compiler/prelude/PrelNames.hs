@@ -213,7 +213,7 @@ basicKnownKeyNames
         mkAppTyName,
         typeSymbolTypeRepName, typeNatTypeRepName,
         trGhcPrimModuleName,
-        trArrowRepName, trTYPERepName,
+        trArrowRepName, trTYPERepName, trStarRepName,
 
         -- Dynamic
         toDynName,
@@ -1142,6 +1142,7 @@ typeableClassName
   , trGhcPrimModuleName
   , trArrowRepName
   , trTYPERepName
+  , trStarRepName
   :: Name
 typeableClassName     = clsQual tYPEABLE_INTERNAL (fsLit "Typeable")       typeableClassKey
 typeRepTyConName      = tcQual  tYPEABLE_INTERNAL (fsLit "TypeRep")        typeRepTyConKey
@@ -1155,6 +1156,7 @@ typeSymbolTypeRepName = varQual tYPEABLE_INTERNAL (fsLit "typeSymbolTypeRep") ty
 trGhcPrimModuleName   = varQual gHC_TYPES         (fsLit "tr$ModuleGHCPrim")  trGhcPrimModuleKey
 trArrowRepName        = varQual tYPEABLE_INTERNAL (fsLit "trArrowRep")     trArrowRepKey
 trTYPERepName         = varQual tYPEABLE_INTERNAL (fsLit "trTYPERep")      trTYPERepKey
+trStarRepName         = varQual tYPEABLE_INTERNAL (fsLit "trStarRep")      trStarRepKey
 
 -- Custom type errors
 errorMessageTypeErrorFamName
@@ -1799,7 +1801,8 @@ unliftedDataConKey                      = mkPreludeDataConUnique 40
 trTyConTyConKey, trTyConDataConKey,
   trModuleTyConKey, trModuleDataConKey,
   trNameTyConKey, trNameSDataConKey, trNameDDataConKey,
-  trGhcPrimModuleKey, trArrowRepKey, trTYPERepKey :: Unique
+  trGhcPrimModuleKey, trArrowRepKey,
+  trTYPERepKey, trStarRepKey :: Unique
 trTyConTyConKey                         = mkPreludeDataConUnique 41
 trTyConDataConKey                       = mkPreludeDataConUnique 42
 trModuleTyConKey                        = mkPreludeDataConUnique 43
@@ -1810,6 +1813,7 @@ trNameDDataConKey                       = mkPreludeDataConUnique 47
 trGhcPrimModuleKey                      = mkPreludeDataConUnique 48
 trArrowRepKey                           = mkPreludeDataConUnique 49
 trTYPERepKey                            = mkPreludeDataConUnique 50
+trStarRepKey                            = mkPreludeDataConUnique 51
 
 typeErrorTextDataConKey,
   typeErrorAppendDataConKey,
