@@ -11,3 +11,5 @@ mkBoxedTupleTy :: [Type] -> Type
 levityTy, unliftedDataConTy :: Type
 
 liftedTypeKind :: Kind
+
+mkPrelTyConRepName :: Name -> TyConRepName
