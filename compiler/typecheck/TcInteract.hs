@@ -2051,9 +2051,9 @@ doTyApp clas ty f tk
   | isForAllTy (typeKind f)
   = return NoInstance -- We can't solve until we know the ctr.
   | otherwise
-  = let preds = map (mk_typeable_pred clas) [f, tk, typeKind ty]
-        mkEv [t1,t2,kev] = EvTypeable ty (EvTypeableTyApp t1 t2 kev)
-        mkEv _           = panic "doTyApp"
+  = let preds = map (mk_typeable_pred clas) [f, tk]
+        mkEv [t1,t2] = EvTypeable ty (EvTypeableTyApp t1 t2)
+        mkEv _       = panic "doTyApp"
     in return $ GenInst preds mkEv True
 
 -- Emit a `Typeable` constraint for the given type.

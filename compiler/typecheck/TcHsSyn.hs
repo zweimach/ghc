@@ -1307,11 +1307,10 @@ zonkEvTypeable env (EvTypeableTyCon ts k)
   = do { ts' <- mapM (zonkEvTerm env) ts
        ; k' <- zonkEvTerm env k
        ; return $ EvTypeableTyCon ts' k' }
-zonkEvTypeable env (EvTypeableTyApp t1 t2 k)
+zonkEvTypeable env (EvTypeableTyApp t1 t2)
   = do { t1' <- zonkEvTerm env t1
        ; t2' <- zonkEvTerm env t2
-       ; k' <- zonkEvTerm env k
-       ; return (EvTypeableTyApp t1' t2' k') }
+       ; return (EvTypeableTyApp t1' t2') }
 zonkEvTypeable env (EvTypeableTyLit t1)
   = do { t1' <- zonkEvTerm env t1
        ; return (EvTypeableTyLit t1') }

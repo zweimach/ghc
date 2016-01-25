@@ -223,7 +223,7 @@ typeRepFingerprints kinds types
 
 -- | Applies a kind-monomorphic type constructor to a sequence of types
 mkTyConApp  :: TyCon -> [TypeRep] -> KindRep -> TypeRep
-mkTyConApp tc = mkPolyTyConApp tc []
+mkTyConApp tc type_args kind = mkPolyTyConApp tc [] type_args kind
 
 -- | A special case of 'mkTyConApp', which applies the function
 -- type constructor to a pair of types.
@@ -269,7 +269,8 @@ tcTYPE :: TyCon
 tcTYPE = tyConOf (Proxy :: Proxy TYPE)
 
 trLevityRep :: TypeRep
-trLevityRep = typeRep (Proxy :: Proxy Levity)
+trLevityRep =
+    undefined
 
 tc'Lifted :: TyCon
 tc'Lifted = tyConOf (Proxy :: Proxy 'Lifted)
@@ -279,7 +280,7 @@ tc'Unlifted = tyConOf (Proxy :: Proxy 'Unlifted)
 
 trStarRep :: TypeRep
 trStarRep =
-    mkAppTy trTYPERep trLiftedRep trStarRep
+    mkAppTy trTYPERep trLiftedRep
   where
     trLiftedRep = mkPolyTyConApp tc'Lifted [] [] trLevityRep
 
@@ -287,7 +288,7 @@ trTYPERep :: TypeRep
 trTYPERep =
     mkPolyTyConApp tcTYPE [] [] kind_rep
   where
-    kind_rep = mkAppTy trArrowRep trLevityRep trTYPERep
+    kind_rep = mkAppTy trArrowRep trLevityRep
 
 -- | The representation of type-level @(->)@.
 trArrowRep :: TypeRep
@@ -302,13 +303,13 @@ trArrowRep =
     -- This has kind @* -> *@.
     starArrStarRep :: TypeRep
     starArrStarRep =
-        mkAppTy trArrowRep starArrStarRep starArrStarRep
+        mkAppTy trArrowRep starArrStarRep
 
     -- | The representation of the kind of @(->)@,
     -- namely @* -> * -> *@.
     starArrStarArrStarRep :: TypeRep
     starArrStarArrStarRep =
-        mkAppTy starArrStarRep star star
+        mkAppTy starArrStarRep star
 
 {-
 Note [The representation of (->)]
@@ -330,10 +331,14 @@ TYPE has a similar issue:
 -}
 
 -- | Adds a TypeRep argument to a TypeRep.
-mkAppTy :: TypeRep -> TypeRep -> KindRep -> TypeRep
+mkAppTy :: TypeRep -> TypeRep -> TypeRep
 {-# INLINE mkAppTy #-}
-mkAppTy (TypeRep _ tc ks trs _) arg_tr kind_tr =
-    mkPolyTyConApp tc ks (trs ++ [arg_tr]) kind_tr
+mkAppTy (TypeRep _ tc ks trs fun_kind) arg_tr =
+    mkPolyTyConApp tc ks (trs ++ [arg_tr]) res_kind
+  where
+    res_kind = case funResultTy fun_kind (typeRepKind arg_tr) of
+                   Just k  -> k
+                   Nothing -> error "mkAppTy: Applied to type of non-arrow kind"
    -- Notice that we call mkTyConApp to construct the fingerprint from tc and
    -- the arg fingerprints.  Simply combining the current fingerprint with
    -- the new one won't give the same answer, but of course we want to

@@ -1125,14 +1125,13 @@ ds_ev_typeable ty (EvTypeableTyCon evs kind_ev)
 
        ; return (mkRep tcRep kArgReps [] kRep) }
 
-ds_ev_typeable ty (EvTypeableTyApp ev1 ev2 kind_ev)
+ds_ev_typeable ty (EvTypeableTyApp ev1 ev2)
   | Just (t1,t2) <- splitAppTy_maybe ty
   = do { e1  <- getRep ev1 t1
        ; e2  <- getRep ev2 t2
-       ; kind_rep <- getRep kind_ev (typeKind ty)
        ; ctr <- dsLookupGlobalId mkAppTyName
-         -- mkAppTy :: TypeRep -> TypeRep -> KindRep -> TypeRep
-       ; return ( mkApps (Var ctr) [ e1, e2, kind_rep ] ) }
+         -- mkAppTy :: TypeRep -> TypeRep -> TypeRep
+       ; return ( mkApps (Var ctr) [ e1, e2 ] ) }
 
 ds_ev_typeable ty (EvTypeableTyLit ev)
   = do { fun  <- dsLookupGlobalId tr_fun

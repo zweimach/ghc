@@ -406,9 +406,9 @@ data EvTypeable
     -- The @[EvTerm]@ is for the arguments and the @EvTerm@
     -- is for the kind of the result.
 
-  | EvTypeableTyApp EvTerm EvTerm EvTerm
-    -- ^ @EvTypeableTyApp s t k@ is a dictionary for
-    -- @Typeable (s t :: k)@, given a dictionaries for @s@ and @t@.
+  | EvTypeableTyApp EvTerm EvTerm
+    -- ^ @EvTypeableTyApp s t@ is a dictionary for
+    -- @Typeable (s t)@, given a dictionaries for @s@ and @t@.
 
   | EvTypeableTyLit EvTerm
     -- ^ Dictionary for a type literal,
@@ -720,10 +720,10 @@ evVarsOfCallStack cs = case cs of
 evVarsOfTypeable :: EvTypeable -> VarSet
 evVarsOfTypeable ev =
   case ev of
-    EvTypeableTyCon es kev    -> evVarsOfTerms (kev:es)
-    EvTypeableTyApp e1 e2 kev -> evVarsOfTerms (kev:[e1,e2])
-    EvTypeableTyLit e         -> evVarsOfTerm e
-    EvTypeableRepId v         -> unitVarSet v
+    EvTypeableTyCon es kev  -> evVarsOfTerms (kev:es)
+    EvTypeableTyApp e1 e2   -> evVarsOfTerms [e1,e2]
+    EvTypeableTyLit e       -> evVarsOfTerm e
+    EvTypeableRepId v       -> unitVarSet v
 
 {-
 ************************************************************************
@@ -811,7 +811,7 @@ instance Outputable EvCallStack where
 instance Outputable EvTypeable where
   ppr (EvTypeableTyCon ts k)    = text "TC"
                                   <+> parens (ppr ts <+> dcolon <+> ppr k)
-  ppr (EvTypeableTyApp t1 t2 _) = parens (ppr t1 <+> ppr t2)
+  ppr (EvTypeableTyApp t1 t2)   = parens (ppr t1 <+> ppr t2)
   ppr (EvTypeableTyLit t1)      = text "TyLit" <> ppr t1
   ppr (EvTypeableRepId v)       = ppr v <+> dcolon <+> text "TypeRep"
 
