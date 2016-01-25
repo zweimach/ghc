@@ -127,6 +127,7 @@ import FieldLabel
 import Constants
 import Util
 import Unique( tyConRepNameUnique, dataConRepNameUnique )
+import UniqFM
 import Module
 
 import qualified Data.Data as Data
@@ -930,19 +931,40 @@ mkPrelTyConRepName tc_name  -- Prelude tc_name is always External,
     name_uniq = nameUnique  tc_name
     rep_uniq | isTcOcc name_occ = tyConRepNameUnique   name_uniq
              | otherwise        = dataConRepNameUnique name_uniq
-    (rep_mod, rep_occ) = tyConRepModOcc name_mod name_occ
+    (rep_mod, rep_occ) = tyConRepModOcc name_mod tc_name
 
 -- | The name (and defining module) for the Typeable representation (TyCon) of a
 -- type constructor.
 --
 -- See Note [Grand plan for Typeable] in 'TcTypeable' in TcTypeable.
-tyConRepModOcc :: Module -> OccName -> (Module, OccName)
-tyConRepModOcc tc_module tc_occ = (rep_module, mkTyConRepOcc tc_occ)
+tyConRepModOcc :: Module -> Name -> (Module, OccName)
+tyConRepModOcc tc_module tc_name = (rep_module, rep_name)
   where
     rep_module
       | tc_module == gHC_PRIM = gHC_TYPES
       | otherwise             = tc_module
 
+    rep_name
+      = case tc_name `lookupUFM` visibleTyConReps of
+          Just name -> name
+          Nothing   -> mkTyConRepOcc $ nameOccName tc_name
+
+-- | Some primitive types needs to have their @TyCon@ representations
+-- defined with user-writeable names. The reason for this is their kinds
+-- are recursive and we need to manually write their @TypeRep@s in order
+-- to tie-the-knot. See Note TODO
+visibleTyConReps :: UniqFM OccName
+visibleTyConReps = listToUFM tycons
+  where
+    tycons :: [(TyCon, OccName)]
+    tycons = map (\(a,b) -> (a, mkOccName VarName b))
+        [ (levityTyCon,             "tcLevity")
+        , (promote liftedDataCon,   "tc'Lifted")
+        , (promote unliftedDataCon, "tc'Unlifted")
+        , (funTyCon,                "tcFun")
+        ]
+
+    promote = promoteDataCon
 
 {- *********************************************************************
 *                                                                      *

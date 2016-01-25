@@ -153,6 +153,7 @@ mkPrimTypeableBinds
        ; gbl_env <- tcExtendGlobalValEnv prim_rep_ids getGblEnv
        ; return (gbl_env `addTypecheckedBinds` [prim_binds]) }
 
+
 -- | Generate bindings for the type representation of the wired-in TyCons defined
 -- by the virtual "GHC.Prim" module. This differs from the usual
 -- @mkTypeableBinds@ path in that here we need to lie to 'mk_typeable_binds'

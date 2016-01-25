@@ -354,7 +354,7 @@ newImplicitBinder base_name mk_sys_occ
 newTyConRepName :: Name -> TcRnIf gbl lcl TyConRepName
 newTyConRepName tc_name
   | Just mod <- nameModule_maybe tc_name
-  , (mod, occ) <- tyConRepModOcc mod (nameOccName tc_name)
+  , (mod, occ) <- tyConRepModOcc mod tc_name
   = newGlobalBinder mod occ noSrcSpan
   | otherwise
   = newImplicitBinder tc_name mkTyConRepOcc
