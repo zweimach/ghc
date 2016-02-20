@@ -1591,7 +1591,8 @@ m1Constr = mkConstr m1DataType "M1" [] Prefix
 m1DataType :: DataType
 m1DataType = mkDataType "GHC.Generics.M1" [m1Constr]
 
-instance (Data p, Data (f p), Typeable c, Typeable i, Typeable f) => Data (M1 i c f p) where
+instance (Data p, Data (f p), Typeable c, Typeable i, Typeable f)
+         => Data (M1 i c f p) where
   gfoldl k z (M1 p) = z M1 `k` p
   toConstr (M1 _) = m1Constr
   gunfold k z c = case constrIndex c of
@@ -1600,7 +1601,7 @@ instance (Data p, Data (f p), Typeable c, Typeable i, Typeable f) => Data (M1 i 
   dataTypeOf _  = m1DataType
   dataCast1 f = gcast1 f
 
-----------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
 
 sum1DataType :: DataType
 sum1DataType = mkDataType "GHC.Generics.:+:" [l1Constr, r1Constr]
@@ -1611,7 +1612,8 @@ l1Constr = mkConstr sum1DataType "L1" [] Prefix
 r1Constr :: Constr
 r1Constr = mkConstr sum1DataType "R1" [] Prefix
 
-instance (Typeable f, Typeable g, Data a, Data (f a), Data (g a)) => Data ((f :+: g) a) where
+instance (Typeable f, Typeable g, Data a, Data (f a), Data (g a))
+         => Data ((f :+: g) a) where
   gfoldl k z (L1 a) = z L1 `k` a
   gfoldl k z (R1 a) = z R1 `k` a
   toConstr L1{} = l1Constr
@@ -1631,7 +1633,8 @@ comp1Constr = mkConstr comp1DataType "Comp1" [] Prefix
 comp1DataType :: DataType
 comp1DataType = mkDataType "GHC.Generics.:.:" [comp1Constr]
 
-instance (Typeable a, Typeable f, Typeable g, Data a, Data (f (g a))) => Data ((f :.: g) a) where
+instance (Typeable a, Typeable f, Typeable g, Data a, Data (f (g a)))
+         => Data ((f :.: g) a) where
   gfoldl k z (Comp1 c) = z Comp1 `k` c
   toConstr (Comp1 _) = m1Constr
   gunfold k z c = case constrIndex c of
@@ -1660,7 +1663,8 @@ prod1DataType = mkDataType "GHC.Generics.:*:" [prod1Constr]
 prod1Constr :: Constr
 prod1Constr = mkConstr prod1DataType "Prod1" [] Infix
 
-instance (Typeable f, Typeable g, Data a, Data (f a), Data (g a)) => Data ((f :*: g) a) where
+instance (Typeable f, Typeable g, Data a, Data (f a), Data (g a))
+         => Data ((f :*: g) a) where
   gfoldl k z (l :*: r) = z (:*:) `k` l `k` r
   toConstr _ = prod1Constr
   gunfold k z c = case constrIndex c of
