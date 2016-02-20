@@ -710,9 +710,8 @@ import Data.Either ( Either(..) )
 
 -- Needed for instances
 import GHC.Base    ( String )
-import Control.Monad (MonadPlus(..))
 import Data.Typeable (Typeable)
-import GHC.Base (Functor(..), Applicative(..), Alternative(..), Monad(..))
+import GHC.Base (Functor(..), Applicative(..), Alternative(..), Monad(..), MonadPlus(..))
 import GHC.Classes ( Eq, Ord )
 import GHC.Read    ( Read )
 import GHC.Show    ( Show )
