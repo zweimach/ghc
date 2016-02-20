@@ -743,7 +743,6 @@ instance Alternative U1 where
   U1 <|> U1 = U1
 
 instance Monad U1 where
-  return   = pure
   U1 >>= _ = U1
 
 -- | Used for marking occurrences of the parameter
@@ -755,7 +754,6 @@ instance Applicative Par1 where
   Par1 f <*> Par1 x = Par1 (f x)
 
 instance Monad Par1 where
-  return = pure
   Par1 x >>= f = f x
 
 -- | Recursive calls of kind * -> *
@@ -771,7 +769,6 @@ instance Alternative f => Alternative (Rec1 f) where
   (Rec1 l) <|> (Rec1 r) = Rec1 (l <|> r)
 
 instance Monad f => Monad (Rec1 f) where
-  return = pure
   Rec1 x >>= f = Rec1 (x >>= \a -> unRec1 (f a))
 
 instance MonadPlus f => MonadPlus (Rec1 f)
@@ -793,7 +790,6 @@ instance Alternative f => Alternative (M1 i c f) where
   M1 l <|> M1 r = M1 (l <|> r)
 
 instance Monad f => Monad (M1 i c f) where
-  return = pure
   M1 x >>= f = M1 (x >>= \a -> unM1 (f a))
 
 instance MonadPlus f => MonadPlus (M1 i c f)
@@ -817,7 +813,6 @@ instance (Alternative f, Alternative g) => Alternative ((:*:) f g) where
     (x1 :*: y1) <|> (x2 :*: y2) = (x1 <|> x2) :*: (y1 <|> y2)
 
 instance (Monad f, Monad g) => Monad ((:*:) f g) where
-    return = pure
     (m :*: n) >>= f = (m >>= \a -> fstP (f a)) :*: (n >>= \a -> sndP (f a))
       where
         fstP (a :*: _) = a
