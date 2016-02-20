@@ -544,6 +544,10 @@ See ``changelog.md`` in the ``base`` package for full release notes.
   error that is thrown when an expression fails to typecheck when run using
   :ghc-flag:`-fdefer-type-errors`. (see :ghc-ticket:`10284`)
 
+- The representation types in ``GHC.Generics`` now have ``Enum``, ``Bounded``,
+  ``Functor``, ``Applicative``, ``Alternative``, ``Monad``, ``MonadFix``,
+  ``MonadPlus``, and ``Data`` instances as appropriate.
+
 binary
 ~~~~~~
 

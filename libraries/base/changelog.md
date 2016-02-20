@@ -104,6 +104,10 @@
   * `Alt`, `Dual`, `First`, `Last`, `Product`, and `Sum` now have `Data`,
     `MonadZip`, and `MonadFix` instances
 
+  * The representation types in `GHC.Generics` now have `Enum`, `Bounded`,
+    `Functor`, `Applicative`, `Alternative`, `Monad`, `MonadFix`, `MonadPlus`,
+    and `Data` instances as appropriate.
+
   * `Maybe` now has a `MonadZip` instance
 
   * `All` and `Any` now have `Data` instances
