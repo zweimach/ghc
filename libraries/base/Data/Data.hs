@@ -134,7 +134,9 @@ import GHC.ForeignPtr        -- So we can give Data instance for ForeignPtr
 --import GHC.ST                -- So we can give Data instance for ST
 --import GHC.Conc              -- So we can give Data instance for MVar & Co.
 import GHC.Arr               -- So we can give Data instance for Array
-import GHC.Generics          -- So we can give Data instance for generic types
+import GHC.Generics( U1(..), Par1(..), Rec1(..), K1(..), M1(..),
+                     (:+:)(..), (:.:)(..), V1(..), (:*:)(..) )
+                             -- So we can give Data instance for generic types
 
 
 ------------------------------------------------------------------------------
