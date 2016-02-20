@@ -1,6 +1,8 @@
 {-# LANGUAGE Trustworthy #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE DeriveFoldable #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -61,6 +63,7 @@ import GHC.Arr  ( Array(..), elems, numElements,
                   foldlElems', foldrElems',
                   foldl1Elems, foldr1Elems)
 import GHC.Base hiding ( foldr )
+import GHC.Generics
 import GHC.Num  ( Num(..) )
 
 infix  4 `elem`, `notElem`
