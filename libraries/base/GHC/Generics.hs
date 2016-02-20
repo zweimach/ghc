@@ -713,6 +713,7 @@ import GHC.Base    ( String )
 import Data.Typeable (Typeable)
 import GHC.Base (Functor(..), Applicative(..), Alternative(..), Monad(..), MonadPlus(..))
 import GHC.Classes ( Eq, Ord )
+import GHC.Enum    ( Enum, Bounded )
 import GHC.Read    ( Read )
 import GHC.Show    ( Show )
 
