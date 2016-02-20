@@ -709,14 +709,15 @@ import Data.Maybe  ( Maybe(..), fromMaybe )
 import Data.Either ( Either(..) )
 
 -- Needed for instances
-import GHC.Base    ( String )
-import GHC.Functor ( (<$>) )
-import Data.Typeable (Typeable)
-import GHC.Base (Functor(..), Applicative(..), Alternative(..), Monad(..), MonadPlus(..))
-import GHC.Classes ( Eq, Ord )
-import GHC.Enum    ( Enum, Bounded )
-import GHC.Read    ( Read )
-import GHC.Show    ( Show )
+import GHC.Base      ( String )
+import Data.Functor  ( (<$>) )
+import Data.Typeable ( Typeable )
+import GHC.Base      ( Functor(..), Applicative(..), Alternative(..),
+                       Monad(..), MonadPlus(..))
+import GHC.Classes   ( Eq, Ord )
+import GHC.Enum      ( Enum, Bounded )
+import GHC.Read      ( Read )
+import GHC.Show      ( Show )
 
 -- Needed for metadata
 import Data.Proxy   ( Proxy(..), KProxy(..) )
