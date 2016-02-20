@@ -60,6 +60,7 @@ import Data.Proxy ( Proxy(..) )
 import GHC.Arr
 import GHC.Base ( Applicative(..), Monad(..), Monoid, Maybe(..),
                   ($), (.), id, flip )
+import GHC.Generics
 import qualified GHC.List as List ( foldr )
 
 -- | Functors representing data structures that can be traversed from
