@@ -711,7 +711,6 @@ import Data.Either ( Either(..) )
 -- Needed for instances
 import GHC.Base      ( String )
 import Data.Functor  ( (<$>) )
-import Data.Typeable ( Typeable )
 import GHC.Base      ( Functor(..), Applicative(..), Alternative(..),
                        Monad(..), MonadPlus(..))
 import GHC.Classes   ( Eq, Ord )
@@ -744,8 +743,8 @@ instance Alternative U1 where
   U1 <|> U1 = U1
 
 instance Monad U1 where
-  return _ = U1
-  U1 >>= f = U1
+  return   = pure
+  U1 >>= _ = U1
 
 -- | Used for marking occurrences of the parameter
 newtype Par1 p = Par1 { unPar1 :: p }
