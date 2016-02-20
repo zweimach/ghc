@@ -108,16 +108,16 @@ instance MonadFix f => MonadFix (Alt f) where
 -- Instances for GHC.Generics
 
 instance MonadFix Par1 where
-    mfix f = Par1 (fix (unPar1 . f))
+    mfix f   = Par1 (fix (unPar1 . f))
 
 instance MonadFix f => MonadFix (Rec1 f) where
-  mfix f = Rec1 $ mfix (unRec1 . f)
+  mfix f     = Rec1 (mfix (unRec1 . f))
 
 instance MonadFix f => MonadFix (M1 i c f) where
-  mfix f = M1 $ mfix (unM1. f)
+  mfix f     = M1 (mfix (unM1. f))
 
 instance (MonadFix f, MonadFix g) => MonadFix ((:*:) f g) where
-  mfix f = (mfix (fstP . f)) :*: (mfix (sndP . f))
+  mfix f     = (mfix (fstP . f)) :*: (mfix (sndP . f))
     where
       fstP (a :*: _) = a
       sndP (_ :*: b) = b

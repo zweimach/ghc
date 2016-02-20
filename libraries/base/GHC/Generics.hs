@@ -754,6 +754,10 @@ instance Applicative Par1 where
   pure a = Par1 a
   Par1 f <*> Par1 x = Par1 (f x)
 
+instance Monad Par1 where
+  return = pure
+  Par1 x >>= f = f x
+
 -- | Recursive calls of kind * -> *
 newtype Rec1 f (p :: *) = Rec1 { unRec1 :: f p }
   deriving (Eq, Ord, Read, Show, Generic, Functor)
