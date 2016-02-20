@@ -135,7 +135,7 @@ import GHC.ForeignPtr        -- So we can give Data instance for ForeignPtr
 --import GHC.Conc              -- So we can give Data instance for MVar & Co.
 import GHC.Arr               -- So we can give Data instance for Array
 import GHC.Generics( U1(..), Par1(..), Rec1(..), K1(..), M1(..),
-                     (:+:)(..), (:.:)(..), V1(..), (:*:)(..) )
+                     (:+:)(..), (:.:)(..), V1, (:*:)(..) )
                              -- So we can give Data instance for generic types
 
 
@@ -1524,11 +1524,11 @@ u1DataType :: DataType
 u1DataType = mkDataType "GHC.Generics.U1" [u1Constr]
 
 instance Data a => Data (U1 a) where
-  gfoldl k z U1 = z U1
+  gfoldl _ z U1 = z U1
   toConstr U1 = u1Constr
-  gunfold k z c = case constrIndex c of
-                    1 -> z U1
-                    _ -> error "Data.Data.gunfold(U1)"
+  gunfold _ z c = case constrIndex c of
+                     1 -> z U1
+                     _ -> error "Data.Data.gunfold(GHC.Generics.U1)"
   dataTypeOf _  = u1DataType
   dataCast1 f = gcast1 f
 
@@ -1545,7 +1545,7 @@ instance Data a => Data (Par1 a) where
   toConstr (Par1 _) = par1Constr
   gunfold k z c = case constrIndex c of
                     1 -> k (z Par1)
-                    _ -> error "Data.Data.gunfold(Par1)"
+                    _ -> error "Data.Data.gunfold(GHC.Generics.Par1)"
   dataTypeOf _  = par1DataType
   dataCast1 f = gcast1 f
 
@@ -1562,7 +1562,7 @@ instance (Data (f p), Typeable f, Data p) => Data (Rec1 f p) where
   toConstr (Rec1 _) = rec1Constr
   gunfold k z c = case constrIndex c of
                     1 -> k (z Rec1)
-                    _ -> error "Data.Data.gunfold(Rec1)"
+                    _ -> error "Data.Data.gunfold(GHC.Generics.Rec1)"
   dataTypeOf _  = rec1DataType
   dataCast1 f = gcast1 f
 
@@ -1579,7 +1579,7 @@ instance (Typeable i, Data p, Data c) => Data (K1 i c p) where
   toConstr (K1 _) = k1Constr
   gunfold k z c = case constrIndex c of
                     1 -> k (z K1)
-                    _ -> error "Data.Data.gunfold(K1)"
+                    _ -> error "Data.Data.gunfold(GHC.Generics.K1)"
   dataTypeOf _  = k1DataType
   dataCast1 f = gcast1 f
 
@@ -1596,7 +1596,7 @@ instance (Data p, Data (f p), Typeable c, Typeable i, Typeable f) => Data (M1 i 
   toConstr (M1 _) = m1Constr
   gunfold k z c = case constrIndex c of
                     1 -> k (z M1)
-                    _ -> error "Data.Data.gunfold(M1)"
+                    _ -> error "Data.Data.gunfold(GHC.Generics.M1)"
   dataTypeOf _  = m1DataType
   dataCast1 f = gcast1 f
 
@@ -1619,7 +1619,7 @@ instance (Typeable f, Typeable g, Data a, Data (f a), Data (g a)) => Data ((f :+
   gunfold k z c = case constrIndex c of
                     1 -> k (z L1)
                     2 -> k (z R1)
-                    _ -> error "gunfold"
+                    _ -> error "Data.Data.gunfold(GHC.Generics.:+:)"
   dataTypeOf _ = sum1DataType
   dataCast1 f = gcast1 f
 
@@ -1636,7 +1636,7 @@ instance (Typeable a, Typeable f, Typeable g, Data a, Data (f (g a))) => Data ((
   toConstr (Comp1 _) = m1Constr
   gunfold k z c = case constrIndex c of
                     1 -> k (z Comp1)
-                    _ -> error "gunfold"
+                    _ -> error "Data.Data.gunfold(GHC.Generics.:.:)"
   dataTypeOf _ = comp1DataType
   dataCast1 f = gcast1 f
 
@@ -1646,9 +1646,9 @@ v1DataType :: DataType
 v1DataType = mkDataType "GHC.Generics.V1" []
 
 instance Data a => Data (V1 a) where
-  gfoldl f z !x = undefined
-  toConstr !x = undefined
-  gunfold k z c = error "gunfold"
+  gfoldl _ _ !_ = error "Data.Data.gfold(GHC.Generics.V1)"
+  toConstr !_ = error "Data.Data.toConstr(GHC.Generics.V1)"
+  gunfold _ _ _ = error "Data.Data.gunfold(GHC.Generics.V1)"
   dataTypeOf _ = v1DataType
   dataCast1 f = gcast1 f
 
@@ -1665,6 +1665,6 @@ instance (Typeable f, Typeable g, Data a, Data (f a), Data (g a)) => Data ((f :*
   toConstr _ = prod1Constr
   gunfold k z c = case constrIndex c of
                     1 -> k (k (z (:*:)))
-                    _ -> error "gunfold"
+                    _ -> error "Data.Data.gunfold(GHC.Generics.:*:)"
   dataCast1 f = gcast1 f
   dataTypeOf _ = prod1DataType
