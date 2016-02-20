@@ -106,7 +106,7 @@
 
   * The representation types in `GHC.Generics` now have `Enum`, `Bounded`,
     `Functor`, `Applicative`, `Alternative`, `Monad`, `MonadFix`, `MonadPlus`,
-    and `Data` instances as appropriate.
+    `Foldable`, `Traversable`, and `Data` instances as appropriate.
 
   * `Maybe` now has a `MonadZip` instance
 

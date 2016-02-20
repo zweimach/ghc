@@ -546,7 +546,8 @@ See ``changelog.md`` in the ``base`` package for full release notes.
 
 - The representation types in ``GHC.Generics`` now have ``Enum``, ``Bounded``,
   ``Functor``, ``Applicative``, ``Alternative``, ``Monad``, ``MonadFix``,
-  ``MonadPlus``, and ``Data`` instances as appropriate.
+  ``MonadPlus``, ``Foldable``, ``Traversable``, and ``Data`` instances as
+  appropriate.
 
 binary
 ~~~~~~
