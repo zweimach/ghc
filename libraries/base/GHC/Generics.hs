@@ -835,8 +835,6 @@ instance (Alternative f, Applicative g) => Alternative ((:.:) f g) where
     empty = Comp1 empty
     Comp1 x <|> Comp1 y = Comp1 (x <|> y)
 
-instance (MonadPlus f, MonadPlus g) => MonadPlus ((:.:) f g)
-
 -- | Constants of kind @#@
 --
 -- @since 4.9.0.0
