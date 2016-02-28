@@ -127,6 +127,7 @@ import {-# SOURCE #-} DataCon( dataConTyCon, dataConFullSig
                               , DataCon, eqSpecTyVar )
 import {-# SOURCE #-} Type( isPredTy, isCoercionTy, mkAppTy
                           , partitionInvisibles, coreView, typeKind )
+import {-# SOURCE #-} TysWiredIn (ptrRepLiftedTy)
    -- Transitively pulls in a LOT of stuff, better to break the loop
 
 import {-# SOURCE #-} Coercion
@@ -2344,9 +2345,44 @@ maybeParen ctxt_prec inner_prec pretty
   | otherwise              = parens pretty
 
 ------------------
+
+-- | Default 'RuntimeRep' variables to 'LiftedPtr'. e.g.
+--
+-- @
+-- ($) :: forall (r :: GHC.Types.RuntimeRep) a (b :: TYPE r).
+--        (a -> b) -> a -> b
+-- @
+--
+-- turns in to,
+--
+-- @ ($) :: forall a (b :: *). (a -> b) -> a -> b @
+--
+defaultRuntimeRepVars :: Type -> Type
+defaultRuntimeRepVars (ForAllTy (Named var vis) ty)
+  | isRuntimeRepVar var                  = defaultRuntimeRepVars ty
+  | otherwise                            =
+    ForAllTy (Named var vis) (defaultRuntimeRepVars ty)
+defaultRuntimeRepVars (ForAllTy (Anon kind) ty) =
+    ForAllTy (Anon $ defaultRuntimeRepVars kind) (defaultRuntimeRepVars ty)
+defaultRuntimeRepVars (TyVarTy var)
+  | isRuntimeRepVar var                  = ptrRepLiftedTy
+defaultRuntimeRepVars (TyConApp tc args) =
+    TyConApp tc $ map defaultRuntimeRepVars args
+defaultRuntimeRepVars (AppTy x y)        =
+    defaultRuntimeRepVars x `AppTy` defaultRuntimeRepVars y
+defaultRuntimeRepVars (CastTy ty co)     =
+    CastTy (defaultRuntimeRepVars ty) co
+defaultRuntimeRepVars other              = other
+
+eliminateRuntimeRep :: (Type -> SDoc) -> Type -> SDoc
+eliminateRuntimeRep f ty = sdocWithDynFlags $ \dflags ->
+    if gopt Opt_PrintExplicitRuntimeReps dflags
+      then f ty
+      else f (defaultRuntimeRepVars ty)
+
 pprType, pprParendType :: Type -> SDoc
-pprType       ty = ppr_type TopPrec ty
-pprParendType ty = ppr_type TyConPrec ty
+pprType       ty = eliminateRuntimeRep (ppr_type TopPrec) ty
+pprParendType ty = eliminateRuntimeRep (ppr_type TyConPrec) ty
 
 pprTyLit :: TyLit -> SDoc
 pprTyLit = ppr_tylit TopPrec
@@ -2507,7 +2543,8 @@ ppr_fun_tail (ForAllTy (Anon ty1) ty2)
 ppr_fun_tail other_ty = [ppr_type TopPrec other_ty]
 
 pprSigmaType :: Type -> SDoc
-pprSigmaType ty = sdocWithDynFlags $ \dflags -> ppr_sigma_type dflags False ty
+pprSigmaType ty = sdocWithDynFlags $ \dflags ->
+    eliminateRuntimeRep (ppr_sigma_type dflags False) ty
 
 pprUserForAll :: [TyBinder] -> SDoc
 -- Print a user-level forall; see Note [When to print foralls]
@@ -2559,18 +2596,20 @@ ppr_tv_bndrs [] _ = ([], empty)
 ppr_tv_bndrs bndrs _ = pprPanic "ppr_tv_bndrs: anonymous binder" (ppr bndrs)
 
 pprTvBndr :: TyVar -> SDoc
-pprTvBndr tv
+pprTvBndr = pprTvBndr' True
+
+pprTvBndr' :: Bool -> TyVar -> SDoc
+pprTvBndr' use_parens tv
   | isLiftedTypeKind kind = ppr_tvar tv
-  | otherwise             = parens (ppr_tvar tv <+> dcolon <+> pprKind kind)
-             where
-               kind = tyVarKind tv
+  | otherwise             =
+    mparens (ppr_tvar tv <+> dcolon <+> pprKind kind)
+  where
+    kind = tyVarKind tv
+    mparens | use_parens = parens
+            | otherwise  = id
 
 pprTvBndrNoParens :: TyVar -> SDoc
-pprTvBndrNoParens tv
-  | isLiftedTypeKind kind = ppr_tvar tv
-  | otherwise             = ppr_tvar tv <+> dcolon <+> pprKind kind
-             where
-               kind = tyVarKind tv
+pprTvBndrNoParens = pprTvBndr' False
 
 instance Outputable TyBinder where
   ppr (Named v Visible)   = ppr v

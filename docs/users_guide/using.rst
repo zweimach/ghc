@@ -617,6 +617,7 @@ See also the ``--help``, ``--version``, ``--numeric-version``, and
 
 .. ghc-flag:: -fprint-explicit-foralls
               -fprint-explicit-kinds
+              -fprint-explicit-runtime-reps
               -fprint-unicode-syntax
               -fprint-explicit-coercions
               -fprint-equality-relations
@@ -669,6 +670,20 @@ See also the ``--help``, ``--version``, ``--numeric-version``, and
         ghci> :set -fprint-explicit-foralls
         ghci> :t MkT
         MkT :: forall (k :: BOX) (a :: k). T k a
+
+    When :ghc-flag:`-fprint-explicit-runtime-reps` is enabled, GHC prints
+    ``RuntimeRep`` type variables for runtime-representation-polymorphic types.
+    Otherwise GHC will default these to ``PtrRepLifted``. For example,
+
+    .. code-block:: none
+
+        ghci> :t ($)
+        ($) :: (a -> b) -> a -> b
+        ghci> :set -fprint-explicit-runtime-reps
+        ghci> :t ($)
+        ($)
+          :: forall (r :: GHC.Types.RuntimeRep) a (b :: TYPE r).
+             (a -> b) -> a -> b
 
     When :ghc-flag:`-fprint-unicode-syntax` is enabled, GHC prints type
     signatures using the unicode symbols from the :ghc-flag:`-XUnicodeSyntax`
