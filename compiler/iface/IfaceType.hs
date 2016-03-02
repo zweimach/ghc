@@ -45,6 +45,7 @@ module IfaceType (
         pprIfaceIdBndr, pprIfaceLamBndr, pprIfaceTvBndr, pprIfaceTyConBinders,
         pprIfaceBndrs, pprIfaceTcArgs, pprParendIfaceTcArgs,
         pprIfaceForAllPart, pprIfaceForAll, pprIfaceSigmaType,
+        pprIfaceTyLit, pprIfaceContext,
         pprIfaceCoercion, pprParendIfaceCoercion,
         splitIfaceSigmaTy, pprIfaceTypeApp, pprUserIfaceForAll,
 
@@ -588,7 +589,7 @@ pprIfacePrefixApp p pp_fun pp_tys
 
 instance Outputable IfaceBndr where
     ppr (IfaceIdBndr bndr) = pprIfaceIdBndr bndr
-    ppr (IfaceTvBndr bndr) = char '@' <+> pprIfaceTvBndr bndr
+    ppr (IfaceTvBndr bndr) = char '@' <+> pprIfaceTvBndr False bndr
 
 pprIfaceBndrs :: [IfaceBndr] -> SDoc
 pprIfaceBndrs bs = sep (map ppr bs)
@@ -600,16 +601,19 @@ pprIfaceLamBndr (b, IfaceOneShot)   = ppr b <> text "[OneShot]"
 pprIfaceIdBndr :: (IfLclName, IfaceType) -> SDoc
 pprIfaceIdBndr (name, ty) = parens (ppr name <+> dcolon <+> ppr ty)
 
-pprIfaceTvBndr :: IfaceTvBndr -> SDoc
-pprIfaceTvBndr (tv, ki)
+pprIfaceTvBndr :: Bool -> IfaceTvBndr -> SDoc
+pprIfaceTvBndr use_parens (tv, ki)
   | isIfaceLiftedTypeKind ki = ppr tv
-  | otherwise                = parens (ppr tv <+> dcolon <+> ppr ki)
+  | otherwise                = mparens (ppr tv <+> dcolon <+> ppr ki)
+  where
+    mparens | use_parens = parens
+            | otherwise  = id
 
 pprIfaceTyConBinders :: [IfaceTyConBinder] -> SDoc
 pprIfaceTyConBinders = sep . map go
   where
-    go (IfaceAnon name ki)         = pprIfaceTvBndr (name, ki)
-    go (IfaceNamed (IfaceTv tv _)) = pprIfaceTvBndr tv
+    go (IfaceAnon name ki)         = pprIfaceTvBndr True (name, ki)
+    go (IfaceNamed (IfaceTv tv _)) = pprIfaceTvBndr True tv
 
 instance Binary IfaceBndr where
     put_ bh (IfaceIdBndr aa) = do
@@ -643,7 +647,7 @@ instance Binary IfaceOneShot where
 instance Outputable IfaceType where
   ppr ty = pprIfaceType ty
 
-pprIfaceType, pprParendIfaceType ::IfaceType -> SDoc
+pprIfaceType, pprParendIfaceType :: IfaceType -> SDoc
 pprIfaceType       = ppr_ty TopPrec
 pprParendIfaceType = ppr_ty TyConPrec
 
@@ -651,7 +655,7 @@ ppr_ty :: TyPrec -> IfaceType -> SDoc
 ppr_ty _         (IfaceTyVar tyvar)     = ppr tyvar
 ppr_ty ctxt_prec (IfaceTyConApp tc tys) = sdocWithDynFlags (pprTyTcApp ctxt_prec tc tys)
 ppr_ty _         (IfaceTupleTy s i tys) = pprTuple s i tys
-ppr_ty _         (IfaceLitTy n)         = ppr_tylit n
+ppr_ty _         (IfaceLitTy n)         = pprIfaceTyLit n
         -- Function types
 ppr_ty ctxt_prec (IfaceFunTy ty1 ty2)
   = -- We don't want to lose synonyms, so we mustn't use splitFunTys here.
@@ -754,9 +758,9 @@ pprIfaceForAllCoBndrs bndrs = hsep $ map pprIfaceForAllCoBndr bndrs
 pprIfaceForAllBndr :: IfaceForAllBndr -> SDoc
 pprIfaceForAllBndr (IfaceTv tv Invisible) = sdocWithDynFlags $ \dflags ->
                                             if gopt Opt_PrintExplicitForalls dflags
-                                            then braces $ pprIfaceTvBndr tv
-                                            else pprIfaceTvBndr tv
-pprIfaceForAllBndr (IfaceTv tv _)         = pprIfaceTvBndr tv
+                                            then braces $ pprIfaceTvBndr False tv
+                                            else pprIfaceTvBndr False tv
+pprIfaceForAllBndr (IfaceTv tv _)         = pprIfaceTvBndr False tv
 
 pprIfaceForAllCoBndr :: (IfLclName, IfaceCoercion) -> SDoc
 pprIfaceForAllCoBndr (tv, kind_co)
@@ -871,9 +875,9 @@ pprTuple sort info args
     pprPromotionQuoteI info <>
     tupleParens sort (pprWithCommas pprIfaceType args')
 
-ppr_tylit :: IfaceTyLit -> SDoc
-ppr_tylit (IfaceNumTyLit n) = integer n
-ppr_tylit (IfaceStrTyLit n) = text (show n)
+pprIfaceTyLit :: IfaceTyLit -> SDoc
+pprIfaceTyLit (IfaceNumTyLit n) = integer n
+pprIfaceTyLit (IfaceStrTyLit n) = text (show n)
 
 pprIfaceCoercion, pprParendIfaceCoercion :: IfaceCoercion -> SDoc
 pprIfaceCoercion = ppr_co TopPrec
@@ -978,7 +982,7 @@ instance Binary IfaceTyConInfo where
           _ -> return IfacePromotedDataCon
 
 instance Outputable IfaceTyLit where
-  ppr = ppr_tylit
+  ppr = pprIfaceTyLit
 
 instance Binary IfaceTyLit where
   put_ bh (IfaceNumTyLit n)  = putByte bh 1 >> put_ bh n
@@ -1040,17 +1044,43 @@ instance Binary IfaceTcArgs where
          _ -> panic ("get IfaceTcArgs " ++ show c)
 
 -------------------
+
+-- | Prints "(C a, D b) =>", including the arrow
 pprIfaceContextArr :: Outputable a => [a] -> SDoc
--- Prints "(C a, D b) =>", including the arrow
 pprIfaceContextArr = maybe empty (<+> darrow) . pprIfaceContextMaybe
 
 pprIfaceContext :: Outputable a => [a] -> SDoc
 pprIfaceContext = fromMaybe (parens empty) . pprIfaceContextMaybe
 
+-- | Print a context or nothing if empty (e.g. @(Eq a, Ord b)@)
 pprIfaceContextMaybe :: Outputable a => [a] -> Maybe SDoc
 pprIfaceContextMaybe [] = Nothing
 pprIfaceContextMaybe [pred] = Just $ ppr pred -- No parens
+                         -- TyOpPrec:  Num a     => a -> a  does not need parens
+                         --      bug   (a :~: b) => a -> b  currently does
+                         -- Trac # 9658
 pprIfaceContextMaybe preds  = Just $ parens (fsep (punctuate comma (map ppr preds)))
+    -- Notice 'fsep' here rather that 'sep', so that
+    -- type contexts don't get displayed in a giant column
+    -- Rather than
+    --  instance (Eq a,
+    --            Eq b,
+    --            Eq c,
+    --            Eq d,
+    --            Eq e,
+    --            Eq f,
+    --            Eq g,
+    --            Eq h,
+    --            Eq i,
+    --            Eq j,
+    --            Eq k,
+    --            Eq l) =>
+    --           Eq (a, b, c, d, e, f, g, h, i, j, k, l)
+    -- we get
+    --
+    --  instance (Eq a, Eq b, Eq c, Eq d, Eq e, Eq f, Eq g, Eq h, Eq i,
+    --            Eq j, Eq k, Eq l) =>
+    --           Eq (a, b, c, d, e, f, g, h, i, j, k, l)
 
 instance Binary IfaceType where
     put_ bh (IfaceForAllTy aa ab) = do
