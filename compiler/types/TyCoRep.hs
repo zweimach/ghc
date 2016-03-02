@@ -2346,6 +2346,32 @@ maybeParen ctxt_prec inner_prec pretty
 
 ------------------
 
+{-
+Note [Defaulting RuntimeRep variables]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+RuntimeRep variables are considered by many (most?) users to be little more than
+syntactic noise. When the notion was introduced there was a signficant and
+understandable push-back from those with pedagogy in mind, which argued that
+RuntimeRep variables would throw a wrench into nearly any teach approach since
+they appear in even the lowly ($) function's type,
+
+    ($) :: forall (w :: RuntimeRep) a (b :: TYPE w). (a -> b) -> a -> b
+
+which is significantly less readable than its non RuntimeRep-polymorphic type of
+
+    ($) :: (a -> b) -> a -> b
+
+Moreover, unboxed types don't appear all that often in run-of-the-mill Haskell
+programs, so it makes little sense to make all users pay this syntactic
+overhead.
+
+For this reason it was decided that we would hide RuntimeRep variables for now
+(see #11549). We do this by defaulting all type variables of kind RuntimeRep to
+PtrLiftedRep. This is done in a pass right before pretty-printing
+(defaultRuntimeRepVars, controlled by -fprint-explicit-runtime-reps)
+-}
+
 -- | Default 'RuntimeRep' variables to 'LiftedPtr'. e.g.
 --
 -- @
@@ -2357,7 +2383,13 @@ maybeParen ctxt_prec inner_prec pretty
 --
 -- @ ($) :: forall a (b :: *). (a -> b) -> a -> b @
 --
+-- We do this to prevent RuntimeRep variables from incurring a significant
+-- syntactic overhead in otherwise simple type signatures (e.g. ($)). See
+-- Note [Defaulting RuntimeRep variables] and #11549 for further discussion.
+--
 defaultRuntimeRepVars :: Type -> Type
+-- TODO: Eventually we should just eliminate the Type pretty-printer
+-- entirely and simply use IfaceType; this task is tracked as #11660.
 defaultRuntimeRepVars (ForAllTy (Named var vis) ty)
   | isRuntimeRepVar var                  = defaultRuntimeRepVars ty
   | otherwise                            =
