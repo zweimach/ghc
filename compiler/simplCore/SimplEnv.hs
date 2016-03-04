@@ -17,6 +17,7 @@ module SimplEnv (
 
         -- * Environments
         SimplEnv(..), StaticEnv, pprSimplEnv,   -- Temp not abstract
+        addContextScope, mkSimplName,
         mkSimplEnv, extendIdSubst,
         SimplEnv.extendTvSubst, SimplEnv.extendCvSubst,
         zapSubstEnv, setSubstEnv,
@@ -44,6 +45,7 @@ import SimplMonad
 import CoreMonad                ( SimplifierMode(..) )
 import CoreSyn
 import CoreUtils
+import Name                     ( mkSystemVarName )
 import Var
 import VarEnv
 import VarSet
@@ -56,6 +58,8 @@ import Type hiding              ( substTy, substTyVar, substTyVarBndr )
 import qualified Coercion
 import Coercion hiding          ( substCo, substCoVar, substCoVarBndr )
 import BasicTypes
+import Name                     ( Name )
+import FastString
 import MonadUtils
 import Outputable
 import Util
@@ -105,6 +109,8 @@ data SimplEnv
      -- Static in the sense of lexically scoped,
      -- wrt the original expression
 
+        seContextName  :: FastString,   -- ^ A useful string to derive new 'Name's from
+        seContextDepth :: !Int,         -- ^ How many levels deep is the context name?
         seMode      :: SimplifierMode,
 
         -- The current substitution
@@ -160,6 +166,7 @@ instance Outputable SimplSR where
         -- fvs = exprFreeVars e
         -- filter_env env = filterVarEnv_Directly keep env
         -- keep uniq _ = uniq `elemUFM_Directly` fvs
+
 
 {-
 Note [SimplEnv invariants]
@@ -230,6 +237,8 @@ seIdSubst:
 mkSimplEnv :: SimplifierMode -> SimplEnv
 mkSimplEnv mode
   = SimplEnv { seMode = mode
+             , seContextName  = nilFS
+             , seContextDepth = 0
              , seInScope = init_in_scope
              , seFloats = emptyFloats
              , seTvSubst = emptyVarEnv
@@ -240,6 +249,55 @@ mkSimplEnv mode
 init_in_scope :: InScopeSet
 init_in_scope = mkInScopeSet (unitVarSet (mkWildValBinder unitTy))
               -- See Note [WildCard binders]
+
+{-
+Note [Generating names in the Simplifier]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Occasionally we need to generate new binding names in the simplifier (see, e.g.
+makeTrivial and friends). It can be quite helpful when reading the Core that the
+simplifier emits if the names that are produced reflect roughly where in the
+original program the code originated. For this reason we track two pieces of
+information in SimplEnv: seContextName and seContextDepth.
+
+seContextName is a concatenation of the stack of binders which we are currently
+simplifying in. seContextDepth is the depth of this stack. Whenever we enter a
+new binding during simplification we add a frame to this stack with
+addContextScope (although frames deeper than maxContextDepth are discarded in
+the interest of efficiency).
+
+When we need to produce a fresh binding name during simplification, we can use
+mkSimplName.
+
+See #11676 for the original motivation.
+-}
+
+-- | The maximum depth of simplifier context that we preserve for
+-- simplifier-generated binding names.
+maxContextDepth :: Int
+maxContextDepth = 2
+
+-- | Add a scope to the name used to produce names for simplifier-generated
+-- bindings.
+addContextScope :: String -> SimplEnv -> SimplEnv
+addContextScope name env
+  | seContextDepth env >= maxContextDepth = env
+  | otherwise =
+    env { seContextName = mkFastString $ addPart $ seContextName env
+        , seContextDepth = seContextDepth env + 1 }
+  where
+    addPart ctx
+      | nullFS ctx = name
+      | otherwise  = unpackFS ctx ++ "$" ++ name
+
+-- | Generate a unique name for a simplifier-generated binding.
+mkSimplName :: SimplEnv -> SimplM Name
+mkSimplName env = do
+    uniq <- getUniqueM
+    pure $ mkSystemVarName uniq name
+  where
+    name | nullFS (seContextName env) = mkFastString "top"
+         | otherwise                  = seContextName env
 
 {-
 Note [WildCard binders]

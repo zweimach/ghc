@@ -21,7 +21,7 @@ import Id
 import MkId             ( seqId, voidPrimId )
 import MkCore           ( mkImpossibleExpr, castBottomExpr )
 import IdInfo
-import Name             ( Name, mkSystemVarName, isExternalName )
+import Name             ( Name, isExternalName, getOccString )
 import Coercion hiding  ( substCo, substCoVar )
 import OptCoercion      ( optCoercion )
 import FamInstEnv       ( topNormaliseType_maybe )
@@ -283,13 +283,14 @@ simplRecOrTopPair :: SimplEnv
                   -> SimplM SimplEnv    -- Returns an env that includes the binding
 
 simplRecOrTopPair env top_lvl is_rec old_bndr new_bndr rhs
-  = do { dflags <- getDynFlags
+  = do { let env' = addContextScope (getOccString old_bndr) env
+       ; dflags <- getDynFlags
        ; trace_bind dflags $
-           if preInlineUnconditionally dflags env top_lvl old_bndr rhs
+           if preInlineUnconditionally dflags env' top_lvl old_bndr rhs
                     -- Check for unconditional inline
            then do tick (PreInlineUnconditionally old_bndr)
-                   return (extendIdSubst env old_bndr (mkContEx env rhs))
-           else simplLazyBind env top_lvl is_rec old_bndr new_bndr rhs env }
+                   return (extendIdSubst env' old_bndr (mkContEx env rhs))
+           else simplLazyBind env' top_lvl is_rec old_bndr new_bndr rhs env' }
   where
     trace_bind dflags thing_inside
       | not (dopt Opt_D_verbose_core2core dflags)
@@ -578,9 +579,8 @@ makeTrivialWithInfo top_lvl env info expr
                                                 --   See Note [Cannot trivialise]
   = return (env, expr)
   | otherwise           -- See Note [Take care] below
-  = do  { uniq <- getUniqueM
-        ; let name = mkSystemVarName uniq (fsLit "a")
-              var = mkLocalIdOrCoVarWithInfo name expr_ty info
+  = do  { name <- mkSimplName env
+        ; let var = mkLocalIdOrCoVarWithInfo name expr_ty info
         ; env'  <- completeNonRecX top_lvl env False var var expr
         ; expr' <- simplVar env' var
         ; return (env', expr') }
