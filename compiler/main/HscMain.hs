@@ -339,15 +339,12 @@ hscParse hsc_env mod_summary = runHsc hsc_env $ hscParse' mod_summary
 
 -- internal version, that doesn't fail due to -Werror
 hscParse' :: ModSummary -> Hsc HsParsedModule
-hscParse' mod_summary = withTiming getDynFlags "Parser" (const ()) $ do
+hscParse' mod_summary = {-# SCC "Parser" #-} withTiming getDynFlags "Parser" (const ()) $ do
     dflags <- getDynFlags
     let src_filename  = ms_hspp_file mod_summary
         maybe_src_buf = ms_hspp_buf  mod_summary
 
     --------------------------  Parser  ----------------
-    liftIO $ showPass dflags "Parser"
-    {-# SCC "Parser" #-} do
-
     -- sometimes we already have the buffer in memory, perhaps
     -- because we needed to parse the imports out of it, or get the
     -- module name.

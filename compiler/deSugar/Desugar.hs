@@ -292,10 +292,7 @@ deSugar hsc_env
   = do { let dflags = hsc_dflags hsc_env
              print_unqual = mkPrintUnqualified dflags rdr_env
         ; withTiming (pure dflags) "Desugar" (const ()) $
-     do {
-        ; showPass dflags "Desugar"
-
-        -- Desugar the program
+     do { -- Desugar the program
         ; let export_set = availsToNameSet exports
               target     = hscTarget dflags
               hpcInfo    = emptyHpcInfo other_hpc_info

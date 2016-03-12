@@ -168,7 +168,6 @@ type CpeRhs  = CoreExpr    -- Non-terminal 'rhs'
 corePrepPgm :: HscEnv -> ModLocation -> CoreProgram -> [TyCon] -> IO CoreProgram
 corePrepPgm hsc_env mod_loc binds data_tycons =
     withTiming (pure dflags) "CorePrep" (const ()) $ do
-    showPass dflags "CorePrep"
     us <- mkSplitUniqSupply 's'
     initialCorePrepEnv <- mkInitialCorePrepEnv dflags hsc_env
 
@@ -189,7 +188,6 @@ corePrepPgm hsc_env mod_loc binds data_tycons =
 corePrepExpr :: DynFlags -> HscEnv -> CoreExpr -> IO CoreExpr
 corePrepExpr dflags hsc_env expr =
     withTiming (pure dflags) "CorePrep" (const ()) $ do
-    showPass dflags "CorePrep"
     us <- mkSplitUniqSupply 's'
     initialCorePrepEnv <- mkInitialCorePrepEnv dflags hsc_env
     let new_expr = initUs_ us (cpeBodyNF initialCorePrepEnv expr)

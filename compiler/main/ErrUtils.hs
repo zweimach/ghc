@@ -472,7 +472,8 @@ withTiming :: MonadIO m
 withTiming getDFlags what force_result action
   = do dflags <- getDFlags
        if verbosity dflags >= 2
-          then do have_stats <- liftIO getGCStatsEnabled
+          then do liftIO $ logInfo dflags defaultUserStyle (text "***" <+> text what <> colon)
+                  have_stats <- liftIO getGCStatsEnabled
                   alloc0 <- liftIO $
                       if have_stats
                       then do performGC

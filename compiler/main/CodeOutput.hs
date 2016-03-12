@@ -64,9 +64,8 @@ codeOutput dflags this_mod filenm location foreign_stubs pkg_deps cmm_stream
                     then Stream.mapM do_lint cmm_stream
                     else cmm_stream
 
-              do_lint cmm = do
-                { showPass dflags "CmmLint"
-                ; case cmmLint dflags cmm of
+              do_lint cmm = withTiming (pure dflags) "CmmLint" (const ()) $ do
+                { case cmmLint dflags cmm of
                         Just err -> do { log_action dflags
                                                    dflags
                                                    NoReason

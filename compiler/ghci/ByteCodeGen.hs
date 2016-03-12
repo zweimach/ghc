@@ -75,8 +75,6 @@ byteCodeGen :: HscEnv
             -> IO CompiledByteCode
 byteCodeGen hsc_env this_mod binds tycs mb_modBreaks
    = withTiming (pure dflags) "ByteCodeGen" (const ()) $ do
-        showPass dflags "ByteCodeGen"
-
         let flatBinds = [ (bndr, simpleFreeVars rhs)
                         | (bndr, rhs) <- flattenBinds binds]
 
@@ -107,8 +105,6 @@ coreExprToBCOs :: HscEnv
                -> IO UnlinkedBCO
 coreExprToBCOs hsc_env this_mod expr
  = withTiming (pure dflags) "ByteCodeGen" (const ()) $ do
-      showPass dflags "ByteCodeGen"
-
       -- create a totally bogus name for the top-level BCO; this
       -- should be harmless, since it's never used for anything
       let invented_name  = mkSystemVarName (mkPseudoUniqueE 0) (fsLit "ExprTopLevel")

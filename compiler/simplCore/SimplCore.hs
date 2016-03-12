@@ -21,7 +21,7 @@ import OccurAnal        ( occurAnalysePgm, occurAnalyseExpr )
 import IdInfo
 import CoreStats        ( coreBindsSize, coreBindsStats, exprSize )
 import CoreUtils        ( mkTicks, stripTicksTop )
-import CoreLint         ( showPass, endPass, lintPassResult, dumpPassResult,
+import CoreLint         ( endPass, lintPassResult, dumpPassResult,
                           lintAnnots )
 import Simplify         ( simplTopBinds, simplExpr, simplRules )
 import SimplUtils       ( simplEnvForGHCi, activeRule )
@@ -360,8 +360,7 @@ runCorePasses passes guts
     do_pass guts pass
        = do { dflags <- getDynFlags
             ; withTiming getDynFlags (showPpr dflags pass) (const ()) $ do
-            { showPass pass
-            ; guts' <- lintAnnots (ppr pass) (doCorePass pass) guts
+            { guts' <- lintAnnots (ppr pass) (doCorePass pass) guts
             ; endPass pass (mg_binds guts') (mg_rules guts')
             ; return guts' } }
 
@@ -426,11 +425,10 @@ printCore dflags binds
     = Err.dumpIfSet dflags True "Print Core" (pprCoreBindings binds)
 
 ruleCheckPass :: CompilerPhase -> String -> ModGuts -> CoreM ModGuts
-ruleCheckPass current_phase pat guts = do
+ruleCheckPass current_phase pat guts = withTiming getDynFlags "RuleCheck" (const ()) $ do
     rb <- getRuleBase
     dflags <- getDynFlags
     vis_orphs <- getVisibleOrphanMods
-    liftIO $ Err.showPass dflags "RuleCheck"
     liftIO $ log_action dflags dflags NoReason Err.SevDump noSrcSpan
                  defaultDumpStyle
                  (ruleCheckProgram current_phase pat
@@ -504,9 +502,8 @@ simplifyExpr :: DynFlags -- includes spec of what core-to-core passes to do
 --
 -- Also used by Template Haskell
 simplifyExpr dflags expr
-  = do  {
-        ; Err.showPass dflags "Simplify"
-
+  = withTiming (pure dflags) "Simplify" (const ()) $
+    do  {
         ; us <-  mkSplitUniqSupply 's'
 
         ; let sz = exprSize expr
