@@ -41,7 +41,7 @@ module ErrUtils (
         errorMsg, warningMsg,
         fatalErrorMsg, fatalErrorMsg', fatalErrorMsg'',
         compilationProgressMsg,
-        showPass,
+        showPass, withTiming,
         debugTraceMsg,
         ghcExit,
         prettyPrintGhcErrors,
@@ -68,6 +68,9 @@ import Data.Time
 import Control.Monad
 import Control.Monad.IO.Class
 import System.IO
+import System.Mem
+import GHC.Stats
+import System.CPUTime
 
 -------------------------
 type MsgDoc  = SDoc
@@ -458,6 +461,44 @@ showPass :: DynFlags -> String -> IO ()
 showPass dflags what
   = ifVerbose dflags 2 $
     logInfo dflags defaultUserStyle (text "***" <+> text what <> colon)
+
+-- | Time a compilation phase.
+withTiming :: MonadIO m
+           => m DynFlags   -- ^ A means of getting the 'DynFlags'
+           -> String       -- ^ The name of the phase
+           -> (a -> ())    -- ^ A function to force the result
+           -> m a          -- ^ The phase itself
+           -> m a
+withTiming getDFlags what force_result action
+  = do dflags <- getDFlags
+       if verbosity dflags >= 2
+          then do have_stats <- liftIO getGCStatsEnabled
+                  alloc0 <- liftIO $
+                      if have_stats
+                      then do performGC
+                              Just . bytesAllocated <$> getGCStats
+                      else pure Nothing
+                  start <- liftIO getCPUTime
+                  r <- action
+                  () <- pure $ force_result r
+                  end <- liftIO getCPUTime
+                  alloc1 <- liftIO $
+                      if have_stats
+                      then do performGC
+                              Just . bytesAllocated <$> getGCStats
+                      else pure Nothing
+                  let alloc = (-) <$> alloc1 <*> alloc0
+                  liftIO $ ifVerbose dflags 2 $ logInfo dflags defaultUserStyle
+                      (text "!!!" <+> text what <> colon <+> text "finished in"
+                       <+> float (realToFrac (end - start) * 1e-12)
+                       <+> text "seconds"
+                       <> comma
+                       <+> maybe empty (\n -> text "allocated"
+                                              <+> int (fromIntegral n)
+                                              <+> text "bytes")
+                                 alloc)
+                  pure r
+           else action
 
 debugTraceMsg :: DynFlags -> Int -> MsgDoc -> IO ()
 debugTraceMsg dflags val msg = ifVerbose dflags val $

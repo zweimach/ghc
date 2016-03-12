@@ -33,6 +33,7 @@ import FloatIn          ( floatInwards )
 import FloatOut         ( floatOutwards )
 import FamInstEnv
 import Id
+import ErrUtils         ( withTiming )
 import BasicTypes       ( CompilerPhase(..), isDefaultInlinePragma )
 import VarSet
 import VarEnv
@@ -357,10 +358,12 @@ runCorePasses passes guts
     do_pass guts CoreDoNothing = return guts
     do_pass guts (CoreDoPasses ps) = runCorePasses ps guts
     do_pass guts pass
-       = do { showPass pass
+       = do { dflags <- getDynFlags
+            ; withTiming getDynFlags (showPpr dflags pass) (const ()) $ do
+            { showPass pass
             ; guts' <- lintAnnots (ppr pass) (doCorePass pass) guts
             ; endPass pass (mg_binds guts') (mg_rules guts')
-            ; return guts' }
+            ; return guts' } }
 
 doCorePass :: CoreToDo -> ModGuts -> CoreM ModGuts
 doCorePass pass@(CoreDoSimplify {})  = {-# SCC "Simplify" #-}

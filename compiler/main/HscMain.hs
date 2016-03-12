@@ -339,7 +339,7 @@ hscParse hsc_env mod_summary = runHsc hsc_env $ hscParse' mod_summary
 
 -- internal version, that doesn't fail due to -Werror
 hscParse' :: ModSummary -> Hsc HsParsedModule
-hscParse' mod_summary = do
+hscParse' mod_summary = withTiming getDynFlags "Parser" (const ()) $ do
     dflags <- getDynFlags
     let src_filename  = ms_hspp_file mod_summary
         maybe_src_buf = ms_hspp_buf  mod_summary
@@ -1268,27 +1268,28 @@ hscGenHardCode hsc_env cgguts mod_summary output_filename = do
         -- top-level function, so showPass isn't very useful here.
         -- Hence we have one showPass for the whole backend, the
         -- next showPass after this will be "Assembler".
-        showPass dflags "CodeGen"
+        withTiming (pure dflags) "CodeGen" (const ()) $ do
+            showPass dflags "CodeGen"
 
-        cmms <- {-# SCC "StgCmm" #-}
-                         doCodeGen hsc_env this_mod data_tycons
-                             cost_centre_info
-                             stg_binds hpc_info
+            cmms <- {-# SCC "StgCmm" #-}
+                            doCodeGen hsc_env this_mod data_tycons
+                                cost_centre_info
+                                stg_binds hpc_info
 
-        ------------------  Code output -----------------------
-        rawcmms0 <- {-# SCC "cmmToRawCmm" #-}
-                   cmmToRawCmm dflags cmms
+            ------------------  Code output -----------------------
+            rawcmms0 <- {-# SCC "cmmToRawCmm" #-}
+                      cmmToRawCmm dflags cmms
 
-        let dump a = do dumpIfSet_dyn dflags Opt_D_dump_cmm_raw "Raw Cmm"
-                           (ppr a)
-                        return a
-            rawcmms1 = Stream.mapM dump rawcmms0
+            let dump a = do dumpIfSet_dyn dflags Opt_D_dump_cmm_raw "Raw Cmm"
+                              (ppr a)
+                            return a
+                rawcmms1 = Stream.mapM dump rawcmms0
 
-        (output_filename, (_stub_h_exists, stub_c_exists))
-            <- {-# SCC "codeOutput" #-}
-               codeOutput dflags this_mod output_filename location
-               foreign_stubs dependencies rawcmms1
-        return (output_filename, stub_c_exists)
+            (output_filename, (_stub_h_exists, stub_c_exists))
+                <- {-# SCC "codeOutput" #-}
+                  codeOutput dflags this_mod output_filename location
+                  foreign_stubs dependencies rawcmms1
+            return (output_filename, stub_c_exists)
 
 
 hscInteractive :: HscEnv
@@ -1659,7 +1660,7 @@ hscParseThing = hscParseThingWithLocation "<interactive>" 1
 hscParseThingWithLocation :: (Outputable thing) => String -> Int
                           -> Lexer.P thing -> String -> Hsc thing
 hscParseThingWithLocation source linenumber parser str
-  = {-# SCC "Parser" #-} do
+  = withTiming getDynFlags "Parser" (const ()) $ {-# SCC "Parser" #-} do
     dflags <- getDynFlags
     liftIO $ showPass dflags "Parser"
 

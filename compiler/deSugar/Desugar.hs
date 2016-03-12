@@ -291,6 +291,8 @@ deSugar hsc_env
 
   = do { let dflags = hsc_dflags hsc_env
              print_unqual = mkPrintUnqualified dflags rdr_env
+        ; withTiming (pure dflags) "Desugar" (const ()) $
+     do {
         ; showPass dflags "Desugar"
 
         -- Desugar the program
@@ -391,7 +393,7 @@ deSugar hsc_env
                 mg_trust_pkg    = imp_trust_own_pkg imports
               }
         ; return (msgs, Just mod_guts)
-        }}}
+        }}}}
 
 mkFileSrcSpan :: ModLocation -> SrcSpan
 mkFileSrcSpan mod_loc
