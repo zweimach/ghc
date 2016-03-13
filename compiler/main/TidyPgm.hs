@@ -139,10 +139,10 @@ mkBootModDetailsTc hsc_env
                   tcg_insts     = insts,
                   tcg_fam_insts = fam_insts
                 }
-  = do  { let dflags = hsc_dflags hsc_env
-        ; showPassIO dflags CoreTidy
-
-        ; let { insts'     = map (tidyClsInstDFun globaliseAndTidyId) insts
+  = -- This timing isn't terribly useful since the result isn't forced, but
+    -- the message is useful to locating oneself in the compilation process.
+    Err.withTiming (pure dflags) "CoreTidy" (const ()) $
+    do  { let { insts'     = map (tidyClsInstDFun globaliseAndTidyId) insts
               ; pat_syns'  = map (tidyPatSynIds   globaliseAndTidyId) pat_syns
               ; type_env1  = mkBootTypeEnv (availsToNameSet exports)
                                            (typeEnvIds type_env) tcs fam_insts
@@ -160,6 +160,7 @@ mkBootModDetailsTc hsc_env
                              })
         }
   where
+    dflags = hsc_dflags hsc_env
 
 mkBootTypeEnv :: NameSet -> [Id] -> [TyCon] -> [FamInst] -> TypeEnv
 mkBootTypeEnv exports ids tcs fam_insts
@@ -315,12 +316,11 @@ tidyProgram hsc_env  (ModGuts { mg_module    = mod
                               , mg_modBreaks = modBreaks
                               })
 
-  = do  { let { dflags     = hsc_dflags hsc_env
-              ; omit_prags = gopt Opt_OmitInterfacePragmas dflags
+  = Err.withTiming (pure dflags) "CoreTidy" (const ()) $
+    do  { let { omit_prags = gopt Opt_OmitInterfacePragmas dflags
               ; expose_all = gopt Opt_ExposeAllUnfoldings  dflags
               ; print_unqual = mkPrintUnqualified dflags rdr_env
               }
-        ; showPassIO dflags CoreTidy
 
         ; let { type_env = typeEnvFromEntities [] tcs fam_insts
 
@@ -414,6 +414,8 @@ tidyProgram hsc_env  (ModGuts { mg_module    = mod
                                 md_anns      = anns      -- are already tidy
                               })
         }
+  where
+    dflags = hsc_dflags hsc_env
 
 lookup_aux_id :: TypeEnv -> Var -> Id
 lookup_aux_id type_env id
