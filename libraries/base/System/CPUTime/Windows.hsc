@@ -1,4 +1,4 @@
-{-# LANGUAGE CPP, CApiFFI #-}
+{-# LANGUAGE CPP, CApiFFI, NumDecimals #-}
 
 #include "HsFFI.h"
 #include "HsBaseConfig.h"
@@ -54,9 +54,10 @@ getCPUTime = do
     -- ToDo: pin down elapsed times to just the OS thread(s) that
     -- are evaluating/managing Haskell code.
 
+-- While it's hard to get reliable numbers, the consensus is that Windows only provides
+-- 16 millisecond resolution in GetProcessTimes (see Python PEP 0418)
 getCpuTimePrecision :: IO Integer
-getCpuTimePrecision =
-    return $ round ((1000000000000::Integer) % fromIntegral clockTicks)
+getCpuTimePrecision = return 16e9
 
 type FILETIME = ()
 type HANDLE = ()
