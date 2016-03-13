@@ -10,6 +10,7 @@ module System.CPUTime.Posix.ClockGetTime
 
 import Foreign
 import Foreign.C
+import System.CPUTime.Utils
 
 #if HAVE_TIME_H
 #include <time.h>
@@ -35,12 +36,7 @@ withTimespec action =
         r <- action p_ts
         u_sec  <- (#peek struct timespec,tv_sec)  p_ts :: IO CTime
         u_nsec <- (#peek struct timespec,tv_nsec) p_ts :: IO CLong
-        return (r, realToInteger u_sec * 1e12 + realToInteger u_nsec * 1e3)
+        return (r, cTimeToInteger u_sec * 1e12 + fromIntegral u_nsec * 1e3)
 
 foreign import capi unsafe "time.h clock_getres"  clock_getres  :: CInt -> Ptr Timespec -> IO CInt
 foreign import capi unsafe "time.h clock_gettime" clock_gettime :: CInt -> Ptr Timespec -> IO CInt
-
--- | CTime, CClock, CUShort etc are in Real but not Fractional,
--- so we must convert to Double before we can round it
-realToInteger :: Real a => a -> Integer
-realToInteger ct = round (realToFrac ct :: Double)

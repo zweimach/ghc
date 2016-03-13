@@ -11,6 +11,7 @@ module System.CPUTime.Posix.Times
 import Data.Ratio
 import Foreign
 import Foreign.C
+import System.CPUTime.Utils
 
 -- for struct tms
 #if HAVE_SYS_TIMES_H
@@ -22,7 +23,7 @@ getCPUTime = allocaBytes (#const sizeof(struct tms)) $ \ p_tms -> do
     _ <- times p_tms
     u_ticks  <- (#peek struct tms,tms_utime) p_tms :: IO CClock
     s_ticks  <- (#peek struct tms,tms_stime) p_tms :: IO CClock
-    return (( (realToInteger u_ticks + realToInteger s_ticks) * 1e12)
+    return (( (cClockToInteger u_ticks + cClockToInteger s_ticks) * 1e12)
                         `div` fromIntegral clockTicks)
 
 type CTms = ()
@@ -36,8 +37,3 @@ foreign import ccall unsafe clk_tck :: CLong
 
 clockTicks :: Integer
 clockTicks = fromIntegral clk_tck
-
--- | CTime, CClock, CUShort etc are in Real but not Fractional,
--- so we must convert to Double before we can round it
-realToInteger :: Real a => a -> Integer
-realToInteger ct = round (realToFrac ct :: Double)

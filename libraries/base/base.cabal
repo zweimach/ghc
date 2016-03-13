@@ -310,6 +310,7 @@ Library
         Data.OldList
         Foreign.ForeignPtr.Imp
         System.Environment.ExecutablePath
+        System.CPUTime.Utils
 
     c-sources:
         cbits/DarwinUtils.c
