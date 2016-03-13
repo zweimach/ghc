@@ -495,8 +495,8 @@ withTiming getDFlags what force_result action
                        <+> text "milliseconds"
                        <> comma
                        <+> maybe empty (\n -> text "allocated"
-                                              <+> int (fromIntegral n)
-                                              <+> text "bytes")
+                                              <+> doublePrec 3 (realToFrac n / 1024 / 1024)
+                                              <+> text "megabytes")
                                  alloc)
                   pure r
            else action
