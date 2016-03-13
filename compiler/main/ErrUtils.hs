@@ -491,8 +491,8 @@ withTiming getDFlags what force_result action
                   let alloc = (-) <$> alloc1 <*> alloc0
                   liftIO $ ifVerbose dflags 2 $ logInfo dflags defaultUserStyle
                       (text "!!!" <+> text what <> colon <+> text "finished in"
-                       <+> float (realToFrac (end - start) * 1e-12)
-                       <+> text "seconds"
+                       <+> integer (round $ (realToFrac (end - start) * 1e-9 :: Double))
+                       <+> text "milliseconds"
                        <> comma
                        <+> maybe empty (\n -> text "allocated"
                                               <+> int (fromIntegral n)
