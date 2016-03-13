@@ -201,7 +201,10 @@ Dumping out compiler intermediate structures
 
 .. ghc-flag:: -dshow-passes
 
-    Print out each pass name as it happens.
+    Print out each pass name, its runtime and heap allocations as it happens.
+    Note that this may come at a slight performance cost as the compiler will
+    be a bit more eager in forcing pass results to more accurately account for
+    their costs.
 
 .. ghc-flag:: -ddump-core-stats
 
