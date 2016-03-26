@@ -17,25 +17,25 @@ import Outputable
 --      Things like ImmLit are slurped out and put in a data segment instead.
 --
 data Imm
-        = ImmInt        Int
+        = ImmInt        !Int
 
         -- Sigh.
-        | ImmInteger    Integer
+        | ImmInteger    !Integer
 
         -- AbstractC Label (with baggage)
-        | ImmCLbl       CLabel
+        | ImmCLbl       !CLabel
 
         -- Simple string
-        | ImmLit        SDoc
-        | ImmIndex      CLabel Int
-        | ImmFloat      Rational
-        | ImmDouble     Rational
+        | ImmLit        !SDoc
+        | ImmIndex      !CLabel !Int
+        | ImmFloat      !Rational
+        | ImmDouble     !Rational
 
-        | ImmConstantSum  Imm Imm
-        | ImmConstantDiff Imm Imm
+        | ImmConstantSum  !Imm !Imm
+        | ImmConstantDiff !Imm !Imm
 
-        | LO    Imm
-        | HI    Imm
+        | LO    !Imm
+        | HI    !Imm
 
 
 -- | Create a ImmLit containing this string.

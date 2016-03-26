@@ -118,15 +118,15 @@ realRegSqueeze cls rr
 -- Immediates
 
 data Imm
-  = ImmInt      Int
-  | ImmInteger  Integer     -- Sigh.
-  | ImmCLbl     CLabel      -- AbstractC Label (with baggage)
-  | ImmLit      SDoc        -- Simple string
-  | ImmIndex    CLabel Int
-  | ImmFloat    Rational
-  | ImmDouble   Rational
-  | ImmConstantSum Imm Imm
-  | ImmConstantDiff Imm Imm
+  = ImmInt      !Int
+  | ImmInteger  !Integer     -- Sigh.
+  | ImmCLbl     !CLabel      -- AbstractC Label (with baggage)
+  | ImmLit      !SDoc        -- Simple string
+  | ImmIndex    !CLabel Int
+  | ImmFloat    !Rational
+  | ImmDouble   !Rational
+  | ImmConstantSum !Imm !Imm
+  | ImmConstantDiff !Imm !Imm
 
 
 strImmLit :: String -> Imm
@@ -152,10 +152,10 @@ litToImm _                   = panic "X86.Regs.litToImm: no match"
 
 data AddrMode
         = AddrBaseIndex EABase EAIndex Displacement
-        | ImmAddr Imm Int
+        | ImmAddr !Imm !Int
 
-data EABase       = EABaseNone  | EABaseReg Reg | EABaseRip
-data EAIndex      = EAIndexNone | EAIndex Reg Int
+data EABase       = EABaseNone  | EABaseReg !Reg | EABaseRip
+data EAIndex      = EAIndexNone | EAIndex !Reg !Int
 type Displacement = Imm
 
 

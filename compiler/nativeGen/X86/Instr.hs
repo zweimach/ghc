@@ -165,7 +165,7 @@ data Instr
         = COMMENT FastString
 
         -- location pseudo-op (file, line, col, name)
-        | LOCATION Int Int Int String
+        | LOCATION !Int !Int !Int String
 
         -- some static data spat out during code
         -- generation.  Will be extracted before
@@ -176,59 +176,59 @@ data Instr
         -- codegen, removed later.  Preceding
         -- instruction should be a jump, as per the
         -- invariants for a BasicBlock (see Cmm).
-        | NEWBLOCK BlockId
+        | NEWBLOCK !BlockId
 
         -- specify current stack offset for
         -- benefit of subsequent passes
-        | DELTA   Int
+        | DELTA   !Int
 
         -- Moves.
-        | MOV         Format Operand Operand
-        | CMOV   Cond Format Operand Reg
-        | MOVZxL      Format Operand Operand -- format is the size of operand 1
-        | MOVSxL      Format Operand Operand -- format is the size of operand 1
+        | MOV          !Format !Operand !Operand
+        | CMOV   !Cond !Format !Operand !Reg
+        | MOVZxL       !Format !Operand !Operand -- format is the size of operand 1
+        | MOVSxL       !Format !Operand !Operand -- format is the size of operand 1
         -- x86_64 note: plain mov into a 32-bit register always zero-extends
         -- into the 64-bit reg, in contrast to the 8 and 16-bit movs which
         -- don't affect the high bits of the register.
 
         -- Load effective address (also a very useful three-operand add instruction :-)
-        | LEA         Format Operand Operand
+        | LEA          !Format !Operand !Operand
 
         -- Int Arithmetic.
-        | ADD         Format Operand Operand
-        | ADC         Format Operand Operand
-        | SUB         Format Operand Operand
-        | SBB         Format Operand Operand
+        | ADD          !Format !Operand !Operand
+        | ADC          !Format !Operand !Operand
+        | SUB          !Format !Operand !Operand
+        | SBB          !Format !Operand !Operand
 
-        | MUL         Format Operand Operand
-        | MUL2        Format Operand         -- %edx:%eax = operand * %rax
-        | IMUL        Format Operand Operand -- signed int mul
-        | IMUL2       Format Operand         -- %edx:%eax = operand * %eax
+        | MUL          !Format !Operand !Operand
+        | MUL2         !Format !Operand          -- %edx:%eax = operand * %rax
+        | IMUL         !Format !Operand !Operand -- signed int mul
+        | IMUL2        !Format !Operand          -- %edx:%eax = operand * %eax
 
-        | DIV         Format Operand         -- eax := eax:edx/op, edx := eax:edx%op
-        | IDIV        Format Operand         -- ditto, but signed
+        | DIV          !Format !Operand          -- eax := eax:edx/op, edx := eax:edx%op
+        | IDIV         !Format !Operand          -- ditto, but signed
 
         -- Int Arithmetic, where the effects on the condition register
         -- are important. Used in specialized sequences such as MO_Add2.
         -- Do not rewrite these instructions to "equivalent" ones that
         -- have different effect on the condition register! (See #9013.)
-        | ADD_CC      Format Operand Operand
-        | SUB_CC      Format Operand Operand
+        | ADD_CC      !Format !Operand !Operand
+        | SUB_CC      !Format !Operand !Operand
 
         -- Simple bit-twiddling.
-        | AND         Format Operand Operand
-        | OR          Format Operand Operand
-        | XOR         Format Operand Operand
-        | NOT         Format Operand
-        | NEGI        Format Operand         -- NEG instruction (name clash with Cond)
-        | BSWAP       Format Reg
+        | AND         !Format !Operand !Operand
+        | OR          !Format !Operand !Operand
+        | XOR         !Format !Operand !Operand
+        | NOT         !Format !Operand
+        | NEGI        !Format !Operand         -- NEG instruction (name clash with Cond)
+        | BSWAP       !Format !Reg
 
         -- Shifts (amount may be immediate or %cl only)
-        | SHL         Format Operand{-amount-} Operand
-        | SAR         Format Operand{-amount-} Operand
-        | SHR         Format Operand{-amount-} Operand
+        | SHL         !Format !Operand{-amount-} !Operand
+        | SAR         !Format !Operand{-amount-} !Operand
+        | SHR         !Format !Operand{-amount-} !Operand
 
-        | BT          Format Imm Operand
+        | BT          !Format !Imm !Operand
         | NOP
 
         -- x86 Float Arithmetic.
@@ -237,38 +237,38 @@ data Instr
         -- all the 3-operand fake fp insns are src1 src2 dst
         -- and furthermore are constrained to be fp regs only.
         -- IMPORTANT: keep is_G_insn up to date with any changes here
-        | GMOV        Reg Reg -- src(fpreg), dst(fpreg)
-        | GLD         Format AddrMode Reg -- src, dst(fpreg)
-        | GST         Format Reg AddrMode -- src(fpreg), dst
+        | GMOV        !Reg !Reg -- src(fpreg), dst(fpreg)
+        | GLD         !Format !AddrMode !Reg -- src, dst(fpreg)
+        | GST         !Format !Reg !AddrMode -- src(fpreg), dst
 
-        | GLDZ        Reg -- dst(fpreg)
-        | GLD1        Reg -- dst(fpreg)
+        | GLDZ        !Reg -- dst(fpreg)
+        | GLD1        !Reg -- dst(fpreg)
 
-        | GFTOI       Reg Reg -- src(fpreg), dst(intreg)
-        | GDTOI       Reg Reg -- src(fpreg), dst(intreg)
+        | GFTOI       !Reg !Reg -- src(fpreg), dst(intreg)
+        | GDTOI       !Reg !Reg -- src(fpreg), dst(intreg)
 
-        | GITOF       Reg Reg -- src(intreg), dst(fpreg)
-        | GITOD       Reg Reg -- src(intreg), dst(fpreg)
+        | GITOF       !Reg !Reg -- src(intreg), dst(fpreg)
+        | GITOD       !Reg !Reg -- src(intreg), dst(fpreg)
 
-        | GDTOF       Reg Reg -- src(fpreg), dst(fpreg)
+        | GDTOF       !Reg !Reg -- src(fpreg), dst(fpreg)
 
-        | GADD        Format Reg Reg Reg -- src1, src2, dst
-        | GDIV        Format Reg Reg Reg -- src1, src2, dst
-        | GSUB        Format Reg Reg Reg -- src1, src2, dst
-        | GMUL        Format Reg Reg Reg -- src1, src2, dst
+        | GADD        !Format !Reg !Reg !Reg -- src1, src2, dst
+        | GDIV        !Format !Reg !Reg !Reg -- src1, src2, dst
+        | GSUB        !Format !Reg !Reg !Reg -- src1, src2, dst
+        | GMUL        !Format !Reg !Reg !Reg -- src1, src2, dst
 
                 -- FP compare.  Cond must be `elem` [EQQ, NE, LE, LTT, GE, GTT]
                 -- Compare src1 with src2; set the Zero flag iff the numbers are
                 -- comparable and the comparison is True.  Subsequent code must
                 -- test the %eflags zero flag regardless of the supplied Cond.
-        | GCMP        Cond Reg Reg -- src1, src2
+        | GCMP        !Cond !Reg !Reg -- src1, src2
 
-        | GABS        Format Reg Reg -- src, dst
-        | GNEG        Format Reg Reg -- src, dst
-        | GSQRT       Format Reg Reg -- src, dst
-        | GSIN        Format CLabel CLabel Reg Reg -- src, dst
-        | GCOS        Format CLabel CLabel Reg Reg -- src, dst
-        | GTAN        Format CLabel CLabel Reg Reg -- src, dst
+        | GABS        !Format !Reg !Reg -- src, dst
+        | GNEG        !Format !Reg !Reg -- src, dst
+        | GSQRT       !Format !Reg !Reg -- src, dst
+        | GSIN        !Format !CLabel !CLabel !Reg !Reg -- src, dst
+        | GCOS        !Format !CLabel !CLabel !Reg !Reg -- src, dst
+        | GTAN        !Format !CLabel !CLabel !Reg !Reg -- src, dst
 
         | GFREE         -- do ffree on all x86 regs; an ugly hack
 
@@ -276,41 +276,41 @@ data Instr
         -- SSE2 floating point: we use a restricted set of the available SSE2
         -- instructions for floating-point.
         -- use MOV for moving (either movss or movsd (movlpd better?))
-        | CVTSS2SD      Reg Reg            -- F32 to F64
-        | CVTSD2SS      Reg Reg            -- F64 to F32
-        | CVTTSS2SIQ    Format Operand Reg -- F32 to I32/I64 (with truncation)
-        | CVTTSD2SIQ    Format Operand Reg -- F64 to I32/I64 (with truncation)
-        | CVTSI2SS      Format Operand Reg -- I32/I64 to F32
-        | CVTSI2SD      Format Operand Reg -- I32/I64 to F64
+        | CVTSS2SD      !Reg !Reg             -- F32 to F64
+        | CVTSD2SS      !Reg !Reg             -- F64 to F32
+        | CVTTSS2SIQ    !Format !Operand !Reg -- F32 to I32/I64 (with truncation)
+        | CVTTSD2SIQ    !Format !Operand !Reg -- F64 to I32/I64 (with truncation)
+        | CVTSI2SS      !Format !Operand !Reg -- I32/I64 to F32
+        | CVTSI2SD      !Format !Operand !Reg -- I32/I64 to F64
 
         -- use ADD & SUB for arithmetic.  In both cases, operands
         -- are  Operand Reg.
 
         -- SSE2 floating-point division:
-        | FDIV          Format Operand Operand   -- divisor, dividend(dst)
+        | FDIV          !Format !Operand !Operand   -- divisor, dividend(dst)
 
         -- use CMP for comparisons.  ucomiss and ucomisd instructions
         -- compare single/double prec floating point respectively.
 
-        | SQRT          Format Operand Reg      -- src, dst
+        | SQRT          !Format !Operand !Reg      -- src, dst
 
 
         -- Comparison
-        | TEST          Format Operand Operand
-        | CMP           Format Operand Operand
-        | SETCC         Cond Operand
+        | TEST          !Format !Operand !Operand
+        | CMP           !Format !Operand !Operand
+        | SETCC         !Cond !Operand
 
         -- Stack Operations.
-        | PUSH          Format Operand
-        | POP           Format Operand
+        | PUSH          !Format !Operand
+        | POP           !Format !Operand
         -- both unused (SDM):
         --  | PUSHA
         --  | POPA
 
         -- Jumping around.
-        | JMP         Operand [Reg] -- including live Regs at the call
-        | JXX         Cond BlockId  -- includes unconditional branches
-        | JXX_GBL     Cond Imm      -- non-local version of JXX
+        | JMP         !Operand [Reg] -- including live Regs at the call
+        | JXX         !Cond !BlockId -- includes unconditional branches
+        | JXX_GBL     !Cond !Imm     -- non-local version of JXX
         -- Table jump
         | JMP_TBL     Operand   -- Address to jump to
                       [Maybe BlockId] -- Blocks in the jump table
@@ -319,39 +319,39 @@ data Instr
         | CALL        (Either Imm Reg) [Reg]
 
         -- Other things.
-        | CLTD Format            -- sign extend %eax into %edx:%eax
+        | CLTD !Format           -- sign extend %eax into %edx:%eax
 
-        | FETCHGOT    Reg        -- pseudo-insn for ELF position-independent code
+        | FETCHGOT    !Reg       -- pseudo-insn for ELF position-independent code
                                  -- pretty-prints as
                                  --       call 1f
                                  -- 1:    popl %reg
                                  --       addl __GLOBAL_OFFSET_TABLE__+.-1b, %reg
-        | FETCHPC     Reg        -- pseudo-insn for Darwin position-independent code
+        | FETCHPC    ! Reg       -- pseudo-insn for Darwin position-independent code
                                  -- pretty-prints as
                                  --       call 1f
                                  -- 1:    popl %reg
 
     -- bit counting instructions
-        | POPCNT      Format Operand Reg -- [SSE4.2] count number of bits set to 1
-        | BSF         Format Operand Reg -- bit scan forward
-        | BSR         Format Operand Reg -- bit scan reverse
+        | POPCNT      !Format !Operand !Reg -- [SSE4.2] count number of bits set to 1
+        | BSF         !Format !Operand !Reg -- bit scan forward
+        | BSR         !Format !Operand !Reg -- bit scan reverse
 
     -- prefetch
         | PREFETCH  PrefetchVariant Format Operand -- prefetch Variant, addr size, address to prefetch
                                         -- variant can be NTA, Lvl0, Lvl1, or Lvl2
 
-        | LOCK        Instr -- lock prefix
-        | XADD        Format Operand Operand -- src (r), dst (r/m)
-        | CMPXCHG     Format Operand Operand -- src (r), dst (r/m), eax implicit
+        | LOCK        !Instr -- lock prefix
+        | XADD        !Format !Operand !Operand -- src (r), dst (r/m)
+        | CMPXCHG     !Format !Operand !Operand -- src (r), dst (r/m), eax implicit
         | MFENCE
 
 data PrefetchVariant = NTA | Lvl0 | Lvl1 | Lvl2
 
 
 data Operand
-        = OpReg  Reg            -- register
-        | OpImm  Imm            -- immediate value
-        | OpAddr AddrMode       -- memory reference
+        = OpReg  !Reg            -- register
+        | OpImm  !Imm            -- immediate value
+        | OpAddr !AddrMode       -- memory reference
 
 
 
@@ -987,7 +987,7 @@ allocMoreStack platform slots proc@(CmmProc info lbl live (ListGraph code)) = do
     return (CmmProc info lbl live (ListGraph new_code))
 
 
-data JumpDest = DestBlockId BlockId | DestImm Imm
+data JumpDest = DestBlockId !BlockId | DestImm !Imm
 
 getJumpDestBlockId :: JumpDest -> Maybe BlockId
 getJumpDestBlockId (DestBlockId bid) = Just bid
