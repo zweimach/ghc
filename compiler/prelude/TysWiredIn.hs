@@ -341,7 +341,8 @@ This commit uses
 
 
 anyTyConName :: Name
-anyTyConName = mkWiredInTyConName UserSyntax gHC_TYPES (fsLit "Any") anyTyConKey anyTyCon
+anyTyConName =
+    mkWiredInTyConName UserSyntax gHC_TYPES (fsLit "Any") anyTyConKey anyTyCon
 
 anyTyCon :: TyCon
 anyTyCon = mkFamilyTyCon anyTyConName binders res_kind [kKiVar] Nothing
