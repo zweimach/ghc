@@ -1,5 +1,6 @@
 {-# LANGUAGE MagicHash, NoImplicitPrelude, TypeFamilies, UnboxedTuples,
-             MultiParamTypeClasses, RoleAnnotations, CPP, TypeOperators #-}
+             MultiParamTypeClasses, RoleAnnotations, CPP, TypeOperators,
+             PolyKinds #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  GHC.Types
@@ -29,6 +30,7 @@ module GHC.Types (
         isTrue#,
         SPEC(..),
         Nat, Symbol,
+        Any,
         type (~~), Coercible,
         TYPE, RuntimeRep(..), Type, type (*), type (★), Constraint,
           -- The historical type * should ideally be written as
@@ -78,6 +80,43 @@ data Nat
 -- | (Kind) This is the kind of type-level symbols.
 -- Declared here because class IP needs it
 data Symbol
+
+{- *********************************************************************
+*                                                                      *
+                  Nat and Symbol
+*                                                                      *
+********************************************************************* -}
+
+-- | The type constructor 'Any' is type to which you can unsafely coerce any
+-- lifted type, and back.
+--
+-- * It is lifted, and hence represented by a pointer
+--
+-- * It does not claim to be a @data@ type, and that's important for
+--   the code generator, because the code gen may @enter@ a data value
+--   but never enters a function value.
+--
+-- It's also used to instantiate un-constrained type variables after type
+-- checking.  For example, 'length' has type
+--
+-- > length :: forall a. [a] -> Int
+--
+-- and the list datacon for the empty list has type
+--
+-- > [] :: forall a. [a]
+--
+-- In order to compose these two terms as @length []@ a type
+-- application is required, but there is no constraint on the
+-- choice.  In this situation GHC uses 'Any',
+--
+-- > length (Any *) ([] (Any *))
+--
+-- Above, we print kinds explicitly, as if with -- @-fprint-explicit-kinds@.
+--
+-- Note that 'Any' is kind polymorphic; its kind is thus
+-- @forall k. k@.
+type family Any :: k where { }
+-- For a bit of history on Any see #10886.
 
 {- *********************************************************************
 *                                                                      *

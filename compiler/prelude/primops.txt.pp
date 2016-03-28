@@ -2578,37 +2578,6 @@ pseudoop   "seq"
      {\tt a}. If you need to guarantee a specific order of evaluation,
      you must use the function {\tt pseq} from the "parallel" package. }
 
-primtype Any
-        { The type constructor {\tt Any} is type to which you can unsafely coerce any
-        lifted type, and back.
-
-          * It is lifted, and hence represented by a pointer
-
-          * It does not claim to be a {\it data} type, and that's important for
-            the code generator, because the code gen may {\it enter} a data value
-            but never enters a function value.
-
-        It's also used to instantiate un-constrained type variables after type
-        checking.  For example, {\tt length} has type
-
-        {\tt length :: forall a. [a] -> Int}
-
-        and the list datacon for the empty list has type
-
-        {\tt [] :: forall a. [a]}
-
-        In order to compose these two terms as {\tt length []} a type
-        application is required, but there is no constraint on the
-        choice.  In this situation GHC uses {\tt Any}:
-
-        {\tt length (Any *) ([] (Any *))}
-
-        Above, we print kinds explicitly, as if with
-        {\tt -fprint-explicit-kinds}.
-
-        Note that {\tt Any} is kind polymorphic; its kind is thus
-        {\tt forall k. k}.}
-
 primtype AnyK
         { The kind {\tt AnyK} is the kind level counterpart to {\tt Any}. In a
         kind polymorphic setting, a similar example to the length of the empty

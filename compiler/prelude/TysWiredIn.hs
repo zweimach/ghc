@@ -67,6 +67,9 @@ module TysWiredIn (
         unboxedUnitTyCon, unboxedUnitDataCon,
         cTupleTyConName, cTupleTyConNames, isCTupleTyConName,
 
+        -- * Any
+        anyTyCon, anyTy, anyTypeOfKind,
+
         -- * Kinds
         typeNatKindCon, typeNatKind, typeSymbolKindCon, typeSymbolKind,
         isLiftedTypeKindTyConName, liftedTypeKind, constraintKind,
@@ -127,6 +130,7 @@ import Type
 import DataCon
 import {-# SOURCE #-} ConLike
 import TyCon
+import TyCoRep          ( TyBinder(..) )
 import Class            ( Class, mkClass )
 import RdrName
 import Name
@@ -187,6 +191,7 @@ wiredInTyCons = [ unitTyCon     -- Not treated like other tuples, because
                                 -- that it'll pre-populate the name cache, so
                                 -- the special case in lookupOrigNameCache
                                 -- doesn't need to look out for it
+              , anyTyCon
               , boolTyCon
               , charTyCon
               , doubleTyCon
@@ -274,6 +279,84 @@ floatTyConName     = mkWiredInTyConName   UserSyntax gHC_TYPES (fsLit "Float")  
 floatDataConName   = mkWiredInDataConName UserSyntax gHC_TYPES (fsLit "F#")     floatDataConKey  floatDataCon
 doubleTyConName    = mkWiredInTyConName   UserSyntax gHC_TYPES (fsLit "Double") doubleTyConKey   doubleTyCon
 doubleDataConName  = mkWiredInDataConName UserSyntax gHC_TYPES (fsLit "D#")     doubleDataConKey doubleDataCon
+
+-- Any
+
+{-
+Note [Any types]
+~~~~~~~~~~~~~~~~
+The type constructor Any of kind forall k. k has these properties:
+
+  * It is defined in module GHC.Prim, and exported so that it is
+    available to users.  For this reason it's treated like any other
+    primitive type:
+      - has a fixed unique, anyTyConKey,
+      - lives in the global name cache
+
+  * It is a *closed* type family, with no instances.  This means that
+    if   ty :: '(k1, k2)  we add a given coercion
+             g :: ty ~ (Fst ty, Snd ty)
+    If Any was a *data* type, then we'd get inconsistency because 'ty'
+    could be (Any '(k1,k2)) and then we'd have an equality with Any on
+    one side and '(,) on the other. See also #9097.
+
+  * It is lifted, and hence represented by a pointer
+
+  * It is inhabited by at least one value, namely bottom
+
+  * You can unsafely coerce any lifted type to Any, and back.
+
+  * It does not claim to be a *data* type, and that's important for
+    the code generator, because the code gen may *enter* a data value
+    but never enters a function value.
+
+  * It is used to instantiate otherwise un-constrained type variables
+    For example         length Any []
+    See Note [Strangely-kinded void TyCons]
+
+The Any tycon used to be quite magic, but we have since been able to
+implement it merely with an empty kind polymorphic type family. See #10886 for a
+bit of history.
+
+Note [Strangely-kinded void TyCons]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+See Trac #959 for more examples
+
+When the type checker finds a type variable with no binding, which
+means it can be instantiated with an arbitrary type, it usually
+instantiates it to Void.  Eg.
+
+        length []
+===>
+        length Any (Nil Any)
+
+But in really obscure programs, the type variable might have a kind
+other than *, so we need to invent a suitably-kinded type.
+
+This commit uses
+        Any for kind *
+        Any(*->*) for kind *->*
+        etc
+-}
+
+
+anyTyConName :: Name
+anyTyConName = mkWiredInTyConName UserSyntax gHC_TYPES (fsLit "Any") anyTyConKey anyTyCon
+
+anyTyCon :: TyCon
+anyTyCon = mkFamilyTyCon anyTyConName binders res_kind [kKiVar] Nothing
+                         (ClosedSynFamilyTyCon Nothing)
+                         Nothing
+                         NotInjective
+  where
+    binders  = [Named kKiVar Specified]
+    res_kind = mkTyVarTy kKiVar
+
+anyTy :: Type
+anyTy = mkTyConTy anyTyCon
+
+anyTypeOfKind :: Kind -> Type
+anyTypeOfKind kind = mkTyConApp anyTyCon [kind]
 
 -- Kinds
 typeNatKindConName, typeSymbolKindConName :: Name
