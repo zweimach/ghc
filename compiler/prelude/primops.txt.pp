@@ -2578,21 +2578,6 @@ pseudoop   "seq"
      {\tt a}. If you need to guarantee a specific order of evaluation,
      you must use the function {\tt pseq} from the "parallel" package. }
 
-primtype AnyK
-        { The kind {\tt AnyK} is the kind level counterpart to {\tt Any}. In a
-        kind polymorphic setting, a similar example to the length of the empty
-        list can be given at the type level:
-
-        {\tt type family Length (l :: [k]) :: Nat}
-        {\tt type instance Length [] = Zero}
-
-        When {\tt Length} is applied to the empty (promoted) list it will have
-        the kind {\tt Length AnyK []}.
-
-        {\tt AnyK} is currently not exported and cannot be used directly, but
-        you might see it in debug output from the compiler.
-        }
-
 pseudoop   "unsafeCoerce#"
    a -> b
    { The function {\tt unsafeCoerce\#} allows you to side-step the typechecker entirely. That
