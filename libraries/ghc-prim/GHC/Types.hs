@@ -88,35 +88,13 @@ data Symbol
 ********************************************************************* -}
 
 -- | The type constructor 'Any' is type to which you can unsafely coerce any
--- lifted type, and back.
+-- lifted type, and back. More concretely, for a lifted type @t@ and
+-- value @x :: t@, -- @unsafeCoerce (unsafeCoerce x :: Any) :: t@ is equivalent
+-- to @x@.
 --
--- * It is lifted, and hence represented by a pointer
---
--- * It does not claim to be a @data@ type, and that's important for
---   the code generator, because the code gen may @enter@ a data value
---   but never enters a function value.
---
--- It's also used to instantiate un-constrained type variables after type
--- checking.  For example, 'length' has type
---
--- > length :: forall a. [a] -> Int
---
--- and the list datacon for the empty list has type
---
--- > [] :: forall a. [a]
---
--- In order to compose these two terms as @length []@ a type
--- application is required, but there is no constraint on the
--- choice.  In this situation GHC uses 'Any',
---
--- > length (Any *) ([] (Any *))
---
--- Above, we print kinds explicitly, as if with -- @-fprint-explicit-kinds@.
---
--- Note that 'Any' is kind polymorphic; its kind is thus
--- @forall k. k@.
 type family Any :: k where { }
--- For a bit of history on Any see #10886.
+-- See Note [Any types] in TysWiredIn. Also, for a bit of history on Any see
+-- #10886.
 
 {- *********************************************************************
 *                                                                      *

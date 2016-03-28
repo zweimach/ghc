@@ -287,9 +287,9 @@ Note [Any types]
 ~~~~~~~~~~~~~~~~
 The type constructor Any of kind forall k. k has these properties:
 
-  * It is defined in module GHC.Prim, and exported so that it is
+  * It is defined in module GHC.Types, and exported so that it is
     available to users.  For this reason it's treated like any other
-    primitive type:
+    wired-in type:
       - has a fixed unique, anyTyConKey,
       - lives in the global name cache
 
@@ -300,11 +300,10 @@ The type constructor Any of kind forall k. k has these properties:
     could be (Any '(k1,k2)) and then we'd have an equality with Any on
     one side and '(,) on the other. See also #9097.
 
-  * It is lifted, and hence represented by a pointer
+  * When instantiated at a lifted type it is inhabited by at least one value,
+    namely bottom
 
-  * It is inhabited by at least one value, namely bottom
-
-  * You can unsafely coerce any lifted type to Any, and back.
+  * You can safely coerce any lifted type to Any, and back with unsafeCoerce.
 
   * It does not claim to be a *data* type, and that's important for
     the code generator, because the code gen may *enter* a data value
@@ -314,29 +313,30 @@ The type constructor Any of kind forall k. k has these properties:
     For example         length Any []
     See Note [Strangely-kinded void TyCons]
 
+It's used to instantiate un-constrained type variables after type checking. For
+example, 'length' has type
+
+  length :: forall a. [a] -> Int
+
+and the list datacon for the empty list has type
+
+  [] :: forall a. [a]
+
+In order to compose these two terms as @length []@ a type
+application is required, but there is no constraint on the
+choice.  In this situation GHC uses 'Any',
+
+> length (Any *) ([] (Any *))
+
+Above, we print kinds explicitly, as if with --fprint-explicit-kinds.
+
+Note that 'Any' is kind polymorphic since in some program we may need to use Any
+to fill in a type variable of some kind other than * (see #959 for examples).
+Its kind is thus `forall k. k``.
+
 The Any tycon used to be quite magic, but we have since been able to
 implement it merely with an empty kind polymorphic type family. See #10886 for a
 bit of history.
-
-Note [Strangely-kinded void TyCons]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-See Trac #959 for more examples
-
-When the type checker finds a type variable with no binding, which
-means it can be instantiated with an arbitrary type, it usually
-instantiates it to Void.  Eg.
-
-        length []
-===>
-        length Any (Nil Any)
-
-But in really obscure programs, the type variable might have a kind
-other than *, so we need to invent a suitably-kinded type.
-
-This commit uses
-        Any for kind *
-        Any(*->*) for kind *->*
-        etc
 -}
 
 
