@@ -369,7 +369,9 @@ rnPatAndThen mk (SigPatIn pat sig)
   -- f ((Just (x :: a) :: Maybe a)
   -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~^       `a' is first bound here
   -- ~~~~~~~~~~~~~~~^                   the same `a' then used here
-  = do { sig' <- rnHsSigCps sig
+  = do { liftCps $ do { ty_sig_okay <- xoptM LangExt.ScopedTypeVariables
+                      ; checkErr ty_sig_okay (unexpectedTypeSigErr sig) }
+       ; sig' <- rnHsSigCps sig
        ; pat' <- rnLPatAndThen mk pat
        ; return (SigPatIn pat' sig') }
 
@@ -817,3 +819,8 @@ bogusCharError c
 badViewPat :: Pat RdrName -> SDoc
 badViewPat pat = vcat [text "Illegal view pattern: " <+> ppr pat,
                        text "Use ViewPatterns to enable view patterns"]
+
+unexpectedTypeSigErr :: LHsSigWcType RdrName -> SDoc
+unexpectedTypeSigErr ty
+  = hang (text "Illegal type signature:" <+> quotes (ppr ty))
+       2 (text "Type signatures are only allowed in patterns with ScopedTypeVariables")
