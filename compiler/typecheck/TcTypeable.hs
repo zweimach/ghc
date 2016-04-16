@@ -8,7 +8,6 @@
 module TcTypeable(mkTypeableBinds) where
 
 
-import TcBinds( addTypecheckedBinds )
 import IfaceEnv( newGlobalBinder )
 import TcEnv
 import TcRnMonad
@@ -25,7 +24,6 @@ import HsSyn
 import DynFlags
 import Bag
 import Fingerprint(Fingerprint(..), fingerprintString)
-import Outputable
 import FastString ( FastString, mkFastString )
 
 import Data.Word( Word64 )
@@ -92,19 +90,18 @@ There are many wrinkles:
 -- 'tcRnSrcDecls'.
 --
 -- See Note [Grand plan for Typeable] in TcTypeable.
-mkTypeableBinds :: TcM TcGblEnv
+mkTypeableBinds :: TcM (LHsBinds Id)
 mkTypeableBinds
   = do { -- Create a binding for $trModule.
-         -- Do this before processing any data type declarations,
-         -- which need tcg_tr_module to be initialised
-       ; tcg_env <- mkModIdBindings
+       ; (tr_mod_bind, tr_mod_id) <- mkModIdBindings
          -- Now we can generate the TyCon representations...
          -- First we handle the primitive TyCons if we are compiling GHC.Types
-       ; tcg_env <- setGblEnv tcg_env mkPrimTypeableBinds
+       ; prim_binds <- mkPrimTypeableBinds
          -- Then we produce bindings for the user-defined types in this module.
-       ; setGblEnv tcg_env $
-             let tycons = filter needs_typeable_binds (tcg_tcs tcg_env)
-             in mkTypeableTyConBinds tycons
+       ; tcg_env <- getGblEnv
+       ; let tycons = filter needs_typeable_binds (tcg_tcs tcg_env)
+       ; user_binds <- mkTypeableTyConBinds tr_mod_id tycons
+       ; return $ unitBag tr_mod_bind `unionBags` prim_binds `unionBags` user_binds
        }
   where
     needs_typeable_binds tc =
@@ -119,7 +116,8 @@ mkTypeableBinds
 *                                                                      *
 ********************************************************************* -}
 
-mkModIdBindings :: TcM TcGblEnv
+-- | Returns the 'Module' binding of the current module and its binder.
+mkModIdBindings :: TcM (LHsBind Id, Id)
 mkModIdBindings
   = do { mod <- getModule
        ; loc <- getSrcSpanM
@@ -127,10 +125,8 @@ mkModIdBindings
        ; trModuleTyCon <- tcLookupTyCon trModuleTyConName
        ; let mod_id = mkExportedVanillaId mod_nm (mkTyConApp trModuleTyCon [])
        ; mod_bind      <- mkVarBind mod_id <$> mkModIdRHS mod
-
-       ; tcg_env <- tcExtendGlobalValEnv [mod_id] getGblEnv
-       ; return (tcg_env { tcg_tr_module = Just mod_id }
-                 `addTypecheckedBinds` [unitBag mod_bind]) }
+       ; return (mod_bind, mod_id)
+       }
 
 mkModIdRHS :: Module -> TcM (LHsExpr Id)
 mkModIdRHS mod
@@ -148,28 +144,25 @@ mkModIdRHS mod
 ********************************************************************* -}
 
 -- | Generate TyCon bindings for a set of type constructors
-mkTypeableTyConBinds :: [TyCon] -> TcM TcGblEnv
-mkTypeableTyConBinds tycons
-  = do { gbl_env <- getGblEnv
-       ; mod <- getModule
-       ; let mod_expr = case tcg_tr_module gbl_env of  -- Should be set by now
-                           Just mod_id -> nlHsVar mod_id
-                           Nothing     -> pprPanic "tcMkTypeableBinds" (ppr tycons)
+mkTypeableTyConBinds :: Id
+                        -- ^ the 'Id' of the @Module@ binding for the current module
+                     -> [TyCon]
+                     -> TcM (LHsBinds Id)
+mkTypeableTyConBinds tr_mod_id tycons
+  = do { mod <- getModule
+       ; let mod_expr = nlHsVar tr_mod_id
        ; stuff <- collect_stuff mod mod_expr
        ; let all_tycons = [ tc' | tc <- tycons, tc' <- tc : tyConATs tc ]
                              -- We need type representations for any associated types
              tc_binds = map (mk_typeable_binds stuff) all_tycons
-             tycon_rep_ids = foldr ((++) . collectHsBindsBinders) [] tc_binds
-
-       ; gbl_env <- tcExtendGlobalValEnv tycon_rep_ids getGblEnv
-       ; return (gbl_env `addTypecheckedBinds` tc_binds) }
+       ; return $ concatBag $ listToBag tc_binds }
 
 -- | Generate bindings for the type representation of a wired-in TyCon defined
 -- by the virtual "GHC.Prim" module. This is where we inject the representation
 -- bindings for primitive types into "GHC.Types"
 --
 -- See Note [Grand plan for Typeable] in this module.
-mkPrimTypeableBinds :: TcM TcGblEnv
+mkPrimTypeableBinds :: TcM (LHsBinds Id)
 mkPrimTypeableBinds
   = do { mod <- getModule
        ; if mod == gHC_TYPES
@@ -185,12 +178,8 @@ mkPrimTypeableBinds
                    ; let prim_binds :: LHsBinds Id
                          prim_binds = unitBag ghc_prim_module_bind
                                       `unionBags` ghcPrimTypeableBinds stuff
-
-                         prim_rep_ids = collectHsBindsBinders prim_binds
-                   ; gbl_env <- tcExtendGlobalValEnv prim_rep_ids getGblEnv
-                   ; return (gbl_env `addTypecheckedBinds` [prim_binds])
-                   }
-           else getGblEnv
+                   ; return prim_binds }
+           else return emptyBag
        }
   where
 

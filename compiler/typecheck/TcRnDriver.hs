@@ -391,6 +391,22 @@ implicitPreludeWarn :: SDoc
 implicitPreludeWarn
   = text "Module `Prelude' implicitly imported"
 
+-- | Emit Typeable and record selector bindings
+addDerivedBinds :: hidden
+addDerivedBinds
+ = do { -- Generate Typeable bindings
+        typeable_binds <- mkTypeableBinds
+        -- Generate record selector bindings
+      ; tycons <- tcg_tcs `fmap` getGblEnv
+      ; sel_binds <- tcRecSelBinds $ mkRecSelBinds tycons
+        -- Collect the binders and add them to the environment
+      ; let binds = typeable_binds `unionBags` sel_binds
+            binders = collectHsBindsBinders binds
+      ; tcg_env <- tcExtendGlobalValEnv binders getGblEnv
+        -- Add the bindings unless we are compiling a .hs-boot
+      ; return $ addTypecheckedBinds tcg_env binds
+      }
+
 {-
 ************************************************************************
 *                                                                      *
@@ -483,7 +499,7 @@ tcRnSrcDecls explicit_mod_hdr decls
                  ; return (tcg_env, tcl_env) }
       ; setEnvs (tcg_env, tcl_env) $ do {
 
-        -- Emit Typeable bindings
+        -- Emit Typeable and record selector bindings
       ; tcg_env <- setGblEnv tcg_env mkTypeableBinds
 
       ; setGblEnv tcg_env $ do {

@@ -30,7 +30,6 @@ module TcTyDecls(
 
 import TcRnMonad
 import TcEnv
-import TcBinds( tcRecSelBinds )
 import TyCoRep( Type(..), TyBinder(..), delBinderVar )
 import TcType
 import TysWiredIn( unitTy )
@@ -853,8 +852,6 @@ tcAddImplicits :: [TyCon] -> TcM TcGblEnv
 -- Given a [TyCon], add to the TcGblEnv
 --   * extend the TypeEnv with their implicitTyThings
 --   * extend the TypeEnv with any default method Ids
---   * add bindings for record selectors
---   * add bindings for type representations for the TyThings
 tcAddImplicits tycons
   = discardWarnings $
     tcExtendGlobalEnvImplicit implicit_things  $
@@ -862,7 +859,7 @@ tcAddImplicits tycons
     do { traceTc "tcAddImplicits" $ vcat
             [ text "tycons" <+> ppr tycons
             , text "implicits" <+> ppr implicit_things ]
-       ; tcRecSelBinds (mkRecSelBinds tycons) }
+       ; getGblEnv }
  where
    implicit_things = concatMap implicitTyConThings tycons
    def_meth_ids    = mkDefaultMethodIds tycons

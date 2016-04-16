@@ -70,11 +70,12 @@ import Control.Monad
 *                                                                      *
 ********************************************************************* -}
 
+-- | Add a set of type-checked bindings to the typechecker environment, but only
+-- if we are compiling a real module (e.g. not a hs-boot, which contain no
+-- bindings).
 addTypecheckedBinds :: TcGblEnv -> [LHsBinds Id] -> TcGblEnv
 addTypecheckedBinds tcg_env binds
   | isHsBootOrSig (tcg_src tcg_env) = tcg_env
-    -- Do not add the code for record-selector bindings
-    -- when compiling hs-boot files
   | otherwise = tcg_env { tcg_binds = foldr unionBags
                                             (tcg_binds tcg_env)
                                             binds }
@@ -189,13 +190,11 @@ tcTopBinds binds sigs
         -- The top level bindings are flattened into a giant
         -- implicitly-mutually-recursive LHsBinds
 
-tcRecSelBinds :: HsValBinds Name -> TcM TcGblEnv
+tcRecSelBinds :: HsValBinds Name -> TcM (LHsBinds Id)
 tcRecSelBinds (ValBindsOut binds sigs)
-  = tcExtendGlobalValEnv [sel_id | L _ (IdSig sel_id) <- sigs] $
-    do { (rec_sel_binds, tcg_env) <- discardWarnings $
-                                     tcValBinds TopLevel binds sigs getGblEnv
-       ; let tcg_env' = tcg_env `addTypecheckedBinds` map snd rec_sel_binds
-       ; return tcg_env' }
+  = do { (rec_sel_binds, ()) <- discardWarnings $
+                                tcValBinds TopLevel binds sigs (pure ())
+       ; return (concatBag $ listToBag $ map snd rec_sel_binds) }
 tcRecSelBinds (ValBindsIn {}) = panic "tcRecSelBinds"
 
 tcHsBootSigs :: [(RecFlag, LHsBinds Name)] -> [LSig Name] -> TcM [Id]

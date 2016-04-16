@@ -486,9 +486,12 @@ tc_patsyn_finish lname dir is_infix lpat'
                 unzip (mkPatSynRecSelBinds patSyn (patSynFieldLabels patSyn))
        ; let tything = AConLike (PatSynCon patSyn)
        ; tcg_env <-
-          tcExtendGlobalEnv [tything] $
-            tcRecSelBinds
-              (ValBindsOut (zip (repeat NonRecursive) selector_binds) sigs)
+          tcExtendGlobalEnv [tything] $ do
+            { rec_sel_binds <- tcRecSelBinds
+                  (ValBindsOut (zip (repeat NonRecursive) selector_binds) sigs)
+            ; let binders = collectHsBindsBinders rec_sel_binds
+            ; tcg_env <- getGblEnv
+            ; tcExtendGlobalEnv binders $ addTypecheckedBinds tcg_env rec_sel_binds }
 
        ; traceTc "tc_patsyn_finish }" empty
        ; return (matcher_bind, tcg_env) }
