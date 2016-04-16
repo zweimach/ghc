@@ -49,6 +49,8 @@ import HsSyn
 import PrelNames
 import RdrName
 import TcHsSyn
+import TcTyDecls ( mkRecSelBinds )
+import TcPatSyn ( mkPatSynRecSelBinds )
 import TcExpr
 import TcRnMonad
 import TcEvidence
@@ -392,19 +394,28 @@ implicitPreludeWarn
   = text "Module `Prelude' implicitly imported"
 
 -- | Emit Typeable and record selector bindings
-addDerivedBinds :: hidden
+addDerivedBinds :: TcM TcGblEnv
 addDerivedBinds
  = do { -- Generate Typeable bindings
         typeable_binds <- mkTypeableBinds
-        -- Generate record selector bindings
+
+        -- Generate record selector bindings for data types
       ; tycons <- tcg_tcs `fmap` getGblEnv
       ; sel_binds <- tcRecSelBinds $ mkRecSelBinds tycons
+
+        -- Generate record selector bindings for pattern synonyms
+      ; patsyns <- tcg_patsyns `fmap` getGblEnv
+      ; patsyn_binds <- mapM (tcRecSelBinds . mkPatSynRecSelBinds) patsyns
+
         -- Collect the binders and add them to the environment
-      ; let binds = typeable_binds `unionBags` sel_binds
+      ; let binds = typeable_binds `unionBags`
+                    sel_binds `unionBags`
+                    concatBag (listToBag patsyn_binds)
             binders = collectHsBindsBinders binds
       ; tcg_env <- tcExtendGlobalValEnv binders getGblEnv
-        -- Add the bindings unless we are compiling a .hs-boot
-      ; return $ addTypecheckedBinds tcg_env binds
+
+        -- Add the bindings to the environment unless we are compiling a .hs-boot
+      ; return $ addTypecheckedBinds tcg_env [binds]
       }
 
 {-
@@ -500,7 +511,7 @@ tcRnSrcDecls explicit_mod_hdr decls
       ; setEnvs (tcg_env, tcl_env) $ do {
 
         -- Emit Typeable and record selector bindings
-      ; tcg_env <- setGblEnv tcg_env mkTypeableBinds
+      ; tcg_env <- setGblEnv tcg_env addDerivedBinds
 
       ; setGblEnv tcg_env $ do {
 
@@ -684,8 +695,8 @@ tcRnHsBootDecls hsc_src decls
              <- tcTyClsInstDecls tycl_decls inst_decls deriv_decls val_binds
         ; setGblEnv tcg_env     $ do {
 
-                -- Emit Typeable declarations
-        ; tcg_env <- setGblEnv tcg_env mkTypeableBinds
+                -- Emit Typeable and record selector declarations
+        ; tcg_env <- setGblEnv tcg_env addDerivedBinds
         ; setGblEnv tcg_env $ do {
 
                 -- Typecheck value declarations

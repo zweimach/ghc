@@ -9,6 +9,7 @@
 
 module TcPatSyn ( tcPatSynSig, tcInferPatSynDecl, tcCheckPatSynDecl
                 , tcPatSynBuilderBind, tcPatSynBuilderOcc, nonBidirectionalErr
+                , mkPatSynRecSelBinds
   ) where
 
 import HsSyn
@@ -29,7 +30,6 @@ import Outputable
 import FastString
 import Var
 import VarEnv( emptyTidyEnv )
-import Type( tidyTyCoVarBndrs, tidyTypes, tidyType )
 import Id
 import IdInfo( RecSelParent(..))
 import TcBinds
@@ -481,17 +481,9 @@ tc_patsyn_finish lname dir is_infix lpat'
                         matcher_id builder_id
                         field_labels'
 
-       -- Selectors
-       ; let (sigs, selector_binds) =
-                unzip (mkPatSynRecSelBinds patSyn (patSynFieldLabels patSyn))
+       -- Add the PatSyn to the environment
        ; let tything = AConLike (PatSynCon patSyn)
-       ; tcg_env <-
-          tcExtendGlobalEnv [tything] $ do
-            { rec_sel_binds <- tcRecSelBinds
-                  (ValBindsOut (zip (repeat NonRecursive) selector_binds) sigs)
-            ; let binders = collectHsBindsBinders rec_sel_binds
-            ; tcg_env <- getGblEnv
-            ; tcExtendGlobalEnv binders $ addTypecheckedBinds tcg_env rec_sel_binds }
+       ; tcg_env <- tcExtendGlobalEnv [tything] getGblEnv
 
        ; traceTc "tc_patsyn_finish }" empty
        ; return (matcher_bind, tcg_env) }
@@ -589,12 +581,14 @@ tcPatSynMatcher (L loc name) lpat
 
        ; return ((matcher_id, is_unlifted), matcher_bind) }
 
-mkPatSynRecSelBinds :: PatSyn
-                    -> [FieldLabel]
-                    -- ^ Visible field labels
-                    -> [(LSig Name, LHsBinds Name)]
-mkPatSynRecSelBinds ps fields = map mkRecSel fields
+-- | Build selector bindings for a record pattern synonym.
+mkPatSynRecSelBinds :: PatSyn -> HsValBinds Name
+mkPatSynRecSelBinds ps
+  = ValBindsOut (zip (repeat NonRecursive) binds) sigs
   where
+    (sigs, binds) = unzip $ map mkRecSel (patSynFieldLabels ps)
+
+    mkRecSel :: FieldLabel -> (LSig Name, LHsBinds Name)
     mkRecSel fld_lbl =
       case mkOneRecordSelector [PatSynCon ps] (RecSelPatSyn ps) fld_lbl of
         (name, (_rec_flag, binds)) -> (name, binds)
