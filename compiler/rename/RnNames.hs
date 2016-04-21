@@ -742,6 +742,7 @@ E.g.
      class    C a    where { data T a }
      instance C Int  where { data T Int = T1 | T2 }
      instance C Bool where { data T Int = T3 }
+
 Then M's export_avails are (recall the AvailTC invariant from Avails.hs)
   C(C,T), T(T,T1,T2,T3)
 Notice that T appears *twice*, once as a child and once as a parent.
@@ -754,9 +755,22 @@ If we say
    import M( T(T1,T2) )
 then we get *two* Avails:  C(T), T(T1,T2)
 
-Note that the imp_occ_env will have entries for data constructors too,
-although we never look up data constructors.
+Note that the imp_occ_env will have entries for data constructors and pattern
+synonyms as well. While we never look up data constructors, pattern synonyms
+must be considered since they may be bundled with data types. For instance,
+
+   module M (Vec(Nil)), pattern Nil) where
+     newtype Vec a = VecD [a]
+     pattern Nil = VecD []
+
+   module Main where
+     import M (Vec(..), Nil)
+
+Here we end up with the Nil pattern available in Main through both the explicit
+import and its bundled import through Vec. Module M's export avails are,
+   Vec(Nil), Nil
 -}
+
 
 filterImports
     :: ModIface
@@ -803,6 +817,8 @@ filterImports iface decl_spec (Just (want_hiding, L l import_items))
         -- appear twice in the all_avails. In the example, we combine
         --    T(T,T1,T2,T3) and C(C,T)  to give   (T, T(T,T1,T2,T3), Just C)
         -- And we can also see bundled pattern synonyms here (see #11959).
+        -- In the second example above we combine
+        --    Vec(Nil), Nil  to give  (Vec, Vec(Nil), Nothing)
         combine (name1, a1, mp1)
                 (name2, a2, mp2)
           = ASSERT( name1 == name2 && isNothing mp1 && isNothing mp2 )
