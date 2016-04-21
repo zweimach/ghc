@@ -736,7 +736,8 @@ For import M( ies ), we take the mi_exports of M, and make
 One entry for each Name that M exports; the AvailInfo describes just
 that Name.
 
-The situation is made more complicated by associated types. E.g.
+The situation is made more complicated by associated types and bundled patterns.
+E.g.
    module M where
      class    C a    where { data T a }
      instance C Int  where { data T Int = T1 | T2 }
@@ -798,14 +799,24 @@ filterImports iface decl_spec (Just (want_hiding, L l import_items))
                                      | a <- all_avails, n <- availNames a]
       where
         -- See example in Note [Dealing with imports]
-        -- 'combine' is only called for associated types which appear twice
-        -- in the all_avails. In the example, we combine
+        -- 'combine' is called for associated types which
+        -- appear twice in the all_avails. In the example, we combine
         --    T(T,T1,T2,T3) and C(C,T)  to give   (T, T(T,T1,T2,T3), Just C)
         combine (name1, a1@(AvailTC p1 _ []), mp1)
                 (name2, a2@(AvailTC p2 _ []), mp2)
           = ASSERT( name1 == name2 && isNothing mp1 && isNothing mp2 )
             if p1 == name1 then (name1, a1, Just p2)
                            else (name1, a2, Just p1)
+        -- We can also see bundled pattern synonyms here (see #11959).
+        combine (name1, a1@(Avail _ p1),      mp1)
+                (name2, a2@(AvailTC p2 _ []), mp2)
+          = ASSERT( name1 == name2 && isNothing mp1 && isNothing mp2 )
+            if p1 == name1 then (name1, a1, Just p2)
+                           else (name1, a2, Just p1)
+        combine x@(_,     (AvailTC _ _ _), _)
+                y@(_,     (Avail _ _),     _)
+          = combine y x
+        -- But these other cases should never happen
         combine x y = pprPanic "filterImports/combine" (ppr x $$ ppr y)
 
     lookup_name :: RdrName -> IELookupM (Name, AvailInfo, Maybe Name)
