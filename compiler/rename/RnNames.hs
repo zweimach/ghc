@@ -766,11 +766,11 @@ must be considered since they may be bundled with data types. For instance,
    module Main where
      import M (Vec(..), Nil)
 
-Here we end up with the Nil pattern available in Main through both the explicit
-import and its bundled import through Vec. Module M's export avails are,
+Module M's export avails are,
    Vec(Nil), Nil
+Therefore we end up with the Nil pattern available in Main through both the
+explicit import and its bundled import through Vec.
 -}
-
 
 filterImports
     :: ModIface
@@ -827,7 +827,8 @@ filterImports iface decl_spec (Just (want_hiding, L l import_items))
           where
             thingName (AvailTC p _ [])   = p
             thingName (Avail IsPatSyn p) = p
-            thingName a                  = pprPanic "filterImports/combine/thingName" (ppr a)
+            thingName a                  =
+                pprPanic "filterImports/combine/thingName" (ppr a)
             p1 = thingName a1
             p2 = thingName a2
 
