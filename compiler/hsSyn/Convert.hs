@@ -350,6 +350,33 @@ cvtDec (TH.DefaultSigD nm typ)
   = do { nm' <- vNameL nm
        ; ty' <- cvtType typ
        ; returnJustL $ Hs.SigD $ ClassOpSig True [nm'] (mkLHsSigType ty') }
+
+cvtDec (TH.PatSynD nm args dir pat)
+  = do { nm'   <- cNameL nm
+       ; args' <- cvtArgs args
+       ; dir'  <- cvtDir dir
+       ; pat'  <- cvtPat pat
+       ; returnJustL $ Hs.ValD $ PatSynBind $
+           PSB nm' placeHolderType args' pat' dir' }
+  where
+    cvtArgs (TH.PrefixPatSyn args) = Hs.PrefixPatSyn <$> mapM vNameL args
+    cvtArgs (TH.InfixPatSyn a1 a2) = Hs.InfixPatSyn <$> vNameL a1 <*> vNameL a2
+    cvtArgs (TH.RecordPatSyn sels)
+      = do { sels' <- mapM vNameL sels
+           ; vars' <- mapM (vNameL . mkNameS . nameBase) sels
+           ; return $ Hs.RecordPatSyn $ zipWith RecordPatSynField sels' vars' }
+
+    cvtDir Unidir          = return Unidirectional
+    cvtDir ImplBidir       = return ImplicitBidirectional
+    cvtDir (ExplBidir cls) =
+      do { ms <- mapM cvtClause cls
+         ; return $ ExplicitBidirectional $ mkMatchGroup FromSource ms }
+
+cvtDec (TH.PatSynSigD nm ty)
+  = do { nm' <- cNameL nm
+       ; ty' <- cvtPatSynSigTy ty
+       ; returnJustL $ Hs.SigD $ PatSynSig nm' (mkLHsSigType ty') }
+
 ----------------
 cvtTySynEqn :: Located RdrName -> TySynEqn -> CvtM (LTyFamInstEqn RdrName)
 cvtTySynEqn tc (TySynEqn lhs rhs)
@@ -725,9 +752,9 @@ cvtl e = wrapL (cvt e)
       | overloadedLit l = do { l' <- cvtOverLit l; return $ HsOverLit l' }
       | otherwise       = do { l' <- cvtLit l;     return $ HsLit l' }
     cvt (AppE x@(LamE _ _) y) = do { x' <- cvtl x; y' <- cvtl y
-                              ; return $ HsApp (mkLHsPar x') y' }
+                                   ; return $ HsApp (mkLHsPar x') y' }
     cvt (AppE x y)            = do { x' <- cvtl x; y' <- cvtl y
-                              ; return $ HsApp x' y' }
+                                   ; return $ HsApp x' y' }
     cvt (LamE ps e)    = do { ps' <- cvtPats ps; e' <- cvtl e
                             ; return $ HsLam (mkMatchGroup FromSource [mkSimpleMatch ps' e']) }
     cvt (LamCaseE ms)  = do { ms' <- mapM cvtMatch ms
@@ -1275,6 +1302,30 @@ cvtInjectivityAnnotation (TH.InjectivityAnn annLHS annRHS)
   = do { annLHS' <- tNameL annLHS
        ; annRHS' <- mapM tNameL annRHS
        ; returnL (Hs.InjectivityAnn annLHS' annRHS') }
+
+cvtPatSynSigTy :: TH.Type -> CvtM (LHsType RdrName)
+-- this implements cvtType for pattern synonyms signatures, where we
+-- convert a first ForallT type containing an empty constraint context
+-- to a HsQualTy that also reflects this empty context. This is to
+-- represent the (potentially) empty required constraints of pattern
+-- synonym types faithfully. See the GHC users guide for more
+-- information on pattern synonym and their types.
+cvtPatSynSigTy (ForallT univs reqs (ForallT exis provs ty))
+  | null exis, null provs = cvtType (ForallT univs reqs ty)
+  | null univs, null reqs = do { l   <- getL
+                               ; ty' <- cvtType (ForallT exis provs ty)
+                               ; return $ L l (HsQualTy { hst_ctxt = L l []
+                                                        , hst_body = ty' }) }
+  | null reqs             = do { l      <- getL
+                               ; univs' <- hsQTvExplicit <$> cvtTvs univs
+                               ; ty'    <- cvtType (ForallT exis provs ty)
+                               ; let forTy = HsForAllTy { hst_bndrs = univs'
+                                                        , hst_body = L l cxtTy }
+                                     cxtTy = HsQualTy { hst_ctxt = L l []
+                                                      , hst_body = ty' }
+                               ; return $ L l forTy }
+  | otherwise             = cvtType (ForallT univs reqs (ForallT exis provs ty))
+cvtPatSynSigTy ty = cvtType ty
 
 -----------------------------------------------------------
 cvtFixity :: TH.Fixity -> Hs.Fixity

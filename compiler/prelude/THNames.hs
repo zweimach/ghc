@@ -72,6 +72,7 @@ templateHaskellNames = [
     dataInstDName, newtypeInstDName, tySynInstDName,
     infixLDName, infixRDName, infixNDName,
     roleAnnotDName,
+    patSynDName, patSynSigDName,
     -- Cxt
     cxtName,
 
@@ -87,6 +88,10 @@ templateHaskellNames = [
     bangTypeName,
     -- VarBangType
     varBangTypeName,
+    -- PatSynDir (for pattern synonyms)
+    unidirPatSynName, implBidirPatSynName, explBidirPatSynName,
+    -- PatSynArgs (for pattern synonyms)
+    prefixPatSynName, infixPatSynName, recordPatSynName,
     -- Type
     forallTName, varTName, conTName, appTName, equalityTName,
     tupleTName, unboxedTupleTName, arrowTName, listTName, sigTName, litTName,
@@ -325,10 +330,10 @@ funDName, valDName, dataDName, newtypeDName, tySynDName, classDName,
     instanceWithOverlapDName, sigDName, forImpDName, pragInlDName,
     pragSpecDName,
     pragSpecInlDName, pragSpecInstDName, pragRuleDName, pragAnnDName,
-    standaloneDerivDName, defaultSigDName,
-    dataInstDName, newtypeInstDName, tySynInstDName,
-    dataFamilyDName, openTypeFamilyDName, closedTypeFamilyDName,
-    infixLDName, infixRDName, infixNDName, roleAnnotDName :: Name
+    standaloneDerivDName, defaultSigDName, dataInstDName, newtypeInstDName,
+    tySynInstDName, dataFamilyDName, openTypeFamilyDName, closedTypeFamilyDName,
+    infixLDName, infixRDName, infixNDName, roleAnnotDName, patSynDName,
+    patSynSigDName :: Name
 funDName             = libFun (fsLit "funD")              funDIdKey
 valDName             = libFun (fsLit "valD")              valDIdKey
 dataDName            = libFun (fsLit "dataD")             dataDIdKey
@@ -358,6 +363,8 @@ infixLDName          = libFun (fsLit "infixLD")           infixLDIdKey
 infixRDName          = libFun (fsLit "infixRD")           infixRDIdKey
 infixNDName          = libFun (fsLit "infixND")           infixNDIdKey
 roleAnnotDName       = libFun (fsLit "roleAnnotD")        roleAnnotDIdKey
+patSynDName          = libFun (fsLit "patSynD")           patSynDIdKey
+patSynSigDName       = libFun (fsLit "patSynSigD")        patSynSigDIdKey
 
 -- type Ctxt = ...
 cxtName :: Name
@@ -395,6 +402,18 @@ bangTypeName = libFun (fsLit "bangType") bangTKey
 -- type VarBangType = ...
 varBangTypeName :: Name
 varBangTypeName = libFun (fsLit "varBangType") varBangTKey
+
+-- data PatSynDir = ...
+unidirPatSynName, implBidirPatSynName, explBidirPatSynName :: Name
+unidirPatSynName    = libFun (fsLit "unidir")    unidirPatSynIdKey
+implBidirPatSynName = libFun (fsLit "implBidir") implBidirPatSynIdKey
+explBidirPatSynName = libFun (fsLit "explBidir") explBidirPatSynIdKey
+
+-- data PatSynArgs = ...
+prefixPatSynName, infixPatSynName, recordPatSynName :: Name
+prefixPatSynName = libFun (fsLit "prefixPatSyn") prefixPatSynIdKey
+infixPatSynName  = libFun (fsLit "infixPatSyn")  infixPatSynIdKey
+recordPatSynName = libFun (fsLit "recordPatSyn") recordPatSynIdKey
 
 -- data Type = ...
 forallTName, varTName, conTName, tupleTName, unboxedTupleTName, arrowTName,
@@ -809,7 +828,7 @@ funDIdKey, valDIdKey, dataDIdKey, newtypeDIdKey, tySynDIdKey,
     pragAnnDIdKey, defaultSigDIdKey, dataFamilyDIdKey, openTypeFamilyDIdKey,
     closedTypeFamilyDIdKey, dataInstDIdKey, newtypeInstDIdKey, tySynInstDIdKey,
     standaloneDerivDIdKey, infixLDIdKey, infixRDIdKey, infixNDIdKey,
-    roleAnnotDIdKey :: Unique
+    roleAnnotDIdKey, patSynDIdKey, patSynSigDIdKey :: Unique
 funDIdKey              = mkPreludeMiscIdUnique 330
 valDIdKey              = mkPreludeMiscIdUnique 331
 dataDIdKey             = mkPreludeMiscIdUnique 332
@@ -837,6 +856,8 @@ infixNDIdKey           = mkPreludeMiscIdUnique 354
 roleAnnotDIdKey        = mkPreludeMiscIdUnique 355
 standaloneDerivDIdKey  = mkPreludeMiscIdUnique 356
 defaultSigDIdKey       = mkPreludeMiscIdUnique 357
+patSynDIdKey           = mkPreludeMiscIdUnique 358
+patSynSigDIdKey        = mkPreludeMiscIdUnique 359
 
 -- type Cxt = ...
 cxtIdKey :: Unique
@@ -876,113 +897,125 @@ bangTKey          = mkPreludeMiscIdUnique 377
 varBangTKey :: Unique
 varBangTKey       = mkPreludeMiscIdUnique 378
 
+-- data PatSynDir = ...
+unidirPatSynIdKey, implBidirPatSynIdKey, explBidirPatSynIdKey :: Unique
+unidirPatSynIdKey    = mkPreludeMiscIdUnique 379
+implBidirPatSynIdKey = mkPreludeMiscIdUnique 380
+explBidirPatSynIdKey = mkPreludeMiscIdUnique 381
+
+-- data PatSynArgs = ...
+prefixPatSynIdKey, infixPatSynIdKey, recordPatSynIdKey :: Unique
+prefixPatSynIdKey = mkPreludeMiscIdUnique 382
+infixPatSynIdKey  = mkPreludeMiscIdUnique 383
+recordPatSynIdKey = mkPreludeMiscIdUnique 384
+
 -- data Type = ...
 forallTIdKey, varTIdKey, conTIdKey, tupleTIdKey, unboxedTupleTIdKey, arrowTIdKey,
     listTIdKey, appTIdKey, sigTIdKey, equalityTIdKey, litTIdKey,
     promotedTIdKey, promotedTupleTIdKey,
     promotedNilTIdKey, promotedConsTIdKey,
     wildCardTIdKey :: Unique
-forallTIdKey        = mkPreludeMiscIdUnique 380
-varTIdKey           = mkPreludeMiscIdUnique 381
-conTIdKey           = mkPreludeMiscIdUnique 382
-tupleTIdKey         = mkPreludeMiscIdUnique 383
-unboxedTupleTIdKey  = mkPreludeMiscIdUnique 384
-arrowTIdKey         = mkPreludeMiscIdUnique 385
-listTIdKey          = mkPreludeMiscIdUnique 386
-appTIdKey           = mkPreludeMiscIdUnique 387
-sigTIdKey           = mkPreludeMiscIdUnique 388
-equalityTIdKey      = mkPreludeMiscIdUnique 389
-litTIdKey           = mkPreludeMiscIdUnique 390
-promotedTIdKey      = mkPreludeMiscIdUnique 391
-promotedTupleTIdKey = mkPreludeMiscIdUnique 392
-promotedNilTIdKey   = mkPreludeMiscIdUnique 393
-promotedConsTIdKey  = mkPreludeMiscIdUnique 394
-wildCardTIdKey      = mkPreludeMiscIdUnique 395
+forallTIdKey        = mkPreludeMiscIdUnique 400
+varTIdKey           = mkPreludeMiscIdUnique 401
+conTIdKey           = mkPreludeMiscIdUnique 402
+tupleTIdKey         = mkPreludeMiscIdUnique 403
+unboxedTupleTIdKey  = mkPreludeMiscIdUnique 404
+arrowTIdKey         = mkPreludeMiscIdUnique 405
+listTIdKey          = mkPreludeMiscIdUnique 406
+appTIdKey           = mkPreludeMiscIdUnique 407
+sigTIdKey           = mkPreludeMiscIdUnique 408
+equalityTIdKey      = mkPreludeMiscIdUnique 409
+litTIdKey           = mkPreludeMiscIdUnique 410
+promotedTIdKey      = mkPreludeMiscIdUnique 411
+promotedTupleTIdKey = mkPreludeMiscIdUnique 412
+promotedNilTIdKey   = mkPreludeMiscIdUnique 413
+promotedConsTIdKey  = mkPreludeMiscIdUnique 414
+wildCardTIdKey      = mkPreludeMiscIdUnique 415
 
 -- data TyLit = ...
 numTyLitIdKey, strTyLitIdKey :: Unique
-numTyLitIdKey = mkPreludeMiscIdUnique 400
-strTyLitIdKey = mkPreludeMiscIdUnique 401
+numTyLitIdKey = mkPreludeMiscIdUnique 420
+strTyLitIdKey = mkPreludeMiscIdUnique 421
 
 -- data TyVarBndr = ...
 plainTVIdKey, kindedTVIdKey :: Unique
-plainTVIdKey       = mkPreludeMiscIdUnique 402
-kindedTVIdKey      = mkPreludeMiscIdUnique 403
+plainTVIdKey       = mkPreludeMiscIdUnique 422
+kindedTVIdKey      = mkPreludeMiscIdUnique 423
 
 -- data Role = ...
 nominalRIdKey, representationalRIdKey, phantomRIdKey, inferRIdKey :: Unique
-nominalRIdKey          = mkPreludeMiscIdUnique 404
-representationalRIdKey = mkPreludeMiscIdUnique 405
-phantomRIdKey          = mkPreludeMiscIdUnique 406
-inferRIdKey            = mkPreludeMiscIdUnique 407
+nominalRIdKey          = mkPreludeMiscIdUnique 424
+representationalRIdKey = mkPreludeMiscIdUnique 425
+phantomRIdKey          = mkPreludeMiscIdUnique 426
+inferRIdKey            = mkPreludeMiscIdUnique 427
 
 -- data Kind = ...
 varKIdKey, conKIdKey, tupleKIdKey, arrowKIdKey, listKIdKey, appKIdKey,
   starKIdKey, constraintKIdKey :: Unique
-varKIdKey         = mkPreludeMiscIdUnique 408
-conKIdKey         = mkPreludeMiscIdUnique 409
-tupleKIdKey       = mkPreludeMiscIdUnique 410
-arrowKIdKey       = mkPreludeMiscIdUnique 411
-listKIdKey        = mkPreludeMiscIdUnique 412
-appKIdKey         = mkPreludeMiscIdUnique 413
-starKIdKey        = mkPreludeMiscIdUnique 414
-constraintKIdKey  = mkPreludeMiscIdUnique 415
+varKIdKey         = mkPreludeMiscIdUnique 430
+conKIdKey         = mkPreludeMiscIdUnique 431
+tupleKIdKey       = mkPreludeMiscIdUnique 432
+arrowKIdKey       = mkPreludeMiscIdUnique 433
+listKIdKey        = mkPreludeMiscIdUnique 434
+appKIdKey         = mkPreludeMiscIdUnique 435
+starKIdKey        = mkPreludeMiscIdUnique 436
+constraintKIdKey  = mkPreludeMiscIdUnique 437
 
 -- data FamilyResultSig = ...
 noSigIdKey, kindSigIdKey, tyVarSigIdKey :: Unique
-noSigIdKey        = mkPreludeMiscIdUnique 416
-kindSigIdKey      = mkPreludeMiscIdUnique 417
-tyVarSigIdKey     = mkPreludeMiscIdUnique 418
+noSigIdKey        = mkPreludeMiscIdUnique 440
+kindSigIdKey      = mkPreludeMiscIdUnique 441
+tyVarSigIdKey     = mkPreludeMiscIdUnique 442
 
 -- data InjectivityAnn = ...
 injectivityAnnIdKey :: Unique
-injectivityAnnIdKey = mkPreludeMiscIdUnique 419
+injectivityAnnIdKey = mkPreludeMiscIdUnique 443
 
 -- data Callconv = ...
 cCallIdKey, stdCallIdKey, cApiCallIdKey, primCallIdKey,
   javaScriptCallIdKey :: Unique
-cCallIdKey          = mkPreludeMiscIdUnique 420
-stdCallIdKey        = mkPreludeMiscIdUnique 421
-cApiCallIdKey       = mkPreludeMiscIdUnique 422
-primCallIdKey       = mkPreludeMiscIdUnique 423
-javaScriptCallIdKey = mkPreludeMiscIdUnique 424
+cCallIdKey          = mkPreludeMiscIdUnique 450
+stdCallIdKey        = mkPreludeMiscIdUnique 451
+cApiCallIdKey       = mkPreludeMiscIdUnique 452
+primCallIdKey       = mkPreludeMiscIdUnique 453
+javaScriptCallIdKey = mkPreludeMiscIdUnique 454
 
 -- data Safety = ...
 unsafeIdKey, safeIdKey, interruptibleIdKey :: Unique
-unsafeIdKey        = mkPreludeMiscIdUnique 430
-safeIdKey          = mkPreludeMiscIdUnique 431
-interruptibleIdKey = mkPreludeMiscIdUnique 432
+unsafeIdKey        = mkPreludeMiscIdUnique 460
+safeIdKey          = mkPreludeMiscIdUnique 461
+interruptibleIdKey = mkPreludeMiscIdUnique 462
 
 -- data FunDep = ...
 funDepIdKey :: Unique
-funDepIdKey = mkPreludeMiscIdUnique 440
+funDepIdKey = mkPreludeMiscIdUnique 470
 
 -- data FamFlavour = ...
 typeFamIdKey, dataFamIdKey :: Unique
-typeFamIdKey = mkPreludeMiscIdUnique 450
-dataFamIdKey = mkPreludeMiscIdUnique 451
+typeFamIdKey = mkPreludeMiscIdUnique 480
+dataFamIdKey = mkPreludeMiscIdUnique 481
 
 -- data TySynEqn = ...
 tySynEqnIdKey :: Unique
-tySynEqnIdKey = mkPreludeMiscIdUnique 460
+tySynEqnIdKey = mkPreludeMiscIdUnique 490
 
 -- quasiquoting
 quoteExpKey, quotePatKey, quoteDecKey, quoteTypeKey :: Unique
-quoteExpKey  = mkPreludeMiscIdUnique 470
-quotePatKey  = mkPreludeMiscIdUnique 471
-quoteDecKey  = mkPreludeMiscIdUnique 472
-quoteTypeKey = mkPreludeMiscIdUnique 473
+quoteExpKey  = mkPreludeMiscIdUnique 510
+quotePatKey  = mkPreludeMiscIdUnique 511
+quoteDecKey  = mkPreludeMiscIdUnique 512
+quoteTypeKey = mkPreludeMiscIdUnique 513
 
 -- data RuleBndr = ...
 ruleVarIdKey, typedRuleVarIdKey :: Unique
-ruleVarIdKey      = mkPreludeMiscIdUnique 480
-typedRuleVarIdKey = mkPreludeMiscIdUnique 481
+ruleVarIdKey      = mkPreludeMiscIdUnique 520
+typedRuleVarIdKey = mkPreludeMiscIdUnique 521
 
 -- data AnnTarget = ...
 valueAnnotationIdKey, typeAnnotationIdKey, moduleAnnotationIdKey :: Unique
-valueAnnotationIdKey  = mkPreludeMiscIdUnique 490
-typeAnnotationIdKey   = mkPreludeMiscIdUnique 491
-moduleAnnotationIdKey = mkPreludeMiscIdUnique 492
+valueAnnotationIdKey  = mkPreludeMiscIdUnique 530
+typeAnnotationIdKey   = mkPreludeMiscIdUnique 531
+moduleAnnotationIdKey = mkPreludeMiscIdUnique 532
 
 {-
 ************************************************************************

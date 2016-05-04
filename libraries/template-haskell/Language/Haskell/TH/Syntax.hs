@@ -1231,6 +1231,11 @@ data Info
        Type
        ParentName
 
+  -- | A pattern synonym.
+  | PatSynI
+       Name
+       PatSynType
+
   {- |
   A \"value\" variable (as opposed to a type variable, see 'TyVarI').
 
@@ -1548,6 +1553,19 @@ data Dec
   | RoleAnnotD Name [Role]        -- ^ @{ type role T nominal representational }@
   | StandaloneDerivD Cxt Type     -- ^ @{ deriving instance Ord a => Ord (Foo a) }@
   | DefaultSigD Name Type         -- ^ @{ default size :: Data a => a -> Int }@
+
+  -- | Pattern Synonyms
+  | PatSynD Name PatSynArgs PatSynDir Pat
+      -- ^ @{ pattern P v1 v2 .. vn <- p }@  unidirectional           or
+      --   @{ pattern P v1 v2 .. vn = p  }@  implicit bidirectional   or
+      --   @{ pattern P v1 v2 .. vn <- p
+      --        where P v1 v2 .. vn = e  }@  explicit bidirectional
+      --
+      -- also, besides prefix pattern synonyms, both infix and record
+      -- pattern synonyms are supported. See 'PatSynArgs' for details
+
+  | PatSynSigD Name PatSynType -- ^ A pattern synonym's type signature.
+
   deriving( Show, Eq, Ord, Data, Typeable, Generic )
 
 -- | Varieties of allowed instance overlap.
@@ -1558,6 +1576,53 @@ data Overlap = Overlappable   -- ^ May be overlapped by more specific instances
                               -- pick an arbitrary one if multiple choices are
                               -- available.
   deriving( Show, Eq, Ord, Data, Typeable, Generic )
+
+-- | A Pattern synonym's type. Note that a pattern synonym's *fully*
+-- specified type has a peculiar shape coming with two forall
+-- quantifiers and two constraint contexts. For example, consider the
+-- pattern synonym
+--
+--   pattern P x1 x2 ... xn = <some-pattern>
+--
+-- P's complete type is of the following form
+--
+--   forall universals. required constraints
+--     => forall existentials. provided constraints
+--     => t1 -> t2 -> ... -> tn -> t
+--
+-- where
+--
+--   1) the (possibly empty lists of) universally quantified type
+--      variables and required constraints on them.
+--   2) the (possibly empty lists of) existentially quantified
+--      type variables and the provided constraints on them.
+--   3) the types t1, t2, .., tn of x1, x2, .., xn, respectively
+--   4) the type t of <some-pattern>, mentioning only universals.
+--
+-- Pattern synonym types interact with TH when (a) reifying a pattern
+-- synonym, (b) pretty printing, or (c) specifying a pattern synonym's
+-- type signature explicitly:
+--
+-- (a) Reification always returns a pattern synonym's *fully* specified
+--     type in abstract syntax.
+--
+-- (b) Pretty printing via 'pprPatSynType' abbreviates a pattern
+--     synonym's type unambiguously in concrete syntax: The rule of
+--     thumb is to print initial empty universals and the required
+--     context as `() =>`, if existentials and a provided context
+--     follow. If only universals and their required context, but no
+--     existentials are specified, only the universals and their
+--     required context are printed. If both or none are specified, so
+--     both (or none) are printed.
+--
+-- (c) When specifying a pattern synonym's type explicitly with
+--     'PatSynSigD' either one of the universals, the existentials, or
+--     their contexts may be left empty.
+--
+-- See the GHC users guide for more information on pattern synonyms
+-- and their types: https://downloads.haskell.org/~ghc/latest/docs/html/
+-- users_guide/syntax-extns.html#pattern-synonyms.
+type PatSynType = Type
 
 -- | Common elements of 'OpenTypeFamilyD' and 'ClosedTypeFamilyD'.
 -- By analogy with with "head" for type classes and type class instances as
@@ -1706,6 +1771,20 @@ type StrictType    = BangType
 -- | As of @template-haskell-2.11.0.0@, 'VarStrictType' has been replaced by
 -- 'VarBangType'.
 type VarStrictType = VarBangType
+
+-- | A pattern synonym's directionality.
+data PatSynDir
+  = Unidir             -- ^ @pattern P x {<-} p@
+  | ImplBidir          -- ^ @pattern P x {=} p@
+  | ExplBidir [Clause] -- ^ @pattern P x {<-} p where P x = e@
+  deriving( Show, Eq, Ord, Data, Typeable, Generic )
+
+-- | A pattern synonym's argument type.
+data PatSynArgs
+  = PrefixPatSyn [Name]        -- ^ @pattern P {x y z} = p@
+  | InfixPatSyn Name Name      -- ^ @pattern {x P y} = p@
+  | RecordPatSyn [Name]        -- ^ @pattern P { {x,y,z} } = p@
+  deriving( Show, Eq, Ord, Data, Typeable, Generic )
 
 data Type = ForallT [TyVarBndr] Cxt Type  -- ^ @forall \<vars\>. \<ctxt\> -> \<type\>@
           | AppT Type Type                -- ^ @T a b@
