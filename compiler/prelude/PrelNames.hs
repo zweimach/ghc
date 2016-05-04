@@ -2143,14 +2143,14 @@ ghciStepIoMClassOpKey = mkPreludeMiscIdUnique 197
 isListClassKey, fromListClassOpKey, fromListNClassOpKey, toListClassOpKey :: Unique
 isListClassKey = mkPreludeMiscIdUnique 198
 fromListClassOpKey = mkPreludeMiscIdUnique 199
-fromListNClassOpKey = mkPreludeMiscIdUnique 500
-toListClassOpKey = mkPreludeMiscIdUnique 501
+fromListNClassOpKey = mkPreludeMiscIdUnique 600
+toListClassOpKey = mkPreludeMiscIdUnique 601
 
 proxyHashKey :: Unique
-proxyHashKey = mkPreludeMiscIdUnique 502
+proxyHashKey = mkPreludeMiscIdUnique 602
 
 ---------------- Template Haskell -------------------
---      THNames.hs: USES IdUniques 200-499
+--      THNames.hs: USES IdUniques 200-599
 -----------------------------------------------------
 
 -- Used to make `Typeable` dictionaries
@@ -2161,38 +2161,38 @@ mkTyConKey
   , typeSymbolTypeRepKey
   , typeRepIdKey
   :: Unique
-mkTyConKey            = mkPreludeMiscIdUnique 503
-mkPolyTyConAppKey     = mkPreludeMiscIdUnique 504
-mkAppTyKey            = mkPreludeMiscIdUnique 505
-typeNatTypeRepKey     = mkPreludeMiscIdUnique 506
-typeSymbolTypeRepKey  = mkPreludeMiscIdUnique 507
-typeRepIdKey          = mkPreludeMiscIdUnique 508
+mkTyConKey            = mkPreludeMiscIdUnique 603
+mkPolyTyConAppKey     = mkPreludeMiscIdUnique 604
+mkAppTyKey            = mkPreludeMiscIdUnique 605
+typeNatTypeRepKey     = mkPreludeMiscIdUnique 606
+typeSymbolTypeRepKey  = mkPreludeMiscIdUnique 607
+typeRepIdKey          = mkPreludeMiscIdUnique 608
 
 -- Dynamic
 toDynIdKey :: Unique
-toDynIdKey            = mkPreludeMiscIdUnique 509
+toDynIdKey            = mkPreludeMiscIdUnique 609
 
 bitIntegerIdKey :: Unique
-bitIntegerIdKey       = mkPreludeMiscIdUnique 510
+bitIntegerIdKey       = mkPreludeMiscIdUnique 610
 
 heqSCSelIdKey, coercibleSCSelIdKey :: Unique
-heqSCSelIdKey       = mkPreludeMiscIdUnique 511
-coercibleSCSelIdKey = mkPreludeMiscIdUnique 512
+heqSCSelIdKey       = mkPreludeMiscIdUnique 611
+coercibleSCSelIdKey = mkPreludeMiscIdUnique 612
 
 sappendClassOpKey :: Unique
-sappendClassOpKey = mkPreludeMiscIdUnique 513
+sappendClassOpKey = mkPreludeMiscIdUnique 613
 
 memptyClassOpKey, mappendClassOpKey, mconcatClassOpKey :: Unique
-memptyClassOpKey  = mkPreludeMiscIdUnique 514
-mappendClassOpKey = mkPreludeMiscIdUnique 515
-mconcatClassOpKey = mkPreludeMiscIdUnique 516
+memptyClassOpKey  = mkPreludeMiscIdUnique 614
+mappendClassOpKey = mkPreludeMiscIdUnique 615
+mconcatClassOpKey = mkPreludeMiscIdUnique 616
 
 emptyCallStackKey, pushCallStackKey :: Unique
-emptyCallStackKey = mkPreludeMiscIdUnique 517
-pushCallStackKey  = mkPreludeMiscIdUnique 518
+emptyCallStackKey = mkPreludeMiscIdUnique 617
+pushCallStackKey  = mkPreludeMiscIdUnique 618
 
 fromStaticPtrClassOpKey :: Unique
-fromStaticPtrClassOpKey = mkPreludeMiscIdUnique 519
+fromStaticPtrClassOpKey = mkPreludeMiscIdUnique 619
 
 {-
 ************************************************************************
