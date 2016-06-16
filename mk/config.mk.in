@@ -260,7 +260,7 @@ GhcLibWays = v
 # In addition to the normal sequential way, the default is to also build
 # profiled prelude libraries
 # $(if $(filter ...)) allows controlling this expression from build.mk.
-GhcLibWays += $(if $(filter $(BUILD_PROF_LIBS),NO),,p_l)
+GhcLibWays += $(if $(filter $(BUILD_PROF_LIBS),NO),,p)
 
 # Backward compatibility: although it would be cleaner to test for
 # PlatformSupportsSharedLibs, or perhaps a new variable BUILD_SHARED_LIBS,
@@ -275,16 +275,19 @@ BuildSharedLibs=$(strip $(if $(findstring dyn,$(GhcLibWays)),YES,NO))
 # make sense here:
 #
 #   thr           : threaded
-#   thr_p_l       : threaded + profiled + event logging
+#   thr_p         : threaded + profiled + event logging
 #   debug         : debugging (compile with -g for the C compiler, and -DDEBUG)
-#   debug_p_l     : debugging + profiled + event logging
 #   thr_debug     : debugging + threaded,
-#   thr_debug_p_l : debugging + threaded + profiled + event logging
 #   l             : event logging
-#   p_l           : profiled + event logging
+#   p             : profiled + event logging
 #   thr_l         : threaded + event logging
 #
-# Note how there is no plain "profiled" way, only p_l.
+# Note how there are a few cases which are handled specially (in packageHsLibs)
+# to reduce the number of distinct ways,
+#
+#   debug     implies  eventlog
+#   profiled  implies  eventlog
+#
 GhcRTSWays=l
 
 # Usually want the debug version
@@ -293,7 +296,7 @@ GhcRTSWays += debug
 # We always have the threaded versions, but note that SMP support may be disabled
 # (see GhcWithSMP).
 GhcRTSWays += thr thr_debug thr_l
-GhcRTSWays += $(if $(findstring p_l, $(GhcLibWays)),p_l thr_p_l,)
+GhcRTSWays += $(if $(findstring p, $(GhcLibWays)),thr_p,)
 GhcRTSWays += $(if $(findstring dyn, $(GhcLibWays)),dyn debug_dyn thr_dyn thr_debug_dyn l_dyn thr_l_dyn,)
 
 # We can only build GHCi threaded if we have a threaded RTS:

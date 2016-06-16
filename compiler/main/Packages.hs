@@ -1234,7 +1234,7 @@ packageHsLibs dflags p = map (mkDynName . addSuffix) (hsLibraries p)
         -- we leave out the _dyn, because it is superfluous
 
         -- debug RTS includes support for -eventlog
-        ways2 | WayDebug `elem` ways1
+        ways2 | WayDebug `elem` ways1 || WayProf `elem` ways1
               = filter (/= WayEventLog) ways1
               | otherwise
               = ways1
