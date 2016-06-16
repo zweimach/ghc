@@ -169,16 +169,20 @@ list.
 
 .. ghc-flag:: -fdicts-cheap
 
+    :default: off
+
     A very experimental flag that makes dictionary-valued expressions
     seem cheap to the optimiser.
 
 .. ghc-flag:: -fdicts-strict
 
+    :default: off
+
     Make dictionaries strict.
 
 .. ghc-flag:: -fdmd-tx-dict-sel
 
-    *On by default for ``-O0``, ``-O``, ``-O2``.*
+    :default: on for :ghc-flag:`-O0`, :ghc-flag:`-O1`, :ghc-flag:`-O2`
 
     Use a special demand transformer for dictionary selectors.
 
@@ -197,12 +201,16 @@ list.
 
 .. ghc-flag:: -feager-blackholing
 
+    :default: off
+
     Usually GHC black-holes a thunk only when it switches threads. This
     flag makes it do so as soon as the thunk is entered. See `Haskell on
     a shared-memory
     multiprocessor <http://research.microsoft.com/en-us/um/people/simonpj/papers/parallel/>`__.
 
 .. ghc-flag:: -fexcess-precision
+
+    :default: off
 
     When this option is given, intermediate floating point values can
     have a *greater* precision/range than the final type. Generally this
@@ -211,11 +219,13 @@ list.
     this option for their compilation.
 
     Note that the 32-bit x86 native code generator only supports
-    excess-precision mode, so neither ``-fexcess-precision`` nor
-    ``-fno-excess-precision`` has any effect. This is a known bug, see
+    excess-precision mode, so neither :ghc-flag:`-fexcess-precision` nor
+    :ghc-flag:`-fno-excess-precision` has any effect. This is a known bug, see
     :ref:`bugs-ghc`.
 
 .. ghc-flag:: -fexpose-all-unfoldings
+
+    :default: off
 
     An experimental flag to expose all unfoldings, even for very large
     or recursive functions. This allows for all functions to be inlined
@@ -298,11 +308,12 @@ list.
 
 .. ghc-flag:: -fliberate-case
 
-    *Off by default, but enabled by -O2.* Turn on the liberate-case
-    transformation. This unrolls recursive function once in its own RHS,
-    to avoid repeated case analysis of free variables. It's a bit like
-    the call-pattern specialiser (:ghc-flag:`-fspec-constr`) but for free
-    variables rather than arguments.
+    :default: off, but enabled by :ghc-utils:`-O2`.
+
+    Turn on the liberate-case transformation. This unrolls recursive function
+    once in its own RHS, to avoid repeated case analysis of free variables. It's
+    a bit like the call-pattern specialiser (:ghc-flag:`-fspec-constr`) but for
+    free variables rather than arguments.
 
 .. ghc-flag:: -fliberate-case-threshold=<n>
 
@@ -348,9 +359,9 @@ list.
     The type checker sometimes displays a fragment of the type
     environment in error messages, but only up to some maximum number,
     set by this flag. Turning it off with
-    ``-fno-max-relevant-bindings`` gives an unlimited number.
+    :ghc-flag:`-fno-max-relevant-bindings` gives an unlimited number.
     Syntactically top-level bindings are also usually excluded (since
-    they may be numerous), but ``-fno-max-relevant-bindings`` includes
+    they may be numerous), but :ghc-flag:`-fno-max-relevant-bindings` includes
     them too.
 
 .. ghc-flag:: -fmax-uncovered-patterns=<n>
@@ -384,18 +395,18 @@ list.
 
     Turn off the "state hack" whereby any lambda with a ``State#`` token
     as argument is considered to be single-entry, hence it is considered
-    okay to inline things inside it. This can improve performance of IO
-    and ST monad code, but it runs the risk of reducing sharing.
+    okay to inline things inside it. This can improve performance of ``IO``
+    and ``ST`` monad code, but it runs the risk of reducing sharing.
 
 .. ghc-flag:: -fomit-interface-pragmas
 
     Tells GHC to omit all inessential information from the interface
-    file generated for the module being compiled (say M). This means
-    that a module importing M will see only the *types* of the functions
-    that M exports, but not their unfoldings, strictness info, etc.
-    Hence, for example, no function exported by M will be inlined into
-    an importing module. The benefit is that modules that import M will
-    need to be recompiled less often (only when M's exports change their
+    file generated for the module being compiled (say ``M``). This means
+    that a module importing ``M`` will see only the *types* of the functions
+    that ``M`` exports, but not their unfoldings, strictness info, etc.
+    Hence, for example, no function exported by ``M`` will be inlined into
+    an importing module. The benefit is that modules that import ``M`` will
+    need to be recompiled less often (only when ``M``\'s exports change their
     type, not when they change their implementation).
 
 .. ghc-flag:: -fomit-yields
@@ -411,6 +422,8 @@ list.
     turned off, if you need to guarantee interruptibility.
 
 .. ghc-flag:: -fpedantic-bottoms
+
+    :default: off
 
     Make GHC be more precise about its treatment of bottom (but see also
     :ghc-flag:`-fno-state-hack`). In particular, stop GHC eta-expanding through
@@ -462,9 +475,11 @@ list.
 
 .. ghc-flag:: -fspec-constr
 
-    *Off by default, but enabled by -O2.* Turn on call-pattern
-    specialisation; see `Call-pattern specialisation for Haskell
-    programs <http://research.microsoft.com/en-us/um/people/simonpj/papers/spec-constr/index.htm>`__.
+    :default: off but enabled by :ghc-flag:`-O2`
+
+    Turn on call-pattern specialisation; see `Call-pattern specialisation for
+    Haskell programs
+    <http://research.microsoft.com/en-us/um/people/simonpj/papers/spec-constr/index.htm>`__.
 
     This optimisation specializes recursive functions according to their
     argument "shapes". This is best explained by example so consider: ::
@@ -476,7 +491,7 @@ list.
 
     In this code, once we pass the initial check for an empty list we
     know that in the recursive case this pattern match is redundant. As
-    such ``-fspec-constr`` will transform the above code to: ::
+    such :ghc-flag:`-fspec-constr` will transform the above code to: ::
 
         last :: [a] -> a
         last []       = error "last"
@@ -542,7 +557,7 @@ list.
     Specialise each type-class-overloaded function
     defined in this module for the types at which it is called in this
     module. If :ghc-flag:`-fcross-module-specialise` is set imported functions
-    that have an INLINABLE pragma (:ref:`inlinable-pragma`) will be
+    that have an ``INLINABLE`` pragma (:ref:`inlinable-pragma`) will be
     specialised as well.
 
 .. ghc-flag:: -fcross-module-specialise
@@ -552,9 +567,11 @@ list.
     Specialise ``INLINABLE`` (:ref:`inlinable-pragma`)
     type-class-overloaded functions imported from other modules for the types at
     which they are called in this module. Note that specialisation must be
-    enabled (by ``-fspecialise``) for this to have any effect.
+    enabled (by :ghc-flag:`-fspecialise`) for this to have any effect.
 
 .. ghc-flag:: -fstatic-argument-transformation
+
+    :default: off
 
     Turn on the static argument transformation, which turns a recursive
     function into a non-recursive one with a local recursive loop. See
@@ -572,7 +589,7 @@ list.
     but the current one is quite a bit different.
 
     The strictness analyser figures out when arguments and variables in
-    a function can be treated 'strictly' (that is they are always
+    a function can be treated "strictly" (that is they are always
     evaluated in the function at some point). This allow GHC to apply
     certain optimisations such as unboxing that otherwise don't apply as
     they change the semantics of the program when applied to lazy
@@ -591,7 +608,7 @@ list.
        single: constructor fields, strict
 
     This option causes all constructor fields which
-    are marked strict (i.e. “!”) and which representation is smaller or
+    are marked strict (i.e. ``!``) and which representation is smaller or
     equal to the size of a pointer to be unpacked, if possible. It is
     equivalent to adding an ``UNPACK`` pragma (see :ref:`unpack-pragma`)
     to every strict constructor field that fulfils the size restriction.
@@ -608,8 +625,8 @@ list.
     enabled.
 
     This option is less of a sledgehammer than
-    ``-funbox-strict-fields``: it should rarely make things worse. If
-    you use ``-funbox-small-strict-fields`` to turn on unboxing by
+    :ghc-flag:`-funbox-strict-fields`: it should rarely make things worse. If
+    you use :ghc-flag:`-funbox-small-strict-fields` to turn on unboxing by
     default you can disable it for certain constructor fields using the
     ``NOUNPACK`` pragma (see :ref:`nounpack-pragma`).
 
@@ -628,12 +645,11 @@ list.
     ``UNPACK`` pragma to every strict constructor field (see
     :ref:`unpack-pragma`).
 
-    This option is a bit of a sledgehammer: it might sometimes make
-    things worse. Selectively unboxing fields by using ``UNPACK``
-    pragmas might be better. An alternative is to use
-    ``-funbox-strict-fields`` to turn on unboxing by default but disable
-    it for certain constructor fields using the ``NOUNPACK`` pragma (see
-    :ref:`nounpack-pragma`).
+    This option is a bit of a sledgehammer: it might sometimes make things
+    worse. Selectively unboxing fields by using ``UNPACK`` pragmas might be
+    better. An alternative is to use :ghc-flag:`-funbox-strict-fields` to turn
+    on unboxing by default but disable it for certain constructor fields using
+    the ``NOUNPACK`` pragma (see :ref:`nounpack-pragma`).
 
 .. ghc-flag:: -funfolding-creation-threshold=<n>
 
@@ -696,12 +712,11 @@ list.
        single: inlining, controlling
        single: unfolding, controlling
 
-    This is the magic cut-off figure for unfolding (aka
-    inlining): below this size, a function definition will be unfolded
-    at the call-site, any bigger and it won't. The size computed for a
-    function depends on two things: the actual size of the expression
-    minus any discounts that apply depending on the context into which
-    the expression is to be inlined.
+    This is the magic cut-off figure for unfolding (aka inlining): below this
+    size, a function definition will be unfolded at the call-site, any bigger
+    and it won't. The size computed for a function depends on two things: the
+    actual size of the expression minus any discounts that apply depending on
+    the context into which the expression is to be inlined.
 
     The difference between this and :ghc-flag:`-funfolding-creation-threshold`
     is that this one determines if a function definition will be inlined
@@ -713,13 +728,13 @@ list.
     :default: on
 
     .. index::
-       single: -fvectorisation-avoidance
+       single: vectorisation; avoidance
 
     Part of :ref:`Data Parallel Haskell (DPH) <dph>`.
 
     Enable the *vectorisation* avoidance optimisation.
     This optimisation only works when used in combination with the
-    ``-fvectorise`` transformation.
+    :ghc-flag:`-fvectorise` transformation.
 
     While vectorisation of code using DPH is often a big win, it can
     also produce worse results for some kinds of code. This optimisation
@@ -732,8 +747,7 @@ list.
 
     Part of :ref:`Data Parallel Haskell (DPH) <dph>`.
 
-    Enable the *vectorisation* optimisation
-    transformation. This optimisation transforms the nested data
-    parallelism code of programs using DPH into flat data parallelism.
-    Flat data parallel programs should have better load balancing,
-    enable SIMD parallelism and friendlier cache behaviour.
+    Enable the *vectorisation* optimisation transformation. This optimisation
+    transforms the nested data parallelism code of programs using DPH into flat
+    data parallelism. Flat data parallel programs should have better load
+    balancing, enable SIMD parallelism and friendlier cache behaviour.
