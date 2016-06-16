@@ -1165,7 +1165,7 @@ static HeapProfBreakdown getHeapProfBreakdown(void)
     case HEAP_BY_LDV:
         return HEAP_PROF_BREAKDOWN_BIOGRAPHY;
     default:
-        barf("getHeapProfBreakdown called with until heap profiling mode.");
+        barf("getHeapProfBreakdown: unknown heap profiling mode");
     }
 }
 
