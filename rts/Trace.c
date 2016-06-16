@@ -639,9 +639,9 @@ void traceHeapProfSampleBegin(StgInt era)
 void traceHeapProfSampleString(StgWord8 profile_id,
                                const char *label, StgWord residency)
 {
-  if (eventlog_enabled) {
-    postHeapProfSampleString(profile_id, label, residency);
-  }
+    if (eventlog_enabled) {
+        postHeapProfSampleString(profile_id, label, residency);
+    }
 }
 
 #ifdef PROFILING
