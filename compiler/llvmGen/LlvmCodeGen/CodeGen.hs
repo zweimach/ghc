@@ -40,6 +40,7 @@ import qualified Data.Semigroup as Semigroup
 #endif
 import Data.List ( nub )
 import Data.Maybe ( catMaybes )
+import Data.Word ( Word32 )
 
 type Atomic = Bool
 type LlvmStatements = OrdList LlvmStatement
@@ -118,8 +119,8 @@ stmtToInstrs stmt = case stmt of
     CmmStore addr src    -> genStore addr src
 
     CmmBranch id         -> genBranch id
-    CmmCondBranch arg true false _      -- TODO: likely annotation
-                         -> genCondBranch arg true false
+    CmmCondBranch arg true false expected
+                         -> genCondBranch arg true false expected
     CmmSwitch arg ids    -> genSwitch arg ids
 
     -- Foreign Call
@@ -923,17 +924,28 @@ genBranch id =
     let label = blockIdToLlvm id
     in return (unitOL $ Branch label, [])
 
+-- | Produce a @branch_weights@ metadata annotation
+branchWeights :: [Word32] -> MetaAnnot
+branchWeights weights =
+    MetaAnnot (fsLit "prof") $ MetaStruct $
+              (MetaStr (fsLit "branch_weights") : map toWeight weights)
+  where
+    toWeight n = MetaVar $ LMLitVar $ LMIntLit (fromIntegral n) i32
 
 -- | Conditional branch
-genCondBranch :: CmmExpr -> BlockId -> BlockId -> LlvmM StmtData
-genCondBranch cond idT idF = do
+genCondBranch :: CmmExpr -> BlockId -> BlockId -> Maybe Bool -> LlvmM StmtData
+genCondBranch cond idT idF expected = do
     let labelT = blockIdToLlvm idT
     let labelF = blockIdToLlvm idF
     -- See Note [Literals and branch conditions].
     (vc, stmts, top) <- exprToVarOpt i1Option cond
     if getVarType vc == i1
         then do
-            let s1 = BranchIf vc labelT labelF
+            let withWeights = case expected of
+                  Nothing    -> id
+                  Just True  -> MetaStmt [branchWeights [64, 4]]
+                  Just False -> MetaStmt [branchWeights [4, 64]]
+                s1 = withWeights $ BranchIf vc labelT labelF
             return (stmts `snocOL` s1, top)
         else do
             dflags <- getDynFlags
