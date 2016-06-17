@@ -233,6 +233,7 @@ ppLlvmStatement stmt =
 ppLlvmExpression :: LlvmExpression -> SDoc
 ppLlvmExpression expr
   = case expr of
+        Var        v                -> ppName v
         Alloca     tp amount        -> ppAlloca tp amount
         LlvmOp     op left right    -> ppMachOp op left right
         Call       tp fp args attrs -> ppCall tp fp (map MetaVar args) attrs

@@ -195,11 +195,16 @@ data LlvmStatement
 -- | Llvm Expressions
 data LlvmExpression
   {- |
+    Lift a variable into an expression.
+  -}
+  = Var LlvmVar
+
+  {- |
     Allocate amount * sizeof(tp) bytes on the stack
       * tp:     LlvmType to reserve room for
       * amount: The nr of tp's which must be allocated
   -}
-  = Alloca LlvmType Int
+  | Alloca LlvmType Int
 
   {- |
     Perform the machine operator op on the operands left and right
