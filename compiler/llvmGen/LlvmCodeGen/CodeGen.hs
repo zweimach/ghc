@@ -927,10 +927,10 @@ genBranch id =
 -- type.
 expectVar :: LlvmType -> LlvmVar
 expectVar ty =
-    LMGlobalVar (fsLit "llvm.expect") (LMFunction funcDecl)
+    LMGlobalVar funcName (LMFunction funcDecl)
                 Appending Nothing Nothing Constant
   where
-    funcDecl = LlvmFunctionDecl { decName       = fsLit "llvm.expect"
+    funcDecl = LlvmFunctionDecl { decName       = funcName
                                 , funcLinkage   = ExternallyVisible
                                 , funcCc        = CC_Ccc
                                 , decReturnType = ty
@@ -938,17 +938,16 @@ expectVar ty =
                                 , decParams     = [(ty, []), (ty, [])]
                                 , funcAlign     = Nothing
                                 }
+    funcName = fsLit ("llvm.expect.i"++show width)
+    LMInt width = ty
 
 -- | Generate an LLVM expression wrapped in an @llvm.expect@ intrinsic.
 genExpectedExpr :: LlvmType         -- ^ the type of the expression
-                -> LlvmExpression   -- ^ the expected value
-                -> LlvmExpression   -- ^ the expression
-                -> LlvmM (LlvmVar, LlvmStatements)
-genExpectedExpr ty expected expr = do
-    (expectedVar, s0) <- doExpr ty expected
-    (exprVar, s1) <- doExpr ty expr
-    (retVar, s2) <- doExpr ty $ Call StdCall (expectVar ty) [exprVar, expectedVar] []
-    return (retVar, toOL [s0, s1, s2])
+                -> LlvmVar          -- ^ the expected value
+                -> LlvmVar          -- ^ the expression
+                -> LlvmM (LlvmVar, LlvmStatement)
+genExpectedExpr ty expected expr =
+    doExpr ty $ Call StdCall (expectVar ty) [expr, expected] []
 
 -- | Conditional branch
 genCondBranch :: CmmExpr -> BlockId -> BlockId -> Maybe Bool -> LlvmM StmtData
@@ -960,8 +959,9 @@ genCondBranch cond idT idF expect = do
     if getVarType vc == i1
         then do
             (expectedVar, stmts') <- case expect of
-              Just e  -> let e' = LMLitVar $ LMIntLit (if e then 1 else 0) i1
-                         in genExpectedExpr i1 (Var e') (Var vc)
+              Just e  -> do let e' = LMLitVar $ LMIntLit (if e then 1 else 0) i1
+                            (ret, s) <- genExpectedExpr i1 e' vc
+                            return (ret, unitOL s)
               Nothing -> return (vc, nilOL)
             let s1 = BranchIf expectedVar labelT labelF
             return (stmts `appOL` stmts' `snocOL` s1, top)
