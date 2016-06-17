@@ -118,8 +118,8 @@ stmtToInstrs stmt = case stmt of
     CmmStore addr src    -> genStore addr src
 
     CmmBranch id         -> genBranch id
-    CmmCondBranch arg true false _      -- TODO: likely annotation
-                         -> genCondBranch arg true false
+    CmmCondBranch arg true false expect
+                         -> genCondBranch arg true false expect
     CmmSwitch arg ids    -> genSwitch arg ids
 
     -- Foreign Call
@@ -923,18 +923,48 @@ genBranch id =
     let label = blockIdToLlvm id
     in return (unitOL $ Branch label, [])
 
+-- | The 'LlvmVar' corresponding to the @llvm.expect@ intrinsic for the given
+-- type.
+expectVar :: LlvmType -> LlvmVar
+expectVar ty =
+    LMGlobalVar (fsLit "llvm.expect") (LMFunction funcDecl)
+                Appending Nothing Nothing Constant
+  where
+    funcDecl = LlvmFunctionDecl { decName       = fsLit "llvm.expect"
+                                , funcLinkage   = ExternallyVisible
+                                , funcCc        = CC_Ccc
+                                , decReturnType = ty
+                                , decVarargs    = FixedArgs
+                                , decParams     = [(ty, []), (ty, [])]
+                                , funcAlign     = Nothing
+                                }
+
+-- | Generate an LLVM expression wrapped in an @llvm.expect@ intrinsic.
+genExpectedExpr :: LlvmType         -- ^ the type of the expression
+                -> LlvmExpression   -- ^ the expected value
+                -> LlvmExpression   -- ^ the expression
+                -> LlvmM (LlvmVar, LlvmStatements)
+genExpectedExpr ty expected expr = do
+    (expectedVar, s0) <- doExpr ty expected
+    (exprVar, s1) <- doExpr ty expr
+    (retVar, s2) <- doExpr ty $ Call StdCall (expectVar ty) [exprVar, expectedVar] []
+    return (retVar, toOL [s0, s1, s2])
 
 -- | Conditional branch
-genCondBranch :: CmmExpr -> BlockId -> BlockId -> LlvmM StmtData
-genCondBranch cond idT idF = do
+genCondBranch :: CmmExpr -> BlockId -> BlockId -> Maybe Bool -> LlvmM StmtData
+genCondBranch cond idT idF expect = do
     let labelT = blockIdToLlvm idT
     let labelF = blockIdToLlvm idF
     -- See Note [Literals and branch conditions].
     (vc, stmts, top) <- exprToVarOpt i1Option cond
     if getVarType vc == i1
         then do
-            let s1 = BranchIf vc labelT labelF
-            return (stmts `snocOL` s1, top)
+            (expectedVar, stmts') <- case expect of
+              Just e  -> let e' = LMLitVar $ LMIntLit (if e then 1 else 0) i1
+                         in genExpectedExpr i1 (Var e') (Var vc)
+              Nothing -> return (vc, nilOL)
+            let s1 = BranchIf expectedVar labelT labelF
+            return (stmts `appOL` stmts' `snocOL` s1, top)
         else do
             dflags <- getDynFlags
             panic $ "genCondBranch: Cond expr not bool! (" ++ showSDoc dflags (ppr vc) ++ ")"
