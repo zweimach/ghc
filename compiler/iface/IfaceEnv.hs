@@ -202,6 +202,16 @@ However, there are two reasons why we might look up an Orig RdrName:
     go this route (Trac #8954).
 -}
 
+{-
+Note [Wiring in tuples]
+~~~~~~~~~~~~~~~~~~~~~~~
+
+The wiring-in of the tuple types is a bit tricky. The reason is that there are
+very many of them and we consequently want to avoid cluttering the name cache
+with them unnecessarily. For this reason we specially encode tuple Names in
+interface files,
+-}
+
 lookupOrigNameCache :: OrigNameCache -> Module -> OccName -> Maybe Name
 lookupOrigNameCache nc mod occ
   | mod == gHC_TYPES
