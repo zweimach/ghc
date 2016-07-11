@@ -735,6 +735,7 @@ import GHC.Classes ( Eq(..), Ord(..) )
 import GHC.Enum    ( Bounded, Enum )
 import GHC.Read    ( Read(..), lex, readParen )
 import GHC.Show    ( Show(..), showString )
+import Data.Foldable (Foldable)
 
 -- Needed for metadata
 import Data.Proxy   ( Proxy(..) )
@@ -1396,3 +1397,38 @@ instance SingKind DecidedStrictness where
   fromSing SDecidedLazy   = DecidedLazy
   fromSing SDecidedStrict = DecidedStrict
   fromSing SDecidedUnpack = DecidedUnpack
+
+-- Foldable instances
+
+-- | @since 4.9.0.0
+instance Foldable U1 where
+    foldMap _ _ = mempty
+    {-# INLINE foldMap #-}
+    fold _ = mempty
+    {-# INLINE fold #-}
+    foldr _ z _ = z
+    {-# INLINE foldr #-}
+    foldl _ z _ = z
+    {-# INLINE foldl #-}
+    foldl1 _ _ = errorWithoutStackTrace "foldl1: U1"
+    foldr1 _ _ = errorWithoutStackTrace "foldr1: U1"
+    length _   = 0
+    null _     = True
+    elem _ _   = False
+    sum _      = 0
+    product _  = 1
+
+deriving instance Foldable V1
+deriving instance Foldable Par1
+deriving instance Foldable f => Foldable (Rec1 f)
+deriving instance Foldable (K1 i c)
+deriving instance Foldable f => Foldable (M1 i c f)
+deriving instance (Foldable f, Foldable g) => Foldable (f :+: g)
+deriving instance (Foldable f, Foldable g) => Foldable (f :*: g)
+deriving instance (Foldable f, Foldable g) => Foldable (f :.: g)
+deriving instance Foldable UAddr
+deriving instance Foldable UChar
+deriving instance Foldable UDouble
+deriving instance Foldable UFloat
+deriving instance Foldable UInt
+deriving instance Foldable UWord
