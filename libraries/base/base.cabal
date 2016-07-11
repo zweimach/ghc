@@ -310,6 +310,7 @@ Library
         Control.Monad.ST.Imp
         Control.Monad.ST.Lazy.Imp
         Data.Functor.Utils
+        Data.Foldable.Class
         Data.OldList
         Foreign.ForeignPtr.Imp
         System.Environment.ExecutablePath
