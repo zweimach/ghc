@@ -637,9 +637,12 @@ decl in GHC.Classes, so I think this part may not work properly. But
 it's unused I think.
 -}
 
+-- | Built in syntax isn't "in scope" so these OccNames map to wired-in Names
+-- with BuiltInSyntax. However, this should only be necessary while resolving
+-- names produced by Template Haskell splices since we take care to encode
+-- built-in syntax names specially in interface files. See
+-- Note [Symbol table representation of names].
 isBuiltInOcc_maybe :: OccName -> Maybe Name
--- Built in syntax isn't "in scope" so these OccNames
--- map to wired-in Names with BuiltInSyntax
 isBuiltInOcc_maybe occ =
     case name of
       "[]"   -> Just $ choose_ns listTyConName nilDataConName
