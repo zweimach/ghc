@@ -5,6 +5,7 @@
 -}
 
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 -- | This module is about types that can be defined in Haskell, but which
 --   must be wired into the compiler nonetheless.  C.f module TysPrim
@@ -134,7 +135,6 @@ import {-# SOURCE #-} ConLike
 import TyCon
 import Class            ( Class, mkClass )
 import RdrName
-import UniqFM
 import Name
 import NameSet          ( NameSet, mkNameSet, elemNameSet )
 import BasicTypes       ( Arity, Boxity(..),
@@ -147,6 +147,8 @@ import FastString
 import Outputable
 import Util
 import BooleanFormula   ( mkAnd )
+
+import qualified Data.ByteString.Char8 as BS
 
 alpha_tyvar :: [TyVar]
 alpha_tyvar = [alphaTyVar]
@@ -181,8 +183,7 @@ names in PrelNames, so they use wTcQual, wDataQual, etc
 -- define here.
 --
 -- Because of their infinite nature, this list excludes tuples, Any and implicit
--- parameter TyCons. Instead, we have a hack in lookupOrigNameCache to deal with
--- these names.
+-- parameter TyCons (see Note [Built-in syntax and the OrigNameCache]).
 --
 -- See also Note [Known-key names]
 wiredInTyCons :: [TyCon]
@@ -636,19 +637,30 @@ decl in GHC.Classes, so I think this part may not work properly. But
 it's unused I think.
 -}
 
-builtInOccNames :: UniqFM (OccName -> Name)
-builtInOccNames = listToUFM $
-    [ (fsLit "[]",    choose_ns listTyConName nilDataConName)
-    , (fsLit ":" ,    const consDataConName)
-    , (fsLit "[::]",  const parrTyConName)
-    , (fsLit "()",    tup_name Boxed 0)
-    , (fsLit "(##)",  tup_name Unboxed 0)
-    ] ++
-    [ (fsLit $ "("++replicate n ','++")", tup_name Boxed (n+1)) | n <- [1..62] ] ++
-    [ (fsLit $ "(#"++replicate n ','++"#)", tup_name Unboxed (n+1)) | n <- [1..62] ]
+isBuiltInOcc_maybe :: OccName -> Maybe Name
+-- Built in syntax isn't "in scope" so these OccNames
+-- map to wired-in Names with BuiltInSyntax
+isBuiltInOcc_maybe occ =
+    case name of
+      "[]"   -> Just $ choose_ns listTyConName nilDataConName
+      ":"    -> Just consDataConName
+      "[::]" -> Just parrTyConName
+      "()"   -> Just $ tup_name Boxed 0
+      "(##)" -> Just $ tup_name Unboxed 0
+      _ | Just rest <- name `BS.stripPrefix` "("
+        , (commas, rest') <- BS.span (==',') rest
+        , ")" <- rest'
+             -> Just $ tup_name Boxed (1+BS.length commas)
+      _ | Just rest <- name `BS.stripPrefix` "(#"
+        , (commas, rest') <- BS.span (==',') rest
+        , "#)" <- rest'
+             -> Just $ tup_name Unboxed (1+BS.length commas)
+      _ -> Nothing
   where
-    choose_ns :: Name -> Name -> OccName -> Name
-    choose_ns tc dc occ
+    name = fastStringToByteString $ occNameFS occ
+
+    choose_ns :: Name -> Name -> Name
+    choose_ns tc dc
       | isTcClsNameSpace ns   = tc
       | isDataConNameSpace ns = dc
       | otherwise             = pprPanic "tup_name" (ppr occ)
@@ -657,15 +669,6 @@ builtInOccNames = listToUFM $
     tup_name boxity arity
       = choose_ns (getName (tupleTyCon   boxity arity))
                   (getName (tupleDataCon boxity arity))
-
-
-isBuiltInOcc_maybe :: OccName -> Maybe Name
--- Built in syntax isn't "in scope" so these OccNames
--- map to wired-in Names with BuiltInSyntax
-isBuiltInOcc_maybe occ
-  = case lookupUFM builtInOccNames (occNameFS occ) of
-      Just f  -> Just (f occ)
-      Nothing -> Nothing
 
 mkTupleOcc :: NameSpace -> Boxity -> Arity -> OccName
 -- No need to cache these, the caching is done in mk_tuple
