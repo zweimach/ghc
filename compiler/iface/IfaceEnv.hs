@@ -33,6 +33,7 @@ import Module
 import FastString
 import FastStringEnv
 import IfaceType
+import PrelNames ( gHC_TYPES )
 import UniqSupply
 import SrcLoc
 import Util
@@ -203,7 +204,8 @@ However, there are two reasons why we might look up an Orig RdrName:
 
 lookupOrigNameCache :: OrigNameCache -> Module -> OccName -> Maybe Name
 lookupOrigNameCache nc mod occ
-  | Just name <- isBuiltInOcc_maybe occ
+  | mod == gHC_TYPES
+  , Just name <- isBuiltInOcc_maybe occ
   =     -- See Note [Known-key names], 3(c) in PrelNames
         -- Special case for tuples; there are too many
         -- of them to pre-populate the original-name cache
