@@ -309,6 +309,7 @@ Library
     other-modules:
         Control.Monad.ST.Imp
         Control.Monad.ST.Lazy.Imp
+        GHC.Generics.Internal
         Data.Functor.Utils
         Data.OldList
         Foreign.ForeignPtr.Imp

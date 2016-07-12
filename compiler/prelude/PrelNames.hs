@@ -490,6 +490,7 @@ rANDOM          = mkBaseModule (fsLit "System.Random")
 gHC_EXTS        = mkBaseModule (fsLit "GHC.Exts")
 cONTROL_EXCEPTION_BASE = mkBaseModule (fsLit "Control.Exception.Base")
 gHC_GENERICS    = mkBaseModule (fsLit "GHC.Generics")
+gHC_GENERICS_INTERNAL = mkBaseModule (fsLit "GHC.Generics.Internal")
 gHC_TYPELITS    = mkBaseModule (fsLit "GHC.TypeLits")
 dATA_TYPE_EQUALITY = mkBaseModule (fsLit "Data.Type.Equality")
 dATA_COERCE     = mkBaseModule (fsLit "Data.Coerce")
@@ -734,27 +735,27 @@ u1DataCon_RDR, par1DataCon_RDR, rec1DataCon_RDR,
   uAddrHash_RDR, uCharHash_RDR, uDoubleHash_RDR,
   uFloatHash_RDR, uIntHash_RDR, uWordHash_RDR :: RdrName
 
-u1DataCon_RDR    = dataQual_RDR gHC_GENERICS (fsLit "U1")
-par1DataCon_RDR  = dataQual_RDR gHC_GENERICS (fsLit "Par1")
-rec1DataCon_RDR  = dataQual_RDR gHC_GENERICS (fsLit "Rec1")
-k1DataCon_RDR    = dataQual_RDR gHC_GENERICS (fsLit "K1")
-m1DataCon_RDR    = dataQual_RDR gHC_GENERICS (fsLit "M1")
+u1DataCon_RDR    = dataQual_RDR gHC_GENERICS_INTERNAL (fsLit "U1")
+par1DataCon_RDR  = dataQual_RDR gHC_GENERICS_INTERNAL (fsLit "Par1")
+rec1DataCon_RDR  = dataQual_RDR gHC_GENERICS_INTERNAL (fsLit "Rec1")
+k1DataCon_RDR    = dataQual_RDR gHC_GENERICS_INTERNAL (fsLit "K1")
+m1DataCon_RDR    = dataQual_RDR gHC_GENERICS_INTERNAL (fsLit "M1")
 
-l1DataCon_RDR     = dataQual_RDR gHC_GENERICS (fsLit "L1")
-r1DataCon_RDR     = dataQual_RDR gHC_GENERICS (fsLit "R1")
+l1DataCon_RDR     = dataQual_RDR gHC_GENERICS_INTERNAL (fsLit "L1")
+r1DataCon_RDR     = dataQual_RDR gHC_GENERICS_INTERNAL (fsLit "R1")
 
-prodDataCon_RDR   = dataQual_RDR gHC_GENERICS (fsLit ":*:")
-comp1DataCon_RDR  = dataQual_RDR gHC_GENERICS (fsLit "Comp1")
+prodDataCon_RDR   = dataQual_RDR gHC_GENERICS_INTERNAL (fsLit ":*:")
+comp1DataCon_RDR  = dataQual_RDR gHC_GENERICS_INTERNAL (fsLit "Comp1")
 
-unPar1_RDR  = varQual_RDR gHC_GENERICS (fsLit "unPar1")
-unRec1_RDR  = varQual_RDR gHC_GENERICS (fsLit "unRec1")
-unK1_RDR    = varQual_RDR gHC_GENERICS (fsLit "unK1")
-unComp1_RDR = varQual_RDR gHC_GENERICS (fsLit "unComp1")
+unPar1_RDR  = varQual_RDR gHC_GENERICS_INTERNAL (fsLit "unPar1")
+unRec1_RDR  = varQual_RDR gHC_GENERICS_INTERNAL (fsLit "unRec1")
+unK1_RDR    = varQual_RDR gHC_GENERICS_INTERNAL (fsLit "unK1")
+unComp1_RDR = varQual_RDR gHC_GENERICS_INTERNAL (fsLit "unComp1")
 
-from_RDR  = varQual_RDR gHC_GENERICS (fsLit "from")
-from1_RDR = varQual_RDR gHC_GENERICS (fsLit "from1")
-to_RDR    = varQual_RDR gHC_GENERICS (fsLit "to")
-to1_RDR   = varQual_RDR gHC_GENERICS (fsLit "to1")
+from_RDR  = varQual_RDR gHC_GENERICS_INTERNAL (fsLit "from")
+from1_RDR = varQual_RDR gHC_GENERICS_INTERNAL (fsLit "from1")
+to_RDR    = varQual_RDR gHC_GENERICS_INTERNAL (fsLit "to")
+to1_RDR   = varQual_RDR gHC_GENERICS_INTERNAL (fsLit "to1")
 
 datatypeName_RDR  = varQual_RDR gHC_GENERICS (fsLit "datatypeName")
 moduleName_RDR    = varQual_RDR gHC_GENERICS (fsLit "moduleName")
@@ -859,16 +860,16 @@ v1TyConName, u1TyConName, par1TyConName, rec1TyConName,
   decidedLazyDataConName, decidedStrictDataConName, decidedUnpackDataConName,
   metaDataDataConName, metaConsDataConName, metaSelDataConName :: Name
 
-v1TyConName  = tcQual gHC_GENERICS (fsLit "V1") v1TyConKey
-u1TyConName  = tcQual gHC_GENERICS (fsLit "U1") u1TyConKey
-par1TyConName  = tcQual gHC_GENERICS (fsLit "Par1") par1TyConKey
-rec1TyConName  = tcQual gHC_GENERICS (fsLit "Rec1") rec1TyConKey
-k1TyConName  = tcQual gHC_GENERICS (fsLit "K1") k1TyConKey
-m1TyConName  = tcQual gHC_GENERICS (fsLit "M1") m1TyConKey
+v1TyConName    = tcQual gHC_GENERICS_INTERNAL (fsLit "V1") v1TyConKey
+u1TyConName    = tcQual gHC_GENERICS_INTERNAL (fsLit "U1") u1TyConKey
+par1TyConName  = tcQual gHC_GENERICS_INTERNAL (fsLit "Par1") par1TyConKey
+rec1TyConName  = tcQual gHC_GENERICS_INTERNAL (fsLit "Rec1") rec1TyConKey
+k1TyConName    = tcQual gHC_GENERICS_INTERNAL (fsLit "K1") k1TyConKey
+m1TyConName    = tcQual gHC_GENERICS_INTERNAL (fsLit "M1") m1TyConKey
 
-sumTyConName    = tcQual gHC_GENERICS (fsLit ":+:") sumTyConKey
-prodTyConName   = tcQual gHC_GENERICS (fsLit ":*:") prodTyConKey
-compTyConName   = tcQual gHC_GENERICS (fsLit ":.:") compTyConKey
+sumTyConName    = tcQual gHC_GENERICS_INTERNAL (fsLit ":+:") sumTyConKey
+prodTyConName   = tcQual gHC_GENERICS_INTERNAL (fsLit ":*:") prodTyConKey
+compTyConName   = tcQual gHC_GENERICS_INTERNAL (fsLit ":.:") compTyConKey
 
 rTyConName  = tcQual gHC_GENERICS (fsLit "R") rTyConKey
 dTyConName  = tcQual gHC_GENERICS (fsLit "D") dTyConKey
@@ -876,9 +877,9 @@ cTyConName  = tcQual gHC_GENERICS (fsLit "C") cTyConKey
 sTyConName  = tcQual gHC_GENERICS (fsLit "S") sTyConKey
 
 rec0TyConName  = tcQual gHC_GENERICS (fsLit "Rec0") rec0TyConKey
-d1TyConName  = tcQual gHC_GENERICS (fsLit "D1") d1TyConKey
-c1TyConName  = tcQual gHC_GENERICS (fsLit "C1") c1TyConKey
-s1TyConName  = tcQual gHC_GENERICS (fsLit "S1") s1TyConKey
+d1TyConName    = tcQual gHC_GENERICS (fsLit "D1") d1TyConKey
+c1TyConName    = tcQual gHC_GENERICS (fsLit "C1") c1TyConKey
+s1TyConName    = tcQual gHC_GENERICS (fsLit "S1") s1TyConKey
 noSelTyConName = tcQual gHC_GENERICS (fsLit "NoSelector") noSelTyConKey
 
 repTyConName  = tcQual gHC_GENERICS (fsLit "Rep")  repTyConKey
@@ -1245,8 +1246,8 @@ readClassName   = clsQual gHC_READ (fsLit "Read")      readClassKey
 -- Classes Generic and Generic1, Datatype, Constructor and Selector
 genClassName, gen1ClassName, datatypeClassName, constructorClassName,
   selectorClassName :: Name
-genClassName  = clsQual gHC_GENERICS (fsLit "Generic")  genClassKey
-gen1ClassName = clsQual gHC_GENERICS (fsLit "Generic1") gen1ClassKey
+genClassName  = clsQual gHC_GENERICS_INTERNAL (fsLit "Generic")  genClassKey
+gen1ClassName = clsQual gHC_GENERICS_INTERNAL (fsLit "Generic1") gen1ClassKey
 
 datatypeClassName    = clsQual gHC_GENERICS (fsLit "Datatype")    datatypeClassKey
 constructorClassName = clsQual gHC_GENERICS (fsLit "Constructor") constructorClassKey

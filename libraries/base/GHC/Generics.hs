@@ -739,23 +739,20 @@ import GHC.Show    ( Show(..), showString )
 -- Needed for metadata
 import Data.Proxy   ( Proxy(..) )
 import GHC.TypeLits ( Nat, Symbol, KnownSymbol, KnownNat, symbolVal, natVal )
+import GHC.Generics.Internal
 
 --------------------------------------------------------------------------------
 -- Representation types
---------------------------------------------------------------------------------
+---------------------------------------------------------------------------------
 
--- | Void: used for datatypes without constructors
-data V1 (p :: k)
-  deriving (Functor, Generic, Generic1)
+-- V1
 
 deriving instance Eq   (V1 p)
 deriving instance Ord  (V1 p)
 deriving instance Read (V1 p)
 deriving instance Show (V1 p)
 
--- | Unit: used for constructors without arguments
-data U1 (p :: k) = U1
-  deriving (Generic, Generic1)
+-- U1
 
 -- | @since 4.9.0.0
 instance Eq (U1 p) where
@@ -794,9 +791,7 @@ instance Monad U1 where
 -- | @since 4.9.0.0
 instance MonadPlus U1
 
--- | Used for marking occurrences of the parameter
-newtype Par1 p = Par1 { unPar1 :: p }
-  deriving (Eq, Ord, Read, Show, Functor, Generic, Generic1)
+-- Par1
 
 -- | @since 4.9.0.0
 instance Applicative Par1 where
@@ -807,10 +802,7 @@ instance Applicative Par1 where
 instance Monad Par1 where
   Par1 x >>= f = f x
 
--- | Recursive calls of kind @* -> *@ (or kind @k -> *@, when @PolyKinds@
--- is enabled)
-newtype Rec1 (f :: k -> *) (p :: k) = Rec1 { unRec1 :: f p }
-  deriving (Eq, Ord, Read, Show, Functor, Generic, Generic1)
+-- Rec1
 
 -- | @since 4.9.0.0
 instance Applicative f => Applicative (Rec1 f) where
@@ -829,9 +821,7 @@ instance Monad f => Monad (Rec1 f) where
 -- | @since 4.9.0.0
 instance MonadPlus f => MonadPlus (Rec1 f)
 
--- | Constants, additional parameters and recursion of kind @*@
-newtype K1 (i :: *) c (p :: k) = K1 { unK1 :: c }
-  deriving (Eq, Ord, Read, Show, Functor, Generic, Generic1)
+-- K1
 
 -- | @since 4.9.0.0
 instance Applicative f => Applicative (M1 i c f) where
@@ -850,19 +840,9 @@ instance Monad f => Monad (M1 i c f) where
 -- | @since 4.9.0.0
 instance MonadPlus f => MonadPlus (M1 i c f)
 
--- | Meta-information (constructor names, etc.)
-newtype M1 (i :: *) (c :: Meta) (f :: k -> *) (p :: k) = M1 { unM1 :: f p }
-  deriving (Eq, Ord, Read, Show, Functor, Generic, Generic1)
-
--- | Sums: encode choice between constructors
-infixr 5 :+:
-data (:+:) (f :: k -> *) (g :: k -> *) (p :: k) = L1 (f p) | R1 (g p)
-  deriving (Eq, Ord, Read, Show, Functor, Generic, Generic1)
-
--- | Products: encode multiple arguments to constructors
-infixr 6 :*:
-data (:*:) (f :: k -> *) (g :: k -> *) (p :: k) = f p :*: g p
-  deriving (Eq, Ord, Read, Show, Functor, Generic, Generic1)
+-- M1
+-- :+:
+-- :*:
 
 -- | @since 4.9.0.0
 instance (Applicative f, Applicative g) => Applicative (f :*: g) where
@@ -884,11 +864,7 @@ instance (Monad f, Monad g) => Monad (f :*: g) where
 -- | @since 4.9.0.0
 instance (MonadPlus f, MonadPlus g) => MonadPlus (f :*: g)
 
--- | Composition of functors
-infixr 7 :.:
-newtype (:.:) (f :: k2 -> *) (g :: k1 -> k2) (p :: k1) =
-    Comp1 { unComp1 :: f (g p) }
-  deriving (Eq, Ord, Read, Show, Functor, Generic, Generic1)
+-- :.:
 
 -- | @since 4.9.0.0
 instance (Applicative f, Applicative g) => Applicative (f :.: g) where
@@ -900,10 +876,7 @@ instance (Alternative f, Applicative g) => Alternative (f :.: g) where
   empty = Comp1 empty
   Comp1 x <|> Comp1 y = Comp1 (x <|> y)
 
--- | Constants of unlifted kinds
---
--- @since 4.9.0.0
-data family URec (a :: *) (p :: k)
+-- URec
 
 -- | Used for marking occurrences of 'Addr#'
 --
@@ -945,6 +918,7 @@ data instance URec Word (p :: k) = UWord { uWord# :: Word# }
 --
 -- @since 4.9.0.0
 type UAddr   = URec (Ptr ())
+
 -- | Type synonym for @'URec' 'Char#'@
 --
 -- @since 4.9.0.0
@@ -1041,82 +1015,10 @@ instance (KnownSymbol n, SingI f, SingI r)
 data Fixity = Prefix | Infix Associativity Int
   deriving (Eq, Show, Ord, Read, Generic)
 
--- | This variant of 'Fixity' appears at the type level.
---
--- @since 4.9.0.0
-data FixityI = PrefixI | InfixI Associativity Nat
-
 -- | Get the precedence of a fixity value.
 prec :: Fixity -> Int
 prec Prefix      = 10
 prec (Infix _ n) = n
-
--- | Datatype to represent the associativity of a constructor
-data Associativity = LeftAssociative
-                   | RightAssociative
-                   | NotAssociative
-  deriving (Eq, Show, Ord, Read, Enum, Bounded, Ix, Generic)
-
--- | The unpackedness of a field as the user wrote it in the source code. For
--- example, in the following data type:
---
--- @
--- data E = ExampleConstructor     Int
---            {\-\# NOUNPACK \#-\} Int
---            {\-\#   UNPACK \#-\} Int
--- @
---
--- The fields of @ExampleConstructor@ have 'NoSourceUnpackedness',
--- 'SourceNoUnpack', and 'SourceUnpack', respectively.
---
--- @since 4.9.0.0
-data SourceUnpackedness = NoSourceUnpackedness
-                        | SourceNoUnpack
-                        | SourceUnpack
-  deriving (Eq, Show, Ord, Read, Enum, Bounded, Ix, Generic)
-
--- | The strictness of a field as the user wrote it in the source code. For
--- example, in the following data type:
---
--- @
--- data E = ExampleConstructor Int ~Int !Int
--- @
---
--- The fields of @ExampleConstructor@ have 'NoSourceStrictness',
--- 'SourceLazy', and 'SourceStrict', respectively.
---
--- @since 4.9.0.0
-data SourceStrictness = NoSourceStrictness
-                      | SourceLazy
-                      | SourceStrict
-  deriving (Eq, Show, Ord, Read, Enum, Bounded, Ix, Generic)
-
--- | The strictness that GHC infers for a field during compilation. Whereas
--- there are nine different combinations of 'SourceUnpackedness' and
--- 'SourceStrictness', the strictness that GHC decides will ultimately be one
--- of lazy, strict, or unpacked. What GHC decides is affected both by what the
--- user writes in the source code and by GHC flags. As an example, consider
--- this data type:
---
--- @
--- data E = ExampleConstructor {\-\# UNPACK \#-\} !Int !Int Int
--- @
---
--- * If compiled without optimization or other language extensions, then the
---   fields of @ExampleConstructor@ will have 'DecidedStrict', 'DecidedStrict',
---   and 'DecidedLazy', respectively.
---
--- * If compiled with @-XStrictData@ enabled, then the fields will have
---   'DecidedStrict', 'DecidedStrict', and 'DecidedStrict', respectively.
---
--- * If compiled with @-O2@ enabled, then the fields will have 'DecidedUnpack',
---   'DecidedStrict', and 'DecidedLazy', respectively.
---
--- @since 4.9.0.0
-data DecidedStrictness = DecidedLazy
-                       | DecidedStrict
-                       | DecidedUnpack
-  deriving (Eq, Show, Ord, Read, Enum, Bounded, Ix, Generic)
 
 -- | Class for datatypes that represent records
 class Selector s where
@@ -1142,53 +1044,6 @@ instance (SingI mn, SingI su, SingI ss, SingI ds)
   selSourceUnpackedness _ = fromSing (sing :: Sing su)
   selSourceStrictness   _ = fromSing (sing :: Sing ss)
   selDecidedStrictness  _ = fromSing (sing :: Sing ds)
-
--- | Representable types of kind *.
--- This class is derivable in GHC with the DeriveGeneric flag on.
-class Generic a where
-  -- | Generic representation type
-  type Rep a :: * -> *
-  -- | Convert from the datatype to its representation
-  from  :: a -> (Rep a) x
-  -- | Convert from the representation to the datatype
-  to    :: (Rep a) x -> a
-
-
--- | Representable types of kind @* -> *@ (or kind @k -> *@, when @PolyKinds@
--- is enabled).
--- This class is derivable in GHC with the @DeriveGeneric@ flag on.
-class Generic1 (f :: k -> *) where
-  -- | Generic representation type
-  type Rep1 f :: k -> *
-  -- | Convert from the datatype to its representation
-  from1  :: f a -> (Rep1 f) a
-  -- | Convert from the representation to the datatype
-  to1    :: (Rep1 f) a -> f a
-
---------------------------------------------------------------------------------
--- Meta-data
---------------------------------------------------------------------------------
-
--- | Datatype to represent metadata associated with a datatype (@MetaData@),
--- constructor (@MetaCons@), or field selector (@MetaSel@).
---
--- * In @MetaData n m p nt@, @n@ is the datatype's name, @m@ is the module in
---   which the datatype is defined, @p@ is the package in which the datatype
---   is defined, and @nt@ is @'True@ if the datatype is a @newtype@.
---
--- * In @MetaCons n f s@, @n@ is the constructor's name, @f@ is its fixity,
---   and @s@ is @'True@ if the constructor contains record selectors.
---
--- * In @MetaSel mn su ss ds@, if the field is uses record syntax, then @mn@ is
---   'Just' the record name. Otherwise, @mn@ is 'Nothing'. @su@ and @ss@ are
---   the field's unpackedness and strictness annotations, and @ds@ is the
---   strictness that GHC infers for the field.
---
--- @since 4.9.0.0
-data Meta = MetaData Symbol Symbol Symbol Bool
-          | MetaCons Symbol FixityI Bool
-          | MetaSel  (Maybe Symbol)
-                     SourceUnpackedness SourceStrictness DecidedStrictness
 
 --------------------------------------------------------------------------------
 -- Derived instances
