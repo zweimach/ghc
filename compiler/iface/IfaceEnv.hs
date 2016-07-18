@@ -33,7 +33,7 @@ import Module
 import FastString
 import FastStringEnv
 import IfaceType
-import PrelNames ( gHC_TYPES, gHC_PRIM, gHC_TUPLE )
+import PrelNames ( gHC_TUPLE )
 import UniqSupply
 import SrcLoc
 import Util
@@ -214,7 +214,7 @@ are two reasons why we might look up an Orig RdrName for built-in syntax,
 
 lookupOrigNameCache :: OrigNameCache -> Module -> OccName -> Maybe Name
 lookupOrigNameCache nc mod occ
-  | mod == gHC_TYPES || mod == gHC_PRIM || mod == gHC_TUPLE
+  | mod == gHC_TUPLE
   , Just name <- isBuiltInOcc_maybe occ
   =     -- See Note [Known-key names], 3(c) in PrelNames
         -- Special case for tuples; there are too many
