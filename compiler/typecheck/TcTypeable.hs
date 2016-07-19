@@ -15,8 +15,6 @@ import TcRnMonad
 import PrelNames
 import TysPrim ( primTyCons )
 import Id
-import IdInfo  ( IdDetails(TupleTypeRepId) )
-import Var     ( setIdDetails )
 import Type
 import TyCon
 import DataCon
@@ -87,15 +85,24 @@ There are many wrinkles:
   representations for TyCon and Module.  See GHC.Types
   Note [Runtime representation of modules and tycons]
 
-* Tuples are generally special in GHC since they are not placed in the original
-  name cache (see Note [Built-in syntax and the OrigNameCache]). This poses a
-  problem for Typeable: we need to serialize the Name of a type representation
-  for a tuple type with enough information such that the compiler will realize
-  that the Name is that of a tuple type representation when it is loaded from an
-  interface file. We ensure this by only including the type representations for
-  the type contructor and its promoted data constructor in the original name
-  cache. A great deal of discussion on how this design was arrived at can be
-  found in #12357.
+
+Note [Tuples and Typeable]
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Tuples are generally special in GHC since they are not placed in the original
+name cache (see Note [Built-in syntax and the OrigNameCache]). This poses a
+problem for Typeable: we need to serialize the Name of a type representation for
+a tuple type with enough information such that the compiler will realize that
+the Name is that of a tuple type representation (and thus gets the same unique
+as is indicated in the wired-in TyCon) when it is loaded from an interface file.
+
+We ensure this by only including the type representations for the type
+contructor and its promoted data constructor in the original name cache. The
+alternative would have been to use the same special interface file encoding as
+we use for tuple TyCons for tuple type representations. Unfortunately, this is
+rather tiresome to do so we are going to live with this compromise for now.
+
+A great deal of discussion on how we came to this design can be found in #12357.
 
 -}
 
@@ -275,9 +282,6 @@ mkTyConRepBinds stuff@(Stuff {..}) tycon
   = case tyConRepName_maybe tycon of
       Just rep_name -> unitBag (mkVarBind rep_id rep_rhs)
          where
-           -- here we add the TupleTypeRepId IdDetail to ensure that the Name is
-           -- serialized to the interface file with the correct encoding.
-           -- See Note [Symbol table representation of names].
            rep_id  = mkExportedVanillaId rep_name (mkTyConTy trTyConTyCon)
            rep_rhs = mkTyConRepRHS stuff tycon
       _ -> emptyBag

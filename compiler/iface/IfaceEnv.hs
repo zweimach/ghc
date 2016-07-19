@@ -210,6 +210,7 @@ are two reasons why we might look up an Orig RdrName for built-in syntax,
     (Convert.thRdrName).  So, e.g. $(do { reify '(,); ... }) will
     go this route (Trac #8954).
 
+See also: Note [Known-key names] in PrelNames
 -}
 
 -- | Lookup the 'Name' associated with an 'OccName'. Note that unlike
@@ -218,7 +219,7 @@ are two reasons why we might look up an Orig RdrName for built-in syntax,
 lookupOrigNameCache :: OrigNameCache -> Module -> OccName -> Maybe Name
 lookupOrigNameCache nc mod occ
   | mod == gHC_TUPLE
-    -- See Note [Known-key names], 3(c) in PrelNames
+    -- See Note [Built-in syntax and the OrigNameCache]
     -- Special case for tuples; there are too many
     -- of them to pre-populate the original-name cache
   , Just name <- isTupleOcc_maybe occ
