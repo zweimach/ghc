@@ -234,13 +234,11 @@ lookupOrigNameCache nc mod occ
 -- For discussion of why see Note [Built-in syntax and the OrigNameCache].
 lookupOrigNameCache' :: OrigNameCache -> Module -> OccName -> Maybe Name
 lookupOrigNameCache' nc mod occ
-  = case lookupModuleEnv nc mod of
+  = -- This function should never see built-in syntax, assert this
+    ASSERT(isNothing $ isTupleOcc_maybe occ)
+    case lookupModuleEnv nc mod of
         Nothing      -> Nothing
         Just occ_env -> lookupOccEnv occ_env occ
-    -- TODO: It would be nice if we could simply ASSERT that mod /= gHC_TUPLE to
-    -- catch cases which should be using lookupOrigNameCache instead of this
-    -- function. Unfortunately we can't do this since we may be asked to resolve
-    -- type representations, e.g. $tc(,), and such
 
 extendOrigNameCache :: OrigNameCache -> Name -> OrigNameCache
 extendOrigNameCache nc name
