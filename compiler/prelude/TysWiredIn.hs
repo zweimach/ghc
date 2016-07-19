@@ -666,6 +666,7 @@ isBuiltInOcc_maybe occ =
       "[::]" -> Just parrTyConName
       "()"    -> Just $ tup_name Boxed 0
       "(##)"  -> Just $ tup_name Unboxed 0
+      "(%%)"  -> Just $ cTupleTyConName 0
       _ | Just rest <- "(" `stripPrefix` name
         , (commas, rest') <- BS.span (==',') rest
         , ")" <- rest'
@@ -674,6 +675,10 @@ isBuiltInOcc_maybe occ =
         , (commas, rest') <- BS.span (==',') rest
         , "#)" <- rest'
              -> Just $ tup_name Unboxed (1+BS.length commas)
+      _ | Just rest <- "(%" `stripPrefix` name
+        , (commas, rest') <- BS.span (==',') rest
+        , "%)" <- rest'
+             -> Just $ cTupleTyConName (1+BS.length commas)
       _ -> Nothing
   where
     -- TODO: Drop when bytestring 0.10.8 can be assumed

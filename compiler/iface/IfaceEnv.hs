@@ -33,7 +33,7 @@ import Module
 import FastString
 import FastStringEnv
 import IfaceType
-import PrelNames ( gHC_TUPLE, gHC_PRIM )
+import PrelNames ( gHC_TUPLE, gHC_PRIM, gHC_CLASSES )
 import UniqSupply
 import SrcLoc
 import Util
@@ -220,10 +220,14 @@ See also: Note [Known-key names] in PrelNames
 -- in the name cache.
 lookupOrigNameCache :: OrigNameCache -> Module -> OccName -> Maybe Name
 lookupOrigNameCache nc mod occ
-  | mod == gHC_TUPLE || mod == gHC_PRIM
+  | mod == gHC_TUPLE || mod == gHC_PRIM || mod == gHC_CLASSES
     -- See Note [Built-in syntax and the OrigNameCache]
     -- Special case for tuples; there are too many
     -- of them to pre-populate the original-name cache
+    -- The above module names respectively provide,
+    --  * GHC.Tuple:   vanilla boxed tuples
+    --  * GHC.Prim:    unboxed tuples
+    --  * GHC.Classes: constraint tuples
   , Just name <- isBuiltInOcc_maybe occ
   = Just name
 

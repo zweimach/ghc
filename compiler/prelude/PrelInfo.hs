@@ -88,11 +88,6 @@ knownKeyNames
              -- Tuple type representations
            , tuple_rep_names
 
-           , cTupleTyConNames
-             -- Constraint tuples are known-key but not wired-in
-             -- They can't show up in source code, but can appear
-             -- in interface files
-
            , map idName wiredInIds
            , map (idName . primOpId) allThePrimOps
            , basicKnownKeyNames ]
