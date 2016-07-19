@@ -1430,8 +1430,8 @@ thRdrName loc ctxt_ns th_occ th_name
      TH.NameQ mod  -> (mkRdrQual  $! mk_mod mod) $! occ
      TH.NameL uniq -> nameRdrName $! (((Name.mkInternalName $! mk_uniq uniq) $! occ) loc)
      TH.NameU uniq -> nameRdrName $! (((Name.mkSystemNameAt $! mk_uniq uniq) $! occ) loc)
-     TH.NameS | Just name <- isTupleOcc_maybe occ -> nameRdrName $! name
-              | otherwise                         -> mkRdrUnqual $! occ
+     TH.NameS | Just name <- isBuiltInOcc_maybe occ -> nameRdrName $! name
+              | otherwise                           -> mkRdrUnqual $! occ
               -- We check for built-in syntax here, because the TH
               -- user might have written a (NameS "(,,)"), for example
   where
