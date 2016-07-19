@@ -33,7 +33,7 @@ import Module
 import FastString
 import FastStringEnv
 import IfaceType
-import PrelNames ( gHC_TUPLE )
+import PrelNames ( gHC_TUPLE, gHC_PRIM )
 import UniqSupply
 import SrcLoc
 import Util
@@ -194,9 +194,10 @@ their cost we use two tricks,
      having to look up their names at all while loading interface files. See
      Note [Symbol table representation of names] in BinIface for details.
 
-  a. We don't include them in the Orig name cache but instead parse their
-     OccNames (in isBuiltInOcc_maybe) to avoid bloating the name cache with
-     them.
+  a. We don't include tuples with arity >0 in the original-name cache but
+     instead parse their OccNames (in isBuiltInOcc_maybe) to avoid bloating the
+     name cache with them. As far as I know the reasons for the arity-0
+     exception are purely historical.
 
 Why is the second measure necessary? Good question; afterall, 1) the parser
 emits built-in syntax directly as Exact RdrNames, and 2) built-in syntax never
@@ -219,7 +220,7 @@ See also: Note [Known-key names] in PrelNames
 -- in the name cache.
 lookupOrigNameCache :: OrigNameCache -> Module -> OccName -> Maybe Name
 lookupOrigNameCache nc mod occ
-  | mod == gHC_TUPLE
+  | mod == gHC_TUPLE || mod == gHC_PRIM
     -- See Note [Built-in syntax and the OrigNameCache]
     -- Special case for tuples; there are too many
     -- of them to pre-populate the original-name cache

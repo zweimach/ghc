@@ -198,29 +198,29 @@ wiredInTyCons = [ unitTyCon     -- Not treated like other tuples, because
                                 -- that it'll pre-populate the name cache, so
                                 -- the special case in lookupOrigNameCache
                                 -- doesn't need to look out for it
-              , anyTyCon
-              , boolTyCon
-              , charTyCon
-              , doubleTyCon
-              , floatTyCon
-              , intTyCon
-              , wordTyCon
-              , word8TyCon
-              , listTyCon
-              , maybeTyCon
-              , parrTyCon
-              , heqTyCon
-              , coercibleTyCon
-              , typeNatKindCon
-              , typeSymbolKindCon
-              , runtimeRepTyCon
-              , vecCountTyCon
-              , vecElemTyCon
-              , constraintKindTyCon
-              , liftedTypeKindTyCon
-              , starKindTyCon
-              , unicodeStarKindTyCon
-              ]
+                , anyTyCon
+                , boolTyCon
+                , charTyCon
+                , doubleTyCon
+                , floatTyCon
+                , intTyCon
+                , wordTyCon
+                , word8TyCon
+                , listTyCon
+                , maybeTyCon
+                , parrTyCon
+                , heqTyCon
+                , coercibleTyCon
+                , typeNatKindCon
+                , typeSymbolKindCon
+                , runtimeRepTyCon
+                , vecCountTyCon
+                , vecElemTyCon
+                , constraintKindTyCon
+                , liftedTypeKindTyCon
+                , starKindTyCon
+                , unicodeStarKindTyCon
+                ]
 
 mkWiredInTyConName :: BuiltInSyntax -> Module -> FastString -> Unique -> TyCon -> Name
 mkWiredInTyConName built_in modu fs unique tycon
