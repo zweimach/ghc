@@ -40,6 +40,7 @@ import Util
 
 import Outputable
 import Data.List     ( partition )
+import Data.Maybe    ( isNothing )
 
 {-
 *********************************************************
