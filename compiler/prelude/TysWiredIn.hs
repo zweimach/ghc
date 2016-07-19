@@ -608,6 +608,15 @@ Note [How tuples work]  See also Note [Known-key names] in PrelNames
   BoxedTuple/UnboxedTuple, and then we used BasicTypes.Boxity to distinguish
   E.g. tupleTyCon has a Boxity argument
 
+* Names of tuple TyCons, DataCons, and DataCon workers have a special encoding
+  in the interface file symbol table. This allows us to eliminate the need for a
+  original-name cache lookup when loading from an interface file. See
+  Note [Symbol table representation of names] and
+  Note [Built-in syntax and the OrigNameCache].
+
+  Unfortunately, Typeable type representations still do need to be included in
+  the name cache for tiresome reasons. See [Grand plan for Typeable].
+
 * When looking up an OccName in the original-name cache
   (IfaceEnv.lookupOrigNameCache), we spot the tuple OccName to make sure
   we get the right wired-in name.  This guy can't tell the difference

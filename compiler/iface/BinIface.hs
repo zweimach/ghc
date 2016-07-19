@@ -335,9 +335,11 @@ putName _dict BinSymbolTable{
        | Just dc <- isDataConWorkId_maybe x
        , let tc = dataConTyCon dc
        , Just sort <- tyConTuple_maybe tc -> putTupleName_ bh tc sort 2
+
        | TupleTypeRepId tc <- idDetails x
-       , Just sort <- tyConTuple_maybe tc -> putTupleName_ bh tc sort 3
-     _ -> do
+       , Just sort <- tyConTuple_maybe tc -> pprTrace "putName:I see a typerep!" (ppr tc) $ putTupleName_ bh tc sort 3
+
+     _ | otherwise -> do
        symtab_map <- readIORef symtab_map_ref
        case lookupUFM symtab_map name of
          Just (off,_) -> put_ bh (fromIntegral off :: Word32)
@@ -378,9 +380,10 @@ getSymtabName _ncu _dict symtab bh = do
                         1 -> dataConName dc
                         2 -> idName (dataConWorkId dc)
                         3 -> case tyConRepName_maybe tc of
-                               Just repnm -> repnm
+                               Just repnm -> pprTrace "getSymtabName" (ppr repnm) repnm
                                Nothing    -> pprPanic "getSymtabName: tuple without type rep"
                                                       (ppr tc)
+                        n -> pprPanic "getSymtabName: unknown tuple tag" (ppr n)
           where
             tc = tupleTyCon sort arity
             dc = tupleDataCon sort arity

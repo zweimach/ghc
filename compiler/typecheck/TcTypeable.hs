@@ -91,10 +91,11 @@ There are many wrinkles:
   name cache (see Note [Built-in syntax and the OrigNameCache]). This poses a
   problem for Typeable: we need to serialize the Name of a type representation
   for a tuple type with enough information such that the compiler will realize
-  that the Name is that of a type representation when it loads the interface
-  file. We ensure this with a special encoding for tuple type representation
-  names in the interface file symbol table. See Note [Symbol table
-  representation of names]
+  that the Name is that of a tuple type representation when it is loaded from an
+  interface file. We ensure this by only including the type representations for
+  the type contructor and its promoted data constructor in the original name
+  cache. A great deal of discussion on how this design was arrived at can be
+  found in #12357.
 
 -}
 
@@ -272,7 +273,7 @@ mk_typeable_binds stuff tycon
 mkTyConRepBinds :: TypeableStuff -> TyCon -> LHsBinds Id
 mkTyConRepBinds stuff@(Stuff {..}) tycon
   = case tyConRepName_maybe tycon of
-      Just rep_name -> unitBag (mkVarBind rep_id rep_rhs)
+      Just rep_name -> pprTrace "mkTyConRepBinds" (ppr rep_id) $ unitBag (mkVarBind rep_id rep_rhs)
          where
            -- here we add the TupleTypeRepId IdDetail to ensure that the Name is
            -- serialized to the interface file with the correct encoding.
