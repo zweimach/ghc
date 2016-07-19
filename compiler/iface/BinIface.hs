@@ -25,8 +25,7 @@ import TyCon
 import ConLike
 import DataCon    ( dataConName, dataConWorkId, dataConTyCon )
 import PrelInfo   ( knownKeyNames )
-import Id         ( idName, idDetails, isDataConWorkId_maybe )
-import IdInfo     ( IdDetails(TupleTypeRepId) )
+import Id         ( idName, isDataConWorkId_maybe )
 import TysWiredIn
 import IfaceEnv
 import HscTypes

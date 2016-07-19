@@ -85,7 +85,7 @@ knownKeyNames
 
            , concatMap tycon_kk_names typeNatTyCons
 
-             -- Tuples
+             -- Tuple type representations
            , tuple_rep_names
 
            , cTupleTyConNames
