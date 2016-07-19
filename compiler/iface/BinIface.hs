@@ -302,8 +302,7 @@ serialiseName bh name _ = do
 --  10xxyyzzzzzzzzzzzzzzzzzzzzzzzzzzzz
 --   A tuple name:
 --    x is the tuple sort (00b ==> boxed, 01b ==> unboxed, 10b ==> constraint)
---    y is the thing (00b ==> tycon, 01b ==> datacon, 10b ==> datacon worker,
---                    11b ==> tycon representation name)
+--    y is the thing (00b ==> tycon, 01b ==> datacon, 10b ==> datacon worker)
 --    z is the arity
 --  11xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 --   An implicit parameter TyCon name. x is an index into the FastString *dictionary*
@@ -335,11 +334,7 @@ putName _dict BinSymbolTable{
        | Just dc <- isDataConWorkId_maybe x
        , let tc = dataConTyCon dc
        , Just sort <- tyConTuple_maybe tc -> putTupleName_ bh tc sort 2
-
-       | TupleTypeRepId tc <- idDetails x
-       , Just sort <- tyConTuple_maybe tc -> pprTrace "putName:I see a typerep!" (ppr tc) $ putTupleName_ bh tc sort 3
-
-     _ | otherwise -> do
+     _ -> do
        symtab_map <- readIORef symtab_map_ref
        case lookupUFM symtab_map name of
          Just (off,_) -> put_ bh (fromIntegral off :: Word32)
@@ -376,16 +371,11 @@ getSymtabName _ncu _dict symtab bh = do
           where tag = chr (fromIntegral ((i .&. 0x3FC00000) `shiftR` 22))
                 ix = fromIntegral i .&. 0x003FFFFF
         0x80000000 -> return $! case thing_tag of
-                        0 -> tyConName tc
+                        0 -> tyConName (tupleTyCon sort arity)
                         1 -> dataConName dc
                         2 -> idName (dataConWorkId dc)
-                        3 -> case tyConRepName_maybe tc of
-                               Just repnm -> pprTrace "getSymtabName" (ppr repnm) repnm
-                               Nothing    -> pprPanic "getSymtabName: tuple without type rep"
-                                                      (ppr tc)
-                        n -> pprPanic "getSymtabName: unknown tuple tag" (ppr n)
+                        _ -> pprPanic "getSymtabName:unknown tuple thing" (ppr i)
           where
-            tc = tupleTyCon sort arity
             dc = tupleDataCon sort arity
             sort = case (i .&. 0x30000000) `shiftR` 28 of
                      0 -> Boxed

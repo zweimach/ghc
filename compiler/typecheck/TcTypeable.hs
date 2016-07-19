@@ -273,13 +273,12 @@ mk_typeable_binds stuff tycon
 mkTyConRepBinds :: TypeableStuff -> TyCon -> LHsBinds Id
 mkTyConRepBinds stuff@(Stuff {..}) tycon
   = case tyConRepName_maybe tycon of
-      Just rep_name -> pprTrace "mkTyConRepBinds" (ppr rep_id) $ unitBag (mkVarBind rep_id rep_rhs)
+      Just rep_name -> unitBag (mkVarBind rep_id rep_rhs)
          where
            -- here we add the TupleTypeRepId IdDetail to ensure that the Name is
            -- serialized to the interface file with the correct encoding.
            -- See Note [Symbol table representation of names].
            rep_id  = mkExportedVanillaId rep_name (mkTyConTy trTyConTyCon)
-                     `setIdDetails` TupleTypeRepId tycon
            rep_rhs = mkTyConRepRHS stuff tycon
       _ -> emptyBag
 

@@ -114,9 +114,6 @@ data IdDetails
                                 --    data T = forall a. MkT { x :: a }
     }                           -- See Note [Naughty record selectors] in TcTyClsDecls
 
-  -- | The 'Id' for a tuple's @TypeRep@. See Note [Grant plan for Typeable].
-  | TupleTypeRepId TyCon
-
   | DataConWorkId DataCon       -- ^ The 'Id' is for a data constructor /worker/
   | DataConWrapId DataCon       -- ^ The 'Id' is for a data constructor /wrapper/
 
@@ -170,7 +167,6 @@ pprIdDetails VanillaId = empty
 pprIdDetails other     = brackets (pp other)
  where
    pp VanillaId         = panic "pprIdDetails"
-   pp (TupleTypeRepId tc) = text "TypeTypeRepId" <+> ppr tc
    pp (DataConWorkId _) = text "DataCon"
    pp (DataConWrapId _) = text "DataConWrapper"
    pp (ClassOpId {})    = text "ClassOp"
