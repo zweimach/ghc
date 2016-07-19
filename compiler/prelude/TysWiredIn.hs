@@ -19,7 +19,7 @@ module TysWiredIn (
         mkFunKind, mkForAllKind,
 
         -- * All wired in things
-        wiredInTyCons, isTupleOcc_maybe,
+        wiredInTyCons, isBuiltInOcc_maybe,
 
         -- * Bool
         boolTy, boolTyCon, boolTyCon_RDR, boolTyConName,
@@ -658,9 +658,12 @@ it's unused I think.
 -- Haskell splices since we take care to encode built-in syntax names specially
 -- in interface files. See Note [Symbol table representation of names].
 -- This function should be able to identify everything in GHC.Tuple
-isTupleOcc_maybe :: OccName -> Maybe Name
-isTupleOcc_maybe occ =
+isBuiltInOcc_maybe :: OccName -> Maybe Name
+isBuiltInOcc_maybe occ =
     case name of
+      "[]" -> Just $ choose_ns listTyConName nilDataConName
+      ":"    -> Just consDataConName
+      "[::]" -> Just parrTyConName
       "()"    -> Just $ tup_name Boxed 0
       "(##)"  -> Just $ tup_name Unboxed 0
       _ | Just rest <- "(" `stripPrefix` name

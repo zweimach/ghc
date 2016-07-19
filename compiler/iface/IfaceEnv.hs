@@ -195,7 +195,7 @@ their cost we use two tricks,
      Note [Symbol table representation of names] in BinIface for details.
 
   a. We don't include them in the Orig name cache but instead parse their
-     OccNames (in isTupleOcc_maybe) to avoid bloating the name cache with
+     OccNames (in isBuiltInOcc_maybe) to avoid bloating the name cache with
      them.
 
 Why is the second measure necessary? Good question; afterall, 1) the parser
@@ -223,7 +223,7 @@ lookupOrigNameCache nc mod occ
     -- See Note [Built-in syntax and the OrigNameCache]
     -- Special case for tuples; there are too many
     -- of them to pre-populate the original-name cache
-  , Just name <- isTupleOcc_maybe occ
+  , Just name <- isBuiltInOcc_maybe occ
   = Just name
 
   | otherwise = lookupOrigNameCache' nc mod occ
@@ -236,7 +236,7 @@ lookupOrigNameCache nc mod occ
 lookupOrigNameCache' :: OrigNameCache -> Module -> OccName -> Maybe Name
 lookupOrigNameCache' nc mod occ
   = -- This function should never see built-in syntax, assert this
-    ASSERT(isNothing $ isTupleOcc_maybe occ)
+    ASSERT(isNothing $ isBuiltInOcc_maybe occ)
     case lookupModuleEnv nc mod of
         Nothing      -> Nothing
         Just occ_env -> lookupOccEnv occ_env occ

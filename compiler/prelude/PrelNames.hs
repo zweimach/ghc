@@ -58,7 +58,7 @@ This is accomplished through a combination of mechanisms:
      Currently, I believe this is just an optimisation: it would be
      equally valid to just output Orig RdrNames that correctly record
      the module etc we expect the final Name to come from. However,
-     were we to eliminate isTupleOcc_maybe it would become essential
+     were we to eliminate isBuiltInOcc_maybe it would become essential
      (see point 3).
 
   2. The knownKeyNames (which consist of the basicKnownKeyNames from
@@ -96,7 +96,7 @@ This is accomplished through a combination of mechanisms:
        constraint tuples and Any TyCons cannot be mentioned by the
        user.
 
-       c) IfaceEnv.lookupOrigNameCache uses isTupleOcc_maybe to map
+       c) IfaceEnv.lookupOrigNameCache uses isBuiltInOcc_maybe to map
           built-in syntax directly onto the corresponding name, rather
           than trying to find it in the original-name cache.
 
