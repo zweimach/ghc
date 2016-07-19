@@ -218,12 +218,11 @@ are two reasons why we might look up an Orig RdrName for built-in syntax,
 lookupOrigNameCache :: OrigNameCache -> Module -> OccName -> Maybe Name
 lookupOrigNameCache nc mod occ
   | mod == gHC_TUPLE
-  = -- See Note [Known-key names], 3(c) in PrelNames
+    -- See Note [Known-key names], 3(c) in PrelNames
     -- Special case for tuples; there are too many
     -- of them to pre-populate the original-name cache
-    case isTupleOcc_maybe occ of
-      Nothing -> pprPanic "lookupOrigNameCache" (text "attempted to lookup"<+>ppr occ<+>text "from GHC.Tuple yet nothing was found in the original name cache")
-      Just name -> Just name
+  , Just name <- isTupleOcc_maybe occ
+  = Just name
 
   | otherwise = lookupOrigNameCache' nc mod occ
 
@@ -234,10 +233,13 @@ lookupOrigNameCache nc mod occ
 -- For discussion of why see Note [Built-in syntax and the OrigNameCache].
 lookupOrigNameCache' :: OrigNameCache -> Module -> OccName -> Maybe Name
 lookupOrigNameCache' nc mod occ
-  = ASSERT(mod /= gHC_TUPLE)
-    case lookupModuleEnv nc mod of
+  = case lookupModuleEnv nc mod of
         Nothing      -> Nothing
         Just occ_env -> lookupOccEnv occ_env occ
+    -- TODO: It would be nice if we could simply ASSERT that mod /= gHC_TUPLE to
+    -- catch cases which should be using lookupOrigNameCache instead of this
+    -- function. Unfortunately we can't do this since we may be asked to resolve
+    -- type representations, e.g. $tc(,), and such
 
 extendOrigNameCache :: OrigNameCache -> Name -> OrigNameCache
 extendOrigNameCache nc name

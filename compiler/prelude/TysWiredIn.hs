@@ -648,11 +648,12 @@ it's unused I think.
 -- This should only be necessary while resolving names produced by Template
 -- Haskell splices since we take care to encode built-in syntax names specially
 -- in interface files. See Note [Symbol table representation of names].
+-- This function should be able to identify everything in GHC.Tuple
 isTupleOcc_maybe :: OccName -> Maybe Name
 isTupleOcc_maybe occ =
     case name of
-      "()"   -> Just $ tup_name Boxed 0
-      "(##)" -> Just $ tup_name Unboxed 0
+      "()"    -> Just $ tup_name Boxed 0
+      "(##)"  -> Just $ tup_name Unboxed 0
       _ | Just rest <- "(" `stripPrefix` name
         , (commas, rest') <- BS.span (==',') rest
         , ")" <- rest'
