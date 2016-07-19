@@ -15,6 +15,8 @@ import TcRnMonad
 import PrelNames
 import TysPrim ( primTyCons )
 import Id
+import IdInfo  ( IdDetails(TupleTypeRepId) )
+import Var     ( setIdDetails )
 import Type
 import TyCon
 import DataCon
@@ -84,6 +86,15 @@ There are many wrinkles:
 * To save space and reduce dependencies, we need use quite low-level
   representations for TyCon and Module.  See GHC.Types
   Note [Runtime representation of modules and tycons]
+
+* Tuples are generally special in GHC since they are not placed in the original
+  name cache (see Note [Built-in syntax and the OrigNameCache]). This poses a
+  problem for Typeable: we need to serialize the Name of a type representation
+  for a tuple type with enough information such that the compiler will realize
+  that the Name is that of a type representation when it loads the interface
+  file. We ensure this with a special encoding for tuple type representation
+  names in the interface file symbol table. See Note [Symbol table
+  representation of names]
 
 -}
 
@@ -263,7 +274,11 @@ mkTyConRepBinds stuff@(Stuff {..}) tycon
   = case tyConRepName_maybe tycon of
       Just rep_name -> unitBag (mkVarBind rep_id rep_rhs)
          where
+           -- here we add the TupleTypeRepId IdDetail to ensure that the Name is
+           -- serialized to the interface file with the correct encoding.
+           -- See Note [Symbol table representation of names].
            rep_id  = mkExportedVanillaId rep_name (mkTyConTy trTyConTyCon)
+                     `setIdDetails` TupleTypeRepId tycon
            rep_rhs = mkTyConRepRHS stuff tycon
       _ -> emptyBag
 
