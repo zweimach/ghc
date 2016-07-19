@@ -275,7 +275,7 @@ fromOnDiskName :: Array Int Name -> NameCache -> OnDiskName -> (NameCache, Name)
 fromOnDiskName _ nc (pid, mod_name, occ) =
     let mod   = mkModule pid mod_name
         cache = nsNames nc
-    in case lookupOrigNameCache cache  mod occ of
+    in case lookupOrigNameCache' cache  mod occ of
            Just name -> (nc, name)
            Nothing   ->
                let (uniq, us) = takeUniqFromSupply (nsUniqs nc)

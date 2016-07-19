@@ -85,8 +85,6 @@ knownKeyNames
 
            , concatMap tycon_kk_names typeNatTyCons
 
-           , concatMap (tycon_kk_names . tupleTyCon Boxed) [2..mAX_TUPLE_SIZE]  -- Yuk
-
            , cTupleTyConNames
              -- Constraint tuples are known-key but not wired-in
              -- They can't show up in source code, but can appear

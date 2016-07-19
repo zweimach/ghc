@@ -19,7 +19,7 @@ module TysWiredIn (
         mkFunKind, mkForAllKind,
 
         -- * All wired in things
-        wiredInTyCons, isBuiltInOcc_maybe,
+        wiredInTyCons, isTupleOcc_maybe,
 
         -- * Bool
         boolTy, boolTyCon, boolTyCon_RDR, boolTyConName,
@@ -641,17 +641,16 @@ decl in GHC.Classes, so I think this part may not work properly. But
 it's unused I think.
 -}
 
--- | Built in syntax isn't "in scope" so these OccNames map to wired-in Names
--- with BuiltInSyntax. However, this should only be necessary while resolving
--- names produced by Template Haskell splices since we take care to encode
--- built-in syntax names specially in interface files. See
--- Note [Symbol table representation of names].
-isBuiltInOcc_maybe :: OccName -> Maybe Name
-isBuiltInOcc_maybe occ =
+-- | Tuple types aren't included in the original name cache to keep the size of
+-- the cache down. This function is responsible for identifying tuple types and
+-- mapping them to the appropriate 'Name'.
+--
+-- This should only be necessary while resolving names produced by Template
+-- Haskell splices since we take care to encode built-in syntax names specially
+-- in interface files. See Note [Symbol table representation of names].
+isTupleOcc_maybe :: OccName -> Maybe Name
+isTupleOcc_maybe occ =
     case name of
-      "[]"   -> Just $ choose_ns listTyConName nilDataConName
-      ":"    -> Just consDataConName
-      "[::]" -> Just parrTyConName
       "()"   -> Just $ tup_name Boxed 0
       "(##)" -> Just $ tup_name Unboxed 0
       _ | Just rest <- "(" `stripPrefix` name

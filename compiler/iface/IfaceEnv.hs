@@ -6,7 +6,7 @@ module IfaceEnv (
         newGlobalBinder, newInteractiveBinder,
         externaliseName,
         lookupIfaceTop,
-        lookupOrig, lookupOrigNameCache, extendNameCache,
+        lookupOrig, lookupOrigNameCache, lookupOrigNameCache', extendNameCache,
         newIfaceName, newIfaceNames,
         extendIfaceIdEnv, extendIfaceTyVarEnv,
         tcIfaceLclId, tcIfaceTyVar, lookupIfaceVar,
@@ -194,7 +194,7 @@ their cost we use two tricks,
      Note [Symbol table representation of names] in BinIface for details.
 
   a. We don't include them in the Orig name cache but instead parse their
-     OccNames (in isBuiltInOcc_maybe) to avoid bloating the name cache with
+     OccNames (in isTupleOcc_maybe) to avoid bloating the name cache with
      them.
 
 Why is the second measure necessary? Good question; afterall, 1) the parser
@@ -212,17 +212,30 @@ are two reasons why we might look up an Orig RdrName for built-in syntax,
 
 -}
 
+-- | Lookup the 'Name' associated with an 'OccName'. Note that unlike
+-- 'lookupOrigNameCache\'', this function will identify tuple types not present
+-- in the name cache.
 lookupOrigNameCache :: OrigNameCache -> Module -> OccName -> Maybe Name
 lookupOrigNameCache nc mod occ
   | mod == gHC_TUPLE
-  , Just name <- isBuiltInOcc_maybe occ
-  =     -- See Note [Known-key names], 3(c) in PrelNames
-        -- Special case for tuples; there are too many
-        -- of them to pre-populate the original-name cache
-    Just name
+  = -- See Note [Known-key names], 3(c) in PrelNames
+    -- Special case for tuples; there are too many
+    -- of them to pre-populate the original-name cache
+    case isTupleOcc_maybe occ of
+      Nothing -> pprPanic "lookupOrigNameCache" (text "attempted to lookup"<+>ppr occ<+>text "from GHC.Tuple yet nothing was found in the original name cache")
+      Just name -> Just name
 
-  | otherwise
-  = case lookupModuleEnv nc mod of
+  | otherwise = lookupOrigNameCache' nc mod occ
+
+-- | Lookup the 'Name' associated with an 'OccName'. Note that this function
+-- will not find names for tuple types (e.g. @(,,)@). For this you want
+-- 'lookupOrigNameCache'.
+--
+-- For discussion of why see Note [Built-in syntax and the OrigNameCache].
+lookupOrigNameCache' :: OrigNameCache -> Module -> OccName -> Maybe Name
+lookupOrigNameCache' nc mod occ
+  = ASSERT(mod /= gHC_TUPLE)
+    case lookupModuleEnv nc mod of
         Nothing      -> Nothing
         Just occ_env -> lookupOccEnv occ_env occ
 
