@@ -41,6 +41,7 @@ import Util
 import Outputable
 import Data.List     ( partition )
 import Data.Maybe    ( isNothing )
+import GHC.Stack
 
 {-
 *********************************************************
@@ -218,7 +219,7 @@ See also: Note [Known-key names] in PrelNames
 -- | Lookup the 'Name' associated with an 'OccName'. Note that unlike
 -- 'lookupOrigNameCache\'', this function will identify tuple types not present
 -- in the name cache.
-lookupOrigNameCache :: OrigNameCache -> Module -> OccName -> Maybe Name
+lookupOrigNameCache :: HasCallStack => OrigNameCache -> Module -> OccName -> Maybe Name
 lookupOrigNameCache nc mod occ
   | mod == gHC_TUPLE || mod == gHC_PRIM || mod == gHC_CLASSES
     -- See Note [Built-in syntax and the OrigNameCache]
@@ -238,8 +239,11 @@ lookupOrigNameCache nc mod occ
 -- 'lookupOrigNameCache'.
 --
 -- For discussion of why see Note [Built-in syntax and the OrigNameCache].
-lookupOrigNameCache' :: OrigNameCache -> Module -> OccName -> Maybe Name
+lookupOrigNameCache' :: HasCallStack => OrigNameCache -> Module -> OccName -> Maybe Name
 lookupOrigNameCache' nc mod occ
+  | Just name <- isBuiltInOcc_maybe occ
+  = pprPanic "lookupOrigNameCache': found tuple" (ppr mod $$ ppr occ $$ ppr name)
+  | otherwise
   = -- This function should never see built-in syntax, assert this
     ASSERT(isNothing $ isBuiltInOcc_maybe occ)
     case lookupModuleEnv nc mod of
