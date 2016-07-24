@@ -61,7 +61,7 @@ data CmmNode e x where
     -- the "old" value of a register if we want to navigate the stack
     -- up one frame. Having unwind information for @Sp@ will allow the
     -- debugger to "walk" the stack.
-  CmmUnwind :: [(GlobalReg, CmmExpr)] -> CmmNode O O
+  CmmUnwind :: [(GlobalReg, Maybe CmmExpr)] -> CmmNode O O
 
   CmmAssign :: !CmmReg -> !CmmExpr -> CmmNode O O
     -- Assign to register
