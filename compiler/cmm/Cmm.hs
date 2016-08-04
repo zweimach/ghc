@@ -21,7 +21,7 @@ module Cmm (
      CmmTopInfo(..), CmmStackInfo(..), CmmInfoTable(..), topInfoTable,
      ClosureTypeInfo(..),
      C_SRT(..), needsSRT,
-     ProfilingInfo(..), ConstrDescription,
+     ProfilingInfo(..),
 
      -- * Statements, expressions and types
      module CmmNode,

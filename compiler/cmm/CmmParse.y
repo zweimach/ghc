@@ -237,6 +237,7 @@ import Platform
 import Literal
 import Unique
 import UniqFM
+import DataCon (ConstrDescription(..))
 import SrcLoc
 import DynFlags
 import StaticFlags
@@ -255,6 +256,7 @@ import Data.Array
 import Data.Char        ( ord )
 import System.Exit
 import Data.Maybe
+import qualified Data.ByteString.Char8 as BS
 import qualified Data.Map as M
 
 #include "HsVersions.h"
@@ -494,7 +496,7 @@ info    :: { CmmParse (CLabel, Maybe CmmInfoTable, [LocalReg]) }
                    do dflags <- getDynFlags
                       let prof = profilingInfo dflags $13 $15
                           ty  = Constr (fromIntegral $9)  -- Tag
-                                       (stringToWord8s $13)
+                                       (ConstrDescription $ BS.pack $13)
                           rep = mkRTSRep (fromIntegral $11) $
                                   mkHeapRep dflags False (fromIntegral $5)
                                                   (fromIntegral $7) ty

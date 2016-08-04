@@ -4,6 +4,7 @@ module GHCi.TH.Binary () where
 
 import Data.Binary
 import qualified Data.ByteString as B
+import DataCon (ConstrDescription(..))
 import Data.Typeable
 import GHC.Serialized
 import qualified Language.Haskell.TH        as TH
@@ -77,3 +78,7 @@ instance Binary TypeRep where
 instance Binary Serialized where
     put (Serialized tyrep wds) = put tyrep >> put (B.pack wds)
     get = Serialized <$> get <*> (B.unpack <$> get)
+
+instance Binary ConstrDescription where
+    put (ConstrDescription bs) = put bs
+    get = ConstrDescription <$> get

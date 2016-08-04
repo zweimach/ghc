@@ -21,6 +21,7 @@ module GHCi.Message
   , Pipe(..), remoteCall, remoteTHCall, readPipe, writePipe
   ) where
 
+import DataCon (ConstrDescription)
 import GHCi.RemoteTypes
 import GHCi.InfoTable (StgInfoTable)
 import GHCi.FFI
@@ -91,10 +92,10 @@ data Message a where
 
   -- | Create an info table for a constructor
   MkConInfoTable
-   :: Int     -- ptr words
-   -> Int     -- non-ptr words
-   -> Int     -- constr tag
-   -> [Word8] -- constructor desccription
+   :: Int                -- ^ pointer words
+   -> Int                -- ^ non-pointer words
+   -> Int                -- ^ constructor tag
+   -> ConstrDescription  -- ^ constructor desccription
    -> Message (RemotePtr StgInfoTable)
 
   -- | Evaluate a statement

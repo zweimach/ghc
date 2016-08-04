@@ -19,7 +19,6 @@ module SMRep (
         SMRep(..), -- CmmInfo sees the rep; no one else does
         IsStatic,
         ClosureTypeInfo(..), ArgDescr(..), Liveness,
-        ConstrDescription,
 
         -- ** Construction
         mkHeapRep, blackHoleRep, indStaticRep, mkStackRep, mkRTSRep, arrPtrsRep,
@@ -54,6 +53,7 @@ import DynFlags
 import Outputable
 import Platform
 import FastString
+import DataCon (ConstrDescription)
 
 import Data.Char( ord )
 import Data.Word
@@ -192,7 +192,6 @@ data ClosureTypeInfo
   | IndStatic
 
 type ConstrTag         = Int
-type ConstrDescription = [Word8] -- result of dataConIdentity
 type FunArity          = Int
 type SelectorOffset    = Int
 

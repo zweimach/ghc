@@ -6,6 +6,7 @@
 -}
 
 {-# LANGUAGE CPP, DeriveDataTypeable #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module DataCon (
         -- * Main data types
@@ -28,7 +29,9 @@ module DataCon (
 
         -- ** Type deconstruction
         dataConRepType, dataConSig, dataConInstSig, dataConFullSig,
-        dataConName, dataConIdentity, dataConTag, dataConTyCon,
+        dataConName,
+        ConstrDescription(..), dataConIdentity,
+        dataConTag, dataConTyCon,
         dataConOrigTyCon, dataConUserType,
         dataConUnivTyVars, dataConUnivTyVarBinders,
         dataConExTyVars, dataConExTyVarBinders,
@@ -83,8 +86,7 @@ import UniqFM
 import Unique( mkAlphaTyVarUnique )
 
 import qualified Data.Data as Data
-import Data.Char
-import Data.Word
+import qualified Data.ByteString.Char8 as BS
 import Data.List( mapAccumL, find )
 
 {-
@@ -1153,13 +1155,23 @@ dataConRepArgTys (MkData { dcRep = rep
       NoDataConRep -> ASSERT( null eq_spec ) theta ++ orig_arg_tys
       DCR { dcr_arg_tys = arg_tys } -> arg_tys
 
+-- | A textual description of a 'DataCon' produced by 'dataConIdentity'.
+-- This is referenced by the constructor's info table and is used by the
+-- debugger and heap profiler to work out which type a closure belongs to.
+newtype ConstrDescription = ConstrDescription BS.ByteString
+                          deriving (Show, Binary)
+
 -- | The string @package:module.name@ identifying a constructor, which is attached
 -- to its info table and used by the GHCi debugger and the heap profiler
-dataConIdentity :: DataCon -> [Word8]
+dataConIdentity :: DataCon -> ConstrDescription
 -- We want this string to be UTF-8, so we get the bytes directly from the FastStrings.
-dataConIdentity dc = bytesFS (unitIdFS (moduleUnitId mod)) ++
-                  fromIntegral (ord ':') : bytesFS (moduleNameFS (moduleName mod)) ++
-                  fromIntegral (ord '.') : bytesFS (occNameFS (nameOccName name))
+dataConIdentity dc = ConstrDescription $ BS.concat
+    [ fastStringToByteString (unitIdFS (moduleUnitId mod))
+    , BS.pack ":"
+    , fastStringToByteString (moduleNameFS (moduleName mod))
+    , BS.pack "."
+    , fastStringToByteString (occNameFS (nameOccName name))
+    ]
   where name = dataConName dc
         mod  = ASSERT( isExternalName name ) nameModule name
 

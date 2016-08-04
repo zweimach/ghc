@@ -38,6 +38,7 @@ import Cmm
 import CmmUtils
 import CLabel
 import SMRep
+import DataCon (ConstrDescription(..))
 import Bitmap
 import Stream (Stream)
 import qualified Stream
@@ -53,6 +54,7 @@ import Outputable
 
 import Data.Bits
 import Data.Word
+import qualified Data.ByteString as BS
 
 -- When we split at proc points, we need an empty info table.
 mkEmptyContInfoTable :: CLabel -> CmmInfoTable
@@ -214,7 +216,7 @@ mkInfoTableContents dflags
                         , [CmmLit]           -- "Extra bits" for info table
                         , [RawCmmDecl])      -- Auxiliary data decls
     mk_pieces (Constr con_tag con_descr) _no_srt    -- A data constructor
-      = do { (descr_lit, decl) <- newStringLit con_descr
+      = do { (descr_lit, decl) <- newConstrDescriptionLit con_descr
            ; return ( Just (toStgHalfWord dflags (fromIntegral con_tag))
                     , Nothing, [descr_lit], [decl]) }
 
@@ -397,6 +399,11 @@ mkProfLits _ (ProfilingInfo td cd)
        ; (cd_lit, cd_decl) <- newStringLit cd
        ; return ((td_lit,cd_lit), [td_decl,cd_decl]) }
 
+-- | Return a new string literal containing a 'ConstrDescription'.
+newConstrDescriptionLit :: ConstrDescription -> UniqSM (CmmLit, GenCmmDecl CmmStatics info stmt)
+newConstrDescriptionLit (ConstrDescription desc) = newStringLit $ BS.unpack desc
+
+-- | Return a new plain string literal.
 newStringLit :: [Word8] -> UniqSM (CmmLit, GenCmmDecl CmmStatics info stmt)
 newStringLit bytes
   = do { uniq <- getUniqueM
