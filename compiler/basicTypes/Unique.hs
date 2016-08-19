@@ -44,7 +44,7 @@ module Unique (
         mkPrimOpIdUnique,
         mkTupleTyConUnique, mkTupleDataConUnique,
         mkSumTyConUnique, mkSumDataConUnique,
-        mkCTupleTyConUnique,
+        mkCTupleTyConUnique, mkCTupleDataConUnique,
         mkPreludeMiscIdUnique, mkPreludeDataConUnique,
         mkPreludeTyConUnique, mkPreludeClassUnique,
         mkPArrDataConUnique, mkCoVarUnique,
@@ -53,13 +53,16 @@ module Unique (
         mkRegSingleUnique, mkRegPairUnique, mkRegClassUnique, mkRegSubUnique,
         mkCostCentreUnique,
 
-        tyConRepNameUnique,
-        dataConWorkerUnique, dataConRepNameUnique,
-
         mkBuiltinUnique,
         mkPseudoUniqueD,
         mkPseudoUniqueE,
-        mkPseudoUniqueH
+        mkPseudoUniqueH,
+
+        -- ** Deriving uniques
+        -- *** From TyCon name uniques
+        tyConRepNameUnique,
+        -- *** From DataCon name uniques
+        dataConWorkerUnique, dataConRepNameUnique
     ) where
 
 #include "HsVersions.h"
@@ -319,9 +322,12 @@ Allocation of unique supply characters:
         d       desugarer
         f       AbsC flattener
         g       SimplStg
+        k       constraint tuple tycons
+        m       constraint tuple datacons
         n       Native codegen
         r       Hsc name cache
         s       simplifier
+        z       anonymous sums
 -}
 
 mkAlphaTyVarUnique     :: Int -> Unique
@@ -331,6 +337,7 @@ mkTupleTyConUnique     :: Boxity -> Arity -> Unique
 mkCTupleTyConUnique    :: Arity -> Unique
 mkPreludeDataConUnique :: Arity -> Unique
 mkTupleDataConUnique   :: Boxity -> Arity -> Unique
+mkCTupleDataConUnique  :: Arity -> Unique
 mkPrimOpIdUnique       :: Int -> Unique
 mkPreludeMiscIdUnique  :: Int -> Unique
 mkPArrDataConUnique    :: Int -> Unique
@@ -368,6 +375,7 @@ tyConRepNameUnique  u = incrUnique u
 mkPreludeDataConUnique i              = mkUnique '6' (3*i)    -- Must be alphabetic
 mkTupleDataConUnique Boxed          a = mkUnique '7' (3*a)    -- ditto (*may* be used in C labels)
 mkTupleDataConUnique Unboxed        a = mkUnique '8' (3*a)
+mkCTupleDataConUnique               a = mkUnique 'm' (3*a)    -- CTuples aren't exactly wired-in, but close
 
 --------------------------------------------------
 -- Sum arities start from 2. A sum of arity N has N data constructors, so it
