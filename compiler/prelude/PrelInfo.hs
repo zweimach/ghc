@@ -6,17 +6,21 @@
 
 {-# LANGUAGE CPP #-}
 module PrelInfo (
+        -- * Known-key names
+        isKnownKeyName,
+        lookupKnownKeyName,
+        knownKeyNames,
+
         wiredInIds, ghcPrimIds,
         primOpRules, builtinRules,
 
         ghcPrimExports,
-        knownKeyNames,
         primOpId,
 
-        -- Random other things
+        -- * Random other things
         maybeCharLikeCon, maybeIntLikeCon,
 
-        -- Class categories
+        -- * Class categories
         isNumericClass, isStandardClass
 
     ) where
@@ -39,6 +43,7 @@ import TysWiredIn
 import HscTypes
 import Class
 import TyCon
+import UniqFM
 import Util
 import {-# SOURCE #-} TcTypeNats ( typeNatTyCons )
 
@@ -77,37 +82,62 @@ knownKeyNames :: [Name]
 -- you get a Name with the correct known key
 -- (See Note [Known-key names] in PrelNames)
 knownKeyNames
-  = concat [ tycon_kk_names funTyCon
-           , concatMap tycon_kk_names primTyCons
+  = concat [ wired_tycon_kk_names funTyCon
+           , concatMap wired_tycon_kk_names primTyCons
 
-           , concatMap tycon_kk_names wiredInTyCons
+           , concatMap wired_tycon_kk_names wiredInTyCons
              -- Does not include tuples
 
-           , concatMap tycon_kk_names typeNatTyCons
+           , concatMap wired_tycon_kk_names typeNatTyCons
 
-           , concatMap (tycon_kk_names . tupleTyCon Boxed) [2..mAX_TUPLE_SIZE]  -- Yuk
+           , concatMap (wired_tycon_kk_names . tupleTyCon Boxed) [1..mAX_TUPLE_SIZE]  -- Yuk
+           , concatMap (wired_tycon_kk_names . tupleTyCon Unboxed) [1..mAX_TUPLE_SIZE]  -- Yuk
 
-           , cTupleTyConNames
+           , concatMap tycon_kk_names cTupleTyConNames
+           , concatMap datacon_kk_names cTupleDataConNames
              -- Constraint tuples are known-key but not wired-in
              -- They can't show up in source code, but can appear
              -- in interface files
+
+             -- Anonymous sums
+           , map (tyConName . sumTyCon) [2..mAX_TUPLE_SIZE]  -- Yuk
+           , [ dataConName $ sumDataCon alt arity
+             | arity <- [2..mAX_TUPLE_SIZE]
+             , alt <- [1..arity]
+             ]
 
            , map idName wiredInIds
            , map (idName . primOpId) allThePrimOps
            , basicKnownKeyNames ]
 
   where
-  -- All of the names associated with a known-key thing.
-  -- This includes TyCons, DataCons and promoted TyCons.
-  tycon_kk_names :: TyCon -> [Name]
-  tycon_kk_names tc = tyConName tc : (rep_names tc ++ concatMap thing_kk_names (implicitTyConThings tc))
+  -- All of the names associated with a known-key TyCon (where we only have its
+  -- name, not the TyCon itself). This includes the names of the TyCon itself
+  -- and its type rep binding.
+  tycon_kk_names :: Name -> [Name]
+  tycon_kk_names tc = [tc, mkPrelTyConRepName tc]
 
-  datacon_kk_names dc
+  -- All of the names associated with a known-key DataCon. This includes the
+  -- names of the DataCon itself and its promoted type rep.
+  datacon_kk_names :: Name -> [Name]
+  datacon_kk_names dc =
+      [ dc
+      , mkPrelTyConRepName dc
+      ]
+
+  -- All of the names associated with a wired-in TyCon.
+  -- This includes the TyCon itself, its DataCons and promoted TyCons.
+  wired_tycon_kk_names :: TyCon -> [Name]
+  wired_tycon_kk_names tc =
+      tyConName tc : (rep_names tc ++ concatMap thing_kk_names (implicitTyConThings tc))
+
+  wired_datacon_kk_names :: DataCon -> [Name]
+  wired_datacon_kk_names dc
    = dataConName dc : rep_names (promoteDataCon dc)
 
   thing_kk_names :: TyThing -> [Name]
-  thing_kk_names (ATyCon tc)                 = tycon_kk_names tc
-  thing_kk_names (AConLike (RealDataCon dc)) = datacon_kk_names dc
+  thing_kk_names (ATyCon tc)                 = wired_tycon_kk_names tc
+  thing_kk_names (AConLike (RealDataCon dc)) = wired_datacon_kk_names dc
   thing_kk_names thing                       = [getName thing]
 
   -- The TyConRepName for a known-key TyCon has a known key,
@@ -118,6 +148,18 @@ knownKeyNames
   rep_names tc = case tyConRepName_maybe tc of
                        Just n  -> [n]
                        Nothing -> []
+
+-- | Given a 'Unique' lookup its associated 'Name' if it corresponds to a
+-- known-key thing.
+lookupKnownKeyName :: Unique -> Maybe Name
+lookupKnownKeyName = lookupUFM knownKeysMap
+
+-- | Is a 'Name' known-key?
+isKnownKeyName :: Name -> Bool
+isKnownKeyName n = elemUFM n knownKeysMap
+
+knownKeysMap :: UniqFM Name
+knownKeysMap = listToUFM [ (nameUnique n, n) | n <- knownKeyNames ]
 
 {-
 We let a lot of "non-standard" values be visible, so that we can make

@@ -73,7 +73,9 @@ module TysWiredIn (
         unitTyCon, unitDataCon, unitDataConId, unitTy, unitTyConKey,
         pairTyCon,
         unboxedUnitTyCon, unboxedUnitDataCon,
+        -- ** Constraint tuples
         cTupleTyConName, cTupleTyConNames, isCTupleTyConName,
+        cTupleDataConName, cTupleDataConNames,
 
         -- * Any
         anyTyCon, anyTy, anyTypeOfKind,
@@ -201,6 +203,7 @@ wiredInTyCons = [ unitTyCon     -- Not treated like other tuples, because
                                 -- that it'll pre-populate the name cache, so
                                 -- the special case in lookupOrigNameCache
                                 -- doesn't need to look out for it
+                , unboxedUnitTyCon
                 , anyTyCon
                 , boolTyCon
                 , charTyCon
@@ -725,7 +728,6 @@ cTupleTyConName :: Arity -> Name
 cTupleTyConName arity
   = mkExternalName (mkCTupleTyConUnique arity) gHC_CLASSES
                    (mkCTupleOcc tcName arity) noSrcSpan
-  -- The corresponding DataCon does not have a known-key name
 
 cTupleTyConNames :: [Name]
 cTupleTyConNames = map cTupleTyConName (0 : [2..mAX_CTUPLE_SIZE])
@@ -739,6 +741,14 @@ isCTupleTyConName n
  = ASSERT2( isExternalName n, ppr n )
    nameModule n == gHC_CLASSES
    && n `elemNameSet` cTupleTyConNameSet
+
+cTupleDataConName :: Arity -> Name
+cTupleDataConName arity
+  = mkExternalName (mkCTupleDataConUnique arity) gHC_CLASSES
+                   (mkCTupleOcc dataName arity) noSrcSpan
+
+cTupleDataConNames :: [Name]
+cTupleDataConNames = map cTupleDataConName (0 : [2..mAX_CTUPLE_SIZE])
 
 tupleTyCon :: Boxity -> Arity -> TyCon
 tupleTyCon sort i | i > mAX_TUPLE_SIZE = fst (mk_tuple sort i)  -- Build one specially
