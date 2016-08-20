@@ -198,12 +198,12 @@ names in PrelNames, so they use wTcQual, wDataQual, etc
 -- See also Note [Known-key names]
 wiredInTyCons :: [TyCon]
 
-wiredInTyCons = [ unitTyCon     -- Not treated like other tuples, because
-                                -- it's defined in GHC.Base, and there's only
-                                -- one of it.  We put it in wiredInTyCons so
-                                -- that it'll pre-populate the name cache, so
-                                -- the special case in lookupOrigNameCache
-                                -- doesn't need to look out for it
+wiredInTyCons = [ -- Units are not treated like other tuples, because then
+                  -- are defined in GHC.Base, and there's only a few of them. We
+                  -- put them in wiredInTyCons so that they will pre-populate
+                  -- the name cache, so the parser in isBuiltInOcc_maybe doesn't
+                  -- need to look out for them.
+                  unitTyCon
                 , unboxedUnitTyCon
                 , anyTyCon
                 , boolTyCon
