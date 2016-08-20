@@ -129,6 +129,7 @@ import {-# SOURCE #-} MkId( mkDataConWorkId, mkDictSelId )
 -- friends:
 import PrelNames
 import TysPrim
+import {-# SOURCE #-} KnownUniques
 
 -- others:
 import CoAxiom
@@ -526,14 +527,20 @@ pcDataConWithFixity' declared_infix dc_name wrk_key rri tyvars ex_tyvars arg_tys
 
     no_bang = HsSrcBang Nothing NoSrcUnpack NoSrcStrict
 
-    modu     = ASSERT( isExternalName dc_name )
-               nameModule dc_name
-    dc_occ   = nameOccName dc_name
-    wrk_occ  = mkDataConWorkerOcc dc_occ
-    wrk_name = mkWiredInName modu wrk_occ wrk_key
-                             (AnId (dataConWorkId data_con)) UserSyntax
+    wrk_name = mkDataConWorkerName data_con wrk_key
 
     prom_info = mkPrelTyConRepName dc_name
+
+mkDataConWorkerName :: DataCon -> Unique -> Name
+mkDataConWorkerName data_con wrk_key =
+    mkWiredInName modu wrk_occ wrk_key
+                  (AnId (dataConWorkId data_con)) UserSyntax
+  where
+    modu     = ASSERT( isExternalName dc_name )
+               nameModule dc_name
+    dc_name = dataConName data_con
+    dc_occ  = nameOccName dc_name
+    wrk_occ = mkDataConWorkerOcc dc_occ
 
 -- used for RuntimeRep and friends
 pcSpecialDataCon :: Name -> [Type] -> TyCon -> RuntimeRepInfo -> DataCon

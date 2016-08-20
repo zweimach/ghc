@@ -351,6 +351,7 @@ Library
         RdrHsSyn
         ApiAnnotation
         ForeignCall
+        KnownUniques
         PrelInfo
         PrelNames
         PrelRules
