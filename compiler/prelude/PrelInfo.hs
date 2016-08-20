@@ -27,8 +27,6 @@ module PrelInfo (
 
 #include "HsVersions.h"
 
-import Constants        ( mAX_TUPLE_SIZE )
-import BasicTypes       ( Boxity(..) )
 import ConLike          ( ConLike(..) )
 import PrelNames
 import PrelRules
@@ -89,22 +87,6 @@ knownKeyNames
              -- Does not include tuples
 
            , concatMap wired_tycon_kk_names typeNatTyCons
-
-           , concatMap (wired_tycon_kk_names . tupleTyCon Boxed) [1..mAX_TUPLE_SIZE]  -- Yuk
-           , concatMap (wired_tycon_kk_names . tupleTyCon Unboxed) [1..mAX_TUPLE_SIZE]  -- Yuk
-
-           , concatMap tycon_kk_names cTupleTyConNames
-           , concatMap datacon_kk_names cTupleDataConNames
-             -- Constraint tuples are known-key but not wired-in
-             -- They can't show up in source code, but can appear
-             -- in interface files
-
-             -- Anonymous sums
-           , map (tyConName . sumTyCon) [2..mAX_TUPLE_SIZE]  -- Yuk
-           , [ dataConName $ sumDataCon alt arity
-             | arity <- [2..mAX_TUPLE_SIZE]
-             , alt <- [1..arity]
-             ]
 
            , map idName wiredInIds
            , map (idName . primOpId) allThePrimOps
