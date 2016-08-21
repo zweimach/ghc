@@ -488,6 +488,7 @@ compiler_stage2_dll0_MODULES = \
 	IfaceType \
 	InstEnv \
 	Kind \
+	KnownUniques \
 	Lexeme \
 	ListSetOps \
 	Literal \

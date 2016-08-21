@@ -27,6 +27,8 @@ module PrelInfo (
 
 #include "HsVersions.h"
 
+import KnownUniques
+
 import ConLike          ( ConLike(..) )
 import PrelNames
 import PrelRules
@@ -45,7 +47,9 @@ import UniqFM
 import Util
 import {-# SOURCE #-} TcTypeNats ( typeNatTyCons )
 
+import Control.Applicative ((<|>))
 import Data.Array
+import Data.Maybe
 
 {-
 ************************************************************************
@@ -134,11 +138,13 @@ knownKeyNames
 -- | Given a 'Unique' lookup its associated 'Name' if it corresponds to a
 -- known-key thing.
 lookupKnownKeyName :: Unique -> Maybe Name
-lookupKnownKeyName = lookupUFM knownKeysMap
+lookupKnownKeyName u =
+    knownUniqueName u <|> lookupUFM knownKeysMap u
 
 -- | Is a 'Name' known-key?
 isKnownKeyName :: Name -> Bool
-isKnownKeyName n = elemUFM n knownKeysMap
+isKnownKeyName n =
+    isJust (knownUniqueName $ nameUnique n) || elemUFM n knownKeysMap
 
 knownKeysMap :: UniqFM Name
 knownKeysMap = listToUFM [ (nameUnique n, n) | n <- knownKeyNames ]

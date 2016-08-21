@@ -290,8 +290,10 @@ serialiseName bh name _ = do
 -- The format of this word is:
 --  00xxxxxx xxxxxxxx xxxxxxxx xxxxxxxx
 --   A normal name. x is an index into the symbol table
---  10xxxxxx xxyyyyyy yyyyyyyy yyyyyyyyyy
+--  10xxxxxx xxyyyyyy yyyyyyyy yyyyyyyy
 --   A known-key name. x is the Unique's Char, y is the int part
+--
+-- During serialization we check for known-key things using isKnownKeyName.
 
 -- See Note [Symbol table representation of names]
 putName :: BinDictionary -> BinSymbolTable -> BinHandle -> Name -> IO ()
