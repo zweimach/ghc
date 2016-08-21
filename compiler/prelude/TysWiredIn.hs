@@ -633,6 +633,10 @@ Note [How tuples work]  See also Note [Known-key names] in PrelNames
   between BoxedTuple and ConstraintTuple (same OccName!), so tuples
   are not serialised into interface files using OccNames at all.
 
+* Serialization to interface files works via the usual mechanism for known-key
+  things: instead of serializing the OccName we just serialize the key.
+  See Note [Symbol table representation of names] for details.
+
 Note [One-tuples]
 ~~~~~~~~~~~~~~~~~
 GHC supports both boxed and unboxed one-tuples:

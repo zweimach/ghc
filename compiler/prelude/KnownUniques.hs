@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 -- |
 -- Some types (e.g. tuples and anonymous sums) have large numbers of known key
 -- names which we handle specially to avoid bloating 'PrelInfo.knownKeyNames'.
@@ -20,13 +22,20 @@ module KnownUniques
     , mkCTupleDataConUnique
     ) where
 
+#include "HsVersions.h"
+
 import TysWiredIn
+import TyCon
+import DataCon
+import Id
 import BasicTypes
 import Outputable
-
 import Unique
 import Name
+import Util
+
 import Data.Bits
+import Data.Maybe
 
 -- | Get the 'Name' associated with a known-key 'Unique'.
 knownUniqueName :: Unique -> Maybe Name
@@ -70,8 +79,8 @@ mkSumDataConUnique alt arity
 getUnboxedSumName :: Int -> Name
 getUnboxedSumName n =
     case n .&. 0xff of
-      0xff -> sumTyCon arity
-      alt  -> sumDataCon (alt + 1)
+      0xff -> tyConName $ sumTyCon arity
+      alt  -> dataConName $ sumDataCon (alt + 1) arity
   where arity = n `shiftR` 0xff
 
 -- Note [Uniques for tuple type and data constructors]
@@ -100,13 +109,15 @@ getCTupleTyConName n =
     case n `divMod` 2 of
       (arity, 0) -> cTupleTyConName arity
       (arity, 1) -> mkPrelTyConRepName $ cTupleTyConName arity
+      _          -> panic "getCTupleTyConName: impossible"
 
 getCTupleDataConUnique :: Int -> Name
 getCTupleDataConUnique n =
     case n `divMod` 3 of
       (arity, 0) -> cTupleDataConName arity
-      (arity, 1) -> panic "getCTupleDataConUnique: no worker"
+      (arity, 1) -> panic "getCTupleDataConName: no worker"
       (arity, 2) -> mkPrelTyConRepName $ cTupleDataConName arity
+      _          -> panic "getCTupleDataConName: impossible"
 
 --------------------------------------------------
 -- Normal tuples
@@ -125,11 +136,13 @@ getTupleTyConName boxity n =
       (arity, 0) -> tyConName $ tupleTyCon boxity arity
       (arity, 1) -> fromMaybe (panic "getTupleTyConName")
                     $ tyConRepName_maybe $ tupleTyCon boxity arity
+      _          -> panic "getTupleTyConName: impossible"
 
 getTupleDataConName :: Boxity -> Int -> Name
 getTupleDataConName boxity n =
     case n `divMod` 3 of
       (arity, 0) -> dataConName $ tupleDataCon boxity arity
-      (arity, 1) -> idName $ dcWorkId $ tupleDataCon boxity arity
+      (arity, 1) -> idName $ dataConWorkId $ tupleDataCon boxity arity
       (arity, 2) -> fromMaybe (panic "getTupleDataCon")
                     $ tyConRepName_maybe $ promotedTupleDataCon boxity arity
+      _          -> panic "getTupleDataConName: impossible"
