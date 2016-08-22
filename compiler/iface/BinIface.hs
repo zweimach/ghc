@@ -303,6 +303,7 @@ putName _dict BinSymbolTable{
   | isKnownKeyName name
   , let (c, u) = unpkUnique (nameUnique name) -- INVARIANT: (ord c) fits in 8 bits
   = -- ASSERT(u < 2^(22 :: Int))
+    pprTrace "putName" (ppr name <+> ppr c <+> ppr u) $
     put_ bh (0x80000000 .|. (fromIntegral (ord c) `shiftL` 22) .|. (fromIntegral u :: Word32))
 
   | otherwise
@@ -310,7 +311,7 @@ putName _dict BinSymbolTable{
        case lookupUFM symtab_map name of
          Just (off,_) -> put_ bh (fromIntegral off :: Word32)
          Nothing -> do
-            off <- readFastMutInt symtab_next
+            off <- pprTrace "putName2" (ppr name) $ readFastMutInt symtab_next
             -- MASSERT(off < 2^(30 :: Int))
             writeFastMutInt symtab_next (off+1)
             writeIORef symtab_map_ref
@@ -330,9 +331,10 @@ getSymtabName _ncu _dict symtab bh = do
         let
           tag = chr (fromIntegral ((i .&. 0x3FC00000) `shiftR` 22))
           ix  = fromIntegral i .&. 0x003FFFFF
+          u   = mkUnique tag ix
         in
-          return $! case lookupKnownKeyName (mkUnique tag ix) of
-                      Nothing -> pprPanic "getSymtabName:unknown known-key unique" (ppr i)
+          return $! case lookupKnownKeyName u of
+                      Nothing -> pprPanic "getSymtabName:unknown known-key unique" (ppr i $$ ppr (unpkUnique u))
                       Just n  -> n
 
       _ -> pprPanic "getSymtabName:unknown name tag" (ppr i)
