@@ -633,7 +633,8 @@ loadDecl ignore_prags (_version, decl)
                            Nothing    ->
                              pprPanic "loadDecl" (ppr main_name <+> ppr n $$ ppr (decl))
 
-        ; implicit_names <- mapM lookupIfaceTop (ifaceDeclImplicitBndrs decl)
+          -- TODO: Perhaps change type of ifaceDeclImplicitBndrs to return IfaceTopBndrs?
+        ; implicit_names <- mapM (lookupIfaceTop . IfaceOccName) (ifaceDeclImplicitBndrs decl)
 
 --         ; traceIf (text "Loading decl for " <> ppr main_name $$ ppr implicit_names)
         ; return $ (main_name, thing) :
@@ -642,7 +643,7 @@ loadDecl ignore_prags (_version, decl)
                       [(n, lookup n) | n <- implicit_names]
         }
   where
-    doc = text "Declaration for" <+> ppr (ifName decl)
+    doc = text "Declaration for" <+> ppr (occName $ ifName decl)
 
 bumpDeclStats :: Name -> IfL ()         -- Record that one more declaration has actually been used
 bumpDeclStats name

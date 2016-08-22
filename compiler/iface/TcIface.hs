@@ -242,7 +242,7 @@ mkSelfBootInfo iface mds
   = do -- NB: This is computed DIRECTLY from the ModIface rather
        -- than from the ModDetails, so that we can query 'sb_tcs'
        -- WITHOUT forcing the contents of the interface.
-       tcs <- mapM (lookupOrig (mi_module iface) . ifName)
+       tcs <- mapM (lookupOrig (mi_module iface) . occName . ifName)
             . filter isIfaceTyCon
             . map snd
             $ mi_decls iface
@@ -423,7 +423,7 @@ tc_iface_decl _parent ignore_prags
     ; sigs <- mapM tc_sig rdr_sigs
     ; fds  <- mapM tc_fd rdr_fds
     ; traceIf (text "tc-iface-class3" <+> ppr tc_occ)
-    ; mindef <- traverse (lookupIfaceTop . mkVarOccFS) mindef_occ
+    ; mindef <- traverse (lookupIfaceTopOcc . mkVarOccFS) mindef_occ
     ; cls  <- fixM $ \ cls -> do
               { ats  <- mapM (tc_at cls) rdr_ats
               ; traceIf (text "tc-iface-class4" <+> ppr tc_occ)
@@ -554,10 +554,10 @@ tcIfaceDataCons :: Name -> TyCon -> [TyConBinder] -> IfaceConDecls -> IfL AlgTyC
 tcIfaceDataCons tycon_name tycon tc_tybinders if_cons
   = case if_cons of
         IfAbstractTyCon dis -> return (AbstractTyCon dis)
-        IfDataTyCon cons _ _ -> do  { field_lbls <- mapM (traverse lookupIfaceTop) (ifaceConDeclFields if_cons)
+        IfDataTyCon cons _ _ -> do  { field_lbls <- mapM (traverse lookupIfaceTopOcc) (ifaceConDeclFields if_cons)
                                     ; data_cons  <- mapM (tc_con_decl field_lbls) cons
                                     ; return (mkDataTyConRhs data_cons) }
-        IfNewTyCon  con  _ _ -> do  { field_lbls <- mapM (traverse lookupIfaceTop) (ifaceConDeclFields if_cons)
+        IfNewTyCon  con  _ _ -> do  { field_lbls <- mapM (traverse lookupIfaceTopOcc) (ifaceConDeclFields if_cons)
                                     ; data_con  <- tc_con_decl field_lbls con
                                     ; mkNewTyConRhs tycon_name tycon data_con }
   where
@@ -566,15 +566,15 @@ tcIfaceDataCons tycon_name tycon tc_tybinders if_cons
 
     tc_con_decl field_lbls (IfCon { ifConInfix = is_infix,
                          ifConExTvs = ex_bndrs,
-                         ifConOcc = occ, ifConCtxt = ctxt, ifConEqSpec = spec,
+                         ifConName = bndr, ifConCtxt = ctxt, ifConEqSpec = spec,
                          ifConArgTys = args, ifConFields = my_lbls,
                          ifConStricts = if_stricts,
                          ifConSrcStricts = if_src_stricts})
      = -- Universally-quantified tyvars are shared with
        -- parent TyCon, and are alrady in scope
        bindIfaceForAllBndrs ex_bndrs    $ \ ex_tv_bndrs -> do
-        { traceIf (text "Start interface-file tc_con_decl" <+> ppr occ)
-        ; dc_name  <- lookupIfaceTop occ
+        { traceIf (text "Start interface-file tc_con_decl" <+> ppr bndr)
+        ; dc_name  <- lookupIfaceTop bndr
 
         -- Read the context and argument types, but lazily for two reasons
         -- (a) to avoid looking tugging on a recursive use of
@@ -762,7 +762,7 @@ tcIfaceAnnotation (IfaceAnnotation target serialized) = do
 
 tcIfaceAnnTarget :: IfaceAnnTarget -> IfL (AnnTarget Name)
 tcIfaceAnnTarget (NamedTarget occ) = do
-    name <- lookupIfaceTop occ
+    name <- lookupIfaceTopOcc occ
     return $ NamedTarget name
 tcIfaceAnnTarget (ModuleTarget mod) = do
     return $ ModuleTarget mod
@@ -807,7 +807,7 @@ tcIfaceVectInfo mod typeEnv (IfaceVectInfo
        }
   where
     vectVarMapping name
-      = do { vName <- lookupIfaceTop (mkLocalisedOccName mod mkVectOcc name)
+      = do { vName <- lookupIfaceTopOcc (mkLocalisedOccName mod mkVectOcc name)
            ; var   <- forkM (text "vect var"  <+> ppr name)  $
                         tcIfaceExtId name
            ; vVar  <- forkM (text "vect vVar [mod =" <+>
@@ -835,7 +835,7 @@ tcIfaceVectInfo mod typeEnv (IfaceVectInfo
           tcIfaceExtId name
 
     vectTyConVectMapping vars name
-      = do { vName  <- lookupIfaceTop (mkLocalisedOccName mod mkVectTyConOcc name)
+      = do { vName  <- lookupIfaceTopOcc (mkLocalisedOccName mod mkVectTyConOcc name)
            ; vectTyConMapping vars name vName
            }
 

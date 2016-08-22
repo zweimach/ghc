@@ -5,7 +5,7 @@
 module IfaceEnv (
         newGlobalBinder, newInteractiveBinder,
         externaliseName,
-        lookupIfaceTop,
+        lookupIfaceTop, lookupIfaceTopOcc,
         lookupOrig, lookupOrigNameCache, extendNameCache,
         newIfaceName, newIfaceNames,
         extendIfaceIdEnv, extendIfaceTyVarEnv,
@@ -33,6 +33,7 @@ import Module
 import FastString
 import FastStringEnv
 import IfaceType
+import {-# SOURCE #-} PrelInfo ( lookupKnownKeyName )
 import PrelNames ( gHC_TYPES, gHC_PRIM, gHC_TUPLE )
 import UniqSupply
 import SrcLoc
@@ -40,6 +41,7 @@ import Util
 
 import Outputable
 import Data.List     ( partition )
+import Data.Maybe    ( fromMaybe )
 
 {-
 *********************************************************
@@ -328,9 +330,17 @@ extendIfaceEnvs tcvs thing_inside
 ************************************************************************
 -}
 
-lookupIfaceTop :: OccName -> IfL Name
+lookupIfaceTop :: IfaceTopBndr -> IfL Name
 -- Look up a top-level name from the current Iface module
-lookupIfaceTop occ
+lookupIfaceTop (IfaceKnownKeyName uniq) =
+    return
+    $ fromMaybe (pprPanic "lookupIfaceTop" (ppr uniq))
+    $ lookupKnownKeyName uniq
+lookupIfaceTop (IfaceOccName occ) =
+    lookupIfaceTopOcc occ
+
+lookupIfaceTopOcc :: OccName -> IfL Name
+lookupIfaceTopOcc occ
   = do  { env <- getLclEnv; lookupOrig (if_mod env) occ }
 
 newIfaceName :: OccName -> IfL Name

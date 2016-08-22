@@ -99,6 +99,7 @@ import SrcLoc
 import Outputable
 import BasicTypes       hiding ( SuccessFlag(..) )
 import Unique
+import PrelInfo                ( isKnownKeyName )
 import Util             hiding ( eqListBy )
 import FastString
 import FastStringEnv
@@ -413,7 +414,7 @@ addFingerprints hsc_env mb_old_fingerprint iface0 new_decls
        parent_map = foldl' extend emptyOccEnv new_decls
           where extend env d =
                   extendOccEnvList env [ (b,n) | b <- ifaceDeclImplicitBndrs d ]
-                  where n = ifName d
+                  where n = occName $ ifName d
 
         -- strongly-connected groups of declarations, in dependency order
        groups = stronglyConnCompFromEdgedVerticesUniq edges
@@ -534,7 +535,7 @@ addFingerprints hsc_env mb_old_fingerprint iface0 new_decls
 
    -- put the declarations in a canonical order, sorted by OccName
    let sorted_decls = Map.elems $ Map.fromList $
-                          [(ifName d, e) | e@(_, d) <- decls_w_hashes]
+                          [(occName $ ifName d, e) | e@(_, d) <- decls_w_hashes]
 
    -- the flag hash depends on:
    --   - (some of) dflags
@@ -706,8 +707,8 @@ abiDecl :: IfaceDeclABI -> IfaceDecl
 abiDecl (_, decl, _) = decl
 
 cmp_abiNames :: IfaceDeclABI -> IfaceDeclABI -> Ordering
-cmp_abiNames abi1 abi2 = ifName (abiDecl abi1) `compare`
-                         ifName (abiDecl abi2)
+cmp_abiNames abi1 abi2 = occName (ifName $ abiDecl abi1) `compare`
+                         occName (ifName $ abiDecl abi2)
 
 freeNamesDeclABI :: IfaceDeclABI -> NameSet
 freeNamesDeclABI (_mod, decl, extras) =
@@ -784,7 +785,7 @@ declExtras fix_fn ann_fn rule_env inst_env fi_env decl
                         (map ifFamInstAxiom (lookupOccEnvL fi_env n) ++
                          map ifDFun         (lookupOccEnvL inst_env n))
                         (ann_fn n)
-                        (map (id_extras . ifConOcc) (visibleIfConDecls cons))
+                        (map (id_extras . occName . ifConName) (visibleIfConDecls cons))
       IfaceClass{ifSigs=sigs, ifATs=ats} ->
                      IfaceClassExtras (fix_fn n)
                         (map ifDFun $ (concatMap at_extras ats)
@@ -792,7 +793,7 @@ declExtras fix_fn ann_fn rule_env inst_env fi_env decl
                            -- Include instances of the associated types
                            -- as well as instances of the class (Trac #5147)
                         (ann_fn n)
-                        [id_extras op | IfaceClassOp op _ _ <- sigs]
+                        [id_extras (occName op) | IfaceClassOp op _ _ <- sigs]
       IfaceSynonym{} -> IfaceSynonymExtras (fix_fn n)
                                            (ann_fn n)
       IfaceFamily{} -> IfaceFamilyExtras (fix_fn n)
@@ -800,9 +801,9 @@ declExtras fix_fn ann_fn rule_env inst_env fi_env decl
                         (ann_fn n)
       _other -> IfaceOtherDeclExtras
   where
-        n = ifName decl
+        n = occName $ ifName decl
         id_extras occ = IdExtras (fix_fn occ) (lookupOccEnvL rule_env occ) (ann_fn occ)
-        at_extras (IfaceAT decl _) = lookupOccEnvL inst_env (ifName decl)
+        at_extras (IfaceAT decl _) = lookupOccEnvL inst_env (occName $ ifName decl)
 
 
 lookupOccEnvL :: OccEnv [v] -> OccName -> [v]
@@ -1284,6 +1285,14 @@ tyThingToIfaceDecl (AConLike cl)  = case cl of
     RealDataCon dc -> dataConToIfaceDecl dc -- for ppr purposes only
     PatSynCon ps   -> patSynToIfaceDecl ps
 
+toIfaceTopBndr :: NamedThing a => a -> IfaceTopBndr
+toIfaceTopBndr thing
+  | isKnownKeyName (getName thing)
+  = IfaceKnownKeyName uniq
+  | otherwise
+  = IfaceOccName (getOccName thing)
+  where uniq = nameUnique $ getName thing
+
 --------------------------
 idToIfaceDecl :: Id -> IfaceDecl
 -- The Id is already tidied, so that locally-bound names
@@ -1291,7 +1300,7 @@ idToIfaceDecl :: Id -> IfaceDecl
 -- We can't tidy it here, locally, because it may have
 -- free variables in its type or IdInfo
 idToIfaceDecl id
-  = IfaceId { ifName      = getOccName id,
+  = IfaceId { ifName      = toIfaceTopBndr (getName id),
               ifType      = toIfaceType (idType id),
               ifIdDetails = toIfaceIdDetails (idDetails id),
               ifIdInfo    = toIfaceIdInfo (idInfo id) }
@@ -1299,7 +1308,7 @@ idToIfaceDecl id
 --------------------------
 dataConToIfaceDecl :: DataCon -> IfaceDecl
 dataConToIfaceDecl dataCon
-  = IfaceId { ifName      = getOccName dataCon,
+  = IfaceId { ifName      = toIfaceTopBndr $ getName dataCon,
               ifType      = toIfaceType (dataConUserType dataCon),
               ifIdDetails = IfVanillaId,
               ifIdInfo    = NoInfo }
@@ -1307,7 +1316,7 @@ dataConToIfaceDecl dataCon
 --------------------------
 patSynToIfaceDecl :: PatSyn -> IfaceDecl
 patSynToIfaceDecl ps
-  = IfacePatSyn { ifName          = getOccName . getName $ ps
+  = IfacePatSyn { ifName          = toIfaceTopBndr (getName ps)
                 , ifPatMatcher    = to_if_pr (patSynMatcher ps)
                 , ifPatBuilder    = fmap to_if_pr (patSynBuilder ps)
                 , ifPatIsInfix    = patSynIsInfix ps
@@ -1333,7 +1342,7 @@ coAxiomToIfaceDecl :: CoAxiom br -> IfaceDecl
 -- conveniently be) built in tidy form
 coAxiomToIfaceDecl ax@(CoAxiom { co_ax_tc = tycon, co_ax_branches = branches
                                , co_ax_role = role })
- = IfaceAxiom { ifName       = name
+ = IfaceAxiom { ifName       = toIfaceTopBndr (getName ax)
               , ifTyCon      = toIfaceTyCon tycon
               , ifRole       = role
               , ifAxBranches = map (coAxBranchToIfaceBranch tycon
@@ -1341,7 +1350,6 @@ coAxiomToIfaceDecl ax@(CoAxiom { co_ax_tc = tycon, co_ax_branches = branches
                                    branch_list }
  where
    branch_list = fromBranches branches
-   name        = getOccName ax
 
 -- 2nd parameter is the list of branch LHSs, for conversion from incompatible branches
 -- to incompatible indices
@@ -1383,7 +1391,7 @@ tyConToIfaceDecl env tycon
 
   | Just syn_rhs <- synTyConRhs_maybe tycon
   = ( tc_env1
-    , IfaceSynonym { ifName    = getOccName tycon,
+    , IfaceSynonym { ifName    = toIfaceTopBndr tycon,
                      ifRoles   = tyConRoles tycon,
                      ifSynRhs  = if_syn_type syn_rhs,
                      ifBinders = if_binders,
@@ -1392,7 +1400,7 @@ tyConToIfaceDecl env tycon
 
   | Just fam_flav <- famTyConFlav_maybe tycon
   = ( tc_env1
-    , IfaceFamily { ifName    = getOccName tycon,
+    , IfaceFamily { ifName    = toIfaceTopBndr tycon,
                     ifResVar  = if_res_var,
                     ifFamFlav = to_if_fam_flav fam_flav,
                     ifBinders = if_binders,
@@ -1402,7 +1410,7 @@ tyConToIfaceDecl env tycon
 
   | isAlgTyCon tycon
   = ( tc_env1
-    , IfaceData { ifName    = getOccName tycon,
+    , IfaceData { ifName    = toIfaceTopBndr tycon,
                   ifBinders = if_binders,
                   ifResKind = if_res_kind,
                   ifCType   = tyConCType tycon,
@@ -1417,7 +1425,7 @@ tyConToIfaceDecl env tycon
   -- just about to pretty-print them, not because we are going
   -- to put them into interface files
   = ( env
-    , IfaceData { ifName       = getOccName tycon,
+    , IfaceData { ifName       = toIfaceTopBndr tycon,
                   ifBinders    = if_binders,
                   ifResKind    = if_res_kind,
                   ifCType      = Nothing,
@@ -1470,7 +1478,7 @@ tyConToIfaceDecl env tycon
         -- (Tuple declarations are not serialised into interface files.)
 
     ifaceConDecl data_con
-        = IfCon   { ifConOcc     = getOccName (dataConName data_con),
+        = IfCon   { ifConName    = toIfaceTopBndr (dataConName data_con),
                     ifConInfix   = dataConIsInfix data_con,
                     ifConWrapper = isJust (dataConWrapId_maybe data_con),
                     ifConExTvs   = map toIfaceForAllBndr ex_bndrs',
@@ -1519,7 +1527,7 @@ classToIfaceDecl :: TidyEnv -> Class -> (TidyEnv, IfaceDecl)
 classToIfaceDecl env clas
   = ( env1
     , IfaceClass { ifCtxt   = tidyToIfaceContext env1 sc_theta,
-                   ifName   = getOccName tycon,
+                   ifName   = toIfaceTopBndr tycon,
                    ifRoles  = tyConRoles (classTyCon clas),
                    ifBinders = toIfaceTyVarBinders tc_binders,
                    ifFDs    = map toIfaceFD clas_fds,
@@ -1541,7 +1549,7 @@ classToIfaceDecl env clas
 
     toIfaceClassOp (sel_id, def_meth)
         = ASSERT( sel_tyvars == binderVars tc_binders )
-          IfaceClassOp (getOccName sel_id)
+          IfaceClassOp (toIfaceTopBndr sel_id)
                        (tidyToIfaceType env1 op_ty)
                        (fmap toDmSpec def_meth)
         where

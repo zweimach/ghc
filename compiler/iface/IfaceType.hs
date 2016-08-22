@@ -10,8 +10,14 @@ This module defines interface types and binders
     -- FlexibleInstances for Binary (DefMethSpec IfaceType)
 
 module IfaceType (
+        -- * Top-level binders
+        IfaceTopBndr(..),
+        getIfaceTopOccName,
+
+        -- * Other names
         IfExtName, IfLclName,
 
+        -- * Types
         IfaceType(..), IfacePredType, IfaceKind, IfaceCoercion(..),
         IfaceUnivCoProv(..),
         IfaceTyCon(..), IfaceTyConInfo(..),
@@ -70,6 +76,7 @@ import Var
 import TysWiredIn
 import TysPrim
 import PrelNames
+import {-# SOURCE #-} PrelInfo
 import Name
 import BasicTypes
 import Binary
@@ -79,6 +86,41 @@ import UniqSet
 import VarEnv
 import UniqFM
 import Util
+
+import Data.Maybe
+
+{-
+************************************************************************
+*                                                                      *
+                    Top-level binders
+*                                                                      *
+************************************************************************
+-}
+
+-- | The representation of top-level binders in interface files.
+data IfaceTopBndr
+  = IfaceOccName !OccName
+    -- ^ An 'OccName'. We don't serialise the namespace onto the disk though;
+    -- rather we drop it when serialising and add it back in when deserialising.
+  | IfaceKnownKeyName !Unique
+    -- ^ A known-key name identified by its 'Unique'.
+
+-- | Look up a 'OccName' from an 'IfaceTopBndr'.
+getIfaceTopOccName :: IfaceTopBndr -> OccName
+getIfaceTopOccName (IfaceOccName occ) = occ
+getIfaceTopOccName (IfaceKnownKeyName uniq) =
+    getOccName
+    $ fromMaybe (pprPanic "lookupIfaceTopOccName" (ppr uniq))
+    $ lookupKnownKeyName uniq
+
+instance HasOccName IfaceTopBndr where
+    occName = getIfaceTopOccName
+
+instance Uniquable IfaceTopBndr where
+    getUnique = getUnique . occName
+
+instance Outputable IfaceTopBndr where
+    ppr = ppr . occName
 
 {-
 ************************************************************************
