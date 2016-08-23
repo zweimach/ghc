@@ -677,17 +677,38 @@ isBuiltInOcc_maybe occ =
     case name of
       "[]" -> Just $ choose_ns listTyConName nilDataConName
       ":"    -> Just consDataConName
+
       "[::]" -> Just parrTyConName
+
+      -- boxed tuple data/tycon
       "()"    -> Just $ tup_name Boxed 0
-      "(##)"  -> Just $ tup_name Unboxed 0
       _ | Just rest <- "(" `stripPrefix` name
         , (commas, rest') <- BS.span (==',') rest
         , ")" <- rest'
              -> Just $ tup_name Boxed (1+BS.length commas)
+
+      -- unboxed tuple data/tycon
+      "(##)"  -> Just $ tup_name Unboxed 0
       _ | Just rest <- "(#" `stripPrefix` name
         , (commas, rest') <- BS.span (==',') rest
         , "#)" <- rest'
              -> Just $ tup_name Unboxed (1+BS.length commas)
+
+      -- unboxed sum tycon
+      _ | Just rest <- "(#" `stripPrefix` name
+        , (pipes, rest') <- BS.span (=='|') rest
+        , "#)" <- rest'
+             -> Just $ tyConName $ sumTyCon (1+BS.length pipes)
+
+      -- unboxed sum datacon
+      _ | Just rest <- "(#" `stripPrefix` name
+        , (pipes1, rest') <- BS.span (=='|') rest
+        , Just rest'' <- "_" `stripPrefix` rest'
+        , (pipes2, rest''') <- BS.span (=='|') rest''
+        , "#)" <- rest'''
+             -> let arity = BS.length pipes1 + BS.length pipes2
+                    alt = BS.length pipes1 + 1
+                in Just $ dataConName $ sumDataCon alt arity
       _ -> Nothing
   where
     -- TODO: Drop when bytestring 0.10.8 can be assumed
