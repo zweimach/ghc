@@ -514,6 +514,7 @@ compiler_stage2_dll0_MODULES = \
 	Platform \
 	PlatformConstants \
 	PprCore \
+	PrelInfo \
 	PrelNames \
 	PrelRules \
 	Pretty \
@@ -525,6 +526,7 @@ compiler_stage2_dll0_MODULES = \
 	StaticFlags \
 	StringBuffer \
 	TcEvidence \
+  TcTypeNats \
 	TcRnTypes \
 	TcType \
 	TrieMap \
