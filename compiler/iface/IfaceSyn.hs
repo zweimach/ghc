@@ -416,7 +416,7 @@ ifaceConDeclImplicitBndrs (IfCon { ifConWrapper = has_wrapper, ifConName = con_n
        -- declaration with the name of the binder. (#5614, #7215)
 ifaceDeclFingerprints :: Fingerprint -> IfaceDecl -> [(OccName,Fingerprint)]
 ifaceDeclFingerprints hash decl
-  = (occName (ifName decl), hash) :
+  = (getOccName decl, hash) :
     [ (occ, computeFingerprint' (hash,occ))
     | occ <- ifaceDeclImplicitBndrs decl ]
   where

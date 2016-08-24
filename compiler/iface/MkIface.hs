@@ -368,6 +368,18 @@ mkHashFun hsc_env eps
 -- ---------------------------------------------------------------------------
 -- Compute fingerprints for the interface
 
+-- | Add fingerprints for top-level declarations to a 'ModIface'.
+--
+-- The general idea here is that we first examine the 'IfaceDecl's and determine
+-- the recursive groups of them. We then walk these groups in dependency order,
+-- serializing each contained 'IfaceDecl' to a "Binary" buffer which we then
+-- hash using MD5 to produce a fingerprint for the group. However, the
+-- serialization that we use is a bit funny: we override the @putName@ operation
+-- with our own which serializes the hash of a 'Name' instead of the 'Name'
+-- itself. This ensures that the fingerprint of a decl changes if anything in its
+-- transitive closure changes. This trick is why we must be careful about
+-- traversing in dependency order: we need to ensure that we have hashes for
+-- everything referenced by the decl which we are fingerprinting.
 addFingerprints
         :: HscEnv
         -> Maybe Fingerprint -- the old fingerprint, if any
@@ -390,14 +402,15 @@ addFingerprints hsc_env mb_old_fingerprint iface0 new_decls
                                   non_orph_fis decl
 
        edges :: [(IfaceDeclABI, Unique, [Unique])]
-       edges = [ (abi, getUnique (ifName decl), out)
+       edges = [ (abi, getUnique (getOccName decl), out)
                | decl <- new_decls
                , let abi = declABI decl
                , let out = localOccs $ freeNamesDeclABI abi
                ]
 
        name_module n = ASSERT2( isExternalName n, ppr n ) nameModule n
-       localOccs = map (getUnique . getParent . getOccName)
+       localOccs =
+           map (getUnique . getParent . getOccName)
                         . filter ((== this_mod) . name_module)
                         . nonDetEltsUFM
                    -- It's OK to use nonDetEltsUFM as localOccs is only
@@ -405,7 +418,8 @@ addFingerprints hsc_env mb_old_fingerprint iface0 new_decls
                    -- stronglyConnCompFromEdgedVertices is deterministic
                    -- even with non-deterministic order of edges as
                    -- explained in Note [Deterministic SCC] in Digraph.
-          where getParent occ = lookupOccEnv parent_map occ `orElse` occ
+          where getParent :: OccName -> OccName
+                getParent occ = lookupOccEnv parent_map occ `orElse` occ
 
         -- maps OccNames to their parents in the current module.
         -- e.g. a reference to a constructor must be turned into a reference
@@ -417,27 +431,34 @@ addFingerprints hsc_env mb_old_fingerprint iface0 new_decls
                   where n = occName $ ifName d
 
         -- strongly-connected groups of declarations, in dependency order
-       groups = stronglyConnCompFromEdgedVerticesUniq edges
+       groups =
+           pprTrace "edges" (ppr edges) $
+           stronglyConnCompFromEdgedVerticesUniq edges
 
        global_hash_fn = mkHashFun hsc_env eps
 
-        -- how to output Names when generating the data to fingerprint.
+        -- How to output Names when generating the data to fingerprint.
         -- Here we want to output the fingerprint for each top-level
         -- Name, whether it comes from the current module or another
         -- module.  In this way, the fingerprint for a declaration will
         -- change if the fingerprint for anything it refers to (transitively)
         -- changes.
-       mk_put_name :: (OccEnv (OccName,Fingerprint))
+       mk_put_name :: OccEnv (OccName,Fingerprint) -> NameSet
                    -> BinHandle -> Name -> IO  ()
-       mk_put_name local_env bh name
+       mk_put_name local_env self_names bh name
           | isWiredInName name  =  putNameLiterally bh name
            -- wired-in names don't have fingerprints
+          | name `elemNameSet` self_names =  putNameLiterally bh name
+           -- we may end up writing the Name of a thing we are currently fingerprinting;
+           -- naturally we don't know its hash yet so we instead just write the
+           -- name literally
           | otherwise
           = ASSERT2( isExternalName name, ppr name )
             let hash | nameModule name /= this_mod =  global_hash_fn name
                      | otherwise = snd (lookupOccEnv local_env (getOccName name)
-                           `orElse` pprPanic "urk! lookup local fingerprint"
-                                       (ppr name)) -- (undefined,fingerprint0))
+                           `orElse` pprTrace "urk! lookup local fingerprint" (ppr name $$ ppr (getUnique $ getOccName name) $$ ppr local_env)
+                                      -- (ppr name))
+                                       (undefined,fingerprint0))
                 -- This panic indicates that we got the dependency
                 -- analysis wrong, because we needed a fingerprint for
                 -- an entity that wasn't in the environment.  To debug
@@ -457,9 +478,9 @@ addFingerprints hsc_env mb_old_fingerprint iface0 new_decls
                                 [(Fingerprint,IfaceDecl)])
 
        fingerprint_group (local_env, decls_w_hashes) (AcyclicSCC abi)
-          = do let hash_fn = mk_put_name local_env
+          = do let hash_fn = mk_put_name local_env (extendNameSet (ifaceDeclImplicitBndrs abi) getName decl)
                    decl = abiDecl abi
-               --pprTrace "fingerprinting" (ppr (ifName decl) ) $ do
+               pprTrace "fingerprinting" (ppr (ifName decl) $$ ppr abi) $ do
                hash <- computeFingerprint hash_fn abi
                env' <- extend_hash_env local_env (hash,decl)
                return (env', (hash,decl) : decls_w_hashes)
@@ -468,8 +489,8 @@ addFingerprints hsc_env mb_old_fingerprint iface0 new_decls
           = do let decls = map abiDecl abis
                local_env1 <- foldM extend_hash_env local_env
                                    (zip (repeat fingerprint0) decls)
-               let hash_fn = mk_put_name local_env1
-               -- pprTrace "fingerprinting" (ppr (map ifName decls) ) $ do
+               let hash_fn = mk_put_name local_env1 (unionNameSets $ getName decl : map ifaceDeclImplicitBndrs decls)
+               pprTrace "fingerprinting" (ppr (map ifName decls) ) $ do
                let stable_abis = sortBy cmp_abiNames abis
                 -- put the cycle in a canonical order
                hash <- computeFingerprint hash_fn stable_abis
@@ -518,7 +539,9 @@ addFingerprints hsc_env mb_old_fingerprint iface0 new_decls
    -- instances yourself, no need to consult hs-boot; if you do load the
    -- interface into EPS, you will see a duplicate orphan instance.
 
-   orphan_hash <- computeFingerprint (mk_put_name local_env)
+   orphan_hash <-
+       let hash_fn = mk_put_name local_env emptyNameSet
+       in computeFingerprint hash_fn
                       (map ifDFun orph_insts, orph_rules, orph_fis)
 
    -- the export list hash doesn't depend on the fingerprints of
