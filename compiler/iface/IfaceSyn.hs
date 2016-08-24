@@ -1656,7 +1656,7 @@ instance Binary IfaceConDecl where
         put_ bh a9
         put_ bh a10
     get bh = do
-        a1 <- getTopBndr bh tcName
+        a1 <- getTopBndr bh dataName
         a2 <- get bh
         a3 <- get bh
         a4 <- get bh
