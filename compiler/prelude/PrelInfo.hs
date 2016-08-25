@@ -97,20 +97,6 @@ knownKeyNames
            , basicKnownKeyNames ]
 
   where
-  -- All of the names associated with a known-key TyCon (where we only have its
-  -- name, not the TyCon itself). This includes the names of the TyCon itself
-  -- and its type rep binding.
-  tycon_kk_names :: Name -> [Name]
-  tycon_kk_names tc = [tc, mkPrelTyConRepName tc]
-
-  -- All of the names associated with a known-key DataCon. This includes the
-  -- names of the DataCon itself and its promoted type rep.
-  datacon_kk_names :: Name -> [Name]
-  datacon_kk_names dc =
-      [ dc
-      , mkPrelTyConRepName dc
-      ]
-
   -- All of the names associated with a wired-in TyCon.
   -- This includes the TyCon itself, its DataCons and promoted TyCons.
   wired_tycon_kk_names :: TyCon -> [Name]
