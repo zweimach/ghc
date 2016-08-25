@@ -21,6 +21,7 @@ module Binary
     {-class-} Binary(..),
     {-type-}  BinHandle,
     SymbolTable, Dictionary,
+    IsBindingOcc(..),
 
    openBinMem,
 --   closeBin,
@@ -207,7 +208,7 @@ fingerprintBinMem (BinMem _ ix_r _ arr_r) = do
   withForeignPtr arr $ \p -> fingerprintData p ix
 
 computeFingerprint :: Binary a
-                   => (BinHandle -> Name -> IO ())
+                   => (BinHandle -> IsBindingOcc -> Name -> IO ())
                    -> a
                    -> IO Fingerprint
 
@@ -603,6 +604,12 @@ lazyGet bh = do
 -- UserData
 -- -----------------------------------------------------------------------------
 
+-- | Is an occurrence of a 'Name' a binding occurrence?
+--
+-- This is passed to `ud_put_name' to help during fingerprinting. See
+-- Note [Fingerprinting IfaceDecls] for details.
+data IsBindingOcc = BindingOcc | NonBindingOcc
+
 data UserData =
    UserData {
         -- for *deserialising* only:
@@ -610,7 +617,7 @@ data UserData =
         ud_get_fs   :: BinHandle -> IO FastString,
 
         -- for *serialising* only:
-        ud_put_name :: BinHandle -> Name       -> IO (),
+        ud_put_name :: BinHandle -> IsBindingOcc -> Name -> IO (),
         ud_put_fs   :: BinHandle -> FastString -> IO ()
    }
 
@@ -624,7 +631,7 @@ newReadState get_name get_fs
                ud_put_fs   = undef "put_fs"
              }
 
-newWriteState :: (BinHandle -> Name       -> IO ())
+newWriteState :: (BinHandle -> IsBindingOcc -> Name -> IO ())
               -> (BinHandle -> FastString -> IO ())
               -> UserData
 newWriteState put_name put_fs

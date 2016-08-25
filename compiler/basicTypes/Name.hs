@@ -484,10 +484,11 @@ instance Data Name where
 ************************************************************************
 -}
 
+-- | Assumes a 'NonBindingOcc'.
 instance Binary Name where
    put_ bh name =
       case getUserData bh of
-        UserData{ ud_put_name = put_name } -> put_name bh name
+        UserData{ ud_put_name = put_name } -> put_name bh NonBindingOcc name
 
    get bh =
       case getUserData bh of

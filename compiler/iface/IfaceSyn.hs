@@ -4,6 +4,7 @@
 -}
 
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module IfaceSyn (
         module IfaceType,
@@ -79,7 +80,10 @@ infixl 3 &&&
 ************************************************************************
 -}
 
-type IfaceTopBndr = Name
+-- | A binding top-level 'Name' in an interface file (e.g. the name of an
+-- 'IfaceDecl').
+newtype IfaceTopBndr = IfaceTopBndr Name
+                     deriving (NamedThing, HasOccName, Outputable, OutputableBndr)
   -- It's convenient to have an Name in the IfaceSyn, although in each
   -- case the namespace is implied by the context. However, having an
   -- OccNames makes things like ifaceDeclImplicitBndrs and ifaceDeclFingerprints
@@ -87,6 +91,12 @@ type IfaceTopBndr = Name
   --
   -- We don't serialise the namespace onto the disk though; rather we
   -- drop it when serialising and add it back in when deserialising.
+
+instance Binary IfaceTopBndr where
+    get bh = IfaceTopBndr <$> get bh
+    put_ bh (IfaceTopBndr name) =
+      case getUserData bh of
+        UserData{ ud_put_name = put_name } -> put_name bh BindingOcc name
 
 data IfaceDecl
   = IfaceId { ifName      :: IfaceTopBndr,
@@ -531,19 +541,19 @@ instance Outputable IfaceAnnotation where
   ppr (IfaceAnnotation target value) = ppr target <+> colon <+> ppr value
 
 instance NamedThing IfaceClassOp where
-  getName (IfaceClassOp n _ _) = n
+  getName (IfaceClassOp n _ _) = getName n
 
 instance HasOccName IfaceClassOp where
   occName = getOccName
 
 instance NamedThing IfaceConDecl where
-  getName = ifConName
+  getName = getName . ifConName
 
 instance HasOccName IfaceConDecl where
   occName = getOccName
 
 instance NamedThing IfaceDecl where
-  getName = ifName
+  getName = getName . ifName
 
 instance HasOccName IfaceDecl where
   occName = getOccName
@@ -654,7 +664,7 @@ pprIfaceDecl ss (IfaceData { ifName = tycon, ifCType = ctype,
     pp_cons    = ppr_trim (map show_con cons) :: [SDoc]
 
     pp_lhs = case parent of
-               IfNoParent -> pprIfaceDeclHead context ss tycon binders Nothing
+               IfNoParent -> pprIfaceDeclHead context ss (getName tycon) binders Nothing
                _          -> text "instance" <+> pprIfaceTyConParent parent
 
     pp_roles
@@ -689,7 +699,7 @@ pprIfaceDecl ss (IfaceClass { ifATs = ats, ifSigs = sigs
                             , ifFDs    = fds, ifMinDef = minDef
                             , ifBinders = binders })
   = vcat [ pprRoles (== Nominal) (pprPrefixIfDeclBndr ss (occName clas)) binders roles
-         , text "class" <+> pprIfaceDeclHead context ss clas binders Nothing
+         , text "class" <+> pprIfaceDeclHead context ss (getName clas) binders Nothing
                                 <+> pprFundeps fds <+> pp_where
          , nest 2 (vcat [ vcat asocs, vcat dsigs
                         , ppShowAllSubs ss (pprMinDef minDef)])]
@@ -720,7 +730,7 @@ pprIfaceDecl ss (IfaceSynonym { ifName    = tc
                               , ifBinders = binders
                               , ifSynRhs  = mono_ty
                               , ifResKind = res_kind})
-  = hang (text "type" <+> pprIfaceDeclHead [] ss tc binders Nothing <+> equals)
+  = hang (text "type" <+> pprIfaceDeclHead [] ss (getName tc) binders Nothing <+> equals)
        2 (sep [ pprIfaceForAll tvs, pprIfaceContextArr theta, ppr tau
               , ppUnless (isIfaceLiftedTypeKind res_kind) (dcolon <+> ppr res_kind) ])
   where
@@ -731,10 +741,10 @@ pprIfaceDecl ss (IfaceFamily { ifName = tycon
                              , ifResKind = res_kind
                              , ifResVar = res_var, ifFamInj = inj })
   | IfaceDataFamilyTyCon <- rhs
-  = text "data family" <+> pprIfaceDeclHead [] ss tycon binders Nothing
+  = text "data family" <+> pprIfaceDeclHead [] ss (getName tycon) binders Nothing
 
   | otherwise
-  = hang (text "type family" <+> pprIfaceDeclHead [] ss tycon binders (Just res_kind))
+  = hang (text "type family" <+> pprIfaceDeclHead [] ss (getName tycon) binders (Just res_kind))
        2 (pp_inj res_var inj <+> ppShowRhs ss (pp_rhs rhs))
     $$
     nest 2 (ppShowRhs ss (pp_branches rhs))
@@ -921,8 +931,8 @@ pprIfaceConDecl ss gadt_style fls tycon tc_binders parent
     pp_field_args = braces $ sep $ punctuate comma $ ppr_trim $
                     zipWith maybe_show_label fields tys_w_strs
 
-    maybe_show_label :: Name -> (IfaceBang, IfaceType) -> Maybe SDoc
-    maybe_show_label  sel bty
+    maybe_show_label :: IfaceTopBndr -> (IfaceBang, IfaceType) -> Maybe SDoc
+    maybe_show_label sel bty
       | showSub ss sel = Just (pprPrefixIfDeclBndr ss lbl <+> dcolon <+> pprBangTy bty)
       | otherwise      = Nothing
       where

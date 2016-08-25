@@ -296,10 +296,11 @@ serialiseName bh name _ = do
 -- During serialization we check for known-key things using isKnownKeyName.
 
 -- See Note [Symbol table representation of names]
-putName :: BinDictionary -> BinSymbolTable -> BinHandle -> Name -> IO ()
+putName :: BinDictionary -> BinSymbolTable -> BinHandle -> IsBindingOcc -> Name -> IO ()
 putName _dict BinSymbolTable{
                bin_symtab_map = symtab_map_ref,
-               bin_symtab_next = symtab_next }    bh name
+               bin_symtab_next = symtab_next }
+        bh _is_binding name
   | isKnownKeyName name
   , let (c, u) = unpkUnique (nameUnique name) -- INVARIANT: (ord c) fits in 8 bits
   = -- ASSERT(u < 2^(22 :: Int))

@@ -272,7 +272,7 @@ mkSelfBootInfo iface mds
   = do -- NB: This is computed DIRECTLY from the ModIface rather
        -- than from the ModDetails, so that we can query 'sb_tcs'
        -- WITHOUT forcing the contents of the interface.
-       let tcs = map ifName
+       let tcs = map getName
                  . filter isIfaceTyCon
                  . map snd
                  $ mi_decls iface
@@ -350,14 +350,15 @@ tc_iface_decl :: Maybe Class  -- ^ For associated type/data family declarations
               -> Bool         -- ^ True <=> discard IdInfo on IfaceId bindings
               -> IfaceDecl
               -> IfL TyThing
-tc_iface_decl _ ignore_prags (IfaceId {ifName = name, ifType = iface_type,
+tc_iface_decl _ ignore_prags (IfaceId {ifName = bndr, ifType = iface_type,
                                        ifIdDetails = details, ifIdInfo = info})
   = do  { ty <- tcIfaceType iface_type
         ; details <- tcIdDetails ty details
         ; info <- tcIdInfo ignore_prags name ty info
         ; return (AnId (mkGlobalId details name ty info)) }
+  where name = getName bndr
 
-tc_iface_decl _ _ (IfaceData {ifName = tc_name,
+tc_iface_decl _ _ (IfaceData {ifName = tc_bndr,
                           ifCType = cType,
                           ifBinders = binders,
                           ifResKind = res_kind,
@@ -378,6 +379,8 @@ tc_iface_decl _ _ (IfaceData {ifName = tc_name,
     ; traceIf (text "tcIfaceDecl4" <+> ppr tycon)
     ; return (ATyCon tycon) }
   where
+    tc_name = getName tc_bndr
+
     tc_parent :: Name -> IfaceTyConParent -> IfL AlgTyConFlav
     tc_parent tc_name IfNoParent
       = do { tc_rep_name <- newTyConRepName tc_name
@@ -389,7 +392,7 @@ tc_iface_decl _ _ (IfaceData {ifName = tc_name,
            ; lhs_tys <- tcIfaceTcArgs arg_tys
            ; return (DataFamInstTyCon ax_unbr fam_tc lhs_tys) }
 
-tc_iface_decl _ _ (IfaceSynonym {ifName = tc_name,
+tc_iface_decl _ _ (IfaceSynonym {ifName = tc_bndr,
                                       ifRoles = roles,
                                       ifSynRhs = rhs_ty,
                                       ifBinders = binders,
@@ -401,9 +404,10 @@ tc_iface_decl _ _ (IfaceSynonym {ifName = tc_name,
      ; let tycon = mkSynonymTyCon tc_name binders' res_kind' roles rhs
      ; return (ATyCon tycon) }
    where
+     tc_name = getName tc_bndr
      mk_doc n = text "Type synonym" <+> ppr n
 
-tc_iface_decl parent _ (IfaceFamily {ifName = tc_name,
+tc_iface_decl parent _ (IfaceFamily {ifName = tc_bndr,
                                      ifFamFlav = fam_flav,
                                      ifBinders = binders,
                                      ifResKind = res_kind,
@@ -416,6 +420,8 @@ tc_iface_decl parent _ (IfaceFamily {ifName = tc_name,
      ; let tycon = mkFamilyTyCon tc_name binders' res_kind' res_name rhs parent inj
      ; return (ATyCon tycon) }
    where
+     tc_name = getName tc_bndr
+
      mk_doc n = text "Type synonym" <+> ppr n
 
      tc_fam_flav :: Name -> IfaceFamTyConFlav -> IfL FamTyConFlav
@@ -433,7 +439,7 @@ tc_iface_decl parent _ (IfaceFamily {ifName = tc_name,
                     (text "IfaceBuiltInSynFamTyCon in interface file")
 
 tc_iface_decl _parent ignore_prags
-            (IfaceClass {ifCtxt = rdr_ctxt, ifName = tc_name,
+            (IfaceClass {ifCtxt = rdr_ctxt, ifName = tc_bndr,
                          ifRoles = roles,
                          ifBinders = binders,
                          ifFDs = rdr_fds,
@@ -455,6 +461,8 @@ tc_iface_decl _parent ignore_prags
               ; buildClass tc_name binders' roles ctxt fds ats sigs mindef }
     ; return (ATyCon (classTyCon cls)) }
   where
+   tc_name = getName tc_bndr
+
    tc_sc pred = forkM (mk_sc_doc pred) (tcIfaceType pred)
         -- The *length* of the superclasses is used by buildClass, and hence must
         -- not be inside the thunk.  But the *content* maybe recursive and hence
@@ -465,7 +473,7 @@ tc_iface_decl _parent ignore_prags
         -- so we must not pull on T too eagerly.  See Trac #5970
 
    tc_sig :: IfaceClassOp -> IfL TcMethInfo
-   tc_sig (IfaceClassOp op_name rdr_ty dm)
+   tc_sig (IfaceClassOp op_bndr rdr_ty dm)
      = do { let doc = mk_op_doc op_name rdr_ty
           ; op_ty <- forkM (doc <+> text "ty") $ tcIfaceType rdr_ty
                 -- Must be done lazily for just the same reason as the
@@ -473,6 +481,7 @@ tc_iface_decl _parent ignore_prags
                 -- it mentions unless it's necessary to do so
           ; dm'   <- tc_dm doc dm
           ; return (op_name, op_ty, dm') }
+     where op_name = getName op_bndr
 
    tc_dm :: SDoc
          -> Maybe (DefMethSpec IfaceType)
@@ -505,7 +514,7 @@ tc_iface_decl _parent ignore_prags
                            ; tvs2' <- mapM tcIfaceTyVar tvs2
                            ; return (tvs1', tvs2') }
 
-tc_iface_decl _ _ (IfaceAxiom { ifName = tc_name, ifTyCon = tc
+tc_iface_decl _ _ (IfaceAxiom { ifName = tc_bndr, ifTyCon = tc
                               , ifAxBranches = branches, ifRole = role })
   = do { tc_tycon    <- tcIfaceTyCon tc
        ; tc_branches <- tc_ax_branches branches
@@ -516,8 +525,9 @@ tc_iface_decl _ _ (IfaceAxiom { ifName = tc_name, ifTyCon = tc
                              , co_ax_branches = manyBranches tc_branches
                              , co_ax_implicit = False }
        ; return (ACoAxiom axiom) }
+  where tc_name = getName tc_bndr
 
-tc_iface_decl _ _ (IfacePatSyn{ ifName = name
+tc_iface_decl _ _ (IfacePatSyn{ ifName = bndr
                               , ifPatMatcher = if_matcher
                               , ifPatBuilder = if_builder
                               , ifPatIsInfix = is_infix
@@ -544,6 +554,7 @@ tc_iface_decl _ _ (IfacePatSyn{ ifName = name
                                        arg_tys pat_ty field_labels }
        ; return $ AConLike . PatSynCon $ patsyn }}}
   where
+     name = getName bndr
      mk_doc n = text "Pattern synonym" <+> ppr n
      tc_pr :: (IfExtName, Bool) -> IfL (Id, Bool)
      tc_pr (nm, b) = do { id <- forkM (ppr nm) (tcIfaceExtId nm)
@@ -588,14 +599,15 @@ tcIfaceDataCons tycon_name tycon tc_tybinders if_cons
 
     tc_con_decl field_lbls (IfCon { ifConInfix = is_infix,
                          ifConExTvs = ex_bndrs,
-                         ifConName = dc_name, ifConCtxt = ctxt, ifConEqSpec = spec,
+                         ifConName = dc_bndr, ifConCtxt = ctxt, ifConEqSpec = spec,
                          ifConArgTys = args, ifConFields = my_lbls,
                          ifConStricts = if_stricts,
                          ifConSrcStricts = if_src_stricts})
      = -- Universally-quantified tyvars are shared with
        -- parent TyCon, and are alrady in scope
        bindIfaceForAllBndrs ex_bndrs    $ \ ex_tv_bndrs -> do
-        { traceIf (text "Start interface-file tc_con_decl" <+> ppr dc_name)
+        { let dc_name = getName dc_bndr
+        ; traceIf (text "Start interface-file tc_con_decl" <+> ppr dc_name)
 
         -- Read the context and argument types, but lazily for two reasons
         -- (a) to avoid looking tugging on a recursive use of
@@ -613,7 +625,7 @@ tcIfaceDataCons tycon_name tycon tc_tybinders if_cons
 
         -- Look up the field labels for this constructor; note that
         -- they should be in the same order as my_lbls!
-        ; let lbl_names = map find_lbl my_lbls
+        ; let lbl_names = map (find_lbl . getName) my_lbls
               find_lbl x = case find (\ fl -> flSelector fl == x) field_lbls of
                              Just fl -> fl
                              Nothing -> error $ "find_lbl missing " ++ occNameString (occName x)
