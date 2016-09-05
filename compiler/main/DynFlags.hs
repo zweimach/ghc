@@ -3803,7 +3803,6 @@ optLevelFlags -- see Note [Documenting optimisation flags]
                 -- constructors are eta-expanded.  This is probably
                 -- a good thing anyway, but it seems fragile.
 
-    , ([0],     Opt_IgnoreInterfacePragmas)
     , ([0],     Opt_OmitInterfacePragmas)
 
     , ([1,2],   Opt_CallArity)

@@ -143,7 +143,7 @@ getCoreToDo dflags
                           , sm_names      = []
                           , sm_rules      = rules_on
                           , sm_eta_expand = eta_expand_on
-                          , sm_inline     = True
+                          , sm_inline     = opt_level > 0
                           , sm_case_case  = True }
 
     simpl_phase phase names iter

@@ -119,7 +119,7 @@ optimizationsOptions =
          }
   , flag { flagName = "-fignore-interface-pragmas"
          , flagDescription =
-           "Ignore pragmas in interface files. Implied by :ghc-flag:`-O0` only."
+           "Ignore pragmas in interface files."
          , flagType = DynamicFlag
          , flagReverse = "-fno-ignore-interface-pragmas"
          }
