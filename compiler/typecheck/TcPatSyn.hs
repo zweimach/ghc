@@ -62,7 +62,7 @@ import Data.List( partition )
 ************************************************************************
 -}
 
-tcInferPatSynDecl :: PatSynBind Name Name
+tcInferPatSynDecl :: TcPragEnv -> PatSynBind Name Name
                   -> TcM (LHsBinds Id, TcGblEnv)
 tcInferPatSynDecl PSB{ psb_id = lname@(L _ name), psb_args = details,
                        psb_def = lpat, psb_dir = dir }
@@ -99,10 +99,11 @@ tcInferPatSynDecl PSB{ psb_id = lname@(L _ name), psb_args = details,
                           pat_ty rec_fields }
 
 
-tcCheckPatSynDecl :: PatSynBind Name Name
+tcCheckPatSynDecl :: TcPragEnv -> PatSynBind Name Name
                   -> TcPatSynInfo
                   -> TcM (LHsBinds Id, TcGblEnv)
-tcCheckPatSynDecl psb@PSB{ psb_id = lname@(L _ name), psb_args = details
+tcCheckPatSynDecl prag_fn
+                  psb@PSB{ psb_id = lname@(L _ name), psb_args = details
                          , psb_def = lpat, psb_dir = dir }
                   TPSI{ patsig_implicit_bndrs = implicit_tvs
                       , patsig_univ_bndrs = explicit_univ_tvs, patsig_prov = prov_theta
@@ -282,7 +283,8 @@ wrongNumberOfParmsErr name decl_arity missing
 
 -------------------------
 -- Shared by both tcInferPatSyn and tcCheckPatSyn
-tc_patsyn_finish :: Located Name  -- ^ PatSyn Name
+tc_patsyn_finish :: PragEnv           -- ^ Pragma environment
+                 -> Located Name      -- ^ PatSyn Name
                  -> HsPatSynDir Name  -- ^ PatSyn type (Uni/Bidir/ExplicitBidir)
                  -> Bool              -- ^ Whether infix
                  -> LPat Id           -- ^ Pattern of the PatSyn
@@ -293,7 +295,7 @@ tc_patsyn_finish :: Located Name  -- ^ PatSyn Name
                  -> [Name]              -- ^ Selector names
                  -- ^ Whether fields, empty if not record PatSyn
                  -> TcM (LHsBinds Id, TcGblEnv)
-tc_patsyn_finish lname dir is_infix lpat'
+tc_patsyn_finish prag_fn lname dir is_infix lpat'
                  (univ_bndrs, req_theta, req_ev_binds, req_dicts)
                  (ex_bndrs, ex_tys, prov_theta, prov_dicts)
                  (args, arg_tys)
@@ -322,12 +324,16 @@ tc_patsyn_finish lname dir is_infix lpat'
            ppr arg_tys $$
            ppr pat_ty
 
+       -- Find any inline pragmas
+       ; let prag_sigs = lookupPragEnv prag_fn (unLoc name)
+
        -- Make the 'matcher'
        ; (matcher_id, matcher_bind) <- tcPatSynMatcher lname lpat'
                                          (binderVars univ_tvs, req_theta, req_ev_binds, req_dicts)
                                          (binderVars ex_tvs, ex_tys, prov_theta, prov_dicts)
                                          (args, arg_tys)
-                                         pat_ty
+                                         pat_ty inline_pragma
+       ; matcher_id <- addInlinePrags matcher_id prag_sigs
 
 
        -- Make the 'builder'
@@ -335,6 +341,8 @@ tc_patsyn_finish lname dir is_infix lpat'
                                          univ_tvs req_theta
                                          ex_tvs   prov_theta
                                          arg_tys pat_ty
+                                         inline_pragma
+       ; builder_id <- addInlinePrags builder_id prag_sigs
 
          -- TODO: Make this have the proper information
        ; let mkFieldLabel name = FieldLabel { flLabel = occNameFS (nameOccName name)

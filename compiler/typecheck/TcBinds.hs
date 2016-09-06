@@ -415,7 +415,7 @@ tc_single :: forall thing.
             TopLevelFlag -> TcSigFun -> TcPragEnv
           -> LHsBind Name -> IsGroupClosed -> TcM thing
           -> TcM (LHsBinds TcId, thing)
-tc_single _top_lvl sig_fn _prag_fn
+tc_single _top_lvl sig_fn prag_fn
           (L _ (PatSynBind psb@PSB{ psb_id = L _ name }))
           _ thing_inside
   = do { (aux_binds, tcg_env) <- tc_pat_syn_decl
@@ -425,8 +425,8 @@ tc_single _top_lvl sig_fn _prag_fn
   where
     tc_pat_syn_decl :: TcM (LHsBinds TcId, TcGblEnv)
     tc_pat_syn_decl = case sig_fn name of
-        Nothing                 -> tcInferPatSynDecl psb
-        Just (TcPatSynSig tpsi) -> tcCheckPatSynDecl psb tpsi
+        Nothing                 -> tcInferPatSynDecl prag_fn psb
+        Just (TcPatSynSig tpsi) -> tcCheckPatSynDecl prag_fn psb tpsi
         Just                 _  -> panic "tc_single"
 
 tc_single top_lvl sig_fn prag_fn lbind closed thing_inside
