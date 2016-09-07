@@ -338,15 +338,29 @@ tc_patsyn_finish prag_fn lname dir is_infix lpat'
                                          (binderVars ex_tvs, ex_tys, prov_theta, prov_dicts)
                                          (args, arg_tys)
                                          pat_ty
-       ; matcher_id <- addInlinePrags matcher_id prag_sigs
-
+       -- In the case of normal bindings the arity field, inl_sat, would already
+       -- have been set in mkPragEnv; however, pattern synonyms are different as
+       -- we actually have two different inlinings, with different arities (the
+       -- builder and the matcher).
+       ; let matcher_arity = idArity matcher_id
+             matcher_prags = map (fmap (set_inline_arity matcher_arity)) prag_sigs
+             set_inline_arity :: Arity -> Sig Name -> Sig Name
+             set_inline_arity arity (InlineSig x prag) = InlineSig x (prag { inl_sat = Just arity })
+             set_inline_arity _ other = other
+       ; matcher_id <- addInlinePrags matcher_id matcher_prags
 
        -- Make the 'builder'
        ; builder_id <- mkPatSynBuilderId dir lname
                                          univ_tvs req_theta
                                          ex_tvs   prov_theta
                                          arg_tys pat_ty
-       ; builder_id <- traverse (\(ident, need_dummy_arg) -> (, need_dummy_arg) <$> addInlinePrags ident prag_sigs) builder_id
+
+       -- Apply any INLINE pragmas to the builder
+       ; let apply_builder_inline (ident, need_dummy_arg) =
+                let builder_arity = idArity ident
+                    builder_prags = map (fmap (set_inline_arity builder_arity)) prag_sigs
+                in (, need_dummy_arg) <$> addInlinePrags ident builder_prags
+       ; builder_id <- traverse apply_builder_inline builder_id
 
          -- TODO: Make this have the proper information
        ; let mkFieldLabel name = FieldLabel { flLabel = occNameFS (nameOccName name)
