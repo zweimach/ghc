@@ -2034,6 +2034,12 @@ gdrh :: { LGRHS RdrName (LHsExpr RdrName) }
         : '|' guardquals '=' exp  {% ams (sL (comb2 $1 $>) $ GRHS (unLoc $2) $4)
                                          [mj AnnVbar $1,mj AnnEqual $3] }
 
+-- INLINE pragmas can apply to either value-level things or data constructors
+-- (for use with pattern synonyms)
+inline_pragma_name :: { Located RdrName }
+inline_pragma_name : 'pattern' qcon  { $2 }
+                   | qvar            { $1 }
+
 sigdecl :: { LHsDecl RdrName }
         :
         -- See Note [Declaration/signature overlap] for why we need infixexp here
@@ -2059,7 +2065,7 @@ sigdecl :: { LHsDecl RdrName }
         | pattern_synonym_sig   { sLL $1 $> . SigD . unLoc $ $1 }
 
         -- This rule is for both INLINE and INLINABLE pragmas
-        | '{-# INLINE' activation qvar '#-}'
+        | '{-# INLINE' activation inline_pragma_name '#-}'
                 {% ams ((sLL $1 $> $ SigD (InlineSig $3
                             (mkInlinePragma (getINLINE_PRAGs $1) (getINLINE $1)
                                             (snd $2)))))

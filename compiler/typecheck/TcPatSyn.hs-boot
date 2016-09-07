@@ -5,12 +5,15 @@ import Id        ( Id )
 import HsSyn     ( PatSynBind, LHsBinds )
 import TcRnTypes ( TcM, TcPatSynInfo )
 import TcRnMonad ( TcGblEnv)
+import TcSigs    ( TcPragEnv )
 import Outputable ( Outputable )
 
-tcInferPatSynDecl :: PatSynBind Name Name
+tcInferPatSynDecl :: TcPragEnv
+                  -> PatSynBind Name Name
                   -> TcM (LHsBinds Id, TcGblEnv)
 
-tcCheckPatSynDecl :: PatSynBind Name Name
+tcCheckPatSynDecl :: TcPragEnv
+                  -> PatSynBind Name Name
                   -> TcPatSynInfo
                   -> TcM (LHsBinds Id, TcGblEnv)
 
