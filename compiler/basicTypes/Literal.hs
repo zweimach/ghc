@@ -347,7 +347,7 @@ nullAddrLit = MachNullAddr
 -- False principally of strings
 litIsTrivial :: Literal -> Bool
 --      c.f. CoreUtils.exprIsTrivial
-litIsTrivial (MachStr _)      = False
+litIsTrivial (MachStr _)      = True
 litIsTrivial (LitInteger {})  = True
 litIsTrivial _                = True
 
