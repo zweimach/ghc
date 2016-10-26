@@ -40,7 +40,7 @@
 
   * Add `plusForeignPtr` to `Foreign.ForeignPtr`.
 
-  * Add `type family (m :: Symbol) <> (n :: Symbol) :: Symbol` to `GHC.TypeLits`
+  * Add `type family AppendSymbol (m :: Symbol) (n :: Symbol) :: Symbol` to `GHC.TypeLits`
     (#12162)
 
 ## 4.9.0.0  *May 2016*
