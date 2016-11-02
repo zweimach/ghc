@@ -842,6 +842,13 @@ However, until then we simply add a special case excluding literals from the
 floating done by cpeArg.
 -}
 
+-- | Is an argument okay to CPE?
+okCpeArg :: Expr -> Bool
+-- Don't float literals. See Note [Floating literals].
+okCpeArg (Lit _) = False
+-- Do not eta expand a trivial argument
+okCpeArg expr    = not (exprIsTrivial expr)
+
 -- This is where we arrange that a non-trivial argument is let-bound
 cpeArg :: CorePrepEnv -> Demand
        -> CoreArg -> Type -> UniqSM (Floats, CpeArg)
@@ -853,12 +860,10 @@ cpeArg env dmd arg arg_ty
                 -- Else case: arg1 might have lambdas, and we can't
                 --            put them inside a wrapBinds
 
-       ; if | exprIsTrivial arg2    -- Do not eta expand a trivial argument
-              -> return (floats2, arg2)
-            | Lit _ <- arg2         -- Don't float literals.
-                                    -- See Note [Floating literals].
-              -> return (floats2, arg2)
-            | otherwise -> do { v <- newVar arg_ty
+       ; if okCpeArg arg2
+         then return (floats2, arg2)
+         else
+            otherwise -> do { v <- newVar arg_ty
                               ; let arg3      = cpeEtaExpand (exprArity arg2) arg2
                                     arg_float = mkFloat dmd is_unlifted v arg3
                               ; return (addFloat floats2 arg_float, varToCoreExpr v) } }

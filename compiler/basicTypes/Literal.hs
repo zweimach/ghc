@@ -347,13 +347,12 @@ nullAddrLit = MachNullAddr
 -- False principally of strings.
 --
 -- "Why?", you say? I'm glad you asked. Well, for one duplicating strings would
--- blow up code sizes. However, beyond this it's also unsafe.
+-- blow up code sizes. Not only this, it's also unsafe.
 --
--- Consider
--- a program that wants to traverse a string. One way it might do this is to
--- first compute the Addr# pointing to the end of the string, and then, starting
--- from the beginning, bump a pointer using eqAddr# to determine the end. For
--- instance,
+-- Consider a program that wants to traverse a string. One way it might do this
+-- is to first compute the Addr# pointing to the end of the string, and then,
+-- starting from the beginning, bump a pointer using eqAddr# to determine the
+-- end. For instance,
 --
 -- @
 -- -- Given pointers to the start and end of a string, count how many zeros
