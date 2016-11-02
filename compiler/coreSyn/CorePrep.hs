@@ -816,8 +816,8 @@ isLazyExpr _                       = False
 -- ---------------------------------------------------------------------------
 
 {-
-Note [Floating literals]
-~~~~~~~~~~~~~~~~~~~~~~~~
+Note [ANF-ising literal string arguments]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Consider a program like,
 
@@ -844,7 +844,7 @@ floating done by cpeArg.
 
 -- | Is an argument okay to CPE?
 okCpeArg :: Expr -> Bool
--- Don't float literals. See Note [Floating literals].
+-- Don't float literals. See Note [ANF-ising literal string arguments].
 okCpeArg (Lit _) = False
 -- Do not eta expand a trivial argument
 okCpeArg expr    = not (exprIsTrivial expr)
