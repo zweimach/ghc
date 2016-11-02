@@ -5,7 +5,7 @@
 Core pass to saturate constructors and PrimOps
 -}
 
-{-# LANGUAGE BangPatterns, CPP #-}
+{-# LANGUAGE BangPatterns, CPP, MultiWayIf #-}
 
 module CorePrep (
       corePrepPgm, corePrepExpr, cvtLitInteger,
@@ -826,13 +826,14 @@ cpeArg env dmd arg arg_ty
                 -- Else case: arg1 might have lambdas, and we can't
                 --            put them inside a wrapBinds
 
-       ; if cpe_ExprIsTrivial arg2    -- Do not eta expand a trivial argument
-         then return (floats2, arg2)
-         else do
-       { v <- newVar arg_ty
-       ; let arg3      = cpeEtaExpand (exprArity arg2) arg2
-             arg_float = mkFloat dmd is_unlifted v arg3
-       ; return (addFloat floats2 arg_float, varToCoreExpr v) } }
+       ; if | cpe_ExprIsTrivial arg2    -- Do not eta expand a trivial argument
+              -> return (floats2, arg2)
+            | Lit _ <- arg2             -- There is no need to bind 
+              -> return (floats2, arg2)
+            | otherwise -> do { v <- newVar arg_ty
+                              ; let arg3      = cpeEtaExpand (exprArity arg2) arg2
+                                    arg_float = mkFloat dmd is_unlifted v arg3
+                              ; return (addFloat floats2 arg_float, varToCoreExpr v) } }
   where
     is_unlifted = isUnliftedType arg_ty
     want_float  = wantFloatNested NonRecursive dmd is_unlifted
@@ -927,7 +928,7 @@ cpe_ExprIsTrivial :: CoreExpr -> Bool
 cpe_ExprIsTrivial (Var _)         = True
 cpe_ExprIsTrivial (Type _)        = True
 cpe_ExprIsTrivial (Coercion _)    = True
-cpe_ExprIsTrivial (Lit _)         = True
+cpe_ExprIsTrivial (Lit lit)       = litIsTrivial lit
 cpe_ExprIsTrivial (App e arg)     = not (isRuntimeArg arg) && cpe_ExprIsTrivial e
 cpe_ExprIsTrivial (Lam b e)       = not (isRuntimeVar b) && cpe_ExprIsTrivial e
 cpe_ExprIsTrivial (Tick t e)      = not (tickishIsCode t) && cpe_ExprIsTrivial e
