@@ -828,8 +828,8 @@ cpeArg env dmd arg arg_ty
 
        ; if | exprIsTrivial arg2    -- Do not eta expand a trivial argument
               -> return (floats2, arg2)
-            | Lit _ <- arg2             -- There is no need to bind 
-              -> return (floats2, arg2)
+            -- | Lit _ <- arg2             -- There is no need to bind
+              -- -> return (floats2, arg2)
             | otherwise -> do { v <- newVar arg_ty
                               ; let arg3      = cpeEtaExpand (exprArity arg2) arg2
                                     arg_float = mkFloat dmd is_unlifted v arg3
