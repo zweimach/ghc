@@ -815,6 +815,33 @@ isLazyExpr _                       = False
 --      CpeArg: produces a result satisfying CpeArg
 -- ---------------------------------------------------------------------------
 
+{-
+Note [Floating literals]
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+Consider a program like,
+
+    data Foo = Foo Addr#
+
+    foo = Foo "turtle"#
+
+When we go to ANFise this we might think that we want to float the string
+literal like we do any other non-trivial argument. This would look like,
+
+    foo = u\ [] case "turtle"# of s { __DEFAULT__ -> Foo s }
+
+However, this 1) isn't necessary since strings are in a sense "trivial"; and 2)
+wreaks havoc on the CAF annotations that we produce here since we the result
+above is caffy since it is updateable. Ideally at some point in the future we
+would like to just float the literal to the top level as suggested in #11312,
+
+    s = "turtle"#
+    foo = Foo s
+
+However, until then we simply add a special case excluding literals from the
+floating done by cpeArg.
+-}
+
 -- This is where we arrange that a non-trivial argument is let-bound
 cpeArg :: CorePrepEnv -> Demand
        -> CoreArg -> Type -> UniqSM (Floats, CpeArg)
@@ -828,8 +855,9 @@ cpeArg env dmd arg arg_ty
 
        ; if | exprIsTrivial arg2    -- Do not eta expand a trivial argument
               -> return (floats2, arg2)
-            -- | Lit _ <- arg2             -- There is no need to bind
-              -- -> return (floats2, arg2)
+            | Lit _ <- arg2         -- Don't float literals.
+                                    -- See Note [Floating literals].
+              -> return (floats2, arg2)
             | otherwise -> do { v <- newVar arg_ty
                               ; let arg3      = cpeEtaExpand (exprArity arg2) arg2
                                     arg_float = mkFloat dmd is_unlifted v arg3
