@@ -379,7 +379,7 @@ cpeBind top_lvl env (NonRec bndr rhs)
                                           is_unlifted
                                           env bndr1 rhs
        -- See Note [Inlining in CorePrep]
-       ; if cpe_ExprIsTrivial rhs2 && isNotTopLevel top_lvl
+       ; if exprIsTrivial rhs2 && isNotTopLevel top_lvl
             then return (extendCorePrepEnvExpr env bndr rhs2, floats)
             else do {
 
@@ -730,7 +730,7 @@ cpeApp top_env expr
            -- NB: depth from collect_args is right, because e2 is a trivial expression
            -- and thus its embedded Id *must* be at the same depth as any
            -- Apps it is under are type applications only (c.f.
-           -- cpe_ExprIsTrivial).  But note that we need the type of the
+           -- exprIsTrivial).  But note that we need the type of the
            -- expression, not the id.
            ; (app, floats) <- rebuild_app args e2 (exprType e2) emptyFloats stricts
            ; mb_saturate hd app floats depth }
@@ -826,7 +826,7 @@ cpeArg env dmd arg arg_ty
                 -- Else case: arg1 might have lambdas, and we can't
                 --            put them inside a wrapBinds
 
-       ; if | cpe_ExprIsTrivial arg2    -- Do not eta expand a trivial argument
+       ; if | exprIsTrivial arg2    -- Do not eta expand a trivial argument
               -> return (floats2, arg2)
             | Lit _ <- arg2             -- There is no need to bind 
               -> return (floats2, arg2)
@@ -919,23 +919,6 @@ of the scope of a `seq`, or dropped the `seq` altogether.
 *                                                                      *
 ************************************************************************
 -}
-
-cpe_ExprIsTrivial :: CoreExpr -> Bool
--- This function differs from CoreUtils.exprIsTrivial only in its
--- treatment of (Lit l).  Otherwise it's identical.
--- No one knows why this difference is important: Trac #11158.
--- Someone should find out
-cpe_ExprIsTrivial (Var _)         = True
-cpe_ExprIsTrivial (Type _)        = True
-cpe_ExprIsTrivial (Coercion _)    = True
-cpe_ExprIsTrivial (Lit lit)       = litIsTrivial lit
-cpe_ExprIsTrivial (App e arg)     = not (isRuntimeArg arg) && cpe_ExprIsTrivial e
-cpe_ExprIsTrivial (Lam b e)       = not (isRuntimeVar b) && cpe_ExprIsTrivial e
-cpe_ExprIsTrivial (Tick t e)      = not (tickishIsCode t) && cpe_ExprIsTrivial e
-cpe_ExprIsTrivial (Cast e _)      = cpe_ExprIsTrivial e
-cpe_ExprIsTrivial (Case e _ _ []) = cpe_ExprIsTrivial e
-                                    -- See Note [Empty case is trivial] in CoreUtils
-cpe_ExprIsTrivial _               = False
 
 {-
 -- -----------------------------------------------------------------------------
