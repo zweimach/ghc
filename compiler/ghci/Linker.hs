@@ -860,16 +860,14 @@ dynLoadObjs hsc_env pls objs = do
                         concatMap
                             (\(lp, l) ->
                                  [ Option ("-L" ++ lp)
-                                 , Option ("-Wl,-rpath")
-                                 , Option ("-Wl," ++ lp)
+                                 , Option ("-rpath " ++ lp)
                                  , Option ("-l" ++  l)
                                  ])
                             (temp_sos pls)
                         ++ concatMap
                              (\lp ->
                                  [ Option ("-L" ++ lp)
-                                 , Option ("-Wl,-rpath")
-                                 , Option ("-Wl," ++ lp)
+                                 , Option ("-rpath " ++ lp)
                                  ])
                              minus_big_ls
                         ++ map (\l -> Option ("-l" ++ l)) minus_ls,

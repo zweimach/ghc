@@ -253,6 +253,8 @@ initSysTools mbMinusB
        gcc_args_str <- getSetting "C compiler flags"
        cpp_prog <- getSetting "Haskell CPP command"
        cpp_args_str <- getSetting "Haskell CPP flags"
+       ld_prog <- getSetting "ld command"
+       ld_args_str <- getSetting "ld flags"
        let unreg_gcc_args = if targetUnregisterised
                             then ["-DNO_REGS", "-DUSE_MINIINTERPRETER"]
                             else []
@@ -265,6 +267,7 @@ initSysTools mbMinusB
            gcc_args = map Option (words gcc_args_str
                                ++ unreg_gcc_args
                                ++ tntc_gcc_args)
+           ld_args= map Option (words ld_args_str)
        ldSupportsCompactUnwind <- getBooleanSetting "ld supports compact unwind"
        ldSupportsBuildId       <- getBooleanSetting "ld supports build-id"
        ldSupportsFilelist      <- getBooleanSetting "ld supports filelist"
@@ -306,12 +309,9 @@ initSysTools mbMinusB
        -- Config.hs one day.
 
 
-       -- Other things being equal, as and ld are simply gcc
-       gcc_link_args_str <- getSetting "C compiler link flags"
+       -- Other things being equal, as is simply gcc
        let   as_prog  = gcc_prog
              as_args  = gcc_args
-             ld_prog  = gcc_prog
-             ld_args  = gcc_args ++ map Option (words gcc_link_args_str)
 
        -- We just assume on command line
        lc_prog <- getSetting "LLVM llc command"
@@ -689,6 +689,7 @@ change what /usr/bin/ld actually points to.
 
 Clang vs GCC notes:
 
+TODO
 For gcc, 'gcc -Wl,--version' gives a bunch of output about how to
 invoke the linker before the version information string. For 'clang',
 the version information for 'ld' is all that's output. For this
@@ -777,16 +778,16 @@ getLinkerInfo' dflags = do
           -- hurts on small object files. Trac #5240.
           -- Set DT_NEEDED for all shared libraries. Trac #10110.
           -- TODO: Investigate if these help or hurt when using split sections.
-          return (GnuLD $ map Option ["-Wl,--hash-size=31",
-                                      "-Wl,--reduce-memory-overheads",
+          return (GnuLD $ map Option ["--hash-size=31",
+                                      "--reduce-memory-overheads",
                                       -- ELF specific flag
                                       -- see Note [ELF needed shared libs]
-                                      "-Wl,--no-as-needed"])
+                                      "--no-as-needed"])
 
         | any ("GNU gold" `isPrefixOf`) stdo =
           -- GNU gold only needs --no-as-needed. Trac #10110.
           -- ELF specific flag, see Note [ELF needed shared libs]
-          return (GnuGold [Option "-Wl,--no-as-needed"])
+          return (GnuGold [Option "--no-as-needed"])
 
          -- Unknown linker.
         | otherwise = fail "invalid --version output, or linker is unsupported"
@@ -819,8 +820,8 @@ getLinkerInfo' dflags = do
                  -- we short-circuit here.
                  return $ GnuLD $ map Option
                    [ -- Reduce ld memory usage
-                     "-Wl,--hash-size=31"
-                   , "-Wl,--reduce-memory-overheads"
+                     "--hash-size=31"
+                   , "--reduce-memory-overheads"
                      -- Emit gcc stack checks
                      -- Note [Windows stack usage]
                    , "-fstack-check"
@@ -829,13 +830,13 @@ getLinkerInfo' dflags = do
                    , "-static-libgcc" ]
                _ -> do
                  -- In practice, we use the compiler as the linker here. Pass
-                 -- -Wl,--version to get linker version info.
+                 -- --version to get linker version info.
                  (exitc, stdo, stde) <- readProcessEnvWithExitCode pgm
-                                        (["-Wl,--version"] ++ args3)
+                                        (["--version"] ++ args3)
                                         c_locale_env
                  -- Split the output by lines to make certain kinds
                  -- of processing easier. In particular, 'clang' and 'gcc'
-                 -- have slightly different outputs for '-Wl,--version', but
+                 -- have slightly different outputs for '--version', but
                  -- it's still easy to figure out.
                  parseLinkerInfo (lines stdo) (lines stde) exitc
             )
@@ -1573,7 +1574,7 @@ linkDynLib dflags0 o_files dep_packages
              osMachOTarget (platformOS (targetPlatform dflags)) ) &&
            dynLibLoader dflags == SystemDependent &&
            WayDyn `elem` ways dflags
-            = ["-L" ++ l, "-Wl,-rpath", "-Wl," ++ l]
+            = ["-L" ++ l, "-rpath", l]
          | otherwise = ["-L" ++ l]
 
     let lib_paths = libraryPaths dflags
@@ -1620,14 +1621,14 @@ linkDynLib dflags0 o_files dep_packages
                     , FileOption "" output_fn
                     , Option "-shared"
                     ] ++
-                    [ FileOption "-Wl,--out-implib=" (output_fn ++ ".a")
+                    [ FileOption "--out-implib=" (output_fn ++ ".a")
                     | gopt Opt_SharedImplib dflags
                     ]
                  ++ map (FileOption "") o_files
 
                  -- Permit the linker to auto link _symbol to _imp_symbol
                  -- This lets us link against DLLs without needing an "import library"
-                 ++ [Option "-Wl,--enable-auto-import"]
+                 ++ [Option "--enable-auto-import"]
 
                  ++ extra_ld_inputs
                  ++ map Option (
@@ -1686,7 +1687,7 @@ linkDynLib dflags0 o_files dep_packages
                       Option "-single_module" ]
                  ++ (if platformArch platform == ArchX86_64
                      then [ ]
-                     else [ Option "-Wl,-read_only_relocs,suppress" ])
+                     else [ Option "-read_only_relocs,suppress" ])
                  ++ [ Option "-install_name", Option instName ]
                  ++ map Option lib_path_opts
                  ++ extra_ld_inputs
@@ -1704,7 +1705,7 @@ linkDynLib dflags0 o_files dep_packages
             let output_fn = case o_file of { Just s -> s; Nothing -> "a.out"; }
             let bsymbolicFlag = -- we need symbolic linking to resolve
                                 -- non-PIC intra-package-relocations
-                                ["-Wl,-Bsymbolic"]
+                                ["-Bsymbolic"]
 
             runLink dflags (
                     map Option verbFlags
@@ -1716,7 +1717,7 @@ linkDynLib dflags0 o_files dep_packages
                  ++ map Option bsymbolicFlag
                     -- Set the library soname. We use -h rather than -soname as
                     -- Solaris 10 doesn't support the latter:
-                 ++ [ Option ("-Wl,-h," ++ takeFileName output_fn) ]
+                 ++ [ Option ("-h," ++ takeFileName output_fn) ]
                  ++ extra_ld_inputs
                  ++ map Option lib_path_opts
                  ++ map Option pkg_lib_path_opts

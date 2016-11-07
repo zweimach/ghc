@@ -1771,7 +1771,7 @@ linkBinary' staticLink dflags o_files dep_packages = do
                                  (l `makeRelativeTo` full_output_fn)
                             else l
                   rpath = if gopt Opt_RPath dflags
-                          then ["-Wl,-rpath",      "-Wl," ++ libpath]
+                          then ["-rpath", libpath]
                           else []
                   -- Solaris 11's linker does not support -rpath-link option. It silently
                   -- ignores it and then complains about next option which is -l<some
@@ -1781,7 +1781,7 @@ linkBinary' staticLink dflags o_files dep_packages = do
                   -- elf_begin: I/O error: region read: Is a directory
                   rpathlink = if (platformOS platform) == OSSolaris2
                               then []
-                              else ["-Wl,-rpath-link", "-Wl," ++ l]
+                              else ["-rpath-link", l]
               in ["-L" ++ l] ++ rpathlink ++ rpath
          | osMachOTarget (platformOS platform) &&
            dynLibLoader dflags == SystemDependent &&
@@ -1791,7 +1791,7 @@ linkBinary' staticLink dflags o_files dep_packages = do
                             then "@loader_path" </>
                                  (l `makeRelativeTo` full_output_fn)
                             else l
-              in ["-L" ++ l] ++ ["-Wl,-rpath", "-Wl," ++ libpath]
+              in ["-L" ++ l] ++ ["-rpath", libpath]
          | otherwise = ["-L" ++ l]
 
     let lib_paths = libraryPaths dflags
@@ -1808,7 +1808,7 @@ linkBinary' staticLink dflags o_files dep_packages = do
                                  -- HS packages, because libtool doesn't accept other options.
                                  -- In the case of iOS these need to be added by hand to the
                                  -- final link in Xcode.
-            else other_flags ++ package_hs_libs ++ extra_libs -- -Wl,-u,<sym> contained in other_flags
+            else other_flags ++ package_hs_libs ++ extra_libs -- -u <sym> contained in other_flags
                                                               -- needs to be put before -l<package>,
                                                               -- otherwise Solaris linker fails linking
                                                               -- a binary with unresolved symbols in RTS
@@ -1862,7 +1862,7 @@ linkBinary' staticLink dflags o_files dep_packages = do
                       -- Permit the linker to auto link _symbol to _imp_symbol.
                       -- This lets us link against DLLs without needing an "import library".
                       ++ (if platformOS platform == OSMinGW32
-                          then ["-Wl,--enable-auto-import"]
+                          then ["--enable-auto-import"]
                           else [])
 
                       -- '-no_compact_unwind'
@@ -1882,17 +1882,17 @@ linkBinary' staticLink dflags o_files dep_packages = do
                                ArchARM {} -> True
                                ArchARM64  -> True
                                _ -> False
-                          then ["-Wl,-no_compact_unwind"]
+                          then ["-no_compact_unwind"]
                           else [])
 
                       -- '-no_pie'
                       -- iOS uses 'dynamic-no-pic', so we must pass this to ld to suppress a warning; see #7722
                       ++ (if platformOS platform == OSiOS &&
                              not staticLink
-                          then ["-Wl,-no_pie"]
+                          then ["-no_pie"]
                           else [])
 
-                      -- '-Wl,-read_only_relocs,suppress'
+                      -- '-read_only_relocs,suppress'
                       -- ld gives loads of warnings like:
                       --     ld: warning: text reloc in _base_GHCziArr_unsafeArray_info to _base_GHCziArr_unsafeArray_closure
                       -- when linking any program. We're not sure
@@ -1901,11 +1901,11 @@ linkBinary' staticLink dflags o_files dep_packages = do
                       ++ (if platformOS   platform == OSDarwin &&
                              platformArch platform == ArchX86 &&
                              not staticLink
-                          then ["-Wl,-read_only_relocs,suppress"]
+                          then ["-read_only_relocs,suppress"]
                           else [])
 
                       ++ (if sLdIsGnuLd mySettings
-                          then ["-Wl,--gc-sections"]
+                          then ["--gc-sections"]
                           else [])
 
                       ++ o_files
@@ -2153,23 +2153,20 @@ joinObjectFiles dflags o_files output_fn = do
   let mySettings = settings dflags
       ldIsGnuLd = sLdIsGnuLd mySettings
       osInfo = platformOS (targetPlatform dflags)
-      ld_r args cc = SysTools.runLink dflags ([
-                       SysTools.Option "-nostdlib",
-                       SysTools.Option "-Wl,-r"
+      ld_r args = SysTools.runLink dflags ([
+                       SysTools.Option "-r"
                      ]
-                     ++ (if any (cc ==) [Clang, AppleClang, AppleClang51]
-                          then []
-                          else [SysTools.Option "-nodefaultlibs"])
                      ++ (if osInfo == OSFreeBSD
                           then [SysTools.Option "-L/usr/lib"]
                           else [])
+                        -- TODO: Is this still necessary?
                         -- gcc on sparc sets -Wl,--relax implicitly, but
                         -- -r and --relax are incompatible for ld, so
                         -- disable --relax explicitly.
                      ++ (if platformArch (targetPlatform dflags)
                                 `elem` [ArchSPARC, ArchSPARC64]
                          && ldIsGnuLd
-                            then [SysTools.Option "-Wl,-no-relax"]
+                            then [SysTools.Option "-no-relax"]
                             else [])
                      ++ map SysTools.Option ld_build_id
                      ++ [ SysTools.Option "-o",
@@ -2179,25 +2176,24 @@ joinObjectFiles dflags o_files output_fn = do
       -- suppress the generation of the .note.gnu.build-id section,
       -- which we don't need and sometimes causes ld to emit a
       -- warning:
-      ld_build_id | sLdSupportsBuildId mySettings = ["-Wl,--build-id=none"]
+      ld_build_id | sLdSupportsBuildId mySettings = ["--build-id=none"]
                   | otherwise                     = []
 
-  ccInfo <- getCompilerInfo dflags
   if ldIsGnuLd
      then do
           script <- newTempName dflags "ldscript"
           cwd <- getCurrentDirectory
           let o_files_abs = map (\x -> "\"" ++ (cwd </> x) ++ "\"") o_files
           writeFile script $ "INPUT(" ++ unwords o_files_abs ++ ")"
-          ld_r [SysTools.FileOption "" script] ccInfo
+          ld_r [SysTools.FileOption "" script]
      else if sLdSupportsFilelist mySettings
      then do
           filelist <- newTempName dflags "filelist"
           writeFile filelist $ unlines o_files
-          ld_r [SysTools.Option "-Wl,-filelist",
-                SysTools.FileOption "-Wl," filelist] ccInfo
+          ld_r [SysTools.Option "-filelist",
+                SysTools.FileOption "" filelist]
      else do
-          ld_r (map (SysTools.FileOption "") o_files) ccInfo
+          ld_r (map (SysTools.FileOption "") o_files)
 
 -- -----------------------------------------------------------------------------
 -- Misc.

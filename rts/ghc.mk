@@ -216,10 +216,10 @@ else
 ifneq "$$(UseSystemLibFFI)" "YES"
 LIBFFI_LIBS = -Lrts/dist/build -l$$(LIBFFI_NAME)
 ifeq "$$(TargetElf)" "YES"
-LIBFFI_LIBS += -optl-Wl,-rpath -optl-Wl,'$$$$ORIGIN' -optl-Wl,-zorigin
+LIBFFI_LIBS += -optl=-rpath -optl='$$$$ORIGIN' -optl=-zorigin
 endif
 ifeq "$(TargetOS_CPP)" "darwin"
-LIBFFI_LIBS += -optl-Wl,-rpath -optl-Wl,@loader_path
+LIBFFI_LIBS += -optl=-rpath -optl=@loader_path
 endif
 
 else

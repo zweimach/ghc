@@ -224,11 +224,11 @@ ifneq "$4" "0"
 ifeq "$$(TargetElf)" "YES"
 $1_$2_$3_GHC_LD_OPTS += \
     -fno-use-rpaths \
-    $$(foreach d,$$($1_$2_TRANSITIVE_DEP_COMPONENT_IDS),-optl-Wl$$(comma)-rpath -optl-Wl$$(comma)'$$$$ORIGIN/../$$d') -optl-Wl,-zorigin
+    $$(foreach d,$$($1_$2_TRANSITIVE_DEP_COMPONENT_IDS),-optl-rpath -optl'$$$$ORIGIN/../$$d') -optl-zorigin
 else ifeq "$$(TargetOS_CPP)" "darwin"
 $1_$2_$3_GHC_LD_OPTS += \
     -fno-use-rpaths \
-    $$(foreach d,$$($1_$2_TRANSITIVE_DEP_COMPONENT_IDS),-optl-Wl$$(comma)-rpath -optl-Wl$$(comma)'@loader_path/../$$d')
+    $$(foreach d,$$($1_$2_TRANSITIVE_DEP_COMPONENT_IDS),-optl-rpath -optl'@loader_path/../$$d')
 endif
 endif
 endif

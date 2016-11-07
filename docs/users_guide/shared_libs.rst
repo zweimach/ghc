@@ -190,13 +190,13 @@ can pass a suitable ``-rpath`` flag to the linker:
 
 .. code-block:: none
 
-    ghc -dynamic Main.hs -o main -lfoo -L. -optl-Wl,-rpath,'$ORIGIN'
+    ghc -dynamic Main.hs -o main -lfoo -L. -optl"-rpath '$ORIGIN'"
 
 This assumes that the library ``libfoo.so`` is in the current directory
 and will be able to be found in the same directory as the executable
 ``main`` once the program is deployed. Similarly it would be possible to
 use a subdirectory relative to the executable e.g.
-``-optl-Wl,-rpath,'$ORIGIN/lib'``.
+``-optl="-rpath '$ORIGIN/lib'"``.
 
 This relative path technique can be used with either of the two
 ``-dynload`` modes, though it makes most sense with the ``deploy`` mode.
