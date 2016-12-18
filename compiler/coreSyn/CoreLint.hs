@@ -1318,14 +1318,8 @@ lintCoercion (Refl r ty)
 
 lintCoercion co@(TyConAppCo r tc cos)
   | tc `hasKey` funTyConKey
-  , [co1,co2] <- cos
-  = do { (k1,k'1,s1,t1,r1) <- lintCoercion co1
-       ; (k2,k'2,s2,t2,r2) <- lintCoercion co2
-       ; k <- lintArrow (text "coercion" <+> quotes (ppr co)) k1 k2
-       ; k' <- lintArrow (text "coercion" <+> quotes (ppr co)) k'1 k'2
-       ; lintRole co1 r r1
-       ; lintRole co2 r r2
-       ; return (k, k', mkFunTy s1 s2, mkFunTy t1 t2, r) }
+  , [_, _] <- cos
+  = failWithL (text "saturated TyConAppCo of (->):" <+> ppr co)
 
   | Just {} <- synTyConDefn_maybe tc
   = failWithL (text "Synonym in TyConAppCo:" <+> ppr co)
@@ -1375,6 +1369,15 @@ lintCoercion (ForAllCo tv1 kind_co co)
              tyr = mkInvForAllTy tv2 $
                    substTy subst t2
        ; return (k3, k4, tyl, tyr, r) } }
+
+lintCoercion co@(FunCo r co1 co2)
+  = do { (k1,k'1,s1,t1,r1) <- lintCoercion co1
+       ; (k2,k'2,s2,t2,r2) <- lintCoercion co2
+       ; k <- lintArrow (text "coercion" <+> quotes (ppr co)) k1 k2
+       ; k' <- lintArrow (text "coercion" <+> quotes (ppr co)) k'1 k'2
+       ; lintRole co1 r r1
+       ; lintRole co2 r r2
+       ; return (k, k', mkFunTy s1 s2, mkFunTy t1 t2, r) }
 
 lintCoercion (CoVarCo cv)
   | not (isCoVar cv)

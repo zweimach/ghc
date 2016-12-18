@@ -13,6 +13,7 @@ mkReflCo :: Role -> Type -> Coercion
 mkTyConAppCo :: Role -> TyCon -> [Coercion] -> Coercion
 mkAppCo :: Coercion -> Coercion -> Coercion
 mkForAllCo :: TyVar -> Coercion -> Coercion -> Coercion
+mkFunCo :: Role -> Coercion -> Coercion -> Coercion
 mkCoVarCo :: CoVar -> Coercion
 mkAxiomInstCo :: CoAxiom Branched -> BranchIndex -> [Coercion] -> Coercion
 mkPhantomCo :: Coercion -> Type -> Type -> Coercion

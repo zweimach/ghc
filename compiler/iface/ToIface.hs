@@ -211,6 +211,8 @@ toIfaceCoercion (AppCo co1 co2)     = IfaceAppCo  (toIfaceCoercion co1)
 toIfaceCoercion (ForAllCo tv k co)  = IfaceForAllCo (toIfaceTvBndr tv)
                                                     (toIfaceCoercion k)
                                                     (toIfaceCoercion co)
+toIfaceCoercion (FunCo r co1 co2)   = IfaceFunCo r (toIfaceCoercion co1)
+                                                   (toIfaceCoercion co2)
 toIfaceCoercion (CoVarCo cv)        = IfaceCoVarCo  (toIfaceCoVar cv)
 toIfaceCoercion (AxiomInstCo con ind cos)
                                     = IfaceAxiomInstCo (coAxiomName con) ind

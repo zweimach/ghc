@@ -181,6 +181,7 @@ ppr_co _ (TyConAppCo r tc cos) = pprTcAppCo TyConPrec ppr_co tc cos <> ppr_role 
 ppr_co p (AppCo co arg)        = maybeParen p TyConPrec $
                                  pprCo co <+> ppr_co TyConPrec arg
 ppr_co p co@(ForAllCo {})      = ppr_forall_co p co
+ppr_co _ (FunCo r co1 co2)     = pprTcAppCo TyConPrec ppr_co funTyCon [co1, co2] <> ppr_role r
 ppr_co _ (CoVarCo cv)          = parenSymOcc (getOccName cv) (ppr cv)
 ppr_co p (AxiomInstCo con index args)
   = pprPrefixApp p (ppr (getName con) <> brackets (ppr index))
@@ -540,6 +541,13 @@ mkNomReflCo = mkReflCo Nominal
 -- caller's responsibility to get the roles correct on argument coercions.
 mkTyConAppCo :: Role -> TyCon -> [Coercion] -> Coercion
 mkTyConAppCo r tc cos
+  | tc `hasKey` funTyConKey
+  = case cos of
+      [co1, co2] -> mkFunCo r co1 co2
+      [_]        -> TyConAppCo r tc cos
+      []         -> TyConAppCo r tc cos
+      _          -> pprPanic "mkTyConAppCo" (text "invalid (->) application: " <+> ppr cos)
+
                -- Expand type synonyms
   | Just (tv_co_prs, rhs_ty, leftover_cos) <- expandSynTyCon_maybe tc cos
   = mkAppCos (liftCoSubst r (mkLiftingContext tv_co_prs) rhs_ty) leftover_cos
@@ -551,7 +559,7 @@ mkTyConAppCo r tc cos
 
 -- | Make a function 'Coercion' between two other 'Coercion's
 mkFunCo :: Role -> Coercion -> Coercion -> Coercion
-mkFunCo r co1 co2 = mkTyConAppCo r funTyCon [co1, co2]
+mkFunCo r co1 co2 = FunCo r co1 co2
 
 -- | Make nested function 'Coercion's
 mkFunCos :: Role -> [Coercion] -> Coercion -> Coercion
@@ -1087,6 +1095,9 @@ promoteCoercion co = case co of
 
     ForAllCo _ _ g
       -> promoteCoercion g
+
+    FunCo _ _ _
+      -> mkKindCo co -- TODO: Can we do better here?
 
     CoVarCo {}
       -> mkKindCo co
@@ -1640,6 +1651,7 @@ seqCo (TyConAppCo r tc cos)     = r `seq` tc `seq` seqCos cos
 seqCo (AppCo co1 co2)           = seqCo co1 `seq` seqCo co2
 seqCo (ForAllCo tv k co)        = seqType (tyVarKind tv) `seq` seqCo k
                                                          `seq` seqCo co
+seqCo (FunCo r co1 co2)         = r `seq` seqCo co1 `seq` seqCo co2
 seqCo (CoVarCo cv)              = cv `seq` ()
 seqCo (AxiomInstCo con ind cos) = con `seq` ind `seq` seqCos cos
 seqCo (UnivCo p r t1 t2)
@@ -1714,6 +1726,7 @@ coercionKind co = go co
             -- This is doing repeated substitutions and probably doesn't
             -- need to, see #11735
         mkInvForAllTy <$> Pair tv1 tv2 <*> Pair ty1 ty2'
+    go (FunCo _ co1 co2)    = mkFunTy <$> go co1 <*> go co2
     go (CoVarCo cv)         = toPair $ coVarTypes cv
     go (AxiomInstCo ax ind cos)
       | CoAxBranch { cab_tvs = tvs, cab_cvs = cvs
@@ -1794,6 +1807,8 @@ coercionKindRole = go
             -- This is doing repeated substitutions and probably doesn't
             -- need to, see #11735
         (mkInvForAllTy <$> Pair tv1 tv2 <*> Pair ty1 ty2', r)
+    go (FunCo r co1 co2)
+      = (mkFunTy <$> coercionKind co1 <*> coercionKind co2, r)
     go (CoVarCo cv) = (toPair $ coVarTypes cv, coVarRole cv)
     go co@(AxiomInstCo ax _ _) = (coercionKind co, coAxiomRole ax)
     go (UnivCo _ r ty1 ty2)  = (Pair ty1 ty2, r)
