@@ -92,6 +92,7 @@ import qualified Stream
 --import OrdList
 
 import Data.List
+import qualified Data.Map as M
 import Data.Maybe
 import Data.Ord         ( comparing )
 import Control.Exception
@@ -164,9 +165,8 @@ data NcgImpl statics instr jumpDest = NcgImpl {
     ncgAllocMoreStack         :: Int -> NatCmmDecl statics instr -> UniqSM (NatCmmDecl statics instr),
     ncgMakeFarBranches        :: LabelMap CmmStatics
                               -> [NatBasicBlock instr] -> [NatBasicBlock instr],
-    generateUnwindTable       :: [instr] -> [UnwindPoint]
-    -- ^ given the instruction sequence of a block, produce a list of
-    -- the block's 'UnwindPoint's
+    hasUnwindings             :: instr -> Maybe UnwindPoint
+    -- ^ Does an instruction have unwind information?
     -- See Note [What is this unwinding business?] in Debug.
     }
 
@@ -214,7 +214,7 @@ x86_64NcgImpl dflags
        ,ncgAllocMoreStack         = X86.Instr.allocMoreStack platform
        ,ncgExpandTop              = id
        ,ncgMakeFarBranches        = const id
-       ,generateUnwindTable       = X86.CodeGen.generateUnwindTable
+       ,hasUnwindings             = X86.CodeGen.hasUnwindings
    }
     where platform = targetPlatform dflags
 
@@ -234,7 +234,7 @@ ppcNcgImpl dflags
        ,ncgAllocMoreStack         = PPC.Instr.allocMoreStack platform
        ,ncgExpandTop              = id
        ,ncgMakeFarBranches        = PPC.Instr.makeFarBranches
-       ,generateUnwindTable       = const []
+       ,hasUnwindings             = const Nothing
    }
     where platform = targetPlatform dflags
 
@@ -254,7 +254,7 @@ sparcNcgImpl dflags
        ,ncgAllocMoreStack         = noAllocMoreStack
        ,ncgExpandTop              = map SPARC.CodeGen.Expand.expandTop
        ,ncgMakeFarBranches        = const id
-       ,generateUnwindTable       = const []
+       ,hasUnwindings             = const Nothing
    }
 
 --
@@ -737,16 +737,73 @@ computeUnwinding dflags _ _
   | debugLevel dflags == 0         = mapEmpty
 computeUnwinding _ _ (CmmData _ _) = mapEmpty
 computeUnwinding _ ncgImpl (CmmProc _ _ _ (ListGraph blks)) =
-    -- In general we would need to push unwinding information down the
-    -- block-level call-graph to ensure that we fully account for all
-    -- relevant register writes within a procedure.
-    --
-    -- However, the only unwinding information that we care about in GHC is for
-    -- Sp. The fact that CmmLayoutStack already ensures that we have unwind
-    -- information at the beginning of every block means that there is no need to
-    -- perform this sort of push-down.
-    mapFromList [ (blk_lbl, generateUnwindTable ncgImpl instrs)
-                | BasicBlock blk_lbl instrs <- blks ]
+    pushDownUnwinds ncgImpl
+    [ (blk_lbl, instrs)
+    | BasicBlock blk_lbl instrs <- blks
+    ]
+
+-- Here is where we push unwinding information from blocks down to
+-- their successors
+pushDownUnwinds :: forall statics instr jumpDest. (Instruction instr)
+                => NcgImpl statics instr jumpDest
+                -> [(BlockId, [instr])]
+                    -- ^ the unwind points and jump targets for each block
+                -> LabelMap [UnwindPoint]
+                    -- ^ the final unwind points for each block
+pushDownUnwinds ncgImpl =
+    foldl' go mapEmpty
+  where
+    -- Looks at each block, updating the LabelMap
+    go :: LabelMap [UnwindPoint]  -- the accumulated unwinds per block
+       -> (BlockId, [instr])      -- a blocks whose unwind information we want to
+                                  -- "push down"
+       -> LabelMap [UnwindPoint]
+    go accum (blk_lbl, instrs) =
+        -- walk over the instructions of the block, accumulating their unwind
+        -- information and pushing it down into jump targets as we go.
+        addThisBlock $ snd $ pprTrace "pushDownUnwinds" (ppr blk_lbl) $ foldl' f (M.empty, accum) instrs
+      where
+        f :: (UnwindTable, LabelMap [UnwindPoint])
+          -> instr -> (UnwindTable, LabelMap [UnwindPoint])
+        f (acc_table, acc_unwinds) instr = (acc_table', acc_unwinds')
+          where
+            acc_unwinds' :: LabelMap [UnwindPoint]
+            acc_unwinds' = foldl' add_dest acc_unwinds (jumpDestsOfInstr instr)
+
+            add_dest :: LabelMap [UnwindPoint] -> BlockId -> LabelMap [UnwindPoint]
+            add_dest unwinds blkId  = addInitialUnwinds blkId acc_table' unwinds
+
+            acc_table' :: UnwindTable
+            acc_table'
+              | Just (UnwindPoint _ uws) <- hasUnwindings ncgImpl instr
+              = M.unionWith (\_ x -> x) acc_table uws
+              | otherwise
+              = acc_table
+
+        -- Add unwinding points for the current block
+        addThisBlock :: LabelMap [UnwindPoint] -> LabelMap [UnwindPoint]
+        addThisBlock = mapInsertWith (++) blk_lbl (mapMaybe (hasUnwindings ncgImpl) instrs)
+
+    -- Add initial unwind information for the given block.
+    addInitialUnwinds :: BlockId -> UnwindTable
+                      -> LabelMap [UnwindPoint] -> LabelMap [UnwindPoint]
+    addInitialUnwinds blk_id newUnwinds blk_env =
+        -- Here we assume that the first unwind point associated with each
+        -- block corresponds to its entry point.
+        case mapLookup blk_id blk_env of -- TODO: Use alter
+          Nothing -> mapInsert blk_id [UnwindPoint blk_id newUnwinds] blk_env
+          Just [] -> mapInsert blk_id [UnwindPoint blk_id newUnwinds] blk_env
+          Just (UnwindPoint uw_lbl table : rest) ->
+              let pt' = UnwindPoint uw_lbl table'
+                  table' = M.unionWithKey (checkConsistency blk_id) table newUnwinds
+              in mapInsert blk_id (pt' : rest) blk_env
+
+    checkConsistency :: BlockId -> GlobalReg -> Maybe UnwindExpr
+                     -> Maybe UnwindExpr -> Maybe UnwindExpr
+    checkConsistency blk_id reg (Just v1) (Just v2)
+      | v1 /= v2 = pprPanic "AsmCodeGen.computeUnwinding: Inconsistent values"
+                            (ppr blk_id $$ ppr reg $$ ppr v1 $$ ppr v2)
+    checkConsistency _blk_id _reg _ v = v
 
 -- | Build a doc for all the imports.
 --
