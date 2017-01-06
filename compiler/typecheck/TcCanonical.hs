@@ -29,6 +29,7 @@ import VarSet
 import NameSet
 import RdrName
 
+import Maybes
 import Pair
 import Util
 import Bag
@@ -509,9 +510,14 @@ canIrred old_ev
     do { -- Re-classify, in case flattening has improved its shape
        ; case classifyPredType (ctEvPred new_ev) of
            ClassPred cls tys     -> canClassNC new_ev cls tys
-           EqPred eq_rel ty1 ty2 -> canEqNC new_ev eq_rel ty1 ty2
+           EqPred eq_rel ty1 ty2 -> can_eq_nc True
+                                      new_ev eq_rel ty1 ty1 ty2 ty2
            _                     -> continueWith $
                                     CIrredEvCan { cc_ev = new_ev } } }
+    -- It's important to call directly to can_eq_nc True from the EqPred
+    -- case. Flattening may have introduced a (skolem_var |> co) on one
+    -- side. If we remove the cast, we can get into a loop with
+    -- Note [Irreducible hetero equalities]. So we're careful not to.
 
 canHole :: CtEvidence -> Hole -> TcS (StopOrContinue Ct)
 canHole ev hole
@@ -1386,9 +1392,9 @@ canEqTyVar2 dflags ev eq_rel swapped tv1 xi2
      -- Trac #12593
   = rewriteEqEvidence ev swapped xi1 xi2' co1 co2
     `andWhenContinue` \ new_ev ->
-    homogeniseRhsKind new_ev eq_rel xi1 xi2' $ \new_new_ev xi2'' ->
-    CTyEqCan { cc_ev = new_new_ev, cc_tyvar = tv1
-             , cc_rhs = xi2'', cc_eq_rel = eq_rel }
+        homogeniseRhsKind new_ev eq_rel xi1 xi2' Nothing $ \new_new_ev xi2'' ->
+        CTyEqCan { cc_ev = new_new_ev, cc_tyvar = tv1
+                , cc_rhs = xi2'', cc_eq_rel = eq_rel }
 
   | otherwise  -- Occurs check error (or a forall)
   = do { traceTcS "canEqTyVar2 occurs check error" (ppr tv1 $$ ppr xi2)
@@ -1430,12 +1436,13 @@ canEqReflexive ev eq_rel ty
 homogeniseRhsKind :: CtEvidence -- ^ the evidence to homogenise
                   -> EqRel
                   -> TcType              -- ^ original LHS
-                  -> Xi                  -- ^ original RHS
+                  -> Xi                  -- ^ type of RHS
+                  -> Maybe CoercionN     -- ^ original RHS = xi |> co2 (if present)
                   -> (CtEvidence -> Xi -> Ct)
                            -- ^ how to build the homogenised constraint;
                            -- the 'Xi' is the new RHS
                   -> TcS (StopOrContinue Ct)
-homogeniseRhsKind ev eq_rel lhs rhs build_ct
+homogeniseRhsKind ev eq_rel lhs rhs m_rhs_co build_ct
   | k1 `tcEqType` k2
   = continueWith (build_ct ev rhs)
 
@@ -1448,7 +1455,8 @@ homogeniseRhsKind ev eq_rel lhs rhs build_ct
        ; let kind_ev = CtGiven { ctev_pred = kind_pty
                                , ctev_evar = kind_ev_id
                                , ctev_loc  = kind_loc }
-             homo_co = mkSymCo $ mkCoVarCo kind_ev_id
+             homo_co = rhs_co `mkTransCo`
+                       mkSymCo (mkCoVarCo kind_ev_id)
              rhs'    = mkCastTy rhs homo_co
        ; traceTcS "Hetero equality gives rise to given kind equality"
            (ppr kind_ev_id <+> dcolon <+> ppr kind_pty)
@@ -1466,8 +1474,8 @@ homogeniseRhsKind ev eq_rel lhs rhs build_ct
              -- kind_ev :: (k1 :: *) ~ (k2 :: *)
        ; traceTcS "Hetero equality gives rise to wanted kind equality" $
            ppr (kind_co)
-       ; let homo_co   = mkSymCo kind_co
-           -- homo_co :: k2 ~ k1
+       ; let homo_co   = rhs_co `mkTransCo` mkSymCo (lhs_co `mkTransCo` kind_co)
+           -- homo_co :: rhs's kind ~ k1
              rhs'      = mkCastTy rhs homo_co
        ; case ev of
            CtGiven {} -> panic "homogeniseRhsKind"
@@ -1487,7 +1495,9 @@ homogeniseRhsKind ev eq_rel lhs rhs build_ct
 
   where
     k1 = typeKind lhs
-    k2 = typeKind rhs
+    k2 = fmap (pSnd . coercionKind) m_rhs_co `orElse` typeKind rhs
+
+    rhs_co = m_rhs_co `orElse` mkTcReflCo Nominal k2
 
     kind_pty = mkHeteroPrimEqPred liftedTypeKind liftedTypeKind k1 k2
     kind_loc = mkKindLoc lhs rhs loc
