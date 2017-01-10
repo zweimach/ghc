@@ -6,7 +6,7 @@
 -- Module      :  Data.Tuple
 -- Copyright   :  (c) The University of Glasgow 2001
 -- License     :  BSD-style (see the file libraries/base/LICENSE)
--- 
+--
 -- Maintainer  :  libraries@haskell.org
 -- Stability   :  experimental
 -- Portability :  portable
@@ -16,14 +16,18 @@
 -----------------------------------------------------------------------------
 
 module Data.Tuple
-  ( fst
+  ( -- * Utilities
+    fst
   , snd
   , curry
   , uncurry
   , swap
+    -- * Tuple types
+  , module GHC.Tuple
   ) where
 
 import GHC.Base ()      -- Note [Depend on GHC.Tuple]
+import GHC.Tuple        -- So we can re-export it
 
 default ()              -- Double isn't available yet
 
