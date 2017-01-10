@@ -35,7 +35,7 @@ import GHC.Conc.Signal (Signal)
 import GHC.Real (fromIntegral)
 import GHC.Show (Show)
 import GHC.Word (Word8)
-import Foreign.C.Error (throwErrnoIfMinus1_, throwErrno, getErrno, eBADF)
+import Foreign.C.Error (throwErrnoIfMinus1_, throwErrno, getErrno)
 import Foreign.C.Types (CInt(..), CSize(..))
 import Foreign.ForeignPtr (mallocForeignPtrBytes, withForeignPtr)
 import Foreign.Marshal (alloca, allocaBytes)
@@ -47,10 +47,10 @@ import System.Posix.Internals (c_close, c_pipe, c_read, c_write,
 import System.Posix.Types (Fd)
 
 #if defined(HAVE_EVENTFD)
-import Foreign.C.Error (throwErrnoIfMinus1)
+import Foreign.C.Error (throwErrnoIfMinus1, eBADF)
 import Foreign.C.Types (CULLong(..))
 #else
-import Foreign.C.Error (eAGAIN, eWOULDBLOCK, getErrno, throwErrno)
+import Foreign.C.Error (eAGAIN, eWOULDBLOCK)
 #endif
 
 data ControlMessage = CMsgWakeup
