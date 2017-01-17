@@ -12573,9 +12573,11 @@ Certain pragmas are *file-header pragmas*:
 ``LANGUAGE`` pragma
 -------------------
 
-.. index::
-   single: LANGUAGE; pragma
-   single: pragma; LANGUAGE
+.. pragma:: LANGUAGE ⟨ext⟩, ⟨ext⟩, ...
+
+    :where: file header
+
+    Enable or disable a set of language extensions.
 
 The ``LANGUAGE`` pragma allows language extensions to be enabled in a
 portable way. It is the intention that all Haskell compilers support the
@@ -12605,9 +12607,9 @@ if any of the requested extensions are not supported.
 ``OPTIONS_GHC`` pragma
 ----------------------
 
-.. index::
-   single: OPTIONS_GHC
-   single: pragma; OPTIONS_GHC
+.. pragma:: OPTIONS_GHC ⟨flags⟩
+
+    :where: file header
 
 The ``OPTIONS_GHC`` pragma is used to specify additional options that
 are given to the compiler when compiling this source file. See
@@ -12633,14 +12635,21 @@ other compilers.
 ``WARNING`` and ``DEPRECATED`` pragmas
 --------------------------------------
 
-.. index::
-   single: WARNING
-   single: DEPRECATED
+.. pragma:: WARNING
 
-The ``WARNING`` pragma allows you to attach an arbitrary warning to a
-particular function, class, or type. A ``DEPRECATED`` pragma lets you
-specify that a particular function, class, or type is deprecated. There
-are two ways of using these pragmas.
+    :where: declaration
+
+    The ``WARNING`` pragma allows you to attach an arbitrary warning to a
+    particular function, class, or type.
+
+.. pragma:: DEPRECATED
+
+    :where: declaration
+
+    A ``DEPRECATED`` pragma lets you specify that a particular function, class,
+    or type is deprecated.
+
+There are two ways of using these pragmas.
 
 -  You can work on an entire module thus: ::
 
@@ -12691,9 +12700,11 @@ You can suppress the warnings with the flag
 ``MINIMAL`` pragma
 ------------------
 
-.. index::
-   single: MINIMAL
-   single: pragma; MINIMAL
+.. pragma:: MINIMAL ⟨name⟩ | ⟨name⟩ , ...
+
+    :where: in class body
+
+    Define the methods needed for a minimal complete instance of a class.
 
 The ``MINIMAL`` pragma is used to specify the minimal complete definition of
 a class, i.e. specify which methods must be implemented by all
@@ -12743,9 +12754,11 @@ These pragmas control the inlining of function definitions.
 ``INLINE`` pragma
 ~~~~~~~~~~~~~~~~~
 
-.. index::
-   single: INLINE
-   single: pragma; INLINE
+.. pragma:: INLINE ⟨name⟩
+
+    :where: top-level
+
+    Force GHC to inline a value.
 
 GHC (with :ghc-flag:`-O`, as always) tries to inline (or "unfold")
 functions/values that are "small enough," thus avoiding the call
@@ -12809,7 +12822,7 @@ has a number of other effects:
    which will optimise better than the corresponding use of ``comp2``.
 
 -  It is useful for GHC to optimise the definition of an INLINE function
-   ``f`` just like any other non-INLINE function, in case the
+   ``f`` just like any other non-``INLINE`` function, in case the
    non-inlined version of ``f`` is ultimately called. But we don't want
    to inline the *optimised* version of ``f``; a major reason for ``INLINE``
    pragmas is to expose functions in ``f``\'s RHS that have rewrite
@@ -12822,7 +12835,7 @@ has a number of other effects:
    usual. For externally-visible functions the inline-RHS (not the
    optimised RHS) is recorded in the interface file.
 
--  An INLINE function is not worker/wrappered by strictness analysis.
+-  An ``INLINE`` function is not worker/wrappered by strictness analysis.
    It's going to be inlined wholesale instead.
 
 GHC ensures that inlining cannot go on forever: every mutually-recursive
@@ -12852,6 +12865,12 @@ See also the ``NOINLINE`` (:ref:`noinline-pragma`) and ``INLINABLE``
 
 ``INLINABLE`` pragma
 ~~~~~~~~~~~~~~~~~~~~
+
+.. pragma:: INLINEABLE ⟨name⟩
+
+    :where: top-level
+
+    Suggest that the compiler always consider inlining ``name``.
 
 An ``{-# INLINABLE f #-}`` pragma on a function ``f`` has the following
 behaviour:
@@ -12892,10 +12911,15 @@ The alternative spelling ``INLINEABLE`` is also accepted by GHC.
 ~~~~~~~~~~~~~~~~~~~
 
 .. index::
-   single: NOINLINE
    single: NOTINLINE
 
-The ``NOINLINE`` pragma does exactly what you'd expect: it stops the
+.. pragma:: NOINLINE ⟨name⟩
+
+    :where: top-level
+
+    Instructs the compiler not to inline a value.
+
+The :pragma:`NOINLINE` pragma does exactly what you'd expect: it stops the
 named function from being inlined by the compiler. You shouldn't ever
 need to do this, unless you're very cautious about code size.
 
@@ -12908,23 +12932,26 @@ used if you want your code to be portable).
 ``CONLIKE`` modifier
 ~~~~~~~~~~~~~~~~~~~~
 
-.. index::
-   single: CONLIKE
+.. pragma:: CONLINE
 
-An ``INLINE`` or ``NOINLINE`` pragma may have a ``CONLIKE`` modifier, which affects
-matching in RULEs (only). See :ref:`conlike`.
+    :where: modifies :pragma:`INLINE` or :pragma:`NOINLINE` pragma
+
+    Instructs GHC to consider a value to be especially cheap to inline.
+
+An :pragma:`INLINE` or :pragma:`NOINLINE` pragma may have a :pragma:`CONLIKE` modifier, which affects
+matching in :pragma:`RULE`\s (only). See :ref:`conlike`.
 
 .. _phase-control:
 
 Phase control
 ~~~~~~~~~~~~~
 
-Sometimes you want to control exactly when in GHC's pipeline the ``INLINE``
+Sometimes you want to control exactly when in GHC's pipeline the :pragma:`INLINE`
 pragma is switched on. Inlining happens only during runs of the
 *simplifier*. Each run of the simplifier has a different *phase number*;
 the phase number decreases towards zero. If you use
-``-dverbose-core2core`` you'll see the sequence of phase numbers for
-successive runs of the simplifier. In an ``INLINE`` pragma you can
+:ghc-flag:`-dverbose-core2core` you will see the sequence of phase numbers for
+successive runs of the simplifier. In an :pragma:`INLINE` pragma you can
 optionally specify a phase number, thus:
 
 -  "``INLINE[k] f``" means: do not inline ``f`` until phase ``k``, but
@@ -12942,7 +12969,7 @@ optionally specify a phase number, thus:
 
 The same information is summarised here:
 
-::
+.. code-block:: none
 
                                -- Before phase 2     Phase 2 and later
       {-# INLINE   [2]  f #-}  --      No                 Yes
@@ -12957,14 +12984,14 @@ By "Maybe" we mean that the usual heuristic inlining rules apply (if the
 function body is small, or it is applied to interesting-looking
 arguments etc). Another way to understand the semantics is this:
 
--  For both ``INLINE`` and ``NOINLINE``, the phase number says when inlining is
-   allowed at all.
+-  For both :pragma:`INLINE` and :pragma:`NOINLINE`, the phase number says when
+   inlining is allowed at all.
 
--  The ``INLINE`` pragma has the additional effect of making the function
+-  The :pragma:`INLINE` pragma has the additional effect of making the function
    body look small, so that when inlining is allowed it is very likely
    to happen.
 
-The same phase-numbering control is available for RULES
+The same phase-numbering control is available for :pragma:`RULE`\s
 (:ref:`rewrite-rules`).
 
 .. _line-pragma:
@@ -12972,9 +12999,12 @@ The same phase-numbering control is available for RULES
 ``LINE`` pragma
 ---------------
 
-.. index::
-   single: LINE; pragma
-   single: pragma; LINE
+.. pragma:: LINE ⟨lineno⟩ "⟨file⟩"
+
+    :where: anywhere
+
+    Generated by preprocessors to convey source line numbers of the original
+    source.
 
 This pragma is similar to C's ``#line`` pragma, and is mainly for use in
 automatically generated Haskell code. It lets you specify the line
@@ -13022,7 +13052,7 @@ diagnostics and does not change the syntax of the code itself.
 ``RULES`` pragma
 ----------------
 
-The ``RULES`` pragma lets you specify rewrite rules. It is described in
+The :pragma:`RULES` pragma lets you specify rewrite rules. It is described in
 :ref:`rewrite-rules`.
 
 .. _specialize-pragma:
@@ -13035,8 +13065,12 @@ The ``RULES`` pragma lets you specify rewrite rules. It is described in
    single: pragma, SPECIALIZE
    single: overloading, death to
 
+.. pragma:: SPECIALIZE ⟨name⟩ :: ⟨type⟩
+
+    Ask that GHC specialize a polymorphic value to a particular type.
+
 (UK spelling also accepted.) For key overloaded functions, you can
-create extra versions (NB: more code space) specialised to particular
+create extra versions (NB: at the cost of larger code) specialised to particular
 types. Thus, if you have an overloaded function:
 
 ::
@@ -13133,6 +13167,10 @@ specialise it as follows:
 ``SPECIALIZE INLINE``
 ~~~~~~~~~~~~~~~~~~~~~
 
+.. pragma:: SPECIALIZE INLINE ⟨name⟩ :: ⟨type⟩
+
+    :where: top-level
+
 A ``SPECIALIZE`` pragma can optionally be followed with a ``INLINE`` or
 ``NOINLINE`` pragma, optionally followed by a phase, as described in
 :ref:`inline-noinline-pragma`. The ``INLINE`` pragma affects the
@@ -13158,9 +13196,9 @@ fire the first specialisation, whose body is also inlined. The result is
 a type-based unrolling of the indexing function.
 
 You can add explicit phase control (:ref:`phase-control`) to
-``SPECIALISE INLINE`` pragma, just like on an ``INLINE`` pragma; if you
-do so, the same phase is used for the rewrite rule and the INLINE
-control of the specialised function.
+``SPECIALISE INLINE`` pragma, just like on an :pragma:`INLINE` pragma; if you do
+so, the same phase is used for the rewrite rule and the INLINE control of the
+specialised function.
 
 .. warning:: You can make GHC diverge by using ``SPECIALISE INLINE`` on an
              ordinarily-recursive function.
@@ -13168,9 +13206,9 @@ control of the specialised function.
 ``SPECIALIZE`` for imported functions
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Generally, you can only give a ``SPECIALIZE`` pragma for a function
+Generally, you can only give a :pragma:`SPECIALIZE` pragma for a function
 defined in the same module. However if a function ``f`` is given an
-``INLINABLE`` pragma at its definition site, then it can subsequently be
+:pragma:`INLINABLE` pragma at its definition site, then it can subsequently be
 specialised by importing modules (see :ref:`inlinable-pragma`). For example ::
 
     module Map( lookup, blah blah ) where
@@ -13184,7 +13222,7 @@ specialised by importing modules (see :ref:`inlinable-pragma`). For example ::
       data T = T1 | T2 deriving( Eq, Ord )
       {-# SPECIALISE lookup :: [(T,a)] -> T -> Maybe a
 
-Here, ``lookup`` is declared ``INLINABLE``, but it cannot be specialised
+Here, ``lookup`` is declared :pragma:`INLINABLE`, but it cannot be specialised
 for type ``T`` at its definition site, because that type does not exist
 yet. Instead a client module can define ``T`` and then specialise
 ``lookup`` at that type.
@@ -13192,13 +13230,13 @@ yet. Instead a client module can define ``T`` and then specialise
 Moreover, every module that imports ``Client`` (or imports a module that
 imports ``Client``, transitively) will "see", and make use of, the
 specialised version of ``lookup``. You don't need to put a
-``SPECIALIZE`` pragma in every module.
+:pragma:`SPECIALIZE` pragma in every module.
 
-Moreover you often don't even need the ``SPECIALIZE`` pragma in the
+Moreover you often don't even need the :pragma:`SPECIALIZE` pragma in the
 first place. When compiling a module ``M``, GHC's optimiser (when given the
 :ghc-flag:`-O` flag) automatically considers each top-level overloaded function declared
 in ``M``, and specialises it for the different types at which it is called in
-``M``. The optimiser *also* considers each *imported* ``INLINABLE``
+``M``. The optimiser *also* considers each *imported* :pragma:`INLINABLE`
 overloaded function, and specialises it for the different types at which
 it is called in ``M``. So in our example, it would be enough for ``lookup``
 to be called at type ``T``:
@@ -13235,8 +13273,12 @@ pragma (see :ref:`rule-spec`).
 ------------------------------
 
 .. index::
-   single: SPECIALIZE pragma
+   single: instance, specializing
    single: overloading, death to
+
+.. pragma:: SPECIALIZE instance ⟨instance head⟩
+
+   :where: instance body
 
 Same idea, except for instance declarations. For example:
 
@@ -13255,8 +13297,12 @@ declaration.
 ``UNPACK`` pragma
 -----------------
 
-.. index::
-   single: UNPACK
+.. pragma:: UNPACK
+
+    :where: data constructor field
+
+    Instructs the compiler to unpack the contents of a constructor field into
+    the constructor itself.
 
 The ``UNPACK`` indicates to the compiler that it should unpack the
 contents of a constructor field into the constructor itself, removing a
@@ -13297,19 +13343,19 @@ See also the :ghc-flag:`-funbox-strict-fields` flag, which essentially has the
 effect of adding ``{-# UNPACK #-}`` to every strict constructor field.
 
 .. [1]
-   in fact, UNPACK has no effect without
-   -O
-   , for technical reasons (see
-   tick 5252
-   )
+   in fact, UNPACK has no effect without :ghc-flag:`-O`, for technical reasons
+   (see :ghc-ticket:`5252`)
 
 .. _nounpack-pragma:
 
 ``NOUNPACK`` pragma
 -------------------
 
-.. index::
-   single: NOUNPACK
+.. pragma:: NOUNPACK
+
+    :where: top-level
+
+    Instructs the compiler not to unpack a constructor field.
 
 The ``NOUNPACK`` pragma indicates to the compiler that it should not
 unpack the contents of a constructor field. Example: ::
@@ -13324,9 +13370,11 @@ field of the constructor ``T`` is not unpacked.
 ``SOURCE`` pragma
 -----------------
 
-.. index::
-   single: SOURCE
-   single: pragma; SOURCE
+.. pragma:: SOURCE
+
+    :where: on ``import`` statement
+
+    Import a module by ``hs-boot`` file to break a module loop. 
 
 The ``{-# SOURCE #-}`` pragma is used only in ``import`` declarations,
 to break a module loop. It is described in detail in
@@ -13421,6 +13469,13 @@ the user must provide a type signature. ::
    single: INCOHERENT
    single: pragma; INCOHERENT
 
+.. pragma:: OVERLAPPING
+.. pragma:: OVERLAPPABLE
+.. pragma:: OVERLAPS
+.. pragma:: INCOHERENT
+
+    :where: on instance head
+
 The pragmas ``OVERLAPPING``, ``OVERLAPPABLE``, ``OVERLAPS``,
 ``INCOHERENT`` are used to specify the overlap behavior for individual
 instances, as described in Section :ref:`instance-overlap`. The pragmas
@@ -13436,15 +13491,19 @@ Rewrite rules
 =============
 
 .. index::
-   single: RULES pragma
-   single: pragma; RULES
    single: rewrite rules
+
+.. pragma:: RULES "⟨name⟩" forall ⟨binder⟩ ... . ⟨expr⟩ = ⟨expr⟩ ...
+
+    :where: top-level
+
+    Define a rewrite rule to be used to optimize a source program.
 
 The programmer can specify rewrite rules as part of the source program
 (in a pragma). Here is an example: ::
 
       {-# RULES
-      "map/map"    forall f g xs.  map f (map g xs) = map (f.g) xs
+            "map/map"    forall f g xs.  map f (map g xs) = map (f.g) xs
         #-}
 
 Use the debug flag :ghc-flag:`-ddump-simpl-stats` to see what rules fired. If
@@ -13461,7 +13520,7 @@ Syntax
 
 From a syntactic point of view:
 
--  There may be zero or more rules in a ``RULES`` pragma, separated by
+-  There may be zero or more rules in a :pragma:`RULES` pragma, separated by
    semicolons (which may be generated by the layout rule).
 
 -  The layout rule applies in a pragma. Currently no new indentation
@@ -13470,8 +13529,8 @@ From a syntactic point of view:
    the same column as the enclosing definitions. ::
 
          {-# RULES
-         "map/map"    forall f g xs.  map f (map g xs) = map (f.g) xs
-         "map/append" forall f xs ys. map f (xs ++ ys) = map f xs ++ map f ys
+               "map/map"    forall f g xs.  map f (map g xs) = map (f.g) xs
+               "map/append" forall f xs ys. map f (xs ++ ys) = map f xs ++ map f ys
            #-}
 
    Furthermore, the closing ``#-}`` should start in a column to the
@@ -13532,12 +13591,12 @@ From a syntactic point of view:
    then C's rules are in force when compiling A.) The situation is very
    similar to that for instance declarations.
 
--  Inside a RULE "``forall``" is treated as a keyword, regardless of any
-   other flag settings. Furthermore, inside a RULE, the language
+-  Inside a :pragma:`RULE` ``forall`` is treated as a keyword, regardless of any
+   other flag settings. Furthermore, inside a :pragma:`RULE`, the language
    extension :ghc-flag:`-XScopedTypeVariables` is automatically enabled; see
    :ref:`scoped-type-variables`.
 
--  Like other pragmas, ``RULE`` pragmas are always checked for scope errors,
+-  Like other pragmas, :pragma:`RULE` pragmas are always checked for scope errors,
    and are typechecked. Typechecking means that the LHS and RHS of a
    rule are typechecked, and must have the same type. However, rules are
    only *enabled* if the :ghc-flag:`-fenable-rewrite-rules` flag is on (see
@@ -13626,12 +13685,12 @@ give ::
 
     g y = y
 
-Now ``g`` is inlined into ``h``, but ``f``\'s RULE has no chance to fire.
-If instead GHC had first inlined ``g`` into ``h`` then there would have
-been a better chance that ``f``\'s RULE might fire.
+Now ``g`` is inlined into ``h``, but ``f``\'s :pragma:`RULE` has no chance to
+fire. If instead GHC had first inlined ``g`` into ``h`` then there would have
+been a better chance that ``f``\'s :pragma:`RULE` might fire.
 
-The way to get predictable behaviour is to use a ``NOINLINE`` pragma, or an
-``INLINE[⟨phase⟩]`` pragma, on ``f``, to ensure that it is not inlined until
+The way to get predictable behaviour is to use a :pragma:`NOINLINE` pragma, or an
+INLINE[⟨phase⟩] pragma, on ``f``, to ensure that it is not inlined until
 its RULEs have had a chance to fire. The warning flag
 :ghc-flag:`-Winline-rule-shadowing` (see :ref:`options-sanity`) warns about
 this situation.
@@ -13664,9 +13723,9 @@ an application of ``f`` to one argument (in general, the number of arguments
 to the left of the ``=`` sign) should be considered cheap enough to
 duplicate, if such a duplication would make rule fire. (The name
 "CONLIKE" is short for "constructor-like", because constructors
-certainly have such a property.) The ``CONLIKE`` pragma is a modifier to
-INLINE/NOINLINE because it really only makes sense to match ``f`` on the
-LHS of a rule if you are sure that ``f`` is not going to be inlined
+certainly have such a property.) The :pragma:`CONLIKE` pragma is a modifier to
+:pragma:`INLINE`/:pragma:`NOINLINE` because it really only makes sense to match
+``f`` on the LHS of a rule if you are sure that ``f`` is not going to be inlined
 before the rule has a chance to fire.
 
 .. _rules-class-methods:
@@ -13861,7 +13920,7 @@ Controlling what's going on in rewrite rules
                {-# INLINE build #-}
                build g = g (:) []
 
-   Notice the ``INLINE``! That prevents ``(:)`` from being inlined when
+   Notice the :pragma:`INLINE`! That prevents ``(:)`` from being inlined when
    compiling ``PrelBase``, so that an importing module will “see” the
    ``(:)``, and can match it on the LHS of a rule. ``INLINE`` prevents
    any inlining happening in the RHS of the ``INLINE`` thing. I regret

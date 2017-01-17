@@ -134,6 +134,11 @@ def parse_ghci_cmd(env, sig, signode):
     # Reference name
     return name
 
+def parse_pragma(env, sig, signode):
+    name = sig.split(' ')[0]
+    signode += addnodes.desc_name('{-# '+name, sig + ' #-}')
+    return name
+
 def parse_flag(env, sig, signode):
 
     # Break flag into name and args
@@ -187,6 +192,8 @@ def setup(app):
 
     increase_python_stack()
 
+    since_field = Field('since', label='Introduced in GHC version', names=['since'])
+
     # the :ghci-cmd: directive used in ghci.rst
     app.add_object_type('ghci-cmd', 'ghci-cmd',
                         parse_node=parse_ghci_cmd,
@@ -198,7 +205,7 @@ def setup(app):
                         parse_node=parse_flag,
                         indextemplate='pair: %s; GHC option',
                         doc_field_types=[
-                            Field('since', label='Introduced in GHC version', names=['since']),
+                            since_field,
                             Field('default', label='Default value', names=['default']),
                             Field('static')
                         ])
@@ -217,7 +224,16 @@ def setup(app):
                         parse_node=parse_flag,
                         indextemplate='pair: %s; RTS option',
                         doc_field_types=[
-                            Field('since', label='Introduced in GHC version', names=['since']),
+                            since_field
+                        ])
+
+    app.add_object_type('pragma', 'pragma',
+                        objname='Haskell pragma',
+                        parse_node=parse_pragma,
+                        indextemplate='pair: %s; pragma',
+                        doc_field_types=[
+                            since_field,
+                            Field('where', label='Allowed contexts', names=['where'])
                         ])
 
 def increase_python_stack():
