@@ -319,6 +319,7 @@ respectively. For instance,
 
     .. rts-flag:: -C <seconds>
 
+       :since: 8.2
        :default: 20 milliseconds
 
        Sets the context switch interval to ⟨s⟩ seconds.
@@ -327,6 +328,7 @@ Will be rendered as,
 
     .. rts-flag:: -C <seconds>
 
+       :since: 8.2
        :default: 20 milliseconds
 
        Sets the context switch interval to ⟨s⟩ seconds.
