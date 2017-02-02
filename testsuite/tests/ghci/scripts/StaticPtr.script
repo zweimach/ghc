@@ -1,4 +1,7 @@
-:set -XStaticPointers -XScopedTypeVariables
+-- This should throw a warning
+:set -XStaticPointers
+
+:set -XScopedTypeVariables
 :load StaticPtr.hs
 import GHC.StaticPtr
 import Prelude
