@@ -124,7 +124,8 @@ Here is a running example:
 
 * If we are compiling for the byte-code interpreter, we instead explicitly add
   the SPT entries (recorded in CgGuts' cg_spt_entries field) to the interpreter
-  process' SPT table using the addSptEntry interpreter message.
+  process' SPT table using the addSptEntry interpreter message. This happens
+  in upsweep after we have compiled the module (see GhcMake.upsweep').
 -}
 
 import CLabel
