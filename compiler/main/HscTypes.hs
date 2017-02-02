@@ -2993,11 +2993,11 @@ nameOfObject (DotA fn)   = fn
 nameOfObject (DotDLL fn) = fn
 nameOfObject other       = pprPanic "nameOfObject" (ppr other)
 
--- | Retrieve the compiled byte-code and static pointer table entries if
--- possible. Panic if it is a file-based linkable
+-- | Retrieve the compiled byte-code if possible. Panic if it is a file-based linkable
 byteCodeOfObject :: Unlinked -> CompiledByteCode
 byteCodeOfObject (BCOs bc _) = bc
 byteCodeOfObject other       = pprPanic "byteCodeOfObject" (ppr other)
+
 
 -------------------------------------------
 
