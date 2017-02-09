@@ -400,7 +400,10 @@ lintCoreBindings dflags pass local_in_scope binds
   where
     flags = LF { lf_check_global_ids = check_globals
                , lf_check_inline_loop_breakers = check_lbs
-               , lf_check_static_ptrs = check_static_ptrs }
+               , lf_check_static_ptrs = check_static_ptrs
+               , lf_check_tick_tyapp_invariant =
+                   case pass of CoreDesugarOpt -> False
+                                _ -> True }
 
     -- See Note [Checking for global Ids]
     check_globals = case pass of
@@ -744,7 +747,14 @@ lintCoreExpr (Let (Rec pairs) body)
 
 lintCoreExpr e@(App _ _)
   = addLoc (AnExpr e) $
-    do { fun_ty <- lintCoreFun fun (length args)
+    do { lf <- getLintFlags
+       ; case fun of
+           Tick{} | lf_check_tick_tyapp_invariant lf
+                  , any isTypeArg args ->
+             failWithL $ text "Found tick inside applied expression: " <+>
+                         ppr fun
+           _ -> return ()
+       ; fun_ty <- lintCoreFun fun (length args)
        ; lintCoreArgs fun_ty args }
   where
     (fun, args) = collectArgs e
@@ -1794,6 +1804,7 @@ data LintFlags
        , lf_check_inline_loop_breakers :: Bool -- See Note [Checking for INLINE loop breakers]
        , lf_check_static_ptrs          :: StaticPtrCheck
                                              -- ^ See Note [Checking StaticPtrs]
+       , lf_check_tick_tyapp_invariant :: Bool -- ^ See Note []
     }
 
 -- See Note [Checking StaticPtrs]
@@ -1810,6 +1821,7 @@ defaultLintFlags :: LintFlags
 defaultLintFlags = LF { lf_check_global_ids = False
                       , lf_check_inline_loop_breakers = True
                       , lf_check_static_ptrs = AllowAnywhere
+                      , lf_check_tick_tyapp_invariant = True
                       }
 
 newtype LintM a =
