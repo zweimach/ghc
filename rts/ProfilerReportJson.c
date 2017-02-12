@@ -2,7 +2,7 @@
  *
  * (c) The GHC Team, 1998-2017
  *
- * Generating cost-center profiler JSON report
+ * Generating cost-centre profiler JSON report
  *
  * ---------------------------------------------------------------------------*/
 
@@ -15,7 +15,7 @@
 #include "ProfilerReportJson.h"
 #include "Profiling.h"
 
-// This only handles characters that you might see in a Haskell cost-center
+// This only handles characters that you might see in a Haskell cost-centre
 // name.
 static void escapeString(char const* str, char *out, int len)
 {
@@ -38,30 +38,49 @@ static void escapeString(char const* str, char *out, int len)
 }
 
 static void
-logCCS(FILE *prof_file, CostCentreStack const *ccs)
+logCostCentres(FILE *prof_file)
 {
-    CostCentre *cc = ccs->cc;
     char tmp[256];
+    bool needs_comma = false;
+    fprintf(prof_file, "[\n");
+    for (CostCentre *cc = CC_LIST; cc != NULL; cc = cc->link) {
+        escapeString(cc->label, tmp, sizeof(tmp));
+        fprintf(prof_file,
+                "%s"
+                "{\"id\": %" FMT_Int ", "
+                "\"label\": \"%s\", "
+                "\"module\": \"%s\", "
+                "\"src_loc\": \"%s\", "
+                "\"is_caf\": %s}",
+                needs_comma ? ", " : "",
+                cc->ccID, tmp, cc->module, cc->srcloc,
+                cc->is_caf ? "true" : "false");
+        needs_comma = true;
+    }
+    fprintf(prof_file, "]\n");
+}
 
-    fprintf(prof_file, "{");
-    escapeString(cc->label, tmp, sizeof(tmp));
-    fprintf(prof_file, "\"label\": \"%s\", ", tmp);
-    fprintf(prof_file, "\"module\": \"%s\", ", cc->module);
-    fprintf(prof_file, "\"src_loc\": \"%s\", ", cc->srcloc);
-    fprintf(prof_file, "\"id\": %" FMT_Int ", ", ccs->ccsID);
-    fprintf(prof_file, "\"entries\": %" FMT_Word64 ", ", ccs->scc_count);
-    fprintf(prof_file, "\"alloc\": %" FMT_Word ", ", ccs->mem_alloc * sizeof(W_));
-    fprintf(prof_file, "\"ticks\": %" FMT_Word ", ", ccs->time_ticks);
-
-    fprintf(prof_file, "\"children\": [\n");
+static void
+logCostCentreStack(FILE *prof_file, CostCentreStack const *ccs)
+{
+    fprintf(prof_file,
+            "{\"id\": %" FMT_Int ", "
+            "\"entries\": %" FMT_Word64 ", "
+            "\"alloc\": %" FMT_Word ", "
+            "\"ticks\": %" FMT_Word ", ",
+            ccs->cc->ccID,
+            ccs->scc_count,
+            ccs->mem_alloc * sizeof(W_),
+            ccs->time_ticks);
 
     bool need_comma = false;
+    fprintf(prof_file, "\"children\": [\n");
     for (IndexTable *i = ccs->indexTable; i != 0; i = i->next) {
         if (!i->back_edge) {
             if (need_comma) {
                 fprintf(prof_file, ",");
             }
-            logCCS(prof_file, i->ccs);
+            logCostCentreStack(prof_file, i->ccs);
             need_comma = true;
         }
     }
@@ -95,7 +114,9 @@ writeCCSReportJson(FILE *prof_file,
             totals.total_alloc * sizeof(W_));
 
     fprintf(prof_file, "\"cost_centres\": ");
-    logCCS(prof_file, stack);
+    logCostCentres(prof_file);
+    fprintf(prof_file, ",\n\"cost_centre_stacks\": ");
+    logCostCentreStack(prof_file, stack);
     fprintf(prof_file, "}\n");
 }
 
