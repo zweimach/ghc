@@ -191,6 +191,7 @@ void initRtsFlagsDefaults(void)
 
 #ifdef PROFILING
     RtsFlags.ProfFlags.includeTSOs        = false;
+    RtsFlags.ProfFlags.jsonOutput         = false;
     RtsFlags.ProfFlags.showCCSOnException = false;
     RtsFlags.ProfFlags.maxRetainerSetSize = 8;
     RtsFlags.ProfFlags.ccsLength          = 25;
@@ -1059,6 +1060,9 @@ error = true;
                       error = true;
                     }
                     break;
+                  case 'j':
+                      RtsFlags.ProfFlags.jsonOutput = true;
+                      break;
                   case '\0':
                       if (rts_argv[arg][1] == 'P') {
                           RtsFlags.CcFlags.doCostCentres =

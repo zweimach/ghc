@@ -697,7 +697,12 @@ reportCCSProfiling( void )
     inheritCosts(CCS_MAIN);
     CostCentreStack *stack = pruneCCSTree(CCS_MAIN);
     sortCCSTree(stack);
-    writeCCSReport(prof_file, stack, totals);
+
+    if (RtsFlags.ProfFlags.jsonOutput) {
+        writeCCSReportJson(prof_file, stack, totals);
+    } else {
+        writeCCSReport(prof_file, stack, totals);
+    }
 }
 
 /* -----------------------------------------------------------------------------
