@@ -115,7 +115,7 @@ writeCCSReportJson(FILE *prof_file,
 
     fprintf(prof_file, "\"cost_centres\": ");
     logCostCentres(prof_file);
-    fprintf(prof_file, ",\n\"cost_centre_stacks\": ");
+    fprintf(prof_file, ",\n\"profile\": ");
     logCostCentreStack(prof_file, stack);
     fprintf(prof_file, "}\n");
 }
