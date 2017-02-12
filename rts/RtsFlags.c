@@ -191,7 +191,6 @@ void initRtsFlagsDefaults(void)
 
 #ifdef PROFILING
     RtsFlags.ProfFlags.includeTSOs        = false;
-    RtsFlags.ProfFlags.jsonOutput         = false;
     RtsFlags.ProfFlags.showCCSOnException = false;
     RtsFlags.ProfFlags.maxRetainerSetSize = 8;
     RtsFlags.ProfFlags.ccsLength          = 25;
@@ -1061,15 +1060,13 @@ error = true;
                     }
                     break;
                   case 'j':
-                      RtsFlags.ProfFlags.jsonOutput = true;
+                      RtsFlags.CcFlags.doCostCentres = COST_CENTRES_JSON;
                       break;
                   case '\0':
                       if (rts_argv[arg][1] == 'P') {
-                          RtsFlags.CcFlags.doCostCentres =
-                              COST_CENTRES_VERBOSE;
+                          RtsFlags.CcFlags.doCostCentres = COST_CENTRES_VERBOSE;
                       } else {
-                          RtsFlags.CcFlags.doCostCentres =
-                              COST_CENTRES_SUMMARY;
+                          RtsFlags.CcFlags.doCostCentres = COST_CENTRES_SUMMARY;
                       }
                       break;
                   default:

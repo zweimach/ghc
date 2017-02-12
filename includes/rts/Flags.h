@@ -116,6 +116,7 @@ typedef struct _COST_CENTRE_FLAGS {
 # define COST_CENTRES_VERBOSE	2 /* incl. serial time profile */
 # define COST_CENTRES_ALL	3
 # define COST_CENTRES_XML       4
+# define COST_CENTRES_JSON      5
 
     int	    profilerTicks;   /* derived */
     int	    msecsPerTick;    /* derived */
@@ -137,7 +138,6 @@ typedef struct _PROFILING_FLAGS {
     Time        heapProfileInterval; /* time between samples */
     uint32_t    heapProfileIntervalTicks; /* ticks between samples (derived) */
     bool        includeTSOs;
-    bool        jsonOutput;
 
 
     bool		showCCSOnException;

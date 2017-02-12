@@ -700,7 +700,7 @@ reportCCSProfiling( void )
     CostCentreStack *stack = pruneCCSTree(CCS_MAIN);
     sortCCSTree(stack);
 
-    if (RtsFlags.ProfFlags.jsonOutput) {
+    if (RtsFlags.CcFlags.doCostCentres == COST_CENTRES_JSON) {
         writeCCSReportJson(prof_file, stack, totals);
     } else {
         writeCCSReport(prof_file, stack, totals);
