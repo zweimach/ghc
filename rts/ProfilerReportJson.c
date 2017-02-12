@@ -74,7 +74,7 @@ logCostCentreStack(FILE *prof_file, CostCentreStack const *ccs)
             ccs->time_ticks);
 
     bool need_comma = false;
-    fprintf(prof_file, "\"children\": [\n");
+    fprintf(prof_file, "\"children\": [");
     for (IndexTable *i = ccs->indexTable; i != 0; i = i->next) {
         if (!i->back_edge) {
             if (need_comma) {
