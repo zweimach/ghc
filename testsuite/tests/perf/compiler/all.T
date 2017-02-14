@@ -97,7 +97,7 @@ test('T1969',
              # 2014-06-29 303300692 (x86/Linux)
              # 2015-07-11 288699104 (x86/Linux, 64-bit machine) use +RTS -G1
              # 2016-04-06 344730660 (x86/Linux, 64-bit machine)
-           (wordsize(64), 831733376, 5)]),
+           (wordsize(64), 611386528, 5)]),
              # 2009-11-17 434845560 (amd64/Linux)
              # 2009-12-08 459776680 (amd64/Linux)
              # 2010-05-17 519377728 (amd64/Linux)
@@ -119,6 +119,7 @@ test('T1969',
              # 2015-10-28 695430728 (x86_64/Linux) emit Typeable at definition site
              # 2015-10-28 756138176 (x86_64/Linux) inst-decl defaults go via typechecker (#12220)
              # 2017-02-17 831733376 (x86_64/Linux) Type-indexed Typeable
+             # 2017-02-14 611386528 Early inline patch: 20% improvement
       only_ways(['normal']),
 
       extra_hc_opts('-dcore-lint -static'),
@@ -316,7 +317,7 @@ test('T3064',
             # 2014-12-22: 122836340 (Windows) Death to silent superclasses
             # 2016-04-06: 153261024 (x86/Linux) probably wildcard refactor
 
-           (wordsize(64), 287460128, 5)]),
+           (wordsize(64), 259815560, 5)]),
             # (amd64/Linux) (28/06/2011):  73259544
             # (amd64/Linux) (07/02/2013): 224798696
             # (amd64/Linux) (02/08/2013): 236404384, increase from roles
@@ -339,6 +340,7 @@ test('T3064',
             #                                        Tracked as #11196
             # (amd64/Linux) (15/4/2016): 287460128   Improvement due to using coercionKind instead
             #                                        of zonkTcType (Trac #11882)
+            # 2017-02-14: 259815560   Early inline patch: 9% improvement
 
 ###################################
 # deactivated for now, as this metric became too volatile recently
@@ -435,7 +437,7 @@ test('T5631',
         # 2015-03-18:     1124068664 (Mac) optimize Unify & zonking
         # 2016-10-19:     1024926024 (amd64/Linux) Refactor traceRn interface (#12617)
         # 2016-11-10:     1077429456 (amd64/Linux) Stop -dno-debug-output suppressing -ddump-tc-trace
-        # 2017-02-17:     1517484488 (amd64/Linux) Type-indexed Typeable
+
        only_ways(['normal'])
       ],
      compile,
@@ -444,10 +446,11 @@ test('T5631',
 test('parsing001',
      [compiler_stats_num_field('bytes allocated',
           [(wordsize(32), 274000576, 10),
-           (wordsize(64), 493730288, 5)]),
+           (wordsize(64), 463931280, 5)]),
         # expected value: 587079016 (amd64/Linux)
         # 2016-09-01:     581551384 (amd64/Linux) Restore w/w limit (#11565)
         # 2016-12-19:     493730288 (amd64/Linux) Join points (#12988)
+        # 2017-02-14:     463931280 Early inlining patch; acutal improvement 7%
        only_ways(['normal']),
       ],
      compile_fail, [''])
@@ -466,7 +469,7 @@ test('T783',
             # 2014-12-22: 235002220 (Windows) not sure why
             # 2016-04-06: 249332816 (x86/Linux, 64-bit machine)
 
-           (wordsize(64), 488592288, 10)]),
+           (wordsize(64), 436978192, 10)]),
             # prev:       349263216 (amd64/Linux)
             # 07/08/2012: 384479856 (amd64/Linux)
             # 29/08/2012: 436927840 (amd64/Linux)
@@ -495,6 +498,8 @@ test('T783',
             #    (D1535: Major overhaul of pattern match checker, #11162)
             # 2016-02-03: 488592288 (amd64/Linux)
             #    (D1795: Another overhaul of pattern match checker, #11374)
+            # 2017-02-14    436978192    Early inlining: 5% improvement
+
       extra_hc_opts('-static')
       ],
       compile,[''])
@@ -612,7 +617,7 @@ test('T5837',
              # 2014-12-08: 115905208  Constraint solver perf improvements (esp kick-out)
              # 2016-04-06: 24199320  (x86/Linux, 64-bit machine) TypeInType
 
-           (wordsize(64), 58648600, 7)])
+           (wordsize(64), 48289024, 7)])
              # sample: 3926235424 (amd64/Linux, 15/2/2012)
              # 2012-10-02 81879216
              # 2012-09-20 87254264 amd64/Linux
@@ -646,6 +651,7 @@ test('T5837',
              #                      to be environmentally-dependent.
              #                      Also bumped acceptance threshold to 7%.
              # 2017-02-20 58648600  amd64/Linux Type-indexed Typeable
+             # 2017-02-14 48289024  Early inlining patch; the actual improvement was 3%
       ],
       compile, ['-freduction-depth=50'])
 
@@ -682,7 +688,7 @@ test('T9020',
           [(wordsize(32), 343005716, 10),
            # Original:    381360728
            # 2014-07-31:  343005716 (Windows) (general round of updates)
-           (wordsize(64), 764866144, 10)])
+           (wordsize(64), 500707080, 10)])
            # prev:        795469104
            # 2014-07-17:  728263536 (general round of updates)
            # 2014-09-10:  785871680 post-AMP-cleanup
@@ -692,6 +698,8 @@ test('T9020',
            # 2016-04-06:  852298336 Refactoring of CSE #11781
            # 2016-04-06:  698401736 Use thenIO in Applicative IO
            # 2017-02-03:  764866144 Join points
+           # 2017-02-14:  500707080 Early inline patch; 35% decrease!
+           #                        Program size collapses in first simplification
       ],
       compile,[''])
 
@@ -744,7 +752,7 @@ test('T9675',
 test('T9872a',
      [ only_ways(['normal']),
        compiler_stats_num_field('bytes allocated',
-          [(wordsize(64), 3298422648, 5),
+          [(wordsize(64), 2921927528, 5),
           # 2014-12-10    5521332656    Initally created
           # 2014-12-16    5848657456    Flattener parameterized over roles
           # 2014-12-18    2680733672    Reduce type families even more eagerly
@@ -752,6 +760,8 @@ test('T9872a',
           # 2016-04-07    3352882080    CSE improvements
           # 2016-10-19    3134866040    Refactor traceRn interface (#12617)
           # 2017-02-17    3298422648    Type-indexed Typeable
+          # 2017-02-14    2921927528    Early inlining: 7% improvement
+
            (wordsize(32), 1740903516, 5)
           # was           1325592896
           # 2016-04-06    1740903516    x86/Linux
@@ -763,7 +773,7 @@ test('T9872a',
 test('T9872b',
      [ only_ways(['normal']),
        compiler_stats_num_field('bytes allocated',
-          [(wordsize(64), 4069522928, 5),
+          [(wordsize(64), 3730686224, 5),
           # 2014-12-10    6483306280    Initally created
           # 2014-12-16    6892251912    Flattener parameterized over roles
           # 2014-12-18    3480212048    Reduce type families even more eagerly
@@ -771,6 +781,8 @@ test('T9872b',
           # 2016-02-08    4918990352    Improved a bit by tyConRolesRepresentational
           # 2016-04-06:   4600233488    Refactoring of CSE #11781
           # 2016-09-15:   4069522928    Fix #12422
+          # 2017-02-14    3730686224    Early inlining: 5% improvement
+
            (wordsize(32), 2422750696, 5)
           # was           1700000000
           # 2016-04-06    2422750696    x86/Linux
@@ -781,7 +793,7 @@ test('T9872b',
 test('T9872c',
      [ only_ways(['normal']),
        compiler_stats_num_field('bytes allocated',
-          [(wordsize(64), 3702580928, 5),
+          [(wordsize(64), 3404346032, 5),
           # 2014-12-10    5495850096    Initally created
           # 2014-12-16    5842024784    Flattener parameterized over roles
           # 2014-12-18    2963554096    Reduce type families even more eagerly
@@ -789,6 +801,8 @@ test('T9872c',
           # 2016-02-08    4454071184    Improved a bit by tyConRolesRepresentational
           # 2016-04-06:   4306667256    Refactoring of CSE #11781
           # 2016-09-15:   3702580928    Fixing #12422
+          # 2017-02-14    3404346032    Early inlining: 5% improvement
+
            (wordsize(32), 2257242896, 5)
           # was           1500000000
           # 2016-04-06    2257242896
@@ -810,6 +824,8 @@ test('T9872d',
           # 2016-12-05    478169352   using tyConIsTyFamFree, I think, but only
           #                           a 1% improvement 482 -> 478
           # 2017-02-17    535565128   Type-indexed Typeable
+          # 2017-02-14    441108888   Early inlining: 5% improvement
+
            (wordsize(32), 264566040, 5)
           # some date     328810212
           # 2015-07-11    350369584
@@ -822,7 +838,7 @@ test('T9872d',
 test('T9961',
      [ only_ways(['normal']),
        compiler_stats_num_field('bytes allocated',
-          [(wordsize(64), 571246936, 5),
+          [(wordsize(64), 498326216, 5),
           # 2015-01-12    807117816   Initally created
           # 2015-spring   772510192   Got better
           # 2015-05-22    663978160   Fix for #10370 improves it more
@@ -832,6 +848,8 @@ test('T9961',
           # 2016-03-24    568526784   x64_64/Linux   Add eqInt* variants (#11688)
           # 2016-09-01    537297968   x64_64/Linux   Restore w/w limit (#11565)
           # 2016-12-19    571246936   x64_64/Linux   Join points (#12988)
+          # 2017-02-14    498326216   Early inline patch; 13% improvement
+
            (wordsize(32), 275264188, 5)
           # was           375647160
           # 2016-04-06    275264188   x86/Linux
@@ -914,11 +932,12 @@ test('T10547',
 test('T12227',
      [ only_ways(['normal']),
        compiler_stats_num_field('bytes allocated',
-          [(wordsize(64), 1715827784, 5),
+          [(wordsize(64), 1060158624, 5),
           # 2016-07-11    5650186880 (Windows) before fix for #12227
           # 2016-07-11    1822822016 (Windows) after fix for #12227
           # 2016-12-20    1715827784 after d250d493 (INLINE in Traversable dms)
           #                          (or thereabouts in the commit history)
+          # 2017-02-14    1060158624  Early inlining: 35% improvement
           ]),
      ],
      compile,
@@ -942,12 +961,13 @@ test('T12234',
        compiler_stats_num_field('bytes allocated',
           [(platform('x86_64-unknown-mingw32'), 77949232, 5),
           # initial:      77949232
-           (wordsize(64), 86525344, 5),
+           (wordsize(64), 68682016, 5),
           # initial:      72958288
           # 2016-01-17:   76848856  (x86-64, Linux. drift?)
           # 2017-02-01:   80882208  (Use superclass instances when solving)
           # 2017-02-05:   74374440  (Probably OccAnal fixes)
           # 2017-02-17:   86525344  (Type-indexed Typeable)
+          # 2017-02-14:   68682016  Early inlining; actual improvement 9%
           ]),
      ],
      compile,
@@ -973,6 +993,7 @@ test('T13056',
          # 2017-01-06    520166912 initial
          # 2017-01-31    546800240 Join points (#12988)
          # 2017-02-07    524611224 new SetLevels
+         # 2017-02-14    407779656 Early inline patch: 20% improvement
          ]),
      ],
      compile,
