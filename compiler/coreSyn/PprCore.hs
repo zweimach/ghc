@@ -447,6 +447,7 @@ ppIdInfo id info
     , (has_str_info,     text "Str=" <> pprStrictness str_info)
     , (has_unf,          text "Unf=" <> ppr unf_info)
     , (not (null rules), text "RULES:" <+> vcat (map pprRule rules))
+    , (is_static_data,   text "static")
     ]   -- Inline pragma, occ, demand, one-shot info
         -- printed out with all binders (when debug is on);
         -- see PprCore.pprIdBndr
@@ -469,6 +470,8 @@ ppIdInfo id info
 
     unf_info = unfoldingInfo info
     has_unf = hasSomeUnfolding unf_info
+
+    is_static_data = isStaticDataInfo info
 
     rules = ruleInfoRules (ruleInfo info)
 
