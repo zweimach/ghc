@@ -20,8 +20,7 @@ import CoreMonad        ( FloatOutSwitches(..) )
 import DynFlags
 import ErrUtils         ( dumpIfSet_dyn )
 import Id               ( Id, idArity, idType, isBottomingId,
-                          isJoinId, isJoinId_maybe )
-import Var              ( Var )
+                          isJoinId, isJoinId_maybe, setIdIsStaticData )
 import BasicTypes       ( TopLevelFlag(..), isTopLevel )
 import SetLevels
 import UniqSupply       ( UniqSupply )
@@ -655,12 +654,20 @@ unitCaseFloat (Level major minor t) e b con bs
 
 unitLetFloat :: Level -> FloatLet -> FloatBinds
 unitLetFloat lvl@(Level major minor t) b
-  | isTopLvl lvl     = FB (unitBag b) emptyBag M.empty
+  | isTopLvl lvl     = FB (unitBag $ mark_static_data_bind b) emptyBag M.empty
   | t == JoinCeilLvl = FB emptyBag floats M.empty
   | otherwise        = FB emptyBag emptyBag (M.singleton major
                                               (M.singleton minor floats))
   where
     floats = unitBag (FloatLet b)
+
+    mark_static_data_bind (NonRec id rhs)
+      | exprIsStaticData rhs
+      = NonRec (setIdIsStaticData id) rhs
+    mark_static_data_bind (Rec bs)
+      | all (exprIsStaticData . snd) bs
+      = Rec [ (setIdIsStaticData id, rhs) | (id, rhs) <- bs ]
+    mark_static_data_bind bnd = bnd
 
 plusFloats :: FloatBinds -> FloatBinds -> FloatBinds
 plusFloats (FB t1 c1 l1) (FB t2 c2 l2)

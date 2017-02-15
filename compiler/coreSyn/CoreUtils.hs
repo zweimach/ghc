@@ -29,7 +29,7 @@ module CoreUtils (
         exprIsHNF, exprOkForSpeculation, exprOkForSideEffects, exprIsWorkFree,
         exprIsBig, exprIsConLike,
         rhsIsStatic, isCheapApp, isExpandableApp,
-        exprIsLiteralString, exprIsTopLevelBindable,
+        exprIsLiteralString, exprIsTopLevelBindable, exprIsStaticData,
 
         -- * Equality
         cheapEqExpr, cheapEqExpr', eqExpr,
@@ -1596,6 +1596,14 @@ exprIsTopLevelBindable expr ty
 exprIsLiteralString :: CoreExpr -> Bool
 exprIsLiteralString (Lit (MachStr _)) = True
 exprIsLiteralString _ = False
+
+exprIsStaticData :: CoreExpr -> Bool
+exprIsStaticData (Var id)
+  | isDataConWorkId id = True
+exprIsStaticData (Lit _) = True
+exprIsStaticData (App x y) = exprIsStaticData x && exprIsStaticData y
+exprIsStaticData (Tick _ e) = exprIsStaticData e
+exprIsStaticData _ = False -- TODO: Think through remaining cases
 
 {-
 ************************************************************************

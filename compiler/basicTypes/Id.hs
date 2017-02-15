@@ -54,7 +54,7 @@ module Id (
         zapLamIdInfo, zapIdDemandInfo, zapIdUsageInfo, zapIdUsageEnvInfo,
         zapIdUsedOnceInfo, zapIdTailCallInfo,
         zapFragileIdInfo, zapIdStrictness,
-        transferPolyIdInfo,
+        transferPolyIdInfo, Var.setIdIsStaticData,
 
         -- ** Predicates on Ids
         isImplicitId, isDeadBinder,
@@ -67,7 +67,7 @@ module Id (
         isPrimOpId, isPrimOpId_maybe,
         isFCallId, isFCallId_maybe,
         isDataConWorkId, isDataConWorkId_maybe, isDataConId_maybe, idDataCon,
-        isConLikeId, isBottomingId, idIsFrom,
+        isConLikeId, isBottomingId, idIsFrom, Var.isStaticDataId,
         hasNoBinding,
 
         -- ** Evidence variables

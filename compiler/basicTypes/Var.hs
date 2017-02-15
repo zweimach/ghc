@@ -52,13 +52,14 @@ module Var (
         mkGlobalVar, mkLocalVar, mkExportedLocalVar, mkCoVar,
         idInfo, idDetails,
         lazySetIdInfo, setIdDetails, globaliseId,
-        setIdExported, setIdNotExported,
+        setIdExported, setIdNotExported, setIdIsStaticData,
 
         -- ** Predicates
         isId, isTyVar, isTcTyVar,
         isLocalVar, isLocalId, isCoVar, isNonCoVarId, isTyCoVar,
         isJoinId, isJoinId_maybe,
         isGlobalId, isExportedId,
+        isStaticDataId,
         mustHaveLocalBinding,
 
         -- * TyVar's
@@ -85,7 +86,7 @@ module Var (
 import {-# SOURCE #-}   TyCoRep( Type, Kind, pprKind )
 import {-# SOURCE #-}   TcType( TcTyVarDetails, pprTcTyVarDetails, vanillaSkolemTv )
 import {-# SOURCE #-}   IdInfo( IdDetails, IdInfo, coVarDetails, isCoVarDetails,
-                                isJoinIdDetails_maybe,
+                                isJoinIdDetails_maybe, setStaticDataInfo, isStaticDataInfo,
                                 vanillaIdInfo, pprIdDetails )
 
 import BasicTypes ( JoinArity )
@@ -653,3 +654,14 @@ isExportedId :: Var -> Bool
 isExportedId (Id { idScope = GlobalId })        = True
 isExportedId (Id { idScope = LocalId Exported}) = True
 isExportedId _ = False
+
+-- | Is an identifier strictly static data?
+--
+-- See Note [Plain Old data]
+isStaticDataId :: Id -> Bool
+isStaticDataId (Id { id_info = info }) = isStaticDataInfo info
+isStaticDataId _                       = False
+
+setIdIsStaticData :: Id -> Id
+setIdIsStaticData id@(Id { id_info = info }) = id { id_info = setStaticDataInfo info }
+setIdIsStaticData id                         = id

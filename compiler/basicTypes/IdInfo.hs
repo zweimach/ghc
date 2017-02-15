@@ -21,6 +21,10 @@ module IdInfo (
         IdInfo,         -- Abstract
         vanillaIdInfo, noCafIdInfo,
 
+        -- ** The StaticDataInfo type
+        StaticDataInfo(..),
+        setStaticDataInfo, isStaticDataInfo,
+
         -- ** The OneShotInfo type
         OneShotInfo(..),
         oneShotInfo, noOneShotInfo, hasNoOneShotInfo,
@@ -250,8 +254,23 @@ data IdInfo
         callArityInfo   :: !ArityInfo,   -- ^ How this is called.
                                          -- n <=> all calls have at least n arguments
 
-        levityInfo      :: LevityInfo    -- ^ when applied, will this Id ever have a levity-polymorphic type?
+        levityInfo      :: LevityInfo,   -- ^ when applied, will this Id ever have a levity-polymorphic type?
+        staticDataInfo  :: StaticDataInfo    -- ^ is the identifier strictly static data?
     }
+
+data StaticDataInfo = IsStaticData
+                      -- ^ Indicates a binding which is strictly static data. That
+                      -- is, a data constructor applied to only other @StaticData@
+                      -- binders.
+                    | NotStaticData
+                      -- ^ Not static data
+
+setStaticDataInfo :: IdInfo -> IdInfo
+setStaticDataInfo x = x { staticDataInfo = IsStaticData }
+
+isStaticDataInfo :: IdInfo -> Bool
+isStaticDataInfo (IdInfo { staticDataInfo = IsStaticData }) = True
+isStaticDataInfo _ = False
 
 -- Setters
 
@@ -301,7 +320,8 @@ vanillaIdInfo
             demandInfo          = topDmd,
             strictnessInfo      = nopSig,
             callArityInfo       = unknownArity,
-            levityInfo          = NoLevityInfo
+            levityInfo          = NoLevityInfo,
+            staticDataInfo      = NotStaticData
            }
 
 -- | More informative 'IdInfo' we can use when we know the 'Id' has no CAF references

@@ -355,6 +355,8 @@ simplBind :: SimplEnv
           -> InExpr -> SimplEnv -- The RHS and its environment
           -> SimplM SimplEnv
 simplBind env top_lvl is_rec mb_cont bndr bndr1 rhs rhs_se
+  | isStaticDataId bndr1
+  = return $ addNonRec env bndr1 rhs
   | isJoinId bndr1
   = ASSERT(isNotTopLevel top_lvl && isJust mb_cont)
     simplJoinBind env is_rec (fromJust mb_cont) bndr bndr1 rhs rhs_se

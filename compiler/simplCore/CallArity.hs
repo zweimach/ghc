@@ -521,7 +521,7 @@ callArityAnal arity int (Let bind e)
 -- Which bindings should we look at?
 -- See Note [Which variables are interesting]
 isInteresting :: Var -> Bool
-isInteresting v = not $ null (typeArity (idType v))
+isInteresting v = not (null (typeArity (idType v))) && not (isStaticDataId v)
 
 interestingBinds :: CoreBind -> [Var]
 interestingBinds = filter isInteresting . bindersOf

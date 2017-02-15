@@ -9,4 +9,5 @@ coVarDetails :: IdDetails
 isCoVarDetails :: IdDetails -> Bool
 isJoinIdDetails_maybe :: IdDetails -> Maybe JoinArity
 pprIdDetails :: IdDetails -> SDoc
-
+isStaticDataInfo :: IdInfo -> Bool
+setStaticDataInfo :: IdInfo -> IdInfo
