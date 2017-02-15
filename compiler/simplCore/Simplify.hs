@@ -801,7 +801,9 @@ completeBind env top_lvl is_rec mb_cont old_bndr new_bndr new_rhs
                   | otherwise
                   = info2
 
-            info4 | exprIsStaticData final_rhs
+            info4 | isTopLevel top_lvl
+                  , Just (_, _, es) <- exprIsConApp_maybe (getUnfoldingInRuleMatch env) final_rhs
+                  , all exprIsTrivial es
                   = setStaticDataInfo info3
                   | otherwise
                   = info3

@@ -922,6 +922,7 @@ transferPolyIdInfo old_id abstract_wrt new_id
                                  `setInlinePragInfo` old_inline_prag
                                  `setOccInfo` new_occ_info
                                  `setStrictnessInfo` new_strictness
+    -- TODO: Transfer StaticData
 
 isNeverLevPolyId :: Id -> Bool
 isNeverLevPolyId = isNeverLevPolyIdInfo . idInfo
