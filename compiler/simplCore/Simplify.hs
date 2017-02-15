@@ -356,7 +356,9 @@ simplBind :: SimplEnv
           -> SimplM SimplEnv
 simplBind env top_lvl is_rec mb_cont bndr bndr1 rhs rhs_se
   | isStaticDataId bndr1
-  = return $ addNonRec env bndr1 rhs
+  = let bndr1' = modifyIdInfo (`setUnfoldingInfo` unfoldingInfo (idInfo bndr)) bndr1
+    in --pprTrace "SimplStaticBind" (ppr bndr <+> ppr (idUnfolding bndr) $$ ppr bndr1' <+> ppr (idUnfolding bndr1')) $
+      return $ addNonRec env bndr1' rhs
   | isJoinId bndr1
   = ASSERT(isNotTopLevel top_lvl && isJust mb_cont)
     simplJoinBind env is_rec (fromJust mb_cont) bndr bndr1 rhs rhs_se
@@ -801,16 +803,19 @@ completeBind env top_lvl is_rec mb_cont old_bndr new_bndr new_rhs
                   | otherwise
                   = info2
 
-            info4 | isTopLevel top_lvl
-                  , Just (_, _, es) <- exprIsConApp_maybe (getUnfoldingInRuleMatch env) final_rhs
-                  , all exprIsTrivial es
-                  = setStaticDataInfo info3
-                  | otherwise
-                  = info3
+            is_static
+              | isTopLevel top_lvl
+              , Just (_, _, es) <- exprIsConApp_maybe (getUnfoldingInRuleMatch env) final_rhs
+              , all exprIsTrivial es
+              = True
+              | otherwise
+              = False
+            info4 | is_static = setStaticDataInfo info3
+                  | otherwise = info3
 
             final_id = new_bndr `setIdInfo` info4
 
-      ; -- pprTrace "Binding" (ppr final_id <+> ppr new_unfolding) $
+      ; --pprTrace "Binding" (ppr final_id <+> ppr new_unfolding <+> ppWhen is_static (text "static")) $
         return (addNonRec env final_id final_rhs) } }
                 -- The addNonRec adds it to the in-scope set too
 
@@ -1383,7 +1388,8 @@ simplLam env (bndr:bndrs) body (ApplyToVal { sc_arg = arg, sc_env = arg_se
 
     zap_unfolding bndr  -- See Note [Zap unfolding when beta-reducing]
       | isId bndr, isStableUnfolding (realIdUnfolding bndr)
-      = setIdUnfolding bndr NoUnfolding
+      = --pprTrace "simplLam(zap)" (ppr bndr) $
+        setIdUnfolding bndr NoUnfolding
       | otherwise = bndr
 
       -- discard a non-counting tick on a lambda.  This may change the
@@ -3142,7 +3148,8 @@ simplUnfolding env top_lvl cont_mb id unf
                 -- unfolding, and we need to make sure the guidance is kept up
                 -- to date with respect to any changes in the unfolding.
 
-        | otherwise -> return noUnfolding   -- Discard unstable unfoldings
+        | otherwise -> --pprTrace "simplUnfolding(zap)" (ppr id) $
+                       return noUnfolding   -- Discard unstable unfoldings
   where
     is_top_lvl   = isTopLevel top_lvl
     is_bottoming = isBottomingId id

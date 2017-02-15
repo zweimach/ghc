@@ -640,7 +640,7 @@ substIdInfo :: Subst -> Id -> IdInfo -> Maybe IdInfo
 substIdInfo subst new_id info
   | nothing_to_do = Nothing
   | otherwise     = Just (info `setRuleInfo`      substSpec subst new_id old_rules
-                               `setUnfoldingInfo` substUnfolding subst old_unf)
+                               `setUnfoldingInfo` substUnfolding subst (isStaticDataId new_id) old_unf)
   where
     old_rules     = ruleInfo info
     old_unf       = unfoldingInfo info
@@ -648,23 +648,26 @@ substIdInfo subst new_id info
 
 ------------------
 -- | Substitutes for the 'Id's within an unfolding
-substUnfolding, substUnfoldingSC :: Subst -> Unfolding -> Unfolding
+substUnfolding, substUnfoldingSC :: Subst -> Bool -> Unfolding -> Unfolding
         -- Seq'ing on the returned Unfolding is enough to cause
         -- all the substitutions to happen completely
 
-substUnfoldingSC subst unf       -- Short-cut version
+substUnfoldingSC subst is_static unf       -- Short-cut version
   | isEmptySubst subst = unf
-  | otherwise          = substUnfolding subst unf
+  | otherwise          = substUnfolding subst is_static unf
 
-substUnfolding subst df@(DFunUnfolding { df_bndrs = bndrs, df_args = args })
+substUnfolding subst _ df@(DFunUnfolding { df_bndrs = bndrs, df_args = args })
   = df { df_bndrs = bndrs', df_args = args' }
   where
     (subst',bndrs') = substBndrs subst bndrs
     args'           = map (substExpr (text "subst-unf:dfun") subst') args
 
-substUnfolding subst unf@(CoreUnfolding { uf_tmpl = tmpl, uf_src = src })
+substUnfolding subst is_static unf@(CoreUnfolding { uf_tmpl = tmpl, uf_src = src })
         -- Retain an InlineRule!
   | not (isStableSource src)  -- Zap an unstable unfolding, to save substitution work
+  , not is_static             -- But not if the binding is static as we aren't
+                              -- going to run
+  the simplifier so we know it won't change.
   = NoUnfolding
   | otherwise                 -- But keep a stable one!
   = seqExpr new_tmpl `seq`
@@ -672,7 +675,7 @@ substUnfolding subst unf@(CoreUnfolding { uf_tmpl = tmpl, uf_src = src })
   where
     new_tmpl = substExpr (text "subst-unf") subst tmpl
 
-substUnfolding _ unf = unf      -- NoUnfolding, OtherCon
+substUnfolding _ _ unf = unf  -- NoUnfolding, OtherCon
 
 ------------------
 substIdOcc :: Subst -> Id -> Id
