@@ -801,7 +801,12 @@ completeBind env top_lvl is_rec mb_cont old_bndr new_bndr new_rhs
                   | otherwise
                   = info2
 
-            final_id = new_bndr `setIdInfo` info3
+            info4 | exprIsStaticData final_rhs
+                  = setStaticDataInfo info3
+                  | otherwise
+                  = info3
+
+            final_id = new_bndr `setIdInfo` info4
 
       ; -- pprTrace "Binding" (ppr final_id <+> ppr new_unfolding) $
         return (addNonRec env final_id final_rhs) } }
