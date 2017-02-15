@@ -26,12 +26,10 @@ import Var              ( EvVar )
 import Name
 import BasicTypes       ( RuleName )
 import SrcLoc
-import CoreFVs          ( exprSomeFreeVars )
 import Outputable
 import FastString
 import Bag
 import Data.List        ( partition )
-import Data.Maybe       ( isJust )
 
 {-
 Note [Typechecking rules]
@@ -59,9 +57,9 @@ tcRuleDecls (HsRules src decls)
    = do { tc_decls <- mapM (wrapLocM tcRule) decls
         ; return (HsRules src tc_decls) }
 
-data_con_lhs_msg :: Id -> SDoc
-data_con_lhs_msg id =
-    text "Data constructor" <+> ppr id <+> text "found on left-hand side of rule."
+--data_con_lhs_msg :: Id -> SDoc
+--data_con_lhs_msg id =
+--    text "Data constructor" <+> ppr id <+> text "found on left-hand side of rule."
 
 tcRule :: RuleDecl Name -> TcM (RuleDecl TcId)
 tcRule (HsRule name act hs_bndrs lhs fv_lhs rhs fv_rhs)
