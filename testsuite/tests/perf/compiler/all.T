@@ -68,7 +68,8 @@ test('T1969',
              # 2014-06-29 5949188 (x86/Linux)
              # 2015-07-11 6241108 (x86/Linux, 64bit machine) use +RTS -G1
              # 2016-04-06 9093608 (x86/Linux, 64bit machine)
-           (wordsize(64), 19924328, 15)]),
+
+           (wordsize(64), 16393848, 15)]),
              # 2014-09-10 10463640, 10  # post-AMP-update (somewhat stabelish)
                # looks like the peak is around ~10M, but we're
                # unlikely to GC exactly on the peak.
@@ -81,6 +82,8 @@ test('T1969',
              # 2015-10-28 15017528 (amd64/Linux) emit typeable at definition site
              # 2016-10-12 17285216 (amd64/Linux) it's not entirely clear why
              # 2017-02-01 19924328 (amd64/Linux) Join points (#12988)
+             # 2017-02-14 16393848 Early inline patch
+
       compiler_stats_num_field('bytes allocated',
           [(platform('i386-unknown-mingw32'), 301784492, 5),
                                  #            215582916 (x86/Windows)
@@ -97,6 +100,7 @@ test('T1969',
              # 2014-06-29 303300692 (x86/Linux)
              # 2015-07-11 288699104 (x86/Linux, 64-bit machine) use +RTS -G1
              # 2016-04-06 344730660 (x86/Linux, 64-bit machine)
+
            (wordsize(64), 611386528, 5)]),
              # 2009-11-17 434845560 (amd64/Linux)
              # 2009-12-08 459776680 (amd64/Linux)
@@ -186,7 +190,8 @@ test('T3294',
            # 2013-11-13: 1478325844  (x86/Windows, 64bit machine)
            # 2014-01-12: 1565185140  (x86/Linux)
            # 2013-04-04: 1377050640  (x86/Windows, 64bit machine)
-           (wordsize(64), 2758641264, 5)]),
+
+           (wordsize(64), 2598897744, 5)]),
             # old:        1357587088 (amd64/Linux)
             # 29/08/2012: 2961778696 (amd64/Linux)
             # (^ increase due to new codegen, see #7198)
@@ -200,6 +205,7 @@ test('T3294',
             # 2016-07-11: 2664479936 (Windows) before fix for #12227
             # 2016-07-11: 2739731144 (Windows) after fix for #12227 (ignoring)
             # 2016-02-17: 2758641264 (amd64/Linux) (Type indexed Typeable)
+            # 2017-01-14: 2598897744 Early inline patch
       conf_3294,
 
       # Use `+RTS -G1` for more stable residency measurements. Note [residency].
@@ -425,7 +431,7 @@ test('T5631',
         # 2014-04-04:     346389856 (x86 Windows, 64 bit machine)
         # 2014-12-01:     390199244 (Windows laptop)
         # 2016-04-06:     570137436 (amd64/Linux) many reasons
-           (wordsize(64), 1517484488, 5)]),
+           (wordsize(64), 1077429456, 5)]),
         # expected value: 774595008 (amd64/Linux):
         # expected value: 735486328 (amd64/Linux) 2012/12/12:
         # expected value: 690742040 (amd64/Linux) Call Arity improvements
@@ -921,9 +927,8 @@ test('T10547',
      [ compiler_stats_num_field('bytes allocated',
           [(wordsize(64), 31041520, 20),
           # initial:    39165544
-          # 2016-11-25: 31041520 Linux   Around the time of refactoring the constraint solver;
+          # 25/11/2106: 31041520 Linux   Around the time of refactoring the constraint solver;
           #                              but I think that only pushed it over the edge
-          # 2017-02-20: 38681216 Linux   Type-indexed Typeable
           ]),
      ],
      compile_fail,
@@ -989,7 +994,7 @@ test('T13035',
 test('T13056',
      [ only_ways(['optasm']),
        compiler_stats_num_field('bytes allocated',
-         [(wordsize(64), 524611224, 5),
+         [(wordsize(64), 407779656, 5),
          # 2017-01-06    520166912 initial
          # 2017-01-31    546800240 Join points (#12988)
          # 2017-02-07    524611224 new SetLevels
@@ -1001,11 +1006,12 @@ test('T13056',
 
 test('T12707',
      [ compiler_stats_num_field('bytes allocated',
-          [(wordsize(64), 1310037632, 5),
+          [(wordsize(64), 1238630624, 5),
           # initial:    1271577192
           # 2017-01-22: 1348865648  Allow top-level strings in Core
           # 2017-01-31: 1280336112  Join points (#12988)
           # 2017-02-11: 1310037632  Check local family instances vs imports
+          # 2017-02-14  1238630624  Early inline patch: 20% improvement
           ]),
      ],
      compile,
