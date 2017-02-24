@@ -3,6 +3,14 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+
+-- We never want to link against terminfo while bootstrapping.
+#ifdef BOOTSTRAPPING
+#ifdef WITH_TERMINFO
+#undef WITH_TERMINFO
+#endif
+#endif
+
 -----------------------------------------------------------------------------
 --
 -- (c) The University of Glasgow 2004-2009.
@@ -72,7 +80,7 @@ import System.Posix hiding (fdToHandle)
 import qualified System.Info(os)
 #endif
 
-#if !defined(mingw32_HOST_OS) && !defined(BOOTSTRAPPING)
+#ifdef WITH_TERMINFO
 import System.Console.Terminfo as Terminfo
 #endif
 
@@ -1303,7 +1311,7 @@ listPackages verbosity my_flags mPackageName mModuleName = do
 
   if simple_output then show_simple stack else do
 
-#if defined(mingw32_HOST_OS) || defined(BOOTSTRAPPING)
+#ifndef WITH_TERMINFO
     mapM_ show_normal stack
 #else
     let
