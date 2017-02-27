@@ -1231,6 +1231,8 @@ data ModGuts
                                          --   (produced by desugarer & consumed by vectoriser)
         mg_vect_info :: !VectInfo,       -- ^ Pool of vectorised declarations in the module
 
+        mg_mod_rep_id :: !Id,            -- ^ @Module@ binding representing module
+
                         -- The next two fields are unusual, because they give instance
                         -- environments for *all* modules in the home package, including
                         -- this module, rather than for *just* this module.

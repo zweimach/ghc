@@ -19,6 +19,7 @@ module DsMonad (
         newSysLocalsDsNoLP, newSysLocalsDs, newUniqueId,
         newFailLocalDs, newPredVarDs,
         getSrcSpanDs, putSrcSpanDs,
+        getModRepDs,
         mkPrintUnqualifiedDs,
         newUnique,
         UniqSupply, newUniqueSupply,
@@ -180,10 +181,12 @@ mkDsEnvsFromTcGbl hsc_env msg_var tcg_env
              type_env = tcg_type_env tcg_env
              rdr_env  = tcg_rdr_env tcg_env
              fam_inst_env = tcg_fam_inst_env tcg_env
+             mod_rep  = maybe (panic "DsMonad: no mod_rep") Var
+                        $ tcg_tr_module tcg_env
              complete_matches = hptCompleteSigs hsc_env
                                 ++ tcg_complete_matches tcg_env
        ; return $ mkDsEnvs dflags this_mod rdr_env type_env fam_inst_env
-                           msg_var pm_iter_var complete_matches
+                           msg_var pm_iter_var complete_matches mod_rep
        }
 
 runDs :: HscEnv -> (DsGblEnv, DsLclEnv) -> DsM a -> IO (Messages, Maybe a)
@@ -211,6 +214,7 @@ initDsWithModGuts hsc_env guts thing_inside
              this_mod = mg_module guts
              complete_matches = hptCompleteSigs hsc_env
                                 ++ mg_complete_sigs guts
+             mod_rep  = Var $ mg_mod_rep_id guts
 
              bindsToIds (NonRec v _)   = [v]
              bindsToIds (Rec    binds) = map fst binds
@@ -218,7 +222,7 @@ initDsWithModGuts hsc_env guts thing_inside
 
              envs  = mkDsEnvs dflags this_mod rdr_env type_env
                               fam_inst_env msg_var pm_iter_var
-                              complete_matches
+                              complete_matches mod_rep
        ; runDs hsc_env envs thing_inside
        }
 
@@ -246,10 +250,10 @@ initTcDsForSolver thing_inside
          thing_inside }
 
 mkDsEnvs :: DynFlags -> Module -> GlobalRdrEnv -> TypeEnv -> FamInstEnv
-         -> IORef Messages -> IORef Int -> [CompleteMatch]
+         -> IORef Messages -> IORef Int -> [CompleteMatch] -> CoreExpr
          -> (DsGblEnv, DsLclEnv)
 mkDsEnvs dflags mod rdr_env type_env fam_inst_env msg_var pmvar
-         complete_matches
+         complete_matches mod_rep
   = let if_genv = IfGblEnv { if_doc       = text "mkDsEnvs",
                              if_rec_types = Just (mod, return type_env) }
         if_lenv = mkIfLclEnv mod (text "GHC error in desugarer lookup in" <+> ppr mod)
@@ -264,6 +268,7 @@ mkDsEnvs dflags mod rdr_env type_env fam_inst_env msg_var pmvar
                            , ds_dph_env = emptyGlobalRdrEnv
                            , ds_parr_bi = panic "DsMonad: uninitialised ds_parr_bi"
                            , ds_complete_matches = completeMatchMap
+                           , ds_mod_rep = mod_rep
                            }
         lcl_env = DsLclEnv { dsl_meta    = emptyNameEnv
                            , dsl_loc     = real_span
@@ -412,6 +417,9 @@ putSrcSpanDs (UnhelpfulSpan {}) thing_inside
   = thing_inside
 putSrcSpanDs (RealSrcSpan real_span) thing_inside
   = updLclEnv (\ env -> env {dsl_loc = real_span}) thing_inside
+
+getModRepDs :: DsM CoreExpr
+getModRepDs = ds_mod_rep <$> getGblEnv
 
 -- | Emit a warning for the current source location
 -- NB: Warns whether or not -Wxyz is set

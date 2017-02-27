@@ -403,7 +403,7 @@ tcRnSrcDecls explicit_mod_hdr decls
       ; new_ev_binds <- {-# SCC "simplifyTop" #-}
                         simplifyTop lie
 
-        -- Emit Typeable bindings
+        -- Emit Reflection/Typeable bindings
       ; tcg_env <- mkTypeableBinds
 
         -- Finalizers must run after constraints are simplified, or some types
@@ -590,7 +590,7 @@ tcRnHsBootDecls hsc_src decls
              <- tcTyClsInstDecls tycl_decls deriv_decls val_binds
         ; setGblEnv tcg_env     $ do {
 
-        -- Emit Typeable bindings
+        -- Emit Reflection/Typeable bindings
         ; tcg_env <- mkTypeableBinds
         ; setGblEnv tcg_env $ do {
 

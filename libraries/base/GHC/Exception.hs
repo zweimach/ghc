@@ -209,12 +209,12 @@ showCCSStack stk = "CallStack (from -prof):" : map ("  " ++) (reverse stk)
 --
 -- @since 4.9.0.0
 prettySrcLoc :: SrcLoc -> String
-prettySrcLoc SrcLoc {..}
+prettySrcLoc loc@SrcLoc {..}
   = foldr (++) ""
       [ srcLocFile, ":"
       , show srcLocStartLine, ":"
       , show srcLocStartCol, " in "
-      , srcLocPackage, ":", srcLocModule
+      , srcLocPackage loc, ":", srcLocModule loc
       ]
 
 -- | Pretty print a 'CallStack'.

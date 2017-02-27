@@ -62,6 +62,7 @@ import OrdList
 
 import Data.List
 import Data.IORef
+import Data.Maybe
 import Control.Monad( when )
 
 {-
@@ -106,7 +107,8 @@ deSugar hsc_env
                             tcg_insts        = insts,
                             tcg_fam_insts    = fam_insts,
                             tcg_hpc          = other_hpc_info,
-                            tcg_complete_matches = complete_matches
+                            tcg_complete_matches = complete_matches,
+                            tcg_tr_module    = mod_rep_id
                             })
 
   = do { let dflags = hsc_dflags hsc_env
@@ -208,6 +210,8 @@ deSugar hsc_env
                 mg_modBreaks    = modBreaks,
                 mg_vect_decls   = ds_vects,
                 mg_vect_info    = noVectInfo,
+                mg_mod_rep_id   = fromMaybe (pprPanic "Desugar" (text "No Module binding for" <+> ppr mod))
+                                  mod_rep_id,
                 mg_safe_haskell = safe_mode,
                 mg_trust_pkg    = imp_trust_own_pkg imports,
                 mg_complete_sigs = complete_matches

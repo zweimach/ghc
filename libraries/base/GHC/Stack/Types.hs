@@ -1,6 +1,7 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE ConstraintKinds   #-}
 {-# LANGUAGE ImplicitParams    #-}
+{-# LANGUAGE MagicHash         #-}
 {-# LANGUAGE KindSignatures    #-}
 {-# LANGUAGE PolyKinds         #-}
 {-# LANGUAGE RankNTypes        #-}
@@ -33,7 +34,7 @@ module GHC.Stack.Types (
     getCallStack, pushCallStack,
 
     -- * Source locations
-    SrcLoc(..)
+    SrcLoc(..), srcLocModule, srcLocPackage
   ) where
 
 {-
@@ -50,7 +51,8 @@ import cycle,
 -}
 
 import GHC.Classes (Eq)
-import GHC.Types (Char, Int)
+import GHC.CString (unpackCString#)
+import GHC.Types (Module(..), TrName(..), Char, Int)
 
 -- Make implicit dependency known to build system
 import GHC.Tuple ()
@@ -207,11 +209,24 @@ freezeCallStack stk = FreezeCallStack stk
 --
 -- @since 4.8.1.0
 data SrcLoc = SrcLoc
-  { srcLocPackage   :: [Char]
-  , srcLocModule    :: [Char]
+  { srcLocModule'   :: Module
   , srcLocFile      :: [Char]
   , srcLocStartLine :: Int
   , srcLocStartCol  :: Int
   , srcLocEndLine   :: Int
   , srcLocEndCol    :: Int
   } deriving Eq
+
+srcLocPackage :: SrcLoc -> [Char]
+srcLocPackage loc =
+    case srcLocModule' loc of
+      Module pkg _ -> trNameToString pkg
+
+srcLocModule :: SrcLoc -> [Char]
+srcLocModule loc =
+    case srcLocModule' loc of
+      Module _ mod -> trNameToString mod
+
+trNameToString :: TrName -> [Char]
+trNameToString (TrNameS s) = unpackCString# s
+trNameToString (TrNameD s) = s

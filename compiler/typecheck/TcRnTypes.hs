@@ -382,6 +382,9 @@ data DsGblEnv
         , ds_parr_bi :: PArrBuiltin             -- desugarar names for '-XParallelArrays'
         , ds_complete_matches :: CompleteMatchMap
            -- Additional complete pattern matches
+        , ds_mod_rep :: CoreExpr
+           -- An expression of type @GHC.Types.Module@ describing the current
+           -- module.
         }
 
 type CompleteMatchMap = UniqFM [CompleteMatch]
