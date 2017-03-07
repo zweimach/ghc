@@ -381,8 +381,9 @@ data DsGblEnv
         , ds_complete_matches :: CompleteMatchMap
            -- Additional complete pattern matches
         , ds_top_binds :: Maybe (IORef [CoreBind])
-          -- extra top-level bindings added by the desugarer, e.g. string literals and callstacks
-          -- see Note [Adding Top-Level Bindings in the Desugarer]
+          -- extra top-level bindings added by the desugarer, e.g. string
+          -- literals and callstacks see Note [Adding Top-Level Bindings in the
+          -- Desugarer]
         }
 
 -- Note [Adding Top-Level Bindings in the Desugarer]
@@ -421,10 +422,11 @@ data DsGblEnv
 --
 -- The function DsMonad.withTopBinds initializes the ds_top_binds field
 -- to a fresh IORef for the duration of the wrapped action, and returns
--- a pair of the action's result and any added top-level binders. But it
--- only does so if we're compiling with optimizations, otherwise we don't
--- gain anything by pre-emptively floating things and just slow down GHC.
--- (see T1969 for an extreme example)
+-- a pair of the action's result and any added top-level binders.
+--
+-- Unfortunately, this floating can be harmful to compiler performance in some
+-- cases, especially when compiling with -O0. For one example of this see
+-- #13390.
 
 instance ContainsModule DsGblEnv where
     extractModule = ds_mod

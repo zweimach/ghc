@@ -100,7 +100,7 @@ test('T1969',
              # 2014-06-29 303300692 (x86/Linux)
              # 2015-07-11 288699104 (x86/Linux, 64-bit machine) use +RTS -G1
              # 2016-04-06 344730660 (x86/Linux, 64-bit machine)
-           (wordsize(64), 695354904, 5)]),
+           (wordsize(64), 958977624, 5)]),
              # 2009-11-17 434845560 (amd64/Linux)
              # 2009-12-08 459776680 (amd64/Linux)
              # 2010-05-17 519377728 (amd64/Linux)
@@ -123,6 +123,7 @@ test('T1969',
              # 2015-10-28 756138176 (x86_64/Linux) inst-decl defaults go via typechecker (#12220)
              # 2017-02-17 831733376 (x86_64/Linux) Type-indexed Typeable
              # 2017-02-25 695354904 (x86_64/Linux) Early inlining patch
+             # 2017-03-07 958977624 (x86_64/Linux) Don't inline string literals, D1259
       only_ways(['normal']),
 
       extra_hc_opts('-dcore-lint -static'),
@@ -1011,11 +1012,12 @@ test('T13035',
 test('T13056',
      [ only_ways(['optasm']),
        compiler_stats_num_field('bytes allocated',
-         [(wordsize(64), 440548592, 5),
+         [(wordsize(64), 411413008, 5),
          # 2017-01-06    520166912 initial
          # 2017-01-31    546800240 Join points (#12988)
          # 2017-02-07    524611224 new SetLevels
          # 2017-02-14    440548592 Early inline patch: 16% improvement
+         # 2017-03-07    411413008 Don't inline string literals, D1259
          ]),
      ],
      compile,
