@@ -337,6 +337,14 @@ Library
         PipelineMonad
         DriverPipeline
         DynFlags
+        DynFlags.LogOutput
+        DynFlags.GeneralFlags
+        DynFlags.WarningFlags
+        DynFlags.DumpFlags
+        DynFlags.FlagSpec
+        DynFlags.Ways
+        DynFlags.Type
+        DynFlags.Parser
         ErrUtils
         Finder
         GHC

@@ -73,8 +73,7 @@ codeOutput dflags this_mod filenm location foreign_stubs foreign_files pkg_deps
                                        (text "CmmLint"<+>brackets (ppr this_mod))
                                        (const ()) $ do
                 { case cmmLint dflags cmm of
-                        Just err -> do { log_action dflags
-                                                   dflags
+                        Just err -> do { putLogMsg dflags
                                                    NoReason
                                                    SevDump
                                                    noSrcSpan

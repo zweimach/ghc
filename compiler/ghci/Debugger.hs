@@ -35,6 +35,7 @@ import PprTyThing
 import ErrUtils
 import MonadUtils
 import DynFlags
+import DynFlags.LogOutput
 import Exception
 
 import Control.Monad
@@ -173,9 +174,8 @@ showTerm term = do
                       -- XXX: this tries to disable logging of errors
                       -- does this still do what it is intended to do
                       -- with the changed error handling and logging?
-           let noop_log _ _ _ _ _ _ = return ()
-               expr = "show " ++ showPpr dflags bname
-           _ <- GHC.setSessionDynFlags dflags{log_action=noop_log}
+           let expr = "show " ++ showPpr dflags bname
+           _ <- GHC.setSessionDynFlags dflags{log_action=noopLogAction}
            fhv <- liftIO $ mkFinalizedHValue hsc_env =<< mkRemoteRef val
            txt_ <- withExtendedLinkEnv [(bname, fhv)]
                                        (GHC.compileExpr expr)

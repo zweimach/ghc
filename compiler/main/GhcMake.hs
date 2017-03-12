@@ -36,6 +36,7 @@ import qualified Linker         ( unload )
 import DriverPhases
 import DriverPipeline
 import DynFlags
+import DynFlags.LogOutput
 import ErrUtils
 import Finder
 import GhcMonad
@@ -958,8 +959,9 @@ parUpsweep n_jobs mHscMessage old_hpt stable_mods cleanup sccs = do
     -- The log_action callback that is used to synchronize messages from a
     -- worker thread.
     parLogAction :: LogQueue -> LogAction
-    parLogAction log_queue _dflags !reason !severity !srcSpan !style !msg = do
-        writeLogQueue log_queue (Just (reason,severity,srcSpan,style,msg))
+    parLogAction log_queue =
+        LogAction $ \_dflags !reason !severity !srcSpan !style !msg ->
+                      writeLogQueue log_queue (Just (reason,severity,srcSpan,style,msg))
 
     -- Print each message from the log_queue using the log_action from the
     -- session's DynFlags.

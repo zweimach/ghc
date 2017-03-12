@@ -1,7 +1,15 @@
 -- | Warning flags
-module WarningFlags
-    ( WarningFlag(..), WarnReason(..)
-    ) where
+module DynFlags.WarningFlags where
+
+import CmdLineParser
+import DynFlags.Type
+import DynFlags.Parser
+import DynFlags.GeneralFlags
+
+import Control.Monad
+import Data.Maybe
+import Data.List
+import Data.Ord (comparing)
 
 data WarningFlag =
 -- See Note [Updating flag description in the User's Guide]
@@ -316,3 +324,31 @@ unusedBindsFlags = [ Opt_WarnUnusedTopBinds
                    , Opt_WarnUnusedLocalBinds
                    , Opt_WarnUnusedPatternBinds
                    ]
+
+setWarnSafe :: Bool -> DynP ()
+setWarnSafe True  = getCurLoc >>= \l -> upd (\d -> d { warnSafeOnLoc = l })
+setWarnSafe False = return ()
+
+setWarnUnsafe :: Bool -> DynP ()
+setWarnUnsafe True  = getCurLoc >>= \l -> upd (\d -> d { warnUnsafeOnLoc = l })
+setWarnUnsafe False = return ()
+
+setWarningFlag, unSetWarningFlag :: WarningFlag -> DynP ()
+setWarningFlag   f = upd (\dfs -> wopt_set dfs f)
+unSetWarningFlag f = upd (\dfs -> wopt_unset dfs f)
+
+setFatalWarningFlag, unSetFatalWarningFlag :: WarningFlag -> DynP ()
+setFatalWarningFlag   f = upd (\dfs -> wopt_set_fatal dfs f)
+unSetFatalWarningFlag f = upd (\dfs -> wopt_unset_fatal dfs f)
+
+warningReasonMsg :: DynFlags -> WarnReason -> Maybe String
+warningReasonMsg _dflags NoReason = Nothing
+warningReasonMsg dflags (Reason flag) = toName <$> flagSpecOf flag
+  where
+    toName spec = "-W" ++ flagSpecName spec ++ flagGrp
+    flagGrp
+      | gopt Opt_ShowWarnGroups dflags =
+            case smallestGroups flag of
+              [] -> ""
+              groups -> " (in " ++ intercalate ", " (map ("-W"++) groups) ++ ")"
+      | otherwise = ""

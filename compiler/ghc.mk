@@ -464,6 +464,13 @@ compiler_stage2_dll0_MODULES = \
 	Digraph \
 	DriverPhases \
 	DynFlags \
+	DynFlags.DumpFlags \
+	DynFlags.GeneralFlags \
+	DynFlags.LogOutput \
+	DynFlags.Parser \
+	DynFlags.Type \
+	DynFlags.WarningFlags \
+	DynFlags.Ways \
 	Encoding \
 	EnumSet \
 	ErrUtils \
@@ -557,8 +564,7 @@ compiler_stage2_dll0_MODULES = \
 	Util \
 	Var \
 	VarEnv \
-	VarSet \
-	WarningFlags
+	VarSet
 
 ifeq "$(GhcWithInterpreter)" "YES"
 # These files are reacheable from DynFlags

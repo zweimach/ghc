@@ -1,20 +1,17 @@
 
-module DynFlags where
+module DynFlags
+    ( module DynFlags.Type
+    , module DynFlags
+    , DumpFlag
+    ) where
 
 import Platform
-
-data DynFlags
-data OverridingBool
-data DumpFlag
+import {-# SOURCE #-} DynFlags.Type
+import {-# SOURCE #-} DynFlags.DumpFlags
 
 targetPlatform       :: DynFlags -> Platform
-pprUserLength        :: DynFlags -> Int
-pprCols              :: DynFlags -> Int
-unsafeGlobalDynFlags :: DynFlags
-useUnicode           :: DynFlags -> Bool
-useUnicodeSyntax     :: DynFlags -> Bool
-useColor             :: DynFlags -> OverridingBool
-canUseColor          :: DynFlags -> Bool
-overrideWith         :: Bool -> OverridingBool -> Bool
 hasPprDebug          :: DynFlags -> Bool
 hasNoDebugOutput     :: DynFlags -> Bool
+useUnicodeSyntax     :: DynFlags -> Bool
+
+unsafeGlobalDynFlags :: DynFlags
