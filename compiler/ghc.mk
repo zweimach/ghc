@@ -557,7 +557,8 @@ compiler_stage2_dll0_MODULES = \
 	Util \
 	Var \
 	VarEnv \
-	VarSet
+	VarSet \
+	WarningFlags
 
 ifeq "$(GhcWithInterpreter)" "YES"
 # These files are reacheable from DynFlags
