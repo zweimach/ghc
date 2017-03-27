@@ -1211,7 +1211,7 @@ ty_co_match :: MatchEnv   -- ^ ambient helpful info
             -> Coercion   -- ^ :: kind of R type of substed ty ~N R kind of co
             -> Maybe LiftCoEnv
 ty_co_match menv subst ty co lkco rkco
-  | Just ty' <- coreView ty = ty_co_match menv subst ty' co lkco rkco
+  | Just ty' <- tcView ty = ty_co_match menv subst ty' co lkco rkco
 
   -- handle Refl case:
   | tyCoVarsOfType ty `isNotInDomainOf` subst
