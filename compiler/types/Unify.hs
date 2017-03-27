@@ -792,9 +792,9 @@ unify_ty ty1 (TyVarTy tv2) kco
          else surelyApart }  -- non-tv on left; tv on right: can't match.
 
 unify_ty ty1 ty2 _kco
-  | Just (tc1, tys1) <- splitTyConApp_maybe ty1
-  , Just (tc2, tys2) <- splitTyConApp_maybe ty2
   = if tc1 == tc2 || (isStarKind ty1 && isStarKind ty2)
+  | Just (tc1, tys1) <- tcSplitTyConApp_maybe ty1
+  , Just (tc2, tys2) <- tcSplitTyConApp_maybe ty2
     then if isInjectiveTyCon tc1 Nominal
          then unify_tys tys1 tys2
          else do { let inj | isTypeFamilyTyCon tc1
