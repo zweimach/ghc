@@ -1,5 +1,7 @@
 {-# LANGUAGE AllowAmbiguousTypes, TypeFamilies, TypeOperators #-}
 
+module T11715 where
+
 import Data.Kind
 import Data.Typeable
 
