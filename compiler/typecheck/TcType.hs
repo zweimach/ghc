@@ -1487,7 +1487,7 @@ tcSplitTyConApp ty = case tcSplitTyConApp_maybe ty of
 -- If you only need the 'TyCon', consider using 'tcTyConAppTyCon_maybe'.
 tcSplitTyConApp_maybe :: HasCallStack => Type -> Maybe (TyCon, [Type])
 tcSplitTyConApp_maybe ty | Just ty' <- tcView ty = tcSplitTyConApp_maybe ty'
-tcSplitTyConApp_maybe ty                           = tcRepSplitTyConApp_maybe ty
+tcSplitTyConApp_maybe ty                         = tcRepSplitTyConApp_maybe ty
 
 -- | Like 'tcSplitTyConApp_maybe' but doesn't look through type synonyms.
 tcRepSplitTyConApp_maybe :: HasCallStack => Type -> Maybe (TyCon, [Type])
