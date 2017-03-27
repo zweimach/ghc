@@ -778,8 +778,9 @@ unify_ty :: Type -> Type  -- Types to be unified and a co
 -- Respects newtypes, PredTypes
 
 unify_ty ty1 ty2 kco
-  | Just ty1' <- coreView ty1 = unify_ty ty1' ty2 kco
-  | Just ty2' <- coreView ty2 = unify_ty ty1 ty2' kco
+    -- TODO: More commentary needed here
+  | Just ty1' <- tcView ty1   = unify_ty ty1' ty2 kco
+  | Just ty2' <- tcView ty2   = unify_ty ty1 ty2' kco
   | CastTy ty1' co <- ty1     = unify_ty ty1' ty2 (co `mkTransCo` kco)
   | CastTy ty2' co <- ty2     = unify_ty ty1 ty2' (kco `mkTransCo` mkSymCo co)
 
@@ -1210,7 +1211,7 @@ ty_co_match :: MatchEnv   -- ^ ambient helpful info
             -> Coercion   -- ^ :: kind of R type of substed ty ~N R kind of co
             -> Maybe LiftCoEnv
 ty_co_match menv subst ty co lkco rkco
-  | Just ty' <- coreViewOneStarKind ty = ty_co_match menv subst ty' co lkco rkco
+  | Just ty' <- coreView ty = ty_co_match menv subst ty' co lkco rkco
 
   -- handle Refl case:
   | tyCoVarsOfType ty `isNotInDomainOf` subst
