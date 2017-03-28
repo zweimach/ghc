@@ -64,7 +64,7 @@ import {-# SOURCE #-} MkId( DataConBoxer )
 import Type
 import ForeignCall ( CType )
 import Coercion
-import Unify
+--import Unify
 import TyCon
 import FieldLabel
 import Class
