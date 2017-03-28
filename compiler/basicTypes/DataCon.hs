@@ -1230,11 +1230,13 @@ dataConCannotMatch tys con
   where
     (_, inst_theta, _) = dataConInstSig con tys
 
-    -- TODO: could gather equalities from superclasses too
     predEqs pred = case classifyPredType pred of
                      EqPred NomEq ty1 ty2       -> [(ty1, ty2)]
                      ClassPred eq [_, ty1, ty2]
                        | eq `hasKey` eqTyConKey -> [(ty1, ty2)]
+                     ClassPred cls tys          ->
+                         let subst = zipTvSubst (classTyVars cls) tys
+                         in foldMap (predEqs . substTheta subst) (classSCTheta cls)
                      _                          -> []
 
 {-
