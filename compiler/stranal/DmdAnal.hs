@@ -148,12 +148,12 @@ a lazy demand for each free variable.
 
 -- | Analyse an 'Unfolding'. See Note [Demand analysing unfoldings of let-bound
 -- binders].
-dmdAnalUnfolding :: Unfolding -> DmdEnv
+dmdAnalUnfolding :: Unfolding -> DmdType
 dmdAnalUnfolding unf
   | Just tmpl <- maybeUnfoldingTemplate unf
-  = mkVarEnv [ (v, topDmd) | v <- exprFreeVarsList tmpl ]
+  = mkDmdType (mkVarEnv [ (v, topDmd) | v <- exprFreeVarsList tmpl ]) [] topRes
   | otherwise
-  = emptyDmdEnv
+  = nopDmdType
 
 -- Main Demand Analsysis machinery
 dmdAnal, dmdAnal' :: AnalEnv
@@ -328,7 +328,7 @@ dmdAnal' env dmd (Let (NonRec id rhs) body)
     body_ty2             = addLazyFVs body_ty1 lazy_fv -- see Note [Lazy and unleasheable free variables]
     -- See Note [Demand analysing unfoldings of let-bound binders]
     unf_dmd              = dmdAnalUnfolding (idUnfolding id)
-    final_ty             = body_ty2 `bothDmdType` mkBothDmdArg unf_dmd
+    final_ty             = body_ty2 `lubDmdType` unf_dmd
 
         -- If the actual demand is better than the vanilla call
         -- demand, you might think that we might do better to re-analyse
@@ -580,7 +580,7 @@ dmdFix top_lvl env orig_pairs
           where
             (lazy_fv1, id', rhs') = dmdAnalRhsLetDown top_lvl (Just bndrs) env id rhs
             -- See Note [Demand analysing unfoldings of let-bound binders]
-            unf_dmd               = dmdAnalUnfolding (idUnfolding id)
+            DmdType unf_dmd _ _   = dmdAnalUnfolding (idUnfolding id)
             lazy_fv'              = lazy_fv `plus` lazy_fv1 `plus` unf_dmd
             plus                  = plusVarEnv_C bothDmd
             env'                  = extendAnalEnv top_lvl env id (idStrictness id')
