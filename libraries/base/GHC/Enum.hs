@@ -306,17 +306,17 @@ instance  Enum Char  where
     fromEnum = ord
 
     {-# INLINE enumFrom #-}
-    enumFrom (C# x) = eftChar (ord# x) 0x10FFFF#
+    enumFrom x = eftChar x maxBound
         -- Blarg: technically I guess enumFrom isn't strict!
 
     {-# INLINE enumFromTo #-}
-    enumFromTo (C# x) (C# y) = eftChar (ord# x) (ord# y)
+    enumFromTo x y = eftChar x y
 
     {-# INLINE enumFromThen #-}
-    enumFromThen (C# x1) (C# x2) = efdChar (ord# x1) (ord# x2)
+    enumFromThen x y = efdChar x y
 
     {-# INLINE enumFromThenTo #-}
-    enumFromThenTo (C# x1) (C# x2) (C# y) = efdtChar (ord# x1) (ord# x2) (ord# y)
+    enumFromThenTo x1 x2 y = efdtChar x1 x2 y
 
 -- See Note [How the Enum rules work]
 {-# RULES
@@ -332,50 +332,58 @@ instance  Enum Char  where
 -- We can do better than for Ints because we don't
 -- have hassles about arithmetic overflow at maxBound
 {-# INLINE [0] eftCharFB #-} -- See Note [Inline FB functions] in GHC.List
-eftCharFB :: (Char -> a -> a) -> a -> Int# -> Int# -> a
-eftCharFB c n x0 y = go x0
-                 where
-                    go x | isTrue# (x ># y) = n
-                         | otherwise        = C# (chr# x) `c` go (x +# 1#)
+eftCharFB :: (Char -> a -> a) -> a -> Char -> Char -> a
+eftCharFB c n (C# x1) (C# y) = go (ord# x1)
+  where
+    !y' = ord# y
+
+    go x
+      | isTrue# (x ># y') = n
+      | otherwise         = C# (chr# x) `c` go (x +# 1#)
 
 {-# NOINLINE [1] eftChar #-}
-eftChar :: Int# -> Int# -> String
-eftChar x y | isTrue# (x ># y ) = []
-            | otherwise         = C# (chr# x) : eftChar (x +# 1#) y
+eftChar :: Char -> Char -> String
+eftChar (C# x1) (C# y) = go (ord# x1)
+  where
+    !y' = ord# y
+
+    go x
+      | isTrue# (x ># y') = []
+      | otherwise         = C# (chr# x) : go (x +# 1#)
 
 
 -- For enumFromThenTo we give up on inlining
 {-# INLINE [0] efdCharFB #-} -- See Note [Inline FB functions] in GHC.List
-efdCharFB :: (Char -> a -> a) -> a -> Int# -> Int# -> a
-efdCharFB c n x1 x2
-  | isTrue# (delta >=# 0#) = go_up_char_fb c n x1 delta 0x10FFFF#
-  | otherwise              = go_dn_char_fb c n x1 delta 0#
+efdCharFB :: (Char -> a -> a) -> a -> Char -> Char -> a
+efdCharFB c n (C# x1) (C# x2)
+  | isTrue# (delta >=# 0#) = go_up_char_fb c n (ord# x1) delta 0x10FFFF#
+  | otherwise              = go_dn_char_fb c n (ord# x1) delta 0#
   where
-    !delta = x2 -# x1
+    !delta = ord# x2 -# ord# x1
 
 {-# NOINLINE [1] efdChar #-}
-efdChar :: Int# -> Int# -> String
-efdChar x1 x2
-  | isTrue# (delta >=# 0#) = go_up_char_list x1 delta 0x10FFFF#
-  | otherwise              = go_dn_char_list x1 delta 0#
+efdChar :: Char -> Char -> String
+efdChar (C# x1) (C# x2)
+  | isTrue# (delta >=# 0#) = go_up_char_list (ord# x1) delta 0x10FFFF#
+  | otherwise              = go_dn_char_list (ord# x1) delta 0#
   where
-    !delta = x2 -# x1
+    !delta = ord# x2 -# ord# x1
 
 {-# INLINE [0] efdtCharFB #-} -- See Note [Inline FB functions] in GHC.List
-efdtCharFB :: (Char -> a -> a) -> a -> Int# -> Int# -> Int# -> a
-efdtCharFB c n x1 x2 lim
-  | isTrue# (delta >=# 0#) = go_up_char_fb c n x1 delta lim
-  | otherwise              = go_dn_char_fb c n x1 delta lim
+efdtCharFB :: (Char -> a -> a) -> a -> Char -> Char -> Char -> a
+efdtCharFB c n (C# x1) (C# x2) (C# lim)
+  | isTrue# (delta >=# 0#) = go_up_char_fb c n (ord# x1) delta (ord# lim)
+  | otherwise              = go_dn_char_fb c n (ord# x1) delta (ord# lim)
   where
-    !delta = x2 -# x1
+    !delta = ord# x2 -# ord# x1
 
 {-# NOINLINE [1] efdtChar #-}
-efdtChar :: Int# -> Int# -> Int# -> String
-efdtChar x1 x2 lim
-  | isTrue# (delta >=# 0#) = go_up_char_list x1 delta lim
-  | otherwise              = go_dn_char_list x1 delta lim
+efdtChar :: Char -> Char -> Char -> String
+efdtChar (C# x1) (C# x2) (C# lim)
+  | isTrue# (delta >=# 0#) = go_up_char_list (ord# x1) delta (ord# lim)
+  | otherwise              = go_dn_char_list (ord# x1) delta (ord# lim)
   where
-    !delta = x2 -# x1
+    !delta = ord# x2 -# ord# x1
 
 go_up_char_fb :: (Char -> a -> a) -> a -> Int# -> Int# -> Int# -> a
 go_up_char_fb c n x0 delta lim
