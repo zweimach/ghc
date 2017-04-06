@@ -62,7 +62,6 @@ import Outputable
 import Panic
 import SrcLoc
 import DynFlags
-import DynFlags.LogOutput
 import FastString (unpackFS)
 import StringBuffer (hGetStringBuffer, len, lexemeToString)
 import Json

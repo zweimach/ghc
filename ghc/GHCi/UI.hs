@@ -42,6 +42,7 @@ import GHCi
 import GHCi.RemoteTypes
 import GHCi.BreakArray
 import DynFlags
+import DynFlags.LogOutput
 import ErrUtils
 import GhcMonad ( modifySession )
 import qualified GHC
@@ -491,9 +492,9 @@ resetLastErrorLocations = do
     st <- getGHCiState
     liftIO $ writeIORef (lastErrorLocations st) []
 
-ghciLogAction :: IORef [(FastString, Int)] ->  LogAction
-ghciLogAction lastErrLocations dflags flag severity srcSpan style msg = do
-    defaultLogAction dflags flag severity srcSpan style msg
+ghciLogAction :: IORef [(FastString, Int)] -> LogAction
+ghciLogAction lastErrLocations = LogAction $ \dflags flag severity srcSpan style msg -> do
+    runLogAction defaultLogAction dflags flag severity srcSpan style msg
     case severity of
         SevError -> case srcSpan of
             RealSrcSpan rsp -> modifyIORef lastErrLocations
