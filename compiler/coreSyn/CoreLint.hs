@@ -24,7 +24,7 @@ module CoreLint (
 import CoreSyn
 import CoreFVs
 import CoreUtils
-import CoreStats   ( coreBindsStats )
+import CoreStats   ( coreBindsStats, exprStats )
 import CoreMonad
 import Bag
 import Literal
@@ -216,13 +216,19 @@ endPassIO :: HscEnv -> PrintUnqualified
 endPassIO hsc_env print_unqual pass binds rules
   = do { dumpPassResult dflags print_unqual mb_flag
                         (ppr pass) (pprPassDetails pass) binds rules
+       ; when (dopt Opt_D_core2core_summary dflags)
+             $ Err.dumpSDoc dflags print_unqual Opt_D_core2core_summary (showSDoc dflags $ pprPassDetails pass) bind_sizes
        ; lintPassResult hsc_env pass binds }
   where
     dflags  = hsc_dflags hsc_env
     mb_flag = case coreDumpFlag pass of
                 Just flag | dopt flag dflags                    -> Just flag
                           | dopt Opt_D_verbose_core2core dflags -> Just flag
+                          | dopt Opt_D_core2core_summary dflags -> Just flag
                 _ -> Nothing
+    bind_sizes = vcat $ map show_bind (flattenBinds binds)
+      where show_bind (bndr, rhs) =
+                hang (ppr (idName bndr)) 4 (dcolon <+> ppr (idType bndr) $$ ppr (exprStats rhs))
 
 dumpIfSet :: DynFlags -> Bool -> CoreToDo -> SDoc -> SDoc -> IO ()
 dumpIfSet dflags dump_me pass extra_info doc

@@ -387,6 +387,7 @@ data DumpFlag
    | Opt_D_dump_mod_map
    | Opt_D_dump_view_pattern_commoning
    | Opt_D_verbose_core2core
+   | Opt_D_core2core_summary
    | Opt_D_dump_debug
    | Opt_D_dump_json
    | Opt_D_ppr_debug
@@ -1969,6 +1970,7 @@ dopt f dflags = (f `EnumSet.member` dumpFlags dflags)
           enableIfVerbose Opt_D_dump_shape                  = False
           enableIfVerbose Opt_D_dump_rn_stats               = False
           enableIfVerbose Opt_D_dump_hi_diffs               = False
+          enableIfVerbose Opt_D_core2core_summary           = False
           enableIfVerbose Opt_D_verbose_core2core           = False
           enableIfVerbose Opt_D_verbose_stg2stg             = False
           enableIfVerbose Opt_D_dump_splices                = False
@@ -3018,8 +3020,10 @@ dynamic_flags_deps = [
         (setDumpFlag Opt_D_dump_BCOs)
   , make_ord_flag defGhcFlag "dsource-stats"
         (setDumpFlag Opt_D_source_stats)
+  , make_ord_flag defGhcFlag "dcore2core-summary"
+        (NoArg $ setDumpFlag' Opt_D_core2core_summary)
   , make_ord_flag defGhcFlag "dverbose-core2core"
-        (NoArg $ setVerbosity (Just 2) >> setVerboseCore2Core)
+        (NoArg $ setVerbosity (Just 2) >> setDumpFlag' Opt_D_verbose_core2core)
   , make_ord_flag defGhcFlag "dverbose-stg2stg"
         (setDumpFlag Opt_D_verbose_stg2stg)
   , make_ord_flag defGhcFlag "ddump-hi"
@@ -4541,9 +4545,6 @@ forceRecompile = do dfs <- liftEwM getCmdLineState
         where
           force_recomp dfs = isOneShot (ghcMode dfs)
 
-
-setVerboseCore2Core :: DynP ()
-setVerboseCore2Core = setDumpFlag' Opt_D_verbose_core2core
 
 setVerbosity :: Maybe Int -> DynP ()
 setVerbosity mb_n = upd (\dfs -> dfs{ verbosity = mb_n `orElse` 3 })
