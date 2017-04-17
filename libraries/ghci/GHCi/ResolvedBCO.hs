@@ -17,15 +17,15 @@ import GHCi.BinaryArray
 -- -----------------------------------------------------------------------------
 -- ResolvedBCO
 
--- A A ResolvedBCO is one in which all the Name references have been
--- resolved to actual addresses or RemoteHValues.
+-- | A 'ResolvedBCO' is one in which all the 'Name' references have been
+-- resolved to actual addresses or 'RemoteHValues'.
 --
 -- Note, all arrays are zero-indexed (we assume this when
 -- serializing/deserializing)
 data ResolvedBCO
    = ResolvedBCO {
         resolvedBCOArity  :: {-# UNPACK #-} !Int,
-        resolvedBCOInstrs :: UArray Int Word,           -- insns
+        resolvedBCOInstrs :: UArray Int Word16,         -- insns
         resolvedBCOBitmap :: UArray Int Word,           -- bitmap
         resolvedBCOLits   :: UArray Int Word,           -- non-ptrs
         resolvedBCOPtrs   :: (SizedSeq ResolvedBCOPtr)  -- ptrs
