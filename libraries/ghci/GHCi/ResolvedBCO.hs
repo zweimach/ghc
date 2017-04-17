@@ -1,5 +1,5 @@
 {-# LANGUAGE RecordWildCards, DeriveGeneric, GeneralizedNewtypeDeriving,
-    BangPatterns #-}
+    BangPatterns, MagicHash, UnboxedTuples #-}
 module GHCi.ResolvedBCO
   ( ResolvedBCO(..)
   , ResolvedBCOPtr(..)
@@ -9,11 +9,10 @@ import SizedSeq
 import GHCi.RemoteTypes
 import GHCi.BreakArray
 
-import Control.Monad.ST
 import Data.Array.Unboxed
-import Data.Array.Base
 import Data.Binary
 import GHC.Generics
+import GHCi.BinaryArray
 
 -- -----------------------------------------------------------------------------
 -- ResolvedBCO
@@ -41,38 +40,6 @@ instance Binary ResolvedBCO where
     putArray resolvedBCOLits
     put resolvedBCOPtrs
   get = ResolvedBCO <$> get <*> getArray <*> getArray <*> getArray <*> get
-
--- Specialized versions of the binary get/put for UArray Int Word.
--- This saves a bit of time and allocation over using the default
--- get/put, because we get specialisd code and also avoid serializing
--- the bounds.
-putArray :: UArray Int Word -> Put
-putArray a@(UArray _ _ n _) = do
-  put n
-  mapM_ put (elems a)
-
-getArray :: Get (UArray Int Word)
-getArray = do
-  n  <- get
-  xs <- gets n []
-  return $! mkArray n xs
- where
-  gets 0 xs = return xs
-  gets n xs = do
-    x <- get
-    gets (n-1) (x:xs)
-
-  mkArray :: Int -> [Word] -> UArray Int Word
-  mkArray n0 xs0 = runST $ do
-    !marr <- newArray (0,n0-1) 0
-    let go 0 _ = return ()
-        go _ [] = error "mkArray"
-        go n (x:xs) = do
-          let n' = n-1
-          unsafeWrite marr n' x
-          go n' xs
-    go n0 xs0
-    unsafeFreezeSTUArray marr
 
 data ResolvedBCOPtr
   = ResolvedBCORef {-# UNPACK #-} !Int
