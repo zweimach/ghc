@@ -23,7 +23,8 @@ import Type             ( tyConAppArgs )
 import CoreSyn
 import Outputable
 import BasicTypes       ( TopLevelFlag(..), isTopLevel
-                        , isAlwaysActive, isAnyInlinePragma )
+                        , isAnyInlinePragma
+                        , Activation(..) )
 import TrieMap
 import Util             ( filterOut )
 import Data.List        ( mapAccumL )
@@ -348,7 +349,8 @@ cse_bind toplevel env (in_id, in_rhs) out_id
   | otherwise
   = (env', (out_id', out_rhs))
   where
-    out_rhs         = tryForCSE env in_rhs
+    activ           = idInlineActivation in_id
+    out_rhs         = tryForCSE env in_rhs (Just activ)
     (env', out_id') = addBinding env in_id out_id out_rhs
 
 addBinding :: CSEnv                      -- Includes InId->OutId cloning
@@ -358,10 +360,11 @@ addBinding :: CSEnv                      -- Includes InId->OutId cloning
 -- Extend the CSE env with a mapping [rhs -> out-id]
 -- unless we can instead just substitute [in-id -> rhs]
 addBinding env in_id out_id rhs'
-  | noCSE in_id = (env,                              out_id)
-  | use_subst   = (extendCSSubst env in_id rhs',     out_id)
-  | otherwise   = (extendCSEnv env rhs' id_expr', zapped_id)
+  | noCSE in_id = (env,                                 out_id)
+  | use_subst   = (extendCSSubst env in_id rhs',        out_id)
+  | otherwise   = (extendCSEnv env rhs' id_expr' activ, zapped_id)
   where
+    activ     = idInlineActivation out_id
     id_expr'  = varToCoreExpr out_id
     zapped_id = zapIdUsageInfo out_id
        -- Putting the Id into the cs_map makes it possible that
@@ -381,9 +384,7 @@ addBinding env in_id out_id rhs'
                    _      -> False
 
 noCSE :: InId -> Bool
-noCSE id = not (isAlwaysActive (idInlineActivation id))
-             -- See Note [CSE for INLINE and NOINLINE]
-         || isAnyInlinePragma (idInlinePragma id)
+noCSE id = isAnyInlinePragma (idInlinePragma id)
              -- See Note [CSE for stable unfoldings]
          || isJoinId id
              -- See Note [CSE for join points?]
@@ -423,9 +424,10 @@ The net effect is that for the y-binding we want to
 This is done by cse_bind.  I got it wrong the first time (Trac #13367).
 -}
 
-tryForCSE :: CSEnv -> InExpr -> OutExpr
-tryForCSE env expr
-  | Just e <- lookupCSEnv env expr'' = mkTicks ticks e
+tryForCSE :: CSEnv -> InExpr -> Maybe Activation -> OutExpr
+tryForCSE env expr activ
+  | Just (e, activ') <- lookupCSEnv env expr''
+  , activ == Just activ'             = mkTicks ticks e
   | otherwise                        = expr'
     -- The varToCoreExpr is needed if we have
     --   case e of xco { ...case e of yco { ... } ... }
@@ -448,7 +450,7 @@ cseExpr env (Type t)              = Type (substTy (csEnvSubst env) t)
 cseExpr env (Coercion c)          = Coercion (substCo (csEnvSubst env) c)
 cseExpr _   (Lit lit)             = Lit lit
 cseExpr env (Var v)               = lookupSubst env v
-cseExpr env (App f a)             = App (cseExpr env f) (tryForCSE env a)
+cseExpr env (App f a)             = App (cseExpr env f) (tryForCSE env a Nothing)
 cseExpr env (Tick t e)            = Tick t (cseExpr env e)
 cseExpr env (Cast e co)           = Cast (cseExpr env e) (substCo (csEnvSubst env) co)
 cseExpr env (Lam b e)             = let (env', b') = addBinder env b
@@ -463,7 +465,7 @@ cseCase env scrut bndr ty alts
     combineAlts alt_env (map cse_alt alts)
   where
     ty' = substTy (csEnvSubst env) ty
-    scrut1 = tryForCSE env scrut
+    scrut1 = tryForCSE env scrut Nothing
 
     bndr1 = zapIdOccInfo bndr
       -- Zapping the OccInfo is needed because the extendCSEnv
@@ -488,14 +490,14 @@ cseCase env scrut bndr ty alts
                 --      case x of { True -> ....True.... }
                 -- Don't replace True by x!
                 -- Hence the 'null args', which also deal with literals and DEFAULT
-        = (DataAlt con, args', tryForCSE new_env rhs)
+        = (DataAlt con, args', tryForCSE new_env rhs Nothing)
         where
           (env', args') = addBinders alt_env args
-          new_env       = extendCSEnv env' con_expr con_target
+          new_env       = extendCSEnv env' con_expr con_target AlwaysActive
           con_expr      = mkAltExpr (DataAlt con) args' arg_tys
 
     cse_alt (con, args, rhs)
-        = (con, args', tryForCSE env' rhs)
+        = (con, args', tryForCSE env' rhs Nothing)
         where
           (env', args') = addBinders alt_env args
 
@@ -547,9 +549,11 @@ data CSEnv
             -- The substitution variables to
             -- /trivial/ OutExprs, not arbitrary expressions
 
-       , cs_map   :: CoreMap OutExpr   -- The reverse mapping
+       , cs_map   :: CoreMap (OutExpr, Activation)   -- The reverse mapping
             -- Maps a OutExpr to a /trivial/ OutExpr
             -- The key of cs_map is stripped of all Ticks
+            -- The Activation is the inline activation of the OutExpr; see
+            -- Note [CSE for INLINE and NOINLINE].
 
        , cs_rec_map :: CoreMap OutExpr
             -- See Note [CSE for recursive bindings]
@@ -559,13 +563,13 @@ emptyCSEnv :: CSEnv
 emptyCSEnv = CS { cs_map = emptyCoreMap, cs_rec_map = emptyCoreMap
                 , cs_subst = emptySubst }
 
-lookupCSEnv :: CSEnv -> OutExpr -> Maybe OutExpr
+lookupCSEnv :: CSEnv -> OutExpr -> Maybe (OutExpr, Activation)
 lookupCSEnv (CS { cs_map = csmap }) expr
   = lookupCoreMap csmap expr
 
-extendCSEnv :: CSEnv -> OutExpr -> OutExpr -> CSEnv
-extendCSEnv cse expr triv_expr
-  = cse { cs_map = extendCoreMap (cs_map cse) sexpr triv_expr }
+extendCSEnv :: CSEnv -> OutExpr -> OutExpr -> Activation -> CSEnv
+extendCSEnv cse expr triv_expr activ
+  = cse { cs_map = extendCoreMap (cs_map cse) sexpr (triv_expr, activ) }
   where
     sexpr = stripTicksE tickishFloatable expr
 
