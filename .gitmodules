@@ -111,9 +111,9 @@
 	path = utils/hsc2hs
 	url = ../hsc2hs.git
 	ignore = none
-[submodule "libffi-tarballs"]
-	path = libffi-tarballs
-	url = ../libffi-tarballs.git
+[submodule "libffi/src"]
+	path = libffi/src
+	url = ../libffi.git
 	ignore = none
 [submodule "gmp-tarballs"]
 	path = libraries/integer-gmp/gmp/gmp-tarballs

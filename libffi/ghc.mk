@@ -51,12 +51,18 @@ $(libffi_STAMP_CONFIGURE): $(TOUCH_DEP)
 	$(call removeFiles,$(libffi_STAMP_STATIC_SHARED_BUILD))
 	$(call removeFiles,$(libffi_STAMP_STATIC_SHARED_INSTALL))
 	$(call removeTrees,$(LIBFFI_DIR) libffi/build)
-	cat libffi-tarballs/libffi*.tar.gz | $(GZIP_CMD) -d | { cd libffi && $(TAR_CMD) -xf - ; }
-	mv libffi/libffi-* libffi/build
+	$(CP) -R libffi/src libffi/build
 
-# update config.guess/config.sub
+	# update config.guess/config.sub
 	$(CP) "$(TOP)/config.guess" libffi/build/config.guess
 	$(CP) "$(TOP)/config.sub"   libffi/build/config.sub
+	$(CP) "libffi/ltdl.m4"      libffi/build/m4
+	# fixup apple-darwin to apple-, so that -apple-ios is
+	# understood as well, it's also missing the LT_WITH_LTDL
+	# directive.
+	(cd libffi/build && patch -p1 < ../configure.ac.diff)
+	# run autoreconf
+	(cd libffi/build && autoreconf -v -i)
 
 # We have to fake a non-working ln for configure, so that the fallback
 # option (cp -p) gets used instead.  Otherwise the libffi build system
@@ -123,7 +129,7 @@ $(libffi_STATIC_LIB): $(libffi_STAMP_INSTALL)
 	@test -f $@ || { echo "$< exists, but $@ does not."; echo "Suggest removing $<."; exit 1; }
 
 $(libffi_HEADERS): $(libffi_STAMP_INSTALL) | $$(dir $$@)/.
-	cp -f libffi/build/inst/lib/libffi-*/include/$(notdir $@) $@
+	cp -f libffi/build/inst/include/$(notdir $@) $@
 
 $(eval $(call clean-target,libffi,, \
     libffi/build $(wildcard libffi/stamp.ffi.*) libffi/dist-install))

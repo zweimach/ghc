@@ -1,0 +1,30 @@
+diff --git a/configure.ac b/configure.ac
+index e49a788..e728112 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -17,6 +17,9 @@ esac
+ AX_ENABLE_BUILDDIR
+ 
+ AM_INIT_AUTOMAKE
++LT_INIT
++LTDL_INIT
++LT_WITH_LTDL
+ 
+ # The same as in boehm-gc and libstdc++. Have to borrow it from there.
+ # We must force CC to /not/ be precious variables; otherwise
+@@ -191,13 +194,13 @@ fi
+ 
+ FFI_EXEC_TRAMPOLINE_TABLE=0
+ case "$target" in
+-     *arm*-apple-darwin* | aarch64-apple-darwin*)
++     *arm*-apple-* | aarch64-apple-*)
+        FFI_EXEC_TRAMPOLINE_TABLE=1
+        AC_DEFINE(FFI_EXEC_TRAMPOLINE_TABLE, 1,
+                  [Cannot use PROT_EXEC on this target, so, we revert to
+                    alternative means])
+      ;;
+-     *-apple-darwin* | *-*-freebsd* | *-*-kfreebsd* | *-*-openbsd* | *-pc-solaris*)
++     *-apple-* | *-*-freebsd* | *-*-kfreebsd* | *-*-openbsd* | *-pc-solaris*)
+        AC_DEFINE(FFI_MMAP_EXEC_WRIT, 1,
+                  [Cannot use malloc on this target, so, we revert to
+                    alternative means])
