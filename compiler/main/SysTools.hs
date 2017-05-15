@@ -1548,7 +1548,6 @@ linkDynLib dflags0 o_files dep_packages
                  ++ [ Option "-o"
                     , FileOption "" output_fn
                     ]
-                 ++ map Option (pieFlags dflags)
                  ++ map Option o_files
                  ++ [ Option "-shared" ]
                  ++ map Option bsymbolicFlag
