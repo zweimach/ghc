@@ -1108,3 +1108,12 @@ test('MultiLayerModules',
      ],
      multimod_compile,
      ['MultiLayerModules', '-v0'])
+
+test('Naperian',
+     [ reqlib('vector'),
+       only_ways(['optasm']),
+       compiler_stats_num_field('bytes allocated',
+          [(wordsize(64), 2381935784, 10)])
+     ], 
+     compile,
+     [''])
