@@ -3348,6 +3348,19 @@ unrecognisedWarning prefix = defHiddenFlag prefix (Prefix action)
       f <- wopt Opt_WarnUnrecognisedWarningFlags <$> liftEwM getCmdLineState
       when f $ addWarn $ "unrecognised warning flag: -" ++ prefix ++ flag
 
+suggestFlag :: String -> SDoc
+suggestFlag flag =
+    case fuzzyLookup flag possibles of
+      [] -> empty
+      [r] -> text "Perhaps you meant" <+> quotes (text r)
+      rs  -> hang (text "Perhaps you meant one of these:")
+                  2 (pprWithCommas (quotes . text) rs)
+  where
+    possibles = [ (name, name)
+                | flag <- flagsAll
+                , let name = flagName flag
+                ]
+
 -- See Note [Supporting CLI completion]
 package_flags_deps :: [(Deprecation, Flag (CmdLineP DynFlags))]
 package_flags_deps = [
