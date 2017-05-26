@@ -84,6 +84,7 @@
 #define MAX_DOUBLE_REG  6
 #define MAX_LONG_REG    1
 #define MAX_XMM_REG     6
+#define MAX_YMM_REG     6
 
 /* -----------------------------------------------------------------------------
    Semi-Tagging constants
