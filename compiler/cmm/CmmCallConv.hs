@@ -170,16 +170,19 @@ getRegsWithNode dflags =
 allFloatRegs, allDoubleRegs, allLongRegs :: DynFlags -> [GlobalReg]
 allVanillaRegs :: DynFlags -> [VGcPtr -> GlobalReg]
 allXmmRegs :: DynFlags -> [Int]
+allYmmRegs :: DynFlags -> [Int]
 
 allVanillaRegs dflags = map VanillaReg $ regList (mAX_Vanilla_REG dflags)
 allFloatRegs   dflags = map FloatReg   $ regList (mAX_Float_REG   dflags)
 allDoubleRegs  dflags = map DoubleReg  $ regList (mAX_Double_REG  dflags)
 allLongRegs    dflags = map LongReg    $ regList (mAX_Long_REG    dflags)
 allXmmRegs     dflags =                  regList (mAX_XMM_REG     dflags)
+allYmmRegs     dflags =                  regList (mAX_YMM_REG     dflags)
 
 realFloatRegs, realDoubleRegs, realLongRegs :: DynFlags -> [GlobalReg]
 realVanillaRegs :: DynFlags -> [VGcPtr -> GlobalReg]
 realXmmRegNos :: DynFlags -> [Int]
+realYmmRegNos :: DynFlags -> [Int]
 
 realVanillaRegs dflags = map VanillaReg $ regList (mAX_Real_Vanilla_REG dflags)
 realFloatRegs   dflags = map FloatReg   $ regList (mAX_Real_Float_REG   dflags)
@@ -188,6 +191,10 @@ realLongRegs    dflags = map LongReg    $ regList (mAX_Real_Long_REG    dflags)
 
 realXmmRegNos dflags
     | isSse2Enabled dflags = regList (mAX_Real_XMM_REG     dflags)
+    | otherwise            = []
+
+realYmmRegNos dflags
+    | isAvxEnabled dflags  = regList (mAX_Real_YMM_REG     dflags)
     | otherwise            = []
 
 regList :: Int -> [Int]

@@ -646,10 +646,12 @@ wanteds os = concat
           ,constantWord Haskell "MAX_Double_REG"       "MAX_DOUBLE_REG"
           ,constantWord Haskell "MAX_Long_REG"         "MAX_LONG_REG"
           ,constantWord Haskell "MAX_XMM_REG"          "MAX_XMM_REG"
+          ,constantWord Haskell "MAX_YMM_REG"          "MAX_YMM_REG"
           ,constantWord Haskell "MAX_Real_Vanilla_REG" "MAX_REAL_VANILLA_REG"
           ,constantWord Haskell "MAX_Real_Float_REG"   "MAX_REAL_FLOAT_REG"
           ,constantWord Haskell "MAX_Real_Double_REG"  "MAX_REAL_DOUBLE_REG"
           ,constantWord Haskell "MAX_Real_XMM_REG"     "MAX_REAL_XMM_REG"
+          ,constantWord Haskell "MAX_Real_YMM_REG"     "MAX_REAL_YMM_REG"
           ,constantWord Haskell "MAX_Real_Long_REG"    "MAX_REAL_LONG_REG"
 
           -- This tells the native code generator the size of the spill

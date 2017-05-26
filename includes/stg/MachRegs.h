@@ -705,6 +705,24 @@ the stack. See Note [Overlapping global registers] for implications.
 #  endif
 #endif
 
+#if !defined(MAX_REAL_YMM_REG)
+#  if   defined(REG_YMM6)
+#  define MAX_REAL_YMM_REG 6
+#  elif defined(REG_YMM5)
+#  define MAX_REAL_YMM_REG 5
+#  elif defined(REG_YMM4)
+#  define MAX_REAL_YMM_REG 4
+#  elif defined(REG_YMM3)
+#  define MAX_REAL_YMM_REG 3
+#  elif defined(REG_YMM2)
+#  define MAX_REAL_YMM_REG 2
+#  elif defined(REG_YMM1)
+#  define MAX_REAL_YMM_REG 1
+#  else
+#  define MAX_REAL_YMM_REG 0
+#  endif
+#endif
+
 /* define NO_ARG_REGS if we have no argument registers at all (we can
  * optimise certain code paths using this predicate).
  */
