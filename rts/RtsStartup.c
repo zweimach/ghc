@@ -263,7 +263,7 @@ hs_init_ghc(int *argc, char **argv[], RtsConfig rts_config)
     getStablePtr((StgPtr)allocationLimitExceeded_closure);
     getStablePtr((StgPtr)cannotCompactFunction_closure);
     getStablePtr((StgPtr)cannotCompactPinned_closure);
-    getStablePtr((StgPtr)cannotCompactMutable_closure);
+    getStablePtr((StgPtr)cannotCompactClosure_closure);
     getStablePtr((StgPtr)nestedAtomically_closure);
 
     getStablePtr((StgPtr)runSparks_closure);

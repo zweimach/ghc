@@ -25,7 +25,7 @@ module GHC.IO.Exception (
   AllocationLimitExceeded(..), allocationLimitExceeded,
   AssertionFailed(..),
   CompactionFailed(..),
-  cannotCompactFunction, cannotCompactPinned, cannotCompactMutable,
+  cannotCompactFunction, cannotCompactPinned, cannotCompactClosure,
 
   SomeAsyncException(..),
   asyncExceptionToException, asyncExceptionFromException,
@@ -152,9 +152,11 @@ cannotCompactPinned :: SomeException -- for the RTS
 cannotCompactPinned =
   toException (CompactionFailed "cannot compact pinned objects")
 
-cannotCompactMutable :: SomeException -- for the RTS
-cannotCompactMutable =
-  toException (CompactionFailed "cannot compact mutable objects")
+-- Called by stg_raiseCannotCompactClosure with a pointer to a C string
+-- describing the closure type.
+cannotCompactClosure :: Addr# -> SomeException -- for the RTS
+cannotCompactClosure closure_type =
+  toException (CompactionFailed $ "cannot compact "++unpackCString# closure_type++" objects")
 
 -----
 

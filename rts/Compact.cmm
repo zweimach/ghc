@@ -11,7 +11,7 @@
 #include "sm/ShouldCompact.h"
 
 import CLOSURE base_GHCziIOziException_cannotCompactFunction_closure;
-import CLOSURE base_GHCziIOziException_cannotCompactMutable_closure;
+import CLOSURE base_GHCziIOziException_cannotCompactClosure_closure;
 import CLOSURE base_GHCziIOziException_cannotCompactPinned_closure;
 
 //
@@ -117,7 +117,7 @@ eval:
         SMALL_MUT_ARR_PTRS_CLEAN,
         SMALL_MUT_ARR_PTRS_DIRTY,
         COMPACT_NFDATA: {
-        jump stg_raisezh(base_GHCziIOziException_cannotCompactMutable_closure);
+        jump stg_raiseCannotCompactClosure(type);
     }
 
     // We shouldn't see any functions, if this data structure was NFData.
@@ -454,3 +454,15 @@ stg_compactFixupPointerszh ( W_ first_block, W_ root )
     return (gcstr, ok);
 }
 
+stg_raiseCannotCompactClosure ( W_ closure_type )
+{
+    W_ ap, closure_type_name;
+    closure_type_name = W_[closure_type_names + WDS(closure_type)];
+    HP_CHK_N(SIZEOF_StgAP, stg_raiseCannotCompactClosure, closure_type );
+    ap = Hp - SIZEOF_StgAP + WDS(1);
+    SET_HDR(ap, stg_AP_info, CCS_MAIN);
+    StgAP_n_args(ap) = HALF_W_(1);
+    StgAP_fun(ap) = base_GHCziIOziException_cannotCompactClosure_closure;
+    StgAP_payload(ap,0) = closure_type_name;
+    jump stg_raisezh(ap);
+}

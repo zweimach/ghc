@@ -420,6 +420,9 @@
 #define HP_CHK_P(bytes, fun, arg)               \
    HEAP_CHECK(bytes, GC_PRIM_P(fun,arg))
 
+#define HP_CHK_N(bytes, fun, arg)               \
+   HEAP_CHECK(bytes, GC_PRIM_N(fun,arg))
+
 // TODO I'm not seeing where ALLOC_P_TICKY is used; can it be removed?
 //         -NSF March 2013
 #define ALLOC_P_TICKY(bytes, fun, arg)          \
