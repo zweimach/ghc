@@ -459,8 +459,11 @@ stg_raiseCannotCompactClosure ( W_ closure_type )
     W_ ap, closure_type_name;
     closure_type_name = W_[closure_type_names + WDS(closure_type)];
     HP_CHK_N(SIZEOF_StgAP, stg_raiseCannotCompactClosure, closure_type );
+    TICK_ALLOC_UP_THK(0, 0);
+    CCCS_ALLOC(SIZEOF_StgAP);
+
     ap = Hp - SIZEOF_StgAP + WDS(1);
-    SET_HDR(ap, stg_AP_info, CCS_MAIN);
+    SET_HDR(ap, stg_AP_info, CCCS);
     StgAP_n_args(ap) = HALF_W_(1);
     StgAP_fun(ap) = base_GHCziIOziException_cannotCompactClosure_closure;
     StgAP_payload(ap,0) = closure_type_name;
