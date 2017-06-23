@@ -103,7 +103,7 @@ dsTopLHsBinds binds
 
 -- | Desugar all other kind of bindings, Ids of strict binds are returned to
 -- later be forced in the binding group body, see Note [Desugar Strict binds]
-dsLHsBinds :: HasCallStack =>  LHsBinds GhcTc -> DsM ([Id], [(Id,CoreExpr)])
+dsLHsBinds :: LHsBinds GhcTc -> DsM ([Id], [(Id,CoreExpr)])
 dsLHsBinds binds
   = do { MASSERT( allBag (not . isUnliftedHsBind . unLoc) binds )
        ; ds_bs <- mapBagM dsLHsBind binds
@@ -111,7 +111,7 @@ dsLHsBinds binds
                          id ([], []) ds_bs) }
 
 ------------------------
-dsLHsBind :: HasCallStack => LHsBind GhcTc
+dsLHsBind :: LHsBind GhcTc
           -> DsM ([Id], [(Id,CoreExpr)])
 dsLHsBind (L loc bind) = do dflags <- getDynFlags
                             ret <- putSrcSpanDs loc $ dsHsBind dflags bind
