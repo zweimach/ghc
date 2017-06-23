@@ -417,7 +417,7 @@ getMonoBind (L loc1 (FunBind { fun_id = fun_id1@(L _ f1),
         = let doc_decls' = doc_decl : doc_decls
           in go mtchs (combineSrcSpans loc loc2) binds doc_decls'
     go mtchs loc binds doc_decls
-        = ( L loc (makeFunBind fun_id1 (reverse mtchs))
+        = ( L loc (makeFunBind fun_id1 NoSrcStrict (reverse mtchs))
           , (reverse doc_decls) ++ binds)
         -- Reverse the final matches, to get it back in the right order
         -- Do the same thing with the trailing doc comments
@@ -925,25 +925,27 @@ patIsRec e = e == mkUnqual varName (fsLit "rec")
 -- Check Equation Syntax
 
 checkValDef :: SDoc
+            -> SrcStrictness
             -> LHsExpr GhcPs
             -> Maybe (LHsType GhcPs)
             -> Located (a,GRHSs GhcPs (LHsExpr GhcPs))
             -> P ([AddAnn],HsBind GhcPs)
 
-checkValDef msg lhs (Just sig) grhss
+checkValDef msg _strictness lhs (Just sig) grhss
         -- x :: ty = rhs  parses as a *pattern* binding
   = checkPatBind msg (L (combineLocs lhs sig)
                         (ExprWithTySig lhs (mkLHsSigWcType sig))) grhss
 
-checkValDef msg lhs opt_sig g@(L l (_,grhss))
+checkValDef msg strictness lhs opt_sig g@(L l (_,grhss))
   = do  { mb_fun <- isFunLhs lhs
         ; case mb_fun of
             Just (fun, is_infix, pats, ann) ->
-              checkFunBind msg ann (getLoc lhs)
+              checkFunBind msg strictness ann (getLoc lhs)
                            fun is_infix pats opt_sig (L l grhss)
             Nothing -> checkPatBind msg lhs g }
 
 checkFunBind :: SDoc
+             -> SrcStrictness
              -> [AddAnn]
              -> SrcSpan
              -> Located RdrName
@@ -952,12 +954,12 @@ checkFunBind :: SDoc
              -> Maybe (LHsType GhcPs)
              -> Located (GRHSs GhcPs (LHsExpr GhcPs))
              -> P ([AddAnn],HsBind GhcPs)
-checkFunBind msg ann lhs_loc fun is_infix pats opt_sig (L rhs_span grhss)
+checkFunBind msg strictness ann lhs_loc fun is_infix pats opt_sig (L rhs_span grhss)
   = do  ps <- checkPatterns msg pats
         let match_span = combineSrcSpans lhs_loc rhs_span
         -- Add back the annotations stripped from any HsPar values in the lhs
         -- mapM_ (\a -> a match_span) ann
-        return (ann, makeFunBind fun
+        return (ann, makeFunBind fun strictness
                   [L match_span (Match { m_ctxt = FunRhs fun is_infix
                                        , m_pats = ps
                                        , m_type = opt_sig
@@ -965,15 +967,16 @@ checkFunBind msg ann lhs_loc fun is_infix pats opt_sig (L rhs_span grhss)
         -- The span of the match covers the entire equation.
         -- That isn't quite right, but it'll do for now.
 
-makeFunBind :: Located RdrName -> [LMatch GhcPs (LHsExpr GhcPs)]
+makeFunBind :: Located RdrName -> SrcStrictness -> [LMatch GhcPs (LHsExpr GhcPs)]
             -> HsBind GhcPs
 -- Like HsUtils.mkFunBind, but we need to be able to set the fixity too
-makeFunBind fn ms
+makeFunBind fn strictness ms
   = FunBind { fun_id = fn,
               fun_matches = mkMatchGroup FromSource ms,
               fun_co_fn = idHsWrapper,
               bind_fvs = placeHolderNames,
-              fun_tick = [] }
+              fun_tick = [],
+              fun_strictness = strictness }
 
 checkPatBind :: SDoc
              -> LHsExpr GhcPs
@@ -1071,6 +1074,11 @@ isFunLhs e = go e [] []
         | not (isRdrDataCon f)       = return (Just (L loc f, Prefix, es, ann))
    go (L _ (HsApp f e)) es       ann = go f (e:es) ann
    go (L l (HsPar e))   es@(_:_) ann = go e es (ann ++ mkParensApiAnn l)
+
+        -- Things of the form `!x` are also FunBinds
+        -- See Note [Varieties of binding pattern matches]
+   go (L _ (SectionR (L _ (HsVar (L _ bang))) (L l (HsVar (L _ var))))) [] ann
+        | bang == bang_RDR           = return (Just (L l var, Prefix, [], ann))
 
         -- For infix function defns, there should be only one infix *function*
         -- (though there may be infix *datacons* involved too).  So we don't

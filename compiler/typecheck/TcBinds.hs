@@ -687,7 +687,8 @@ tcPolyCheck prag_fn
                          , sig_ctxt  = ctxt
                          , sig_loc   = sig_loc })
             (L loc (FunBind { fun_id = L nm_loc name
-                            , fun_matches = matches }))
+                            , fun_matches = matches
+                            , fun_strictness = strictness }))
   = setSrcSpan sig_loc $
     do { traceTc "tcPolyCheck" (ppr poly_id $$ ppr sig_loc)
        ; (tv_prs, theta, tau) <- tcInstType tcInstSkolTyVars poly_id
@@ -715,7 +716,8 @@ tcPolyCheck prag_fn
                              , fun_matches = matches'
                              , fun_co_fn   = co_fn
                              , bind_fvs    = placeHolderNamesTc
-                             , fun_tick    = funBindTicks nm_loc mono_id mod prag_sigs }
+                             , fun_tick    = funBindTicks nm_loc mono_id mod prag_sigs
+                             , fun_strictness = strictness }
 
              abs_bind = L loc $ AbsBindsSig
                         { abs_sig_export  = poly_id
@@ -1251,7 +1253,8 @@ tcMonoBinds :: RecFlag  -- Whether the binding is recursive for typechecking pur
             -> TcM (LHsBinds GhcTcId, [MonoBindInfo])
 tcMonoBinds is_rec sig_fn no_gen
            [ L b_loc (FunBind { fun_id = L nm_loc name,
-                                fun_matches = matches, bind_fvs = fvs })]
+                                fun_matches = matches, bind_fvs = fvs,
+                                fun_strictness = strictness })]
                              -- Single function binding,
   | NonRecursive <- is_rec   -- ...binder isn't mentioned in RHS
   , Nothing <- sig_fn name   -- ...with no type signature
@@ -1277,7 +1280,8 @@ tcMonoBinds is_rec sig_fn no_gen
         ; return (unitBag $ L b_loc $
                      FunBind { fun_id = L nm_loc mono_id,
                                fun_matches = matches', bind_fvs = fvs,
-                               fun_co_fn = co_fn, fun_tick = [] },
+                               fun_co_fn = co_fn, fun_tick = [],
+                               fun_strictness = strictness },
                   [MBI { mbi_poly_name = name
                        , mbi_sig       = Nothing
                        , mbi_mono_id   = mono_id }]) }
@@ -1322,7 +1326,7 @@ tcMonoBinds _ sig_fn no_gen binds
 -- it; hence the TcMonoBind data type in which the LHS is done but the RHS isn't
 
 data TcMonoBind         -- Half completed; LHS done, RHS not done
-  = TcFunBind  MonoBindInfo  SrcSpan (MatchGroup GhcRn (LHsExpr GhcRn))
+  = TcFunBind  MonoBindInfo  SrcSpan (MatchGroup GhcRn (LHsExpr GhcRn)) SrcStrictness
   | TcPatBind [MonoBindInfo] (LPat GhcTcId) (GRHSs GhcRn (LHsExpr GhcRn))
               TcSigmaType
 
@@ -1332,7 +1336,8 @@ tcLhs :: TcSigFun -> LetBndrSpec -> HsBind GhcRn -> TcM TcMonoBind
 -- CheckGen is used only for functions with a complete type signature,
 --          and tcPolyCheck doesn't use tcMonoBinds at all
 
-tcLhs sig_fn no_gen (FunBind { fun_id = L nm_loc name, fun_matches = matches })
+tcLhs sig_fn no_gen (FunBind { fun_id = L nm_loc name, fun_matches = matches,
+                               fun_strictness = strictness })
   | Just (TcIdSig sig) <- sig_fn name
   = -- There is a type signature.
     -- It must be partial; if complete we'd be in tcPolyCheck!
@@ -1341,7 +1346,7 @@ tcLhs sig_fn no_gen (FunBind { fun_id = L nm_loc name, fun_matches = matches })
     --           Just g = ...f...
     -- Hence always typechecked with InferGen
     do { mono_info <- tcLhsSigId no_gen (name, sig)
-       ; return (TcFunBind mono_info nm_loc matches) }
+       ; return (TcFunBind mono_info nm_loc matches strictness) }
 
   | otherwise  -- No type signature
   = do { mono_ty <- newOpenFlexiTyVarTy
@@ -1349,7 +1354,7 @@ tcLhs sig_fn no_gen (FunBind { fun_id = L nm_loc name, fun_matches = matches })
        ; let mono_info = MBI { mbi_poly_name = name
                              , mbi_sig       = Nothing
                              , mbi_mono_id   = mono_id }
-       ; return (TcFunBind mono_info nm_loc matches) }
+       ; return (TcFunBind mono_info nm_loc matches strictness) }
 
 tcLhs sig_fn no_gen (PatBind { pat_lhs = pat, pat_rhs = grhss })
   = -- See Note [Typechecking pattern bindings]
@@ -1415,7 +1420,7 @@ newSigLetBndr no_gen name (TISI { sig_inst_tau = tau })
 -------------------
 tcRhs :: TcMonoBind -> TcM (HsBind GhcTcId)
 tcRhs (TcFunBind info@(MBI { mbi_sig = mb_sig, mbi_mono_id = mono_id })
-                 loc matches)
+                 loc matches strictness)
   = tcExtendIdBinderStackForRhs [info]  $
     tcExtendTyVarEnvForRhs mb_sig       $
     do  { traceTc "tcRhs: fun bind" (ppr mono_id $$ ppr (idType mono_id))
@@ -1425,7 +1430,8 @@ tcRhs (TcFunBind info@(MBI { mbi_sig = mb_sig, mbi_mono_id = mono_id })
                            , fun_matches = matches'
                            , fun_co_fn = co_fn
                            , bind_fvs = placeHolderNamesTc
-                           , fun_tick = [] } ) }
+                           , fun_tick = []
+                           , fun_strictness = strictness} ) }
 
 tcRhs (TcPatBind infos pat' grhss pat_ty)
   = -- When we are doing pattern bindings we *don't* bring any scoped
@@ -1477,7 +1483,7 @@ getMonoBindInfo :: [Located TcMonoBind] -> [MonoBindInfo]
 getMonoBindInfo tc_binds
   = foldr (get_info . unLoc) [] tc_binds
   where
-    get_info (TcFunBind info _ _)    rest = info : rest
+    get_info (TcFunBind info _ _ _)  rest = info : rest
     get_info (TcPatBind infos _ _ _) rest = infos ++ rest
 
 

@@ -711,7 +711,8 @@ mkFunBind fn ms = FunBind { fun_id = fn
                           , fun_matches = mkMatchGroup Generated ms
                           , fun_co_fn = idHsWrapper
                           , bind_fvs = placeHolderNames
-                          , fun_tick = [] }
+                          , fun_tick = []
+                          , fun_strictness = NoSrcStrict }
 
 mkTopFunBind :: Origin -> Located Name -> [LMatch GhcRn (LHsExpr GhcRn)]
              -> HsBind GhcRn
@@ -721,7 +722,8 @@ mkTopFunBind origin fn ms = FunBind { fun_id = fn
                                     , fun_co_fn = idHsWrapper
                                     , bind_fvs = emptyNameSet -- NB: closed
                                                               --     binding
-                                    , fun_tick = [] }
+                                    , fun_tick = []
+                                    , fun_strictness = NoSrcStrict }
 
 mkHsVarBind :: SrcSpan -> RdrName -> LHsExpr GhcPs -> LHsBind GhcPs
 mkHsVarBind loc var rhs = mk_easy_FunBind loc var [] rhs
@@ -743,7 +745,7 @@ mkPatSynBind name details lpat dir = PatSynBind psb
 -- |If any of the matches in the 'FunBind' are infix, the 'FunBind' is
 -- considered infix.
 isInfixFunBind :: HsBindLR id1 id2 -> Bool
-isInfixFunBind (FunBind _ (MG matches _ _ _) _ _ _)
+isInfixFunBind (FunBind _ (MG matches _ _ _) _ _ _ _)
   = any (isInfixMatch . unLoc) (unLoc matches)
 isInfixFunBind _ = False
 

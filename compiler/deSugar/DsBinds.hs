@@ -141,7 +141,8 @@ dsHsBind dflags
 
 dsHsBind dflags
          (FunBind { fun_id = L _ fun, fun_matches = matches
-                  , fun_co_fn = co_fn, fun_tick = tick })
+                  , fun_co_fn = co_fn, fun_tick = tick
+                  , fun_strictness = strictness })
  = do   { (args, body) <- matchWrapper
                            (mkPrefixFunRhs (noLoc $ idName fun))
                            Nothing matches
@@ -149,12 +150,17 @@ dsHsBind dflags
         ; let body' = mkOptTickBox tick body
               rhs   = core_wrap (mkLams args body')
               core_binds@(id,_) = makeCorePair dflags fun False 0 rhs
-              force_var =
-                if xopt LangExt.Strict dflags
-                   && matchGroupArity matches == 0 -- no need to force lambdas
-                then [id]
-                else []
-        ; {- pprTrace "dsHsBind" (ppr fun <+> ppr (idInlinePragma fun)) $ -}
+
+              force_var
+                  -- Bindings are strict when -XStrict is enabled
+                | xopt LangExt.Strict dflags
+                , matchGroupArity matches == 0 -- no need to force lambdas
+                = [id]
+                | SrcStrict <- strictness
+                = [id]
+                | otherwise
+                = []
+        ; pprTrace "dsHsBind(FunBind)" (ppr force_var $$ ppr fun $$ ppr (idInlinePragma fun) $$ ppr (mg_alts matches) $$ ppr args $$ ppr core_binds) $
            return (force_var, [core_binds]) }
 
 dsHsBind dflags

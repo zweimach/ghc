@@ -475,7 +475,8 @@ tcPatSynMatcher (L loc name) lpat
                            , fun_matches = mg
                            , fun_co_fn = idHsWrapper
                            , bind_fvs = emptyNameSet
-                           , fun_tick = [] }
+                           , fun_tick = []
+                           , fun_strictness = NoSrcStrict }
              matcher_bind = unitBag (noLoc bind)
 
        ; traceTc "tcPatSynMatcher" (ppr name $$ ppr (idType matcher_id))
@@ -560,7 +561,8 @@ tcPatSynBuilderBind (PSB { psb_id = L loc name, psb_def = lpat
                             , fun_matches = match_group'
                             , fun_co_fn   = idHsWrapper
                             , bind_fvs    = placeHolderNamesTc
-                            , fun_tick    = [] }
+                            , fun_tick    = []
+                            , fun_strictness = NoSrcStrict }
 
              sig = completeSigFromId (PatSynCtxt name) builder_id
 
