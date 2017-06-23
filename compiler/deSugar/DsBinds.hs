@@ -93,7 +93,7 @@ dsTopLHsBinds binds
 
   where
     unlifted_binds = filterBag (isUnliftedHsBind . unLoc) binds
-    bang_binds     = filterBag (isBangedPatBind  . unLoc) binds
+    bang_binds     = filterBag (isBangedBind  . unLoc) binds
 
     top_level_err desc (L loc bind)
       = putSrcSpanDs loc $
@@ -632,7 +632,7 @@ We define an "unlifted bind" to be any bind that binds an unlifted id. Note that
 
 is *not* an unlifted bind. Unlifted binds are detected by HsUtils.isUnliftedHsBind.
 
-Define a "banged bind" to have a top-level bang. Detected by HsPat.isBangedPatBind.
+Define a "banged bind" to have a top-level bang. Detected by HsUtils.isBangedBind.
 Define a "strict bind" to be either an unlifted bind or a banged bind.
 
 The restrictions are:
