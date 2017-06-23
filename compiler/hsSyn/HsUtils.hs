@@ -72,7 +72,7 @@ module HsUtils(
   noRebindableInfo,
 
   -- Collecting binders
-  isUnliftedHsBind,
+  isUnliftedHsBind, isBangedBind,
 
   collectLocalBinders, collectHsValBinders, collectHsBindListBinders,
   collectHsIdBinders,
@@ -860,6 +860,13 @@ isUnliftedHsBind bind
           -- and overloading.  E.g.  x = (# 1, True #)
           -- would get type forall a. Num a => (# a, Bool #)
           -- and we want to reject that.  See Trac #9140
+
+isBangedVarBind :: HsBind a -> Bool
+isBangedVarBind (FunBind {fun_strictness = SrcStrict}) = True
+isBangedVarBind _ = False
+
+isBangedBind :: HsBind a -> Bool
+isBangedBind b = isBangedPatBind b || isBangedVarBind b
 
 collectLocalBinders :: HsLocalBindsLR idL idR -> [IdP idL]
 collectLocalBinders (HsValBinds binds) = collectHsIdBinders binds

@@ -103,7 +103,7 @@ dsTopLHsBinds binds
 
 -- | Desugar all other kind of bindings, Ids of strict binds are returned to
 -- later be forced in the binding group body, see Note [Desugar Strict binds]
-dsLHsBinds :: LHsBinds GhcTc -> DsM ([Id], [(Id,CoreExpr)])
+dsLHsBinds :: HasCallStack =>  LHsBinds GhcTc -> DsM ([Id], [(Id,CoreExpr)])
 dsLHsBinds binds
   = do { MASSERT( allBag (not . isUnliftedHsBind . unLoc) binds )
        ; ds_bs <- mapBagM dsLHsBind binds
@@ -111,10 +111,11 @@ dsLHsBinds binds
                          id ([], []) ds_bs) }
 
 ------------------------
-dsLHsBind :: LHsBind GhcTc
+dsLHsBind :: HasCallStack => LHsBind GhcTc
           -> DsM ([Id], [(Id,CoreExpr)])
 dsLHsBind (L loc bind) = do dflags <- getDynFlags
-                            putSrcSpanDs loc $ dsHsBind dflags bind
+                            ret <- putSrcSpanDs loc $ dsHsBind dflags bind
+                            pprTrace "dsLHsBind" (ppr ret $$ callStackDoc) $ return ret
 
 -- | Desugar a single binding (or group of recursive binds).
 dsHsBind :: DynFlags
@@ -188,11 +189,11 @@ dsHsBind dflags
   | ABE { abe_wrap = wrap, abe_poly = global
         , abe_mono = local, abe_prags = prags } <- export
   , not (xopt LangExt.Strict dflags)             -- Handle strict binds
-  , not (anyBag (isBangedPatBind . unLoc) binds) --        in the next case
+  , not (anyBag (isBangedBind . unLoc) binds)    --        in the next case
   = -- See Note [AbsBinds wrappers] in HsBinds
     addDictsDs (toTcTypeBag (listToBag dicts)) $
          -- addDictsDs: push type constraints deeper for pattern match check
-    do { (_, bind_prs) <- dsLHsBinds binds
+    do { (force_vars, bind_prs) <- dsLHsBinds binds
        ; ds_binds <- dsTcEvBinds_s ev_binds
        ; core_wrap <- dsHsWrapper wrap -- Usually the identity
 
@@ -207,7 +208,8 @@ dsHsBind dflags
                main_bind = makeCorePair dflags global' (isDefaultMethod prags)
                                         (dictArity dicts) rhs
 
-       ; return ([], main_bind : fromOL spec_binds) }
+       ; ASSERT(null force_vars)
+         return ([], main_bind : fromOL spec_binds) }
 
         -- Another common case: no tyvars, no dicts
         -- In this case we can have a much simpler desugaring
