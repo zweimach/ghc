@@ -1078,7 +1078,8 @@ isFunLhs e = go e [] []
         -- Things of the form `!x` are also FunBinds
         -- See Note [Varieties of binding pattern matches]
    go (L _ (SectionR (L _ (HsVar (L _ bang))) (L l (HsVar (L _ var))))) [] ann
-        | bang == bang_RDR           = return (Just (L l var, Prefix, [], ann))
+        | bang == bang_RDR
+        , not (isRdrDataCon var)     = return (Just (L l var, Prefix, [], ann))
 
         -- For infix function defns, there should be only one infix *function*
         -- (though there may be infix *datacons* involved too).  So we don't
