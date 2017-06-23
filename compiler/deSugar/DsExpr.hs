@@ -76,8 +76,7 @@ dsLocalBinds (L _ (HsIPBinds binds))    body = dsIPBinds  binds body
 -------------------------
 -- caller sets location
 dsValBinds :: HsValBinds GhcTc -> CoreExpr -> DsM CoreExpr
-dsValBinds (ValBindsOut binds _) body = do hi <- foldrM ds_val_bind body binds
-                                           pprTrace "dsValBinds" (ppr binds $$ ppr hi) $ return hi
+dsValBinds (ValBindsOut binds _) body = foldrM ds_val_bind body binds
 dsValBinds (ValBindsIn {})       _    = panic "dsValBinds ValBindsIn"
 
 -------------------------
@@ -157,10 +156,9 @@ ds_val_bind (is_rec, binds) body
   = do  { MASSERT( isRec is_rec || isSingletonBag binds )
                -- we should never produce a non-recursive list of multiple binds
 
-        ; (force_vars,prs) <- pprTrace "ds_val_bind1" (ppr binds) $ dsLHsBinds binds
+        ; (force_vars,prs) <- dsLHsBinds binds
         ; let body' = foldr seqVar body force_vars
         ; ASSERT2( not (any (isUnliftedType . idType . fst) prs), ppr is_rec $$ ppr binds )
-          pprTrace "ds_val_bind" (ppr binds $$ ppr prs $$ ppr force_vars) $
           case prs of
             [] -> return body
             _  -> return (Let (Rec prs) body') }

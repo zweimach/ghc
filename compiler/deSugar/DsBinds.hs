@@ -114,8 +114,7 @@ dsLHsBinds binds
 dsLHsBind :: LHsBind GhcTc
           -> DsM ([Id], [(Id,CoreExpr)])
 dsLHsBind (L loc bind) = do dflags <- getDynFlags
-                            ret <- putSrcSpanDs loc $ dsHsBind dflags bind
-                            pprTrace "dsLHsBind" (ppr ret $$ callStackDoc) $ return ret
+                            putSrcSpanDs loc $ dsHsBind dflags bind
 
 -- | Desugar a single binding (or group of recursive binds).
 dsHsBind :: DynFlags
@@ -161,8 +160,7 @@ dsHsBind dflags
                 = [id]
                 | otherwise
                 = []
-        ; pprTrace "dsHsBind(FunBind)" (ppr force_var $$ ppr fun $$ ppr (idInlinePragma fun) $$ ppr (mg_alts matches) $$ ppr args $$ ppr core_binds) $
-           return (force_var, [core_binds]) }
+        ; return (force_var, [core_binds]) }
 
 dsHsBind dflags
          (PatBind { pat_lhs = pat, pat_rhs = grhss, pat_rhs_ty = ty
