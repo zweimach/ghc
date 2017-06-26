@@ -2048,6 +2048,58 @@ AC_DEFUN([FIND_LD],[
             $2="$LD"
             ;;
     esac
+    CHECK_LD_COPY_BUG($1)
+])
+
+# CHECK_LD_COPY_BUG()
+# -------------------
+# Check for binutils bug #16177 present in some versions of the bfd ld implementation.
+# https://sourceware.org/bugzilla/show_bug.cgi?id=16177
+#
+# $1 = the platform
+#
+AC_DEFUN([CHECK_LD_COPY_BUG],[
+    case $1 in
+      arm*linux*)
+        AC_MSG_CHECKING(For ld bug #16177)
+        cat <<EOF >actest.s
+          .globl _start
+          .p2align 4
+        _start:
+          bkpt
+
+        .data
+          .globl data_object
+        object_reference:
+          .long data_object
+          .size object_reference,4
+        EOF
+
+        cat <<EOF >aclib.s
+          .data
+          .globl data_object
+          .type data_object, %object
+          .size data_object, 4
+        data_object:
+            .long 12  3
+        EOF
+
+        $AS -o aclib.o aclib.s
+        $LD -shared -o aclib.so aclib.o
+
+        $AS -o actest.o actest.s
+        $LD -o actest actest.o aclib.so
+        if $READELF -r actest | grep R_ARM_COPY; then
+            AC_MSG_RESULT(affected)
+            AC_MSG_ERROR(
+              [Your linker is affected by binutils #16177, which
+               critically breaks linkage of GHC objects. Please either upgrade
+               binutils or supply a different linker with the LD environment
+               variable.])
+        ;;
+      *)
+        ;;
+    esac
 ])
 
 # FIND_GHC_BOOTSTRAP_PROG()
