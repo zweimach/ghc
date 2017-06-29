@@ -823,7 +823,7 @@ completeBind env top_lvl is_rec mb_cont old_bndr new_bndr new_rhs
                                            final_rhs old_unf
 
       ; dflags <- getDynFlags
-      ; if postInlineUnconditionally dflags env top_lvl new_bndr occ_info
+      ; if postInlineUnconditionally dflags env mb_cont top_lvl new_bndr occ_info
                                      final_rhs new_unfolding
 
                         -- Inline and discard the binding

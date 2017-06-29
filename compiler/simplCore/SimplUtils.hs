@@ -1174,7 +1174,10 @@ postInlineUnconditionally
 -- See Note [CoreSyn let/app invariant] in CoreSyn
 -- Reason: we don't want to inline single uses, or discard dead bindings,
 --         for unlifted, side-effect-ful bindings
-postInlineUnconditionally dflags env top_lvl bndr occ_info rhs unfolding
+postInlineUnconditionally dflags env mb_cont top_lvl bndr occ_info rhs unfolding
+  | Just cont <- mb_cont
+  , not $ interestingCallContext cont
+                                = False -- See #2988.
   | not active                  = False
   | isWeakLoopBreaker occ_info  = False -- If it's a loop-breaker of any kind, don't inline
                                         -- because it might be referred to "earlier"
