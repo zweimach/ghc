@@ -1935,8 +1935,8 @@ linkBinary' staticLink dflags o_files dep_packages = do
                       ++ map SysTools.Option (
                          []
 
-                      -- See Note [No PIE eating when linking]
-                      ++ pieCCOpts dflags
+                      -- See Note [No PIE when linking]
+                      ++ picCCOpts dflags
 
                       -- Permit the linker to auto link _symbol to _imp_symbol.
                       -- This lets us link against DLLs without needing an "import library".
@@ -2225,7 +2225,7 @@ joinObjectFiles dflags o_files output_fn = do
                        SysTools.Option "-nostdlib",
                        SysTools.Option "-Wl,-r"
                      ]
-                        -- See Note [No PIE eating while linking] in SysTools
+                        -- See Note [No PIE while linking] in SysTools
                      ++ (if sGccSupportsNoPie mySettings
                           then [SysTools.Option "-no-pie"]
                           else [])

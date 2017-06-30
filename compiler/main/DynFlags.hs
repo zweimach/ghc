@@ -5046,18 +5046,19 @@ picCCOpts dflags = pieOpts ++ picOpts
 
     pieOpts
       | gopt Opt_PICExecutable dflags       = ["-pie"]
-        -- See Note [No PIE eating when linking]
+        -- See Note [No PIE when linking]
       | sGccSupportsNoPie (settings dflags) = ["-no-pie"]
       | otherwise                           = []
 
 
 {-
-Note [No PIE eating while linking]
+Note [No PIE while linking]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 As of 2016 some Linux distributions (e.g. Debian) have started enabling -pie by
 default in their gcc builds. This is incompatible with -r as it implies that we
 are producing an executable. Consequently, we must manually pass -no-pie to gcc
-when joining object files or linking dynamic libraries. See #12759.
+when joining object files or linking dynamic libraries. Unless, of course, the
+user has explicitly requested a PIE executable with -pie. See #12759.
 -}
 
 picPOpts :: DynFlags -> [String]
