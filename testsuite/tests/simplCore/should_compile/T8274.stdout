@@ -1,5 +1,6 @@
 p = T8274.Positives 42# 4.23# 4.23## '4'# 4##
 n = T8274.Negatives -4# -4.0# -4.0##
+<<<<<<< HEAD
 T8274.$trModule4 :: Addr#
 T8274.$trModule4 = "main"#
 T8274.$trModule2 :: Addr#
@@ -21,3 +22,15 @@ T8274.$tcN = GHC.Types.TyCon 17387464673997143412## 16681536026493340311## T8274
 T8274.$tc'Negatives3 :: Addr#
 T8274.$tc'Negatives3 = "'Negatives"#
   = GHC.Types.TyCon 14330047746189143983## 12207513731214201811## T8274.$trModule T8274.$tc'Negatives2 0# T8274.$tc'Negatives1
+=======
+T8274.$trModule2 = GHC.Types.TrNameS 4# "main"#
+T8274.$trModule1 = GHC.Types.TrNameS 5# "T8274"#
+T8274.$tc'Positives1 = GHC.Types.TrNameS 10# "'Positives"#
+T8274.$tc'Positives = GHC.Types.TyCon 14732531009298850569## 4925356269917933860## T8274.$trModule T8274.$tc'Positives1
+T8274.$tcP1 = GHC.Types.TrNameS 1# "P"#
+T8274.$tcP = GHC.Types.TyCon 11095028091707994303## 9476557054198009608## T8274.$trModule T8274.$tcP1
+T8274.$tc'Negatives1 = GHC.Types.TrNameS 10# "'Negatives"#
+T8274.$tc'Negatives = GHC.Types.TyCon 15950179315687996644## 11481167534507418130## T8274.$trModule T8274.$tc'Negatives1
+T8274.$tcN1 = GHC.Types.TrNameS 1# "N"#
+T8274.$tcN = GHC.Types.TyCon 7479687563082171902## 17616649989360543185## T8274.$trModule T8274.$tcN1
+>>>>>>> c0e6759aeb... Create (# Int#, Addr# #) pairs for strings and pass that to unpackCString#

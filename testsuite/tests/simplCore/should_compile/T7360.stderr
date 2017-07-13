@@ -1,7 +1,11 @@
 
 ==================== Tidy Core ====================
+<<<<<<< HEAD
 Result size of Tidy Core
   = {terms: 114, types: 53, coercions: 0, joins: 0/0}
+=======
+Result size of Tidy Core = {terms: 88, types: 42, coercions: 0}
+>>>>>>> c0e6759aeb... Create (# Int#, Addr# #) pairs for strings and pass that to unpackCString#
 
 -- RHS size: {terms: 6, types: 3, coercions: 0, joins: 0/0}
 T7360.$WFoo3 [InlPrag=INLINE[2]] :: Int -> Foo
@@ -75,6 +79,7 @@ fun2
            }
        })
 
+<<<<<<< HEAD
 -- RHS size: {terms: 1, types: 0, coercions: 0, joins: 0/0}
 T7360.$trModule4 :: GHC.Prim.Addr#
 [GblId,
@@ -85,10 +90,15 @@ T7360.$trModule4 = "main"#
 
 -- RHS size: {terms: 2, types: 0, coercions: 0, joins: 0/0}
 T7360.$trModule3 :: GHC.Types.TrName
+=======
+-- RHS size: {terms: 3, types: 0, coercions: 0}
+T7360.$trModule2 :: GHC.Types.TrName
+>>>>>>> c0e6759aeb... Create (# Int#, Addr# #) pairs for strings and pass that to unpackCString#
 [GblId,
  Caf=NoCafRefs,
  Str=m1,
  Unf=Unf{Src=<vanilla>, TopLvl=True, Value=True, ConLike=True,
+<<<<<<< HEAD
          WorkFree=True, Expandable=True, Guidance=IF_ARGS [] 10 20}]
 T7360.$trModule3 = GHC.Types.TrNameS T7360.$trModule4
 
@@ -101,13 +111,24 @@ T7360.$trModule2 :: GHC.Prim.Addr#
 T7360.$trModule2 = "T7360"#
 
 -- RHS size: {terms: 2, types: 0, coercions: 0, joins: 0/0}
+=======
+         WorkFree=True, Expandable=True, Guidance=IF_ARGS [] 30 30}]
+T7360.$trModule2 = GHC.Types.TrNameS 4# "main"#
+
+-- RHS size: {terms: 3, types: 0, coercions: 0}
+>>>>>>> c0e6759aeb... Create (# Int#, Addr# #) pairs for strings and pass that to unpackCString#
 T7360.$trModule1 :: GHC.Types.TrName
 [GblId,
  Caf=NoCafRefs,
  Str=m1,
  Unf=Unf{Src=<vanilla>, TopLvl=True, Value=True, ConLike=True,
+<<<<<<< HEAD
          WorkFree=True, Expandable=True, Guidance=IF_ARGS [] 10 20}]
 T7360.$trModule1 = GHC.Types.TrNameS T7360.$trModule2
+=======
+         WorkFree=True, Expandable=True, Guidance=IF_ARGS [] 40 30}]
+T7360.$trModule1 = GHC.Types.TrNameS 5# "T7360"#
+>>>>>>> c0e6759aeb... Create (# Int#, Addr# #) pairs for strings and pass that to unpackCString#
 
 -- RHS size: {terms: 3, types: 0, coercions: 0, joins: 0/0}
 T7360.$trModule :: GHC.Types.Module
@@ -134,14 +155,24 @@ T7360.$tcFoo2 :: GHC.Prim.Addr#
          WorkFree=True, Expandable=True, Guidance=IF_ARGS [] 20 0}]
 T7360.$tcFoo2 = "Foo"#
 
+<<<<<<< HEAD
 -- RHS size: {terms: 2, types: 0, coercions: 0, joins: 0/0}
 T7360.$tcFoo1 :: GHC.Types.TrName
+=======
+-- RHS size: {terms: 3, types: 0, coercions: 0}
+T7360.$tc'Foo6 :: GHC.Types.TrName
+>>>>>>> c0e6759aeb... Create (# Int#, Addr# #) pairs for strings and pass that to unpackCString#
 [GblId,
  Caf=NoCafRefs,
  Str=m1,
  Unf=Unf{Src=<vanilla>, TopLvl=True, Value=True, ConLike=True,
+<<<<<<< HEAD
          WorkFree=True, Expandable=True, Guidance=IF_ARGS [] 10 20}]
 T7360.$tcFoo1 = GHC.Types.TrNameS T7360.$tcFoo2
+=======
+         WorkFree=True, Expandable=True, Guidance=IF_ARGS [] 40 30}]
+T7360.$tc'Foo6 = GHC.Types.TrNameS 5# "'Foo3"#
+>>>>>>> c0e6759aeb... Create (# Int#, Addr# #) pairs for strings and pass that to unpackCString#
 
 -- RHS size: {terms: 7, types: 0, coercions: 0, joins: 0/0}
 T7360.$tcFoo :: GHC.Types.TyCon
@@ -166,6 +197,7 @@ T7360.$tc'Foo4
   = GHC.Types.KindRepTyConApp
       T7360.$tcFoo (GHC.Types.[] @ GHC.Types.KindRep)
 
+<<<<<<< HEAD
 -- RHS size: {terms: 1, types: 0, coercions: 0, joins: 0/0}
 T7360.$tc'Foo6 :: GHC.Prim.Addr#
 [GblId,
@@ -175,13 +207,21 @@ T7360.$tc'Foo6 :: GHC.Prim.Addr#
 T7360.$tc'Foo6 = "'Foo1"#
 
 -- RHS size: {terms: 2, types: 0, coercions: 0, joins: 0/0}
+=======
+-- RHS size: {terms: 3, types: 0, coercions: 0}
+>>>>>>> c0e6759aeb... Create (# Int#, Addr# #) pairs for strings and pass that to unpackCString#
 T7360.$tc'Foo5 :: GHC.Types.TrName
 [GblId,
  Caf=NoCafRefs,
  Str=m1,
  Unf=Unf{Src=<vanilla>, TopLvl=True, Value=True, ConLike=True,
+<<<<<<< HEAD
          WorkFree=True, Expandable=True, Guidance=IF_ARGS [] 10 20}]
 T7360.$tc'Foo5 = GHC.Types.TrNameS T7360.$tc'Foo6
+=======
+         WorkFree=True, Expandable=True, Guidance=IF_ARGS [] 40 30}]
+T7360.$tc'Foo5 = GHC.Types.TrNameS 5# "'Foo2"#
+>>>>>>> c0e6759aeb... Create (# Int#, Addr# #) pairs for strings and pass that to unpackCString#
 
 -- RHS size: {terms: 7, types: 0, coercions: 0, joins: 0/0}
 T7360.$tc'Foo1 :: GHC.Types.TyCon
@@ -207,14 +247,24 @@ T7360.$tc'Foo8 :: GHC.Prim.Addr#
          WorkFree=True, Expandable=True, Guidance=IF_ARGS [] 30 0}]
 T7360.$tc'Foo8 = "'Foo2"#
 
+<<<<<<< HEAD
 -- RHS size: {terms: 2, types: 0, coercions: 0, joins: 0/0}
 T7360.$tc'Foo7 :: GHC.Types.TrName
+=======
+-- RHS size: {terms: 3, types: 0, coercions: 0}
+T7360.$tc'Foo4 :: GHC.Types.TrName
+>>>>>>> c0e6759aeb... Create (# Int#, Addr# #) pairs for strings and pass that to unpackCString#
 [GblId,
  Caf=NoCafRefs,
  Str=m1,
  Unf=Unf{Src=<vanilla>, TopLvl=True, Value=True, ConLike=True,
+<<<<<<< HEAD
          WorkFree=True, Expandable=True, Guidance=IF_ARGS [] 10 20}]
 T7360.$tc'Foo7 = GHC.Types.TrNameS T7360.$tc'Foo8
+=======
+         WorkFree=True, Expandable=True, Guidance=IF_ARGS [] 40 30}]
+T7360.$tc'Foo4 = GHC.Types.TrNameS 5# "'Foo1"#
+>>>>>>> c0e6759aeb... Create (# Int#, Addr# #) pairs for strings and pass that to unpackCString#
 
 -- RHS size: {terms: 7, types: 0, coercions: 0, joins: 0/0}
 T7360.$tc'Foo2 :: GHC.Types.TyCon
@@ -232,6 +282,7 @@ T7360.$tc'Foo2
       0#
       T7360.$tc'Foo4
 
+<<<<<<< HEAD
 -- RHS size: {terms: 3, types: 0, coercions: 0, joins: 0/0}
 T7360.$tc'Foo9 [InlPrag=[~]] :: GHC.Types.KindRep
 [GblId, Caf=NoCafRefs, Str=m4]
@@ -247,12 +298,21 @@ T7360.$tc'Foo11 = "'Foo3"#
 
 -- RHS size: {terms: 2, types: 0, coercions: 0, joins: 0/0}
 T7360.$tc'Foo10 :: GHC.Types.TrName
+=======
+-- RHS size: {terms: 3, types: 0, coercions: 0}
+T7360.$tcFoo1 :: GHC.Types.TrName
+>>>>>>> c0e6759aeb... Create (# Int#, Addr# #) pairs for strings and pass that to unpackCString#
 [GblId,
  Caf=NoCafRefs,
  Str=m1,
  Unf=Unf{Src=<vanilla>, TopLvl=True, Value=True, ConLike=True,
+<<<<<<< HEAD
          WorkFree=True, Expandable=True, Guidance=IF_ARGS [] 10 20}]
 T7360.$tc'Foo10 = GHC.Types.TrNameS T7360.$tc'Foo11
+=======
+         WorkFree=True, Expandable=True, Guidance=IF_ARGS [] 30 30}]
+T7360.$tcFoo1 = GHC.Types.TrNameS 3# "Foo"#
+>>>>>>> c0e6759aeb... Create (# Int#, Addr# #) pairs for strings and pass that to unpackCString#
 
 -- RHS size: {terms: 7, types: 0, coercions: 0, joins: 0/0}
 T7360.$tc'Foo3 :: GHC.Types.TyCon

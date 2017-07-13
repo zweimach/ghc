@@ -95,15 +95,17 @@ bPutCStringLen b@(BufHandle buf r hdl) cstr@(ptr, len) = do
                 copyBytes (buf `plusPtr` i) ptr len
                 writeFastMutInt r (i + len)
 
-bPutLitString :: BufHandle -> LitString -> Int -> IO ()
-bPutLitString b@(BufHandle buf r hdl) a len = a `seq` do
+bPutLitString :: BufHandle -> LitString -> IO ()
+bPutLitString b@(BufHandle buf r hdl) ls = do
+  let a   = ptrLS ls
+      len = lengthLS ls
   i <- readFastMutInt r
   if (i+len) >= buf_size
         then do hPutBuf hdl buf i
                 writeFastMutInt r 0
                 if (len >= buf_size)
                     then hPutBuf hdl a len
-                    else bPutLitString b a len
+                    else bPutLitString b ls
         else do
                 copyBytes (buf `plusPtr` i) a len
                 writeFastMutInt r (i+len)

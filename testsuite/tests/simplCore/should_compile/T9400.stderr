@@ -1,5 +1,6 @@
 
 ==================== Tidy Core ====================
+<<<<<<< HEAD
 Result size of Tidy Core
   = {terms: 37, types: 22, coercions: 0, joins: 0/0}
 
@@ -12,6 +13,19 @@ $trModule1 = "main"#
 $trModule2 :: TrName
 [GblId, Caf=NoCafRefs]
 $trModule2 = GHC.Types.TrNameS $trModule1
+=======
+Result size of Tidy Core = {terms: 45, types: 40, coercions: 0}
+
+-- RHS size: {terms: 3, types: 0, coercions: 0}
+$trModule1 :: TrName
+[GblId, Caf=NoCafRefs]
+$trModule1 = GHC.Types.TrNameS 4# "main"#
+
+-- RHS size: {terms: 3, types: 0, coercions: 0}
+$trModule2 :: TrName
+[GblId, Caf=NoCafRefs]
+$trModule2 = GHC.Types.TrNameS 5# "T9400"#
+>>>>>>> c0e6759aeb... Create (# Int#, Addr# #) pairs for strings and pass that to unpackCString#
 
 -- RHS size: {terms: 1, types: 0, coercions: 0, joins: 0/0}
 $trModule3 :: Addr#
@@ -28,7 +42,11 @@ T9400.$trModule :: Module
 [GblId, Caf=NoCafRefs]
 T9400.$trModule = GHC.Types.Module $trModule2 $trModule4
 
+<<<<<<< HEAD
 -- RHS size: {terms: 22, types: 15, coercions: 0, joins: 0/0}
+=======
+-- RHS size: {terms: 32, types: 35, coercions: 0}
+>>>>>>> c0e6759aeb... Create (# Int#, Addr# #) pairs for strings and pass that to unpackCString#
 main :: IO ()
 [GblId]
 main =
@@ -37,27 +55,33 @@ main =
     GHC.Base.$fMonadIO
     @ ()
     @ ()
-    (putStrLn (unpackCString# "c"#))
+    (putStrLn (unpackCString# (# 1#, "c"# #)))
     (>>
        @ IO
        GHC.Base.$fMonadIO
        @ ()
        @ ()
-       (putStrLn (unpackCString# "x"#))
+       (putStrLn (unpackCString# (# 1#, "x"# #)))
        (>>
           @ IO
           GHC.Base.$fMonadIO
           @ ()
           @ ()
-          (putStrLn (unpackCString# "z"#))
+          (putStrLn (unpackCString# (# 1#, "z"# #)))
           (>>
              @ IO
              GHC.Base.$fMonadIO
              @ ()
              @ ()
-             (putStrLn (unpackCString# "efg"#))
+             (putStrLn (unpackCString# (# 3#, "efg"# #)))
              (Control.Exception.Base.patError
+<<<<<<< HEAD
                 @ 'LiftedRep @ (IO ()) "T9400.hs:(17,5)-(18,29)|case"#))))
+=======
+                @ 'PtrRepLifted
+                @ (IO ())
+                (# 28#, "T9400.hs:(17,5)-(18,29)|case"# #)))))
+>>>>>>> c0e6759aeb... Create (# Int#, Addr# #) pairs for strings and pass that to unpackCString#
 
 
 

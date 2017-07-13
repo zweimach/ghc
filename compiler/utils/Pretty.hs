@@ -1,5 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE UnboxedTuples #-}
+{-# LANGUAGE CPP #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -119,7 +121,6 @@ import Prelude hiding (error)
 
 --for a RULES
 import GHC.Base ( unpackCString# )
-import GHC.Ptr  ( Ptr(..) )
 
 -- Don't import Util( assertPanic ) because it makes a loop in the module structure
 
@@ -268,7 +269,7 @@ data TextDetails = Chr  {-# UNPACK #-} !Char -- ^ A single Char fragment
                  | Str  String -- ^ A whole String fragment
                  | PStr FastString                      -- a hashed string
                  | ZStr FastZString                     -- a z-encoded string
-                 | LStr {-# UNPACK #-} !LitString {-#UNPACK #-} !Int
+                 | LStr {-# UNPACK #-} !LitString
                    -- a '\0'-terminated array of bytes
 
 instance Show Doc where
@@ -301,15 +302,21 @@ text s = case length s of {sl -> textBeside_ (Str s)  sl Empty}
 
 -- RULE that turns (text "abc") into (ptext (A# "abc"#)) to avoid the
 -- intermediate packing/unpacking of the string.
+#if __GLASGOW_HASKELL__ > 800
 {-# RULES
-  "text/str" forall a. text (unpackCString# a) = ptext (Ptr a)
+  "text/str" forall l a. text (unpackCString# (# l, a #)) = ptext (LitString a l)
  #-}
+#else
+{-# RULES
+  "text/str" forall a. text (unpackCString# a) = ptext (mkLitString# a)
+ #-}
+#endif
 
 ftext :: FastString -> Doc
 ftext s = case lengthFS s of {sl -> textBeside_ (PStr s) sl Empty}
 
 ptext :: LitString -> Doc
-ptext s = case lengthLS s of {sl -> textBeside_ (LStr s sl) sl Empty}
+ptext s = case lengthLS s of {sl -> textBeside_ (LStr s) sl Empty}
 
 ztext :: FastZString -> Doc
 ztext s = case lengthFZS s of {sl -> textBeside_ (ZStr s) sl Empty}
@@ -882,7 +889,7 @@ txtPrinter (Chr c)   s  = c:s
 txtPrinter (Str s1)  s2 = s1 ++ s2
 txtPrinter (PStr s1) s2 = unpackFS s1 ++ s2
 txtPrinter (ZStr s1) s2 = zString s1 ++ s2
-txtPrinter (LStr s1 _) s2 = unpackLitString s1 ++ s2
+txtPrinter (LStr s1) s2 = unpackLitString s1 ++ s2
 
 -- | The general rendering interface.
 fullRender :: Mode                     -- ^ Rendering mode
@@ -969,7 +976,7 @@ display m !page_width !ribbon_width txt end doc
         lay2 _ (Union {})          = error "display lay2 Union"
 
         -- optimise long indentations using LitString chunks of 8 spaces
-        indent !n r | n >= 8    = LStr (sLit "        ") 8 `txt`
+        indent !n r | n >= 8    = LStr (sLit "        ") `txt`
                                   indent (n - 8) r
                     | otherwise = Str (spaces n) `txt` r
     in
@@ -996,15 +1003,15 @@ printDoc_ mode pprCols hdl doc
                         -- NB. not hPutFS, we want this to go through
                         -- the I/O library's encoding layer. (#3398)
     put (ZStr s) next = hPutFZS  hdl s >> next
-    put (LStr s l) next = hPutLitString hdl s l >> next
+    put (LStr s) next = hPutLitString hdl s >> next
 
     done = return () -- hPutChar hdl '\n'
 
   -- some versions of hPutBuf will barf if the length is zero
-hPutLitString :: Handle -> Ptr a -> Int -> IO ()
-hPutLitString handle a l = if l == 0
+hPutLitString :: Handle -> LitString -> IO ()
+hPutLitString handle ls = if lengthLS ls == 0
                             then return ()
-                            else hPutBuf handle a l
+                            else hPutBuf handle (ptrLS ls) (lengthLS ls)
 
 -- Printing output in LeftMode is performance critical: it's used when
 -- dumping C and assembly output, so we allow ourselves a few dirty
@@ -1042,7 +1049,7 @@ layLeft b (TextBeside s _ p) = put b s >> layLeft b p
     put b (Str s)    = bPutStr  b s
     put b (PStr s)   = bPutFS   b s
     put b (ZStr s)   = bPutFZS  b s
-    put b (LStr s l) = bPutLitString b s l
+    put b (LStr s)   = bPutLitString b s
 layLeft _ _                  = panic "layLeft: Unhandled case"
 
 -- Define error=panic, for easier comparison with libraries/pretty.

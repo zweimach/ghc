@@ -4,7 +4,7 @@
 	ignore = untracked
 [submodule "libraries/bytestring"]
 	path = libraries/bytestring
-	url = ../packages/bytestring.git
+	url = https://github.com/ajscholl/bytestring.git
 	ignore = untracked
 [submodule "libraries/Cabal"]
 	path = libraries/Cabal
@@ -100,7 +100,7 @@
 	ignore = none
 [submodule "utils/haddock"]
 	path = utils/haddock
-	url = ../haddock.git
+	url = https://github.com/ajscholl/haddock.git
 	ignore = none
 	branch = ghc-head
 [submodule "nofib"]

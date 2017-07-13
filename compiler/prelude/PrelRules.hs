@@ -39,7 +39,7 @@ import TyCon       ( tyConDataCons_maybe, isEnumerationTyCon, isNewTyCon
                    , unwrapNewTyCon_maybe, tyConDataCons )
 import DataCon     ( DataCon, dataConTagZ, dataConTyCon, dataConWorkId )
 import CoreUtils   ( cheapEqExpr, exprIsHNF )
-import CoreUnfold  ( exprIsConApp_maybe )
+import CoreOpt     ( exprIsConApp_maybe, exprIsUnboxedTupleString_maybe )
 import Type
 import OccName     ( occNameFS )
 import PrelNames
@@ -1125,20 +1125,20 @@ builtinIntegerRules =
 match_append_lit :: RuleFun
 match_append_lit _ id_unf _
         [ Type ty1
-        , lit1
+        , arg1
         , c1
         , Var unpk `App` Type ty2
-                   `App` lit2
+                   `App` arg2
                    `App` c2
                    `App` n
         ]
   | unpk `hasKey` unpackCStringFoldrIdKey &&
     c1 `cheapEqExpr` c2
-  , Just (MachStr s1) <- exprIsLiteral_maybe id_unf lit1
-  , Just (MachStr s2) <- exprIsLiteral_maybe id_unf lit2
+  , Just s1 <- exprIsUnboxedTupleString_maybe arg1
+  , Just s2 <- exprIsUnboxedTupleString_maybe arg2
   = ASSERT( ty1 `eqType` ty2 )
     Just (Var unpk `App` Type ty1
-                   `App` Lit (MachStr (s1 `BS.append` s2))
+                   `App` mkStringLitExpr (s1 `BS.append` s2)
                    `App` c1
                    `App` n)
 
@@ -1147,14 +1147,17 @@ match_append_lit _ _ _ _ = Nothing
 ---------------------------------------------------
 -- The rule is this:
 --      eqString (unpackCString# (Lit s1)) (unpackCString# (Lit s2)) = s1==s2
+--      eqString (unpackCStringUtf8# (Lit s1)) (unpackCStringUtf8# (Lit s2)) = s1==s2
 
 match_eq_string :: RuleFun
-match_eq_string _ id_unf _
-        [Var unpk1 `App` lit1, Var unpk2 `App` lit2]
-  | unpk1 `hasKey` unpackCStringIdKey
-  , unpk2 `hasKey` unpackCStringIdKey
-  , Just (MachStr s1) <- exprIsLiteral_maybe id_unf lit1
-  , Just (MachStr s2) <- exprIsLiteral_maybe id_unf lit2
+match_eq_string _ _ _
+         [ Var unpk1 `App` arg1
+         , Var unpk2 `App` arg2
+         ]
+  | unpk1 `hasKey` unpackCStringIdKey && unpk2 `hasKey` unpackCStringIdKey
+   || unpk1 `hasKey` unpackCStringUtf8IdKey && unpk2 `hasKey` unpackCStringUtf8IdKey
+  , Just s1 <- exprIsUnboxedTupleString_maybe arg1
+  , Just s2 <- exprIsUnboxedTupleString_maybe arg2
   = Just (if s1 == s2 then trueValBool else falseValBool)
 
 match_eq_string _ _ _ _ = Nothing

@@ -1,4 +1,4 @@
-{-# LANGUAGE MagicHash, NoImplicitPrelude, BangPatterns #-}
+{-# LANGUAGE MagicHash, UnboxedTuples, NoImplicitPrelude, BangPatterns #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  GHC.CString
@@ -70,9 +70,9 @@ Moreover, we want to make it CONLIKE, so that:
 All of this goes for unpackCStringUtf8# too.
 -}
 
-unpackCString# :: Addr# -> [Char]
+unpackCString# :: (# Int#, Addr# #) -> [Char]
 {-# NOINLINE CONLIKE unpackCString# #-}
-unpackCString# addr
+unpackCString# (# _len, addr #)
   = unpack 0#
   where
     unpack nh
@@ -81,10 +81,10 @@ unpackCString# addr
       where
         !ch = indexCharOffAddr# addr nh
 
-unpackAppendCString# :: Addr# -> [Char] -> [Char]
+unpackAppendCString# :: (# Int#, Addr# #) -> [Char] -> [Char]
 {-# NOINLINE unpackAppendCString# #-}
      -- See the NOINLINE note on unpackCString#
-unpackAppendCString# addr rest
+unpackAppendCString# (# _len, addr #) rest
   = unpack 0#
   where
     unpack nh
@@ -93,7 +93,7 @@ unpackAppendCString# addr rest
       where
         !ch = indexCharOffAddr# addr nh
 
-unpackFoldrCString# :: Addr# -> (Char  -> a -> a) -> a -> a
+unpackFoldrCString# :: (# Int#, Addr# #) -> (Char  -> a -> a) -> a -> a
 
 -- Usually the unpack-list rule turns unpackFoldrCString# into unpackCString#
 
@@ -109,7 +109,7 @@ unpackFoldrCString# :: Addr# -> (Char  -> a -> a) -> a -> a
 -- literal strings, and making a separate 'unpack' loop for
 -- each is highly gratuitous.  See nofib/real/anna/PrettyPrint.
 
-unpackFoldrCString# addr f z
+unpackFoldrCString# (# _len, addr #) f z
   = unpack 0#
   where
     unpack nh
@@ -120,9 +120,9 @@ unpackFoldrCString# addr f z
 
 -- There's really no point in inlining this for the same reasons as
 -- unpackCString. See Note [Inlining unpackCString#] above for details.
-unpackCStringUtf8# :: Addr# -> [Char]
+unpackCStringUtf8# :: (# Int#, Addr# #) -> [Char]
 {-# NOINLINE CONLIKE unpackCStringUtf8# #-}
-unpackCStringUtf8# addr
+unpackCStringUtf8# (# _len, addr #)
   = unpack 0#
   where
     unpack nh

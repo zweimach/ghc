@@ -2,6 +2,7 @@
 {-# LANGUAGE NoImplicitPrelude, MagicHash, StandaloneDeriving, BangPatterns,
              KindSignatures, DataKinds, ConstraintKinds,
               MultiParamTypeClasses, FunctionalDependencies #-}
+{-# LANGUAGE UnboxedTuples #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
   -- ip :: IP x a => a  is strictly speaking ambiguous, but IP is magic
 {-# LANGUAGE UndecidableSuperClasses #-}
@@ -175,10 +176,10 @@ instance (Eq a) => Eq [a] where
 deriving instance Eq Module
 
 instance Eq TrName where
-    TrNameS a == TrNameS b = isTrue# (a `eqAddr#` b)
+    TrNameS _ a == TrNameS _ b = isTrue# (a `eqAddr#` b)
     a == b = toString a == toString b
       where
-        toString (TrNameS s) = unpackCString# s
+        toString (TrNameS l s) = unpackCString# (# l, s #)
         toString (TrNameD s) = s
 
 deriving instance Eq Bool

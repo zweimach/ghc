@@ -1,5 +1,5 @@
 {-# LANGUAGE Trustworthy #-}
-{-# LANGUAGE DeriveGeneric, NoImplicitPrelude, MagicHash,
+{-# LANGUAGE DeriveGeneric, NoImplicitPrelude, MagicHash, UnboxedTuples,
              ExistentialQuantification, ImplicitParams #-}
 {-# OPTIONS_GHC -funbox-strict-fields #-}
 {-# OPTIONS_HADDOCK hide #-}
@@ -436,7 +436,7 @@ unsupportedOperation =
 It prints
         location message details
 -}
-untangle :: Addr# -> String -> String
+untangle :: (# Int#, Addr# #) -> String -> String
 untangle coded message
   =  location
   ++ ": "

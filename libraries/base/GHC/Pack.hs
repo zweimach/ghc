@@ -42,10 +42,10 @@ import GHC.Ptr
 data ByteArray ix              = ByteArray        ix ix ByteArray#
 data MutableByteArray s ix     = MutableByteArray ix ix (MutableByteArray# s)
 
-unpackCString :: Ptr a -> [Char]
-unpackCString a@(Ptr addr)
+unpackCString :: Int -> Ptr a -> [Char]
+unpackCString (I# len) a@(Ptr addr)
   | a == nullPtr  = []
-  | otherwise      = unpackCString# addr
+  | otherwise     = unpackCString# (# len, addr #)
 
 packCString#         :: [Char]          -> ByteArray#
 packCString# str = case (packString str) of { ByteArray _ _ bytes -> bytes }

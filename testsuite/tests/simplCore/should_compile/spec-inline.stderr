@@ -1,5 +1,6 @@
 
 ==================== Tidy Core ====================
+<<<<<<< HEAD
 Result size of Tidy Core
   = {terms: 172, types: 62, coercions: 0, joins: 0/2}
 
@@ -13,10 +14,17 @@ Roman.$trModule4 = "main"#
 
 -- RHS size: {terms: 2, types: 0, coercions: 0, joins: 0/0}
 Roman.$trModule3 :: GHC.Types.TrName
+=======
+Result size of Tidy Core = {terms: 176, types: 69, coercions: 0}
+
+-- RHS size: {terms: 3, types: 0, coercions: 0}
+Roman.$trModule2 :: GHC.Types.TrName
+>>>>>>> c0e6759aeb... Create (# Int#, Addr# #) pairs for strings and pass that to unpackCString#
 [GblId,
  Caf=NoCafRefs,
  Str=m1,
  Unf=Unf{Src=<vanilla>, TopLvl=True, Value=True, ConLike=True,
+<<<<<<< HEAD
          WorkFree=True, Expandable=True, Guidance=IF_ARGS [] 10 20}]
 Roman.$trModule3 = GHC.Types.TrNameS Roman.$trModule4
 
@@ -29,13 +37,24 @@ Roman.$trModule2 :: GHC.Prim.Addr#
 Roman.$trModule2 = "Roman"#
 
 -- RHS size: {terms: 2, types: 0, coercions: 0, joins: 0/0}
+=======
+         WorkFree=True, Expandable=True, Guidance=IF_ARGS [] 30 30}]
+Roman.$trModule2 = GHC.Types.TrNameS 4# "main"#
+
+-- RHS size: {terms: 3, types: 0, coercions: 0}
+>>>>>>> c0e6759aeb... Create (# Int#, Addr# #) pairs for strings and pass that to unpackCString#
 Roman.$trModule1 :: GHC.Types.TrName
 [GblId,
  Caf=NoCafRefs,
  Str=m1,
  Unf=Unf{Src=<vanilla>, TopLvl=True, Value=True, ConLike=True,
+<<<<<<< HEAD
          WorkFree=True, Expandable=True, Guidance=IF_ARGS [] 10 20}]
 Roman.$trModule1 = GHC.Types.TrNameS Roman.$trModule2
+=======
+         WorkFree=True, Expandable=True, Guidance=IF_ARGS [] 40 30}]
+Roman.$trModule1 = GHC.Types.TrNameS 5# "Roman"#
+>>>>>>> c0e6759aeb... Create (# Int#, Addr# #) pairs for strings and pass that to unpackCString#
 
 -- RHS size: {terms: 3, types: 0, coercions: 0, joins: 0/0}
 Roman.$trModule :: GHC.Types.Module
@@ -47,6 +66,7 @@ Roman.$trModule :: GHC.Types.Module
 Roman.$trModule
   = GHC.Types.Module Roman.$trModule3 Roman.$trModule1
 
+<<<<<<< HEAD
 -- RHS size: {terms: 1, types: 0, coercions: 0, joins: 0/0}
 lvl :: GHC.Prim.Addr#
 [GblId, Caf=NoCafRefs]
@@ -57,6 +77,16 @@ Roman.foo3 :: Int
 [GblId, Str=x]
 Roman.foo3
   = Control.Exception.Base.patError @ 'GHC.Types.LiftedRep @ Int lvl
+=======
+-- RHS size: {terms: 4, types: 6, coercions: 0}
+Roman.foo3 :: Int
+[GblId, Str=x]
+Roman.foo3 =
+  Control.Exception.Base.patError
+    @ 'GHC.Types.PtrRepLifted
+    @ Int
+    (# 41#, "spec-inline.hs:(19,5)-(29,25)|function go"# #)
+>>>>>>> c0e6759aeb... Create (# Int#, Addr# #) pairs for strings and pass that to unpackCString#
 
 Rec {
 -- RHS size: {terms: 52, types: 6, coercions: 0, joins: 0/1}

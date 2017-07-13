@@ -1,5 +1,5 @@
 {-# LANGUAGE Trustworthy #-}
-{-# LANGUAGE NoImplicitPrelude, MagicHash #-}
+{-# LANGUAGE NoImplicitPrelude, MagicHash, UnboxedTuples #-}
 {-# LANGUAGE StandaloneDeriving #-}
 
 -----------------------------------------------------------------------------
@@ -377,7 +377,7 @@ instance Exception NestedAtomically
 recSelError, recConError, irrefutPatError, runtimeError,
   nonExhaustiveGuardsError, patError, noMethodBindingError,
   absentError, typeError
-        :: Addr# -> a   -- All take a UTF8-encoded C string
+        :: (# Int#, Addr# #) -> a   -- All take a UTF8-encoded C string
 
 recSelError              s = throw (RecSelError ("No match in record selector "
                                                  ++ unpackCStringUtf8# s))  -- No location info unfortunately

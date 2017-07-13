@@ -1931,12 +1931,16 @@ primLitOps :: String -- The class involved
               , LHsExpr GhcPs -> LHsExpr GhcPs -- Constructs a boxed value
               )
 primLitOps str tycon ty = ( assoc_ty_id str tycon litConTbl ty
-                          , \v -> nlHsVar boxRDR `nlHsApp` v
+                          , mkBoxed
                           )
   where
-    boxRDR
-      | ty `eqType` addrPrimTy = unpackCString_RDR
-      | otherwise = assoc_ty_id str tycon boxConTbl ty
+    mkBoxed v
+      | ty `eqType` addrPrimTy
+      = nlHsVar unpackCString_RDR `nlHsApp`
+          (noLoc $ ExplicitTuple
+            (map (noLoc . Present)
+              [noLoc (HsLit (HsIntPrim noSourceText (-1))), v]) Unboxed)
+      | otherwise = nlHsVar (assoc_ty_id str tycon boxConTbl ty) `nlHsApp` v
 
 ordOpTbl :: [(Type, (RdrName, RdrName, RdrName, RdrName, RdrName))]
 ordOpTbl

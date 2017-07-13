@@ -205,8 +205,8 @@ instance Show TyCon where
 
 -- | @since 4.9.0.0
 instance Show TrName where
-  showsPrec _ (TrNameS s) = showString (unpackCString# s)
-  showsPrec _ (TrNameD s) = showString s
+  showsPrec _ (TrNameS l s) = showString (unpackCString# (# l, s #))
+  showsPrec _ (TrNameD s)   = showString s
 
 -- | @since 4.9.0.0
 instance Show Module where

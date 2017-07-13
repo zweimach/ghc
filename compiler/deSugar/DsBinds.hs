@@ -28,7 +28,6 @@ import DsUtils
 
 import HsSyn            -- lots of things
 import CoreSyn          -- lots of things
-import Literal          ( Literal(MachStr) )
 import CoreOpt          ( simpleOptExpr )
 import OccurAnal        ( occurAnalyseExpr )
 import MkCore
@@ -1215,7 +1214,7 @@ dsEvDelayedError ty msg
   = Var errorId `mkTyApps` [getRuntimeRep "dsEvTerm" ty, ty] `mkApps` [litMsg]
   where
     errorId = tYPE_ERROR_ID
-    litMsg  = Lit (MachStr (fastStringToByteString msg))
+    litMsg  = mkStringLitExpr (fastStringToByteString msg)
 
 {-**********************************************************************
 *                                                                      *

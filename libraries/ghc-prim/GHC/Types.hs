@@ -437,8 +437,8 @@ data Module = Module
                 TrName   -- Module name
 
 data TrName
-  = TrNameS Addr#  -- Static
-  | TrNameD [Char] -- Dynamic
+  = TrNameS Int# Addr#  -- Static (string length and contents)
+  | TrNameD [Char]      -- Dynamic
 
 -- | A de Bruijn index for a binder within a 'KindRep'.
 type KindBndr = Int
@@ -456,7 +456,7 @@ data KindRep = KindRepTyConApp TyCon [KindRep]
              | KindRepApp KindRep KindRep
              | KindRepFun KindRep KindRep
              | KindRepTYPE !RuntimeRep
-             | KindRepTypeLitS TypeLitSort Addr#
+             | KindRepTypeLitS TypeLitSort Int# Addr#
              | KindRepTypeLitD TypeLitSort [Char]
 
 data TypeLitSort = TypeLitSymbol

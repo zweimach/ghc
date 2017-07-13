@@ -23,6 +23,7 @@ import Platform
 import Name
 import MkId
 import Id
+import IdInfo          ( IdDetails(DataConWorkId, DataConWrapId) )
 import ForeignCall
 import HscTypes
 import CoreUtils
@@ -215,6 +216,9 @@ type Sequel = Word -- back off to this depth before ENTER
 -- it after each push/pop.
 type BCEnv = Map Id Word -- To find vars on the stack
 
+-- Maps Ids of unboxed tuples to the argument expressions they contain.
+type UBXEnv = VarEnv [AnnExpr Id DVarSet]
+
 {-
 ppBCEnv :: BCEnv -> SDoc
 ppBCEnv p
@@ -386,7 +390,7 @@ schemeR_wrk fvs nm original_body (args, body)
 schemeER_wrk :: Word -> BCEnv -> AnnExpr' Id DVarSet -> BcM BCInstrList
 schemeER_wrk d p rhs
   | AnnTick (Breakpoint tick_no fvs) (_annot, newRhs) <- rhs
-  = do  code <- schemeE (fromIntegral d) 0 p newRhs
+  = do  code <- schemeE (fromIntegral d) 0 p emptyVarEnv newRhs
         cc_arr <- getCCArray
         this_mod <- moduleName <$> getCurrentModule
         let idOffSets = getVarOffSets d p fvs
@@ -400,7 +404,7 @@ schemeER_wrk d p rhs
                | otherwise = toRemotePtr nullPtr
         let breakInstr = BRK_FUN (fromIntegral tick_no) (getUnique this_mod) cc
         return $ breakInstr `consOL` code
-   | otherwise = schemeE (fromIntegral d) 0 p rhs
+   | otherwise = schemeE (fromIntegral d) 0 p emptyVarEnv rhs
 
 getVarOffSets :: Word -> BCEnv -> [Id] -> [(Id, Word16)]
 getVarOffSets depth env = catMaybes . map getOffSet
@@ -454,23 +458,24 @@ returnUnboxedAtom d s p e e_rep
 
 -- Compile code to apply the given expression to the remaining args
 -- on the stack, returning a HNF.
-schemeE :: Word -> Sequel -> BCEnv -> AnnExpr' Id DVarSet -> BcM BCInstrList
+schemeE :: Word -> Sequel -> BCEnv -> UBXEnv -> AnnExpr' Id DVarSet -> BcM BCInstrList
 
-schemeE d s p e
+schemeE d s p m e
    | Just e' <- bcView e
-   = schemeE d s p e'
+   = schemeE d s p m e'
 
 -- Delegate tail-calls to schemeT.
-schemeE d s p e@(AnnApp _ _) = schemeT d s p e
+schemeE d s p m e@(AnnApp _ _) = schemeT d s p m e
 
-schemeE d s p e@(AnnLit lit)     = returnUnboxedAtom d s p e (typeArgRep (literalType lit))
-schemeE d s p e@(AnnCoercion {}) = returnUnboxedAtom d s p e V
+schemeE d s p _ e@(AnnLit lit)     = returnUnboxedAtom d s p e (typeArgRep (literalType lit))
+schemeE d s p _ e@(AnnCoercion {}) = returnUnboxedAtom d s p e V
 
-schemeE d s p e@(AnnVar v)
+schemeE d s p m e@(AnnVar v)
     | isUnliftedType (idType v) = returnUnboxedAtom d s p e (bcIdArgRep v)
-    | otherwise                 = schemeT d s p e
+    | v `elemVarEnv` m          = panic "Unreplaced unboxed tuple"
+    | otherwise                 = schemeT d s p m e
 
-schemeE d s p (AnnLet (AnnNonRec x (_,rhs)) (_,body))
+schemeE d s p m (AnnLet (AnnNonRec x (_,rhs)) (_,body))
    | (AnnVar v, args_r_to_l) <- splitApp rhs,
      Just data_con <- isDataConWorkId_maybe v,
      dataConRepArity data_con == length args_r_to_l
@@ -478,17 +483,17 @@ schemeE d s p (AnnLet (AnnNonRec x (_,rhs)) (_,body))
         -- saturated constructor application.
         -- Just allocate the constructor and carry on
         alloc_code <- mkConAppCode d s p data_con args_r_to_l
-        let !d2 = d + 1
-        body_code <- schemeE d2 s (Map.insert x d2 p) body
+        body_code <- schemeE (d+1) s (Map.insert x d p) m body
         return (alloc_code `appOL` body_code)
 
 -- General case for let.  Generates correct, if inefficient, code in
 -- all situations.
-schemeE d s p (AnnLet binds (_,body)) = do
+schemeE d s p m (AnnLet binds (_,body)) = do
      dflags <- getDynFlags
      let (xs,rhss) = case binds of AnnNonRec x rhs  -> ([x],[rhs])
                                    AnnRec xs_n_rhss -> unzip xs_n_rhss
          n_binds = genericLength xs
+         m' = delVarEnvList m xs
 
          fvss  = map (fvsToEnv p' . fst) rhss
 
@@ -536,7 +541,7 @@ schemeE d s p (AnnLet binds (_,body)) = do
             | (fvs, x, rhs, size, arity, n) <-
                 zip6 fvss xs rhss sizes arities [n_binds, n_binds-1 .. 1]
             ]
-     body_code <- schemeE d' s p' body
+     body_code <- schemeE d' s p' m' body
      thunk_codes <- sequence compile_binds
      return (alloc_code `appOL` concatOL thunk_codes `appOL` body_code)
 
@@ -546,12 +551,12 @@ schemeE d s p (AnnLet binds (_,body)) = do
 -- call exprFreeVars on a deAnnotated expression, this may not be the
 -- best way to calculate the free vars but it seemed like the least
 -- intrusive thing to do
-schemeE d s p exp@(AnnTick (Breakpoint _id _fvs) _rhs)
+schemeE d s p m exp@(AnnTick (Breakpoint _id _fvs) _rhs)
    | isLiftedTypeKind (typeKind ty)
    = do   id <- newId ty
           -- Todo: is emptyVarSet correct on the next line?
           let letExp = AnnLet (AnnNonRec id (fvs, exp)) (emptyDVarSet, AnnVar id)
-          schemeE d s p letExp
+          schemeE d s p m letExp
 
    | otherwise
    = do   -- If the result type is not definitely lifted, then we must generate
@@ -575,7 +580,7 @@ schemeE d s p exp@(AnnTick (Breakpoint _id _fvs) _rhs)
           let letExp = AnnLet (AnnNonRec id (fvs, AnnLam st (emptyDVarSet, exp)))
                               (emptyDVarSet, (AnnApp (emptyDVarSet, AnnVar id)
                                                     (emptyDVarSet, AnnVar realWorldPrimId)))
-          schemeE d s p letExp
+          schemeE d s p m letExp
 
    where
      exp' = deAnnotate' exp
@@ -583,12 +588,12 @@ schemeE d s p exp@(AnnTick (Breakpoint _id _fvs) _rhs)
      ty   = exprType exp'
 
 -- ignore other kinds of tick
-schemeE d s p (AnnTick _ (_, rhs)) = schemeE d s p rhs
+schemeE d s p m (AnnTick _ (_, rhs)) = schemeE d s p m rhs
 
-schemeE d s p (AnnCase (_,scrut) _ _ []) = schemeE d s p scrut
+schemeE d s p m (AnnCase (_,scrut) _ _ []) = schemeE d s p m scrut
         -- no alts: scrut is guaranteed to diverge
 
-schemeE d s p (AnnCase scrut bndr _ [(DataAlt dc, [bind1, bind2], rhs)])
+schemeE d s p m (AnnCase scrut bndr _ [(DataAlt dc, [bind1, bind2], rhs)])
    | isUnboxedTupleCon dc -- handles pairs with one void argument (e.g. state token)
         -- Convert
         --      case .... of x { (# V'd-thing, a #) -> ... }
@@ -600,18 +605,18 @@ schemeE d s p (AnnCase scrut bndr _ [(DataAlt dc, [bind1, bind2], rhs)])
         -- envt (it won't be bound now) because we never look such things up.
    , Just res <- case (typePrimRep (idType bind1), typePrimRep (idType bind2)) of
                    ([], [_])
-                     -> Just $ doCase d s p scrut bind2 [(DEFAULT, [], rhs)] (Just bndr)
+                     -> Just $ doCase d s p m scrut bind2 [(DEFAULT, [], rhs)] (Just bndr)
                    ([_], [])
-                     -> Just $ doCase d s p scrut bind1 [(DEFAULT, [], rhs)] (Just bndr)
+                     -> Just $ doCase d s p m scrut bind1 [(DEFAULT, [], rhs)] (Just bndr)
                    _ -> Nothing
    = res
 
-schemeE d s p (AnnCase scrut bndr _ [(DataAlt dc, [bind1], rhs)])
+schemeE d s p m (AnnCase scrut bndr _ [(DataAlt dc, [bind1], rhs)])
    | isUnboxedTupleCon dc
    , typePrimRep (idType bndr) `lengthAtMost` 1 -- handles unit tuples
-   = doCase d s p scrut bind1 [(DEFAULT, [], rhs)] (Just bndr)
+   = doCase d s p m scrut bind1 [(DEFAULT, [], rhs)] (Just bndr)
 
-schemeE d s p (AnnCase scrut bndr _ alt@[(DEFAULT, [], _)])
+schemeE d s p m (AnnCase scrut bndr _ alt@[(DEFAULT, [], _)])
    | isUnboxedTupleType (idType bndr)
    , Just ty <- case typePrimRep (idType bndr) of
        [_]  -> Just (unwrapType (idType bndr))
@@ -619,12 +624,19 @@ schemeE d s p (AnnCase scrut bndr _ alt@[(DEFAULT, [], _)])
        _    -> Nothing
        -- handles any pattern with a single non-void binder; in particular I/O
        -- monad returns (# RealWorld#, a #)
-   = doCase d s p scrut (bndr `setIdType` ty) alt (Just bndr)
+   = doCase d s p m scrut (bndr `setIdType` ty) alt (Just bndr)
 
-schemeE d s p (AnnCase scrut bndr _ alts)
-   = doCase d s p scrut bndr alts Nothing{-not an unboxed tuple-}
+schemeE d s p m (AnnCase scrut bndr _ [(DEFAULT, [], rhs)])
+    | Just args <- splitUnboxedTuple_maybe (snd scrut)
+        -- handles the pattern case (# a, b, c #) of x { DEFAULT -> ... x ... }
+        -- by remembering [a, b, c] under the name x and pushing them instead of
+        -- x.
+    = schemeE d s p (extendVarEnv m bndr args) (snd rhs)
 
-schemeE _ _ _ expr
+schemeE d s p m (AnnCase scrut bndr _ alts)
+   = doCase d s p m scrut bndr alts Nothing{-not an unboxed tuple-}
+
+schemeE _ _ _ _ expr
    = pprPanic "ByteCodeGen.schemeE: unhandled case"
                (pprCoreExpr (deAnnotate' expr))
 
@@ -664,10 +676,11 @@ schemeE _ _ _ expr
 schemeT :: Word         -- Stack depth
         -> Sequel       -- Sequel depth
         -> BCEnv        -- stack env
+        -> UBXEnv       -- unboxed tuple env
         -> AnnExpr' Id DVarSet
         -> BcM BCInstrList
 
-schemeT d s p app
+schemeT d s p m app
 
 --   | trace ("schemeT: env in = \n" ++ showSDocDebug (ppBCEnv p)) False
 --   = panic "schemeT ?!?!"
@@ -711,7 +724,8 @@ schemeT d s p app
         -- Extract the args (R->L) and fn
         -- The function will necessarily be a variable,
         -- because we are compiling a tail call
-      (AnnVar fn, args_r_to_l) = splitApp app
+      (AnnVar fn, args_r_to_l) = 
+          second (replaceUbxTuples m reverse) (splitApp app)
 
       -- Only consider this to be a constructor application iff it is
       -- saturated.  Otherwise, we'll call the constructor wrapper.
@@ -827,11 +841,11 @@ findPushSeq _
 -- -----------------------------------------------------------------------------
 -- Case expressions
 
-doCase  :: Word -> Sequel -> BCEnv
+doCase  :: Word -> Sequel -> BCEnv -> UBXEnv
         -> AnnExpr Id DVarSet -> Id -> [AnnAlt Id DVarSet]
         -> Maybe Id  -- Just x <=> is an unboxed tuple case with scrut binder, don't enter the result
         -> BcM BCInstrList
-doCase d s p (_,scrut) bndr alts is_unboxed_tuple
+doCase d s p m (_,scrut) bndr alts is_unboxed_tuple
   | typePrimRep (idType bndr) `lengthExceeds` 1
   = multiValException
   | otherwise
@@ -873,19 +887,20 @@ doCase d s p (_,scrut) bndr alts is_unboxed_tuple
         p_alts = case is_unboxed_tuple of
                    Just ubx_bndr -> Map.insert ubx_bndr d_bndr p_alts0
                    Nothing       -> p_alts0
+        m_alts = delVarEnv m bndr
 
         bndr_ty = idType bndr
         isAlgCase = not (isUnliftedType bndr_ty) && isNothing is_unboxed_tuple
 
         -- given an alt, return a discr and code for it.
         codeAlt (DEFAULT, _, (_,rhs))
-           = do rhs_code <- schemeE d_alts s p_alts rhs
+           = do rhs_code <- schemeE d_alts s p_alts m_alts rhs
                 return (NoDiscr, rhs_code)
 
         codeAlt alt@(_, bndrs, (_,rhs))
            -- primitive or nullary constructor alt: no need to UNPACK
            | null real_bndrs = do
-                rhs_code <- schemeE d_alts s p_alts rhs
+                rhs_code <- schemeE d_alts s p_alts m' rhs
                 return (my_discr alt, rhs_code)
            -- algebraic alt with some binders
            | otherwise =
@@ -902,10 +917,11 @@ doCase d s p (_,scrut) bndr alts is_unboxed_tuple
                         p_alts
              in do
              MASSERT(isAlgCase)
-             rhs_code <- schemeE (d_alts + size) s p' rhs
+             rhs_code <- schemeE (d_alts + size) s p' m' rhs
              return (my_discr alt, unitOL (UNPACK (trunc16 size)) `appOL` rhs_code)
            where
              real_bndrs = filterOut isTyVar bndrs
+             m'         = delVarEnvList m_alts bndrs
 
         my_discr (DEFAULT, _, _) = NoDiscr {-shouldn't really happen-}
         my_discr (DataAlt dc, _, _)
@@ -968,7 +984,7 @@ doCase d s p (_,scrut) bndr alts is_unboxed_tuple
 
      scrut_code <- schemeE (d + ret_frame_sizeW + save_ccs_sizeW)
                            (d + ret_frame_sizeW + save_ccs_sizeW)
-                           p scrut
+                           p m scrut
      alt_bco' <- emitBc alt_bco
      let push_alts
             | isAlgCase = PUSH_ALTS alt_bco'
@@ -1638,6 +1654,43 @@ splitApp e | Just e' <- bcView e = splitApp e'
 splitApp (AnnApp (_,f) (_,a))    = case splitApp f of
                                       (f', as) -> (f', a:as)
 splitApp e                       = (e, [])
+
+{- Note [Unboxed tuples as arguments in the interpreter]
+   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+TODO
+-}
+
+-- | Extract the arguments to an unboxed tuple constructor, ignoring any
+--   type arguments.
+splitUnboxedTuple_maybe :: AnnExpr' Id ann -> Maybe [AnnExpr Id ann]
+splitUnboxedTuple_maybe = fmap reverse . go
+  where
+    -- drop type applications
+    go (AnnApp fun (_, AnnType{})) = go (snd fun)
+    go (AnnApp fun arg) = do
+      rs <- go (snd fun)
+      pure (arg:rs)
+    go (AnnVar id) = do
+        guard $ case idDetails id of
+          DataConWorkId dc -> isUnboxedTupleCon dc
+          DataConWrapId dc -> isUnboxedTupleCon dc
+          _                -> False
+        pure []
+    go _ = Nothing
+
+-- | Replace unboxed tuple binders in an argument list
+replaceUbxTuples :: UBXEnv -- ^ Unboxed tuple env
+                 -> ([AnnExpr' Id DVarSet] -> [AnnExpr' Id DVarSet]) -- ^ Reordering function
+                 -> [AnnExpr' Id DVarSet] -- ^ Arguments
+                 -> [AnnExpr' Id DVarSet]
+replaceUbxTuples env f = go
+  where
+    go [] = []
+    go (AnnVar id:xs)
+      | Just args <- lookupVarEnv env id
+      = go (f (map snd args) ++ xs)
+    go (x:xs) = x : go xs
 
 
 bcView :: AnnExpr' Var ann -> Maybe (AnnExpr' Var ann)

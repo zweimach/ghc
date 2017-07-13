@@ -41,6 +41,9 @@ module MkCore (
         -- * Constructing Maybe expressions
         mkNothingExpr, mkJustExpr,
 
+        -- * Constructing primitive string literals with length information
+        mkStringLitExpr, mkStringLitExprS,
+
         -- * Error Ids
         mkRuntimeErrorApp, mkImpossibleExpr, errorIds,
         rEC_CON_ERROR_ID, iRREFUT_PAT_ERROR_ID, rUNTIME_ERROR_ID,
@@ -79,6 +82,7 @@ import BasicTypes
 import Util
 import DynFlags
 import Data.List
+import qualified Data.ByteString as BS
 
 import Data.Char        ( ord )
 
@@ -289,16 +293,34 @@ mkStringExprFSWith lookupM str
 
   | all safeChar chars
   = do unpack_id <- lookupM unpackCStringName
-       return (App (Var unpack_id) lit)
+       return (mkStrLenInfo bs unpack_id)
 
   | otherwise
   = do unpack_utf8_id <- lookupM unpackCStringUtf8Name
-       return (App (Var unpack_utf8_id) lit)
+       return (mkStrLenInfo bs unpack_utf8_id)
 
   where
     chars = unpackFS str
     safeChar c = ord c >= 1 && ord c <= 0x7F
-    lit = Lit (MachStr (fastStringToByteString str))
+    bs = fastStringToByteString str
+
+-- | Create a primitive string with length information. Type: (# Int#, Addr# #)
+mkStringLitExpr :: BS.ByteString -> CoreExpr
+mkStringLitExpr bs
+  = mkCoreTupBoxity Unboxed [len, str]
+  where
+    len = Lit (MachInt (toInteger (BS.length bs)))
+    str = Lit (MachStr bs)
+
+-- | Like 'mkStringLitExpr'. The passed string will be UTF-8 encoded, so any
+--   unpacking function has to respect that.
+mkStringLitExprS :: String -> CoreExpr
+mkStringLitExprS = mkStringLitExpr . fastStringToByteString . mkFastString
+
+-- | Create a string literal from the encoded string a function unpacking
+--   a primitive string literal.
+mkStrLenInfo :: BS.ByteString -> Id -> CoreExpr
+mkStrLenInfo str unpack_id = Var unpack_id `App` mkStringLitExpr str
 
 {-
 ************************************************************************
@@ -644,7 +666,7 @@ mkJustExpr ty val = mkConApp justDataCon [Type ty, val]
 -}
 
 mkRuntimeErrorApp
-        :: Id           -- Should be of type (forall a. Addr# -> a)
+        :: Id           -- Should be of type (forall a. (# Int#, Addr# #) -> a)
                         --      where Addr# points to a UTF8 encoded string
         -> Type         -- The type to instantiate 'a'
         -> String       -- The string to print
@@ -652,9 +674,7 @@ mkRuntimeErrorApp
 
 mkRuntimeErrorApp err_id res_ty err_msg
   = mkApps (Var err_id) [ Type (getRuntimeRep "mkRuntimeErrorApp" res_ty)
-                        , Type res_ty, err_string ]
-  where
-    err_string = Lit (mkMachString err_msg)
+                        , Type res_ty, mkStringLitExprS err_msg ]
 
 mkImpossibleExpr :: Type -> CoreExpr
 mkImpossibleExpr res_ty
@@ -732,7 +752,7 @@ tYPE_ERROR_ID                   = mkRuntimeErrorId typeErrorName
 
 mkRuntimeErrorId :: Name -> Id
 -- Error function
---   with type:  forall (r:RuntimeRep) (a:TYPE r). Addr# -> a
+--   with type:  forall (r:RuntimeRep) (a:TYPE r). (# Int#, Addr# #) -> a
 --   with arity: 1
 -- which diverges after being given one argument
 -- The Addr# is expected to be the address of
@@ -759,7 +779,9 @@ mkRuntimeErrorId name
     -- forall (rr :: RuntimeRep) (a :: rr). Addr# -> a
     --   See Note [Error and friends have an "open-tyvar" forall]
     runtime_err_ty = mkSpecSigmaTy [runtimeRep1TyVar, openAlphaTyVar] []
-                                   (mkFunTy addrPrimTy openAlphaTy)
+                                   (mkFunTy stringPrimTy openAlphaTy)
+    -- TODO: this can be done better, but this is the fastest way for testing
+    stringPrimTy = exprType $ mkStringLitExpr mempty
 
 {- Note [Error and friends have an "open-tyvar" forall]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

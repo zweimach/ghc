@@ -57,7 +57,6 @@ import Outputable
 import Util
 import Maybes
 import Bag
-import FastString
 import FV
 import Module
 
@@ -889,7 +888,7 @@ mkOneRecordSelector all_cons idDetails fl
                             [L loc (WildPat placeHolderType)]
                             (mkHsApp (L loc (HsVar
                                             (L loc (getName rEC_SEL_ERROR_ID))))
-                                     (L loc (HsLit msg_lit)))]
+                                     (L loc msg_lit))]
 
         -- Do not add a default case unless there are unmatched
         -- constructors.  We must take account of GADTs, else we
@@ -911,7 +910,7 @@ mkOneRecordSelector all_cons idDetails fl
     inst_tys = substTyVars eq_subst univ_tvs
 
     unit_rhs = mkLHsTupleExpr []
-    msg_lit = HsStringPrim NoSourceText (fastStringToByteString lbl)
+    msg_lit = mkHsStringLenPrimLit loc lbl
 
 {-
 Note [Polymorphic selectors]

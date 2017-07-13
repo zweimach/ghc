@@ -12,6 +12,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE UnboxedTuples #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -117,7 +118,7 @@ tyConName :: TyCon -> String
 tyConName (TyCon _ _ _ n _ _) = trNameString n
 
 trNameString :: TrName -> String
-trNameString (TrNameS s) = unpackCString# s
+trNameString (TrNameS l s) = unpackCString# (# l, s #)
 trNameString (TrNameD s) = s
 
 tyConFingerprint :: TyCon -> Fingerprint
@@ -137,8 +138,8 @@ rnfModule :: Module -> ()
 rnfModule (Module p m) = rnfTrName p `seq` rnfTrName m
 
 rnfTrName :: TrName -> ()
-rnfTrName (TrNameS _) = ()
-rnfTrName (TrNameD n) = rnfString n
+rnfTrName (TrNameS _ _) = ()
+rnfTrName (TrNameD n)   = rnfString n
 
 rnfKindRep :: KindRep -> ()
 rnfKindRep (KindRepTyConApp tc args) = rnfTyCon tc `seq` rnfList rnfKindRep args
@@ -146,8 +147,8 @@ rnfKindRep (KindRepVar _)   = ()
 rnfKindRep (KindRepApp a b) = rnfKindRep a `seq` rnfKindRep b
 rnfKindRep (KindRepFun a b) = rnfKindRep a `seq` rnfKindRep b
 rnfKindRep (KindRepTYPE rr) = rnfRuntimeRep rr
-rnfKindRep (KindRepTypeLitS _ _) = ()
-rnfKindRep (KindRepTypeLitD _ t) = rnfString t
+rnfKindRep (KindRepTypeLitS _ _ _) = ()
+rnfKindRep (KindRepTypeLitD _ t)   = rnfString t
 
 rnfRuntimeRep :: RuntimeRep -> ()
 rnfRuntimeRep (VecRep !_ !_) = ()
@@ -360,8 +361,8 @@ instantiateKindRep vars = go
     go (KindRepFun a b)
       = SomeTypeRep $ Fun (unsafeCoerceRep $ go a) (unsafeCoerceRep $ go b)
     go (KindRepTYPE r) = unkindedTypeRep $ tYPE `kApp` runtimeRepTypeRep r
-    go (KindRepTypeLitS sort s)
-      = mkTypeLitFromString sort (unpackCString# s)
+    go (KindRepTypeLitS sort l s)
+      = mkTypeLitFromString sort (unpackCString# (# l, s #))
     go (KindRepTypeLitD sort s)
       = mkTypeLitFromString sort s
 
@@ -569,26 +570,30 @@ pattern KindRepTypeLit sort t <- (getKindRepTypeLit -> Just (sort, t))
              KindRepTYPE, KindRepTypeLit #-}
 
 getKindRepTypeLit :: KindRep -> Maybe (TypeLitSort, String)
-getKindRepTypeLit (KindRepTypeLitS sort t) = Just (sort, unpackCString# t)
-getKindRepTypeLit (KindRepTypeLitD sort t) = Just (sort, t)
-getKindRepTypeLit _                        = Nothing
+getKindRepTypeLit (KindRepTypeLitS sort l t) = Just (sort, unpackCString# (# l, t #))
+getKindRepTypeLit (KindRepTypeLitD sort t)   = Just (sort, t)
+getKindRepTypeLit _                          = Nothing
 
 -- | Exquisitely unsafe.
-mkTyCon# :: Addr#       -- ^ package name
-         -> Addr#       -- ^ module name
-         -> Addr#       -- ^ the name of the type constructor
-         -> Int#        -- ^ number of kind variables
-         -> KindRep     -- ^ kind representation
-         -> TyCon       -- ^ A unique 'TyCon' object
-mkTyCon# pkg modl name n_kinds kind_rep
+mkTyCon# :: (# Int#, Addr# #)  -- ^ package name
+         -> (# Int#, Addr# #)  -- ^ module name
+         -> (# Int#, Addr# #)  -- ^ the name of the type constructor
+         -> Int#               -- ^ number of kind variables
+         -> KindRep            -- ^ kind representation
+         -> TyCon              -- ^ A unique 'TyCon' object
+mkTyCon# (# pkg_len, pkg #)
+         (# modl_len, modl #)
+         (# name_len, name #)
+         n_kinds
+         kind_rep
   | Fingerprint (W64# hi) (W64# lo) <- fingerprint
-  = TyCon hi lo mod (TrNameS name) n_kinds kind_rep
+  = TyCon hi lo mod (TrNameS name_len name) n_kinds kind_rep
   where
-    mod = Module (TrNameS pkg) (TrNameS modl)
+    mod = Module (TrNameS pkg_len pkg) (TrNameS modl_len modl)
     fingerprint :: Fingerprint
-    fingerprint = mkTyConFingerprint (unpackCString# pkg)
-                                     (unpackCString# modl)
-                                     (unpackCString# name)
+    fingerprint = mkTyConFingerprint (unpackCString# (# pkg_len, pkg #))
+                                     (unpackCString# (# modl_len, modl #))
+                                     (unpackCString# (# name_len, name #))
 
 -- it is extremely important that this fingerprint computation
 -- remains in sync with that in TcTypeable to ensure that type

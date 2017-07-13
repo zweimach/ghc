@@ -1,5 +1,6 @@
 
 ==================== Tidy Core ====================
+<<<<<<< HEAD
 Result size of Tidy Core
   = {terms: 68, types: 43, coercions: 0, joins: 0/0}
 
@@ -13,10 +14,17 @@ T4908.$trModule4 = "main"#
 
 -- RHS size: {terms: 2, types: 0, coercions: 0, joins: 0/0}
 T4908.$trModule3 :: TrName
+=======
+Result size of Tidy Core = {terms: 66, types: 41, coercions: 0}
+
+-- RHS size: {terms: 3, types: 0, coercions: 0}
+T4908.$trModule2 :: TrName
+>>>>>>> c0e6759aeb... Create (# Int#, Addr# #) pairs for strings and pass that to unpackCString#
 [GblId,
  Caf=NoCafRefs,
  Str=m1,
  Unf=Unf{Src=<vanilla>, TopLvl=True, Value=True, ConLike=True,
+<<<<<<< HEAD
          WorkFree=True, Expandable=True, Guidance=IF_ARGS [] 10 20}]
 T4908.$trModule3 = GHC.Types.TrNameS T4908.$trModule4
 
@@ -29,13 +37,24 @@ T4908.$trModule2 :: Addr#
 T4908.$trModule2 = "T4908"#
 
 -- RHS size: {terms: 2, types: 0, coercions: 0, joins: 0/0}
+=======
+         WorkFree=True, Expandable=True, Guidance=IF_ARGS [] 30 30}]
+T4908.$trModule2 = GHC.Types.TrNameS 4# "main"#
+
+-- RHS size: {terms: 3, types: 0, coercions: 0}
+>>>>>>> c0e6759aeb... Create (# Int#, Addr# #) pairs for strings and pass that to unpackCString#
 T4908.$trModule1 :: TrName
 [GblId,
  Caf=NoCafRefs,
  Str=m1,
  Unf=Unf{Src=<vanilla>, TopLvl=True, Value=True, ConLike=True,
+<<<<<<< HEAD
          WorkFree=True, Expandable=True, Guidance=IF_ARGS [] 10 20}]
 T4908.$trModule1 = GHC.Types.TrNameS T4908.$trModule2
+=======
+         WorkFree=True, Expandable=True, Guidance=IF_ARGS [] 40 30}]
+T4908.$trModule1 = GHC.Types.TrNameS 5# "T4908"#
+>>>>>>> c0e6759aeb... Create (# Int#, Addr# #) pairs for strings and pass that to unpackCString#
 
 -- RHS size: {terms: 3, types: 0, coercions: 0, joins: 0/0}
 T4908.$trModule :: Module

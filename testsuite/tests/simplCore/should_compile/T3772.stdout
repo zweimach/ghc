@@ -1,7 +1,11 @@
 
 ==================== Tidy Core ====================
+<<<<<<< HEAD
 Result size of Tidy Core
   = {terms: 43, types: 18, coercions: 0, joins: 0/0}
+=======
+Result size of Tidy Core = {terms: 38, types: 14, coercions: 0}
+>>>>>>> c0e6759aeb... Create (# Int#, Addr# #) pairs for strings and pass that to unpackCString#
 
 -- RHS size: {terms: 1, types: 0, coercions: 0, joins: 0/0}
 T3772.$trModule4 :: GHC.Prim.Addr#
@@ -11,12 +15,30 @@ T3772.$trModule4 :: GHC.Prim.Addr#
          WorkFree=True, Expandable=True, Guidance=IF_ARGS [] 20 0}]
 T3772.$trModule4 = "main"#
 
+<<<<<<< HEAD
 -- RHS size: {terms: 2, types: 0, coercions: 0, joins: 0/0}
 T3772.$trModule3 :: GHC.Types.TrName
+=======
+-- RHS size: {terms: 14, types: 5, coercions: 0}
+foo [InlPrag=NOINLINE] :: Int -> ()
+[GblId, Arity=1, Caf=NoCafRefs, Str=<S(S),1*U(U)>]
+foo =
+  \ (n :: Int) ->
+    case n of { GHC.Types.I# y ->
+    case GHC.Prim.tagToEnum# @ Bool (GHC.Prim.<# 0# y) of {
+      False -> GHC.Tuple.();
+      True -> $wxs y
+    }
+    }
+
+-- RHS size: {terms: 3, types: 0, coercions: 0}
+T3772.$trModule1 :: GHC.Types.TrName
+>>>>>>> c0e6759aeb... Create (# Int#, Addr# #) pairs for strings and pass that to unpackCString#
 [GblId,
  Caf=NoCafRefs,
  Str=m1,
  Unf=Unf{Src=<vanilla>, TopLvl=True, Value=True, ConLike=True,
+<<<<<<< HEAD
          WorkFree=True, Expandable=True, Guidance=IF_ARGS [] 10 20}]
 T3772.$trModule3 = GHC.Types.TrNameS T3772.$trModule4
 
@@ -30,12 +52,24 @@ T3772.$trModule2 = "T3772"#
 
 -- RHS size: {terms: 2, types: 0, coercions: 0, joins: 0/0}
 T3772.$trModule1 :: GHC.Types.TrName
+=======
+         WorkFree=True, Expandable=True, Guidance=IF_ARGS [] 40 30}]
+T3772.$trModule1 = GHC.Types.TrNameS 5# "T3772"#
+
+-- RHS size: {terms: 3, types: 0, coercions: 0}
+T3772.$trModule2 :: GHC.Types.TrName
+>>>>>>> c0e6759aeb... Create (# Int#, Addr# #) pairs for strings and pass that to unpackCString#
 [GblId,
  Caf=NoCafRefs,
  Str=m1,
  Unf=Unf{Src=<vanilla>, TopLvl=True, Value=True, ConLike=True,
+<<<<<<< HEAD
          WorkFree=True, Expandable=True, Guidance=IF_ARGS [] 10 20}]
 T3772.$trModule1 = GHC.Types.TrNameS T3772.$trModule2
+=======
+         WorkFree=True, Expandable=True, Guidance=IF_ARGS [] 30 30}]
+T3772.$trModule2 = GHC.Types.TrNameS 4# "main"#
+>>>>>>> c0e6759aeb... Create (# Int#, Addr# #) pairs for strings and pass that to unpackCString#
 
 -- RHS size: {terms: 3, types: 0, coercions: 0, joins: 0/0}
 T3772.$trModule :: GHC.Types.Module

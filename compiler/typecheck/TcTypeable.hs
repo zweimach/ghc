@@ -39,7 +39,7 @@ import TrieMap
 import Constants
 import Fingerprint(Fingerprint(..), fingerprintString, fingerprintFingerprints)
 import Outputable
-import FastString ( FastString, mkFastString, fsLit )
+import FastString ( FastString, mkFastString, lengthFS, fsLit )
 
 import Control.Monad.Trans.State
 import Control.Monad.Trans.Class (lift)
@@ -391,8 +391,9 @@ mkTrNameLit :: TcM (FastString -> LHsExpr GhcTc)
 mkTrNameLit = do
     trNameSDataCon <- tcLookupDataCon trNameSDataConName
     let trNameLit :: FastString -> LHsExpr GhcTc
-        trNameLit fs = nlHsPar $ nlHsDataCon trNameSDataCon
-                       `nlHsApp` nlHsLit (mkHsStringPrimLit fs)
+        trNameLit fs = nlHsPar $
+          nlHsDataCon trNameSDataCon
+          `primStringPair` fs
     return trNameLit
 
 -- | Make Typeable bindings for the given 'TyCon'.
@@ -590,12 +591,12 @@ mkKindRepRhs stuff@(Stuff {..}) in_scope = new_kind_rep
     new_kind_rep (LitTy (NumTyLit n))
       = return $ nlHsDataCon kindRepTypeLitSDataCon
                  `nlHsApp` nlHsDataCon typeLitNatDataCon
-                 `nlHsApp` nlHsLit (mkHsStringPrimLit $ mkFastString $ show n)
+                 `primStringPair` mkFastString (show n)
 
     new_kind_rep (LitTy (StrTyLit s))
       = return $ nlHsDataCon kindRepTypeLitSDataCon
                  `nlHsApp` nlHsDataCon typeLitSymbolDataCon
-                 `nlHsApp` nlHsLit (mkHsStringPrimLit $ mkFastString $ show s)
+                 `primStringPair` mkFastString (show s)
 
     new_kind_rep (CastTy ty co)
       = pprPanic "mkTyConKindRepBinds.go(cast)" (ppr ty $$ ppr co)
@@ -705,3 +706,12 @@ mkList ty = foldr consApp (nilExpr ty)
 
     consExpr :: Type -> LHsExpr GhcTc
     consExpr ty = mkLHsWrap (mkWpTyApps [ty]) (nlHsDataCon consDataCon)
+
+-- | Given an expression @x@ and a string literal @s@, construct
+-- @x (length s) s@.
+primStringPair :: LHsExpr GhcTc -> FastString -> LHsExpr GhcTc
+primStringPair x fs =
+    x
+   `nlHsApp` nlHsLit (HsIntPrim noSourceText (toInteger (lengthFS fs)))
+   `nlHsApp` nlHsLit (mkHsStringPrimLit fs)
+

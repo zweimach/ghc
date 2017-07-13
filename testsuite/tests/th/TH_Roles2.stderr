@@ -14,13 +14,17 @@ TH_Roles2.$tcT
       11651627537942629178##
       11503899791410937231##
       TH_Roles2.$trModule
+<<<<<<< HEAD
       (GHC.Types.TrNameS "T"#)
       1
       $krep
 $krep [InlPrag=[~]] = GHC.Types.KindRepVar 0
 $krep [InlPrag=[~]]
   = GHC.Types.KindRepFun $krep GHC.Types.krep$*
+=======
+      (GHC.Types.TrNameS 1# "T"#)
+>>>>>>> c0e6759aeb... Create (# Int#, Addr# #) pairs for strings and pass that to unpackCString#
 TH_Roles2.$trModule
   = GHC.Types.Module
-      (GHC.Types.TrNameS "main"#) (GHC.Types.TrNameS "TH_Roles2"#)
+      (GHC.Types.TrNameS 4# "main"#) (GHC.Types.TrNameS 9# "TH_Roles2"#)
 

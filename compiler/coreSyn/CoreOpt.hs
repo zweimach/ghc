@@ -15,7 +15,10 @@ module CoreOpt (
         exprIsConApp_maybe, exprIsLiteral_maybe, exprIsLambda_maybe,
 
         -- ** Coercions and casts
-        pushCoArg, pushCoValArg, pushCoTyArg, collectBindersPushingCo
+        pushCoArg, pushCoValArg, pushCoTyArg, collectBindersPushingCo,
+
+        -- ** Predicates
+        exprIsUnboxedTupleString_maybe,
     ) where
 
 #include "HsVersions.h"
@@ -28,7 +31,7 @@ import CoreUtils
 import CoreFVs
 import PprCore  ( pprCoreBindings, pprRules )
 import OccurAnal( occurAnalyseExpr, occurAnalysePgm )
-import Literal  ( Literal(MachStr) )
+import Literal  ( Literal(MachInt, MachStr) )
 import Id
 import Var      ( varType )
 import VarSet
@@ -40,6 +43,7 @@ import Type     hiding ( substTy, extendTvSubst, extendCvSubst, extendTvSubstLis
 import Coercion hiding ( substCo, substCoVarBndr )
 import TyCon        ( tyConArity )
 import TysWiredIn
+import MkCore       ( mkStringLitExpr )
 import PrelNames
 import BasicTypes
 import Module       ( Module )
@@ -807,7 +811,7 @@ exprIsConApp_maybe (in_scope, id_unf) expr
         | (fun `hasKey` unpackCStringIdKey) ||
           (fun `hasKey` unpackCStringUtf8IdKey)
         , [arg]              <- args
-        , Just (MachStr str) <- exprIsLiteral_maybe (in_scope, id_unf) arg
+        , Just str <- exprIsUnboxedTupleString_maybe arg
         = dealWithStringLiteral fun str co
         where
           unfolding = id_unf fun
@@ -847,10 +851,19 @@ dealWithStringLiteral fun str co
         -- In singleton strings, just add [] instead of unpackCstring# ""#.
         rest = if BS.null charTail
                  then mkConApp nilDataCon [Type charTy]
-                 else App (Var fun)
-                          (Lit (MachStr charTail))
+                 else Var fun `App` mkStringLitExpr charTail
 
     in pushCoDataCon consDataCon [Type charTy, char, rest] co
+
+-- | Extract "hello"# out of (# 5#, "hello"# #)
+exprIsUnboxedTupleString_maybe :: CoreExpr -> Maybe BS.ByteString
+exprIsUnboxedTupleString_maybe expr = do
+    let emptyInScopeEnv = (emptyInScopeSet, const NoUnfolding)
+    (dataCon, _tys, vals) <- exprIsConApp_maybe emptyInScopeEnv expr
+    case vals of
+      _ | not $ isUnboxedTupleCon dataCon     -> Nothing
+      [Lit (MachInt _len), Lit (MachStr str)] -> Just str
+      _                                       -> Nothing
 
 {-
 Note [Unfolding DFuns]

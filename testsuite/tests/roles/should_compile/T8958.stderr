@@ -25,46 +25,67 @@ T8958.$tcMap
       16542473435673943392##
       5374201132143305512##
       T8958.$trModule
+<<<<<<< HEAD
       (GHC.Types.TrNameS "Map"#)
       0
       GHC.Types.krep$*->*->*
+=======
+      (GHC.Types.TrNameS 3# "Map"#)
+>>>>>>> c0e6759aeb... Create (# Int#, Addr# #) pairs for strings and pass that to unpackCString#
 T8958.$tc'MkMap
   = GHC.Types.TyCon
       2942839876828444488##
       3989137838066763457##
       T8958.$trModule
+<<<<<<< HEAD
       (GHC.Types.TrNameS "'MkMap"#)
       2
       $krep
+=======
+      (GHC.Types.TrNameS 6# "'MkMap"#)
+>>>>>>> c0e6759aeb... Create (# Int#, Addr# #) pairs for strings and pass that to unpackCString#
 T8958.$tcRepresentational
   = GHC.Types.TyCon
       12809567151893673426##
       12159693688248149156##
       T8958.$trModule
+<<<<<<< HEAD
       (GHC.Types.TrNameS "Representational"#)
       0
       $krep
+=======
+      (GHC.Types.TrNameS 16# "Representational"#)
+>>>>>>> c0e6759aeb... Create (# Int#, Addr# #) pairs for strings and pass that to unpackCString#
 T8958.$tc'C:Representational
   = GHC.Types.TyCon
       2358772282532242424##
       5444038897914446879##
       T8958.$trModule
+<<<<<<< HEAD
       (GHC.Types.TrNameS "'C:Representational"#)
       1
       $krep
+=======
+      (GHC.Types.TrNameS 19# "'C:Representational"#)
+>>>>>>> c0e6759aeb... Create (# Int#, Addr# #) pairs for strings and pass that to unpackCString#
 T8958.$tcNominal
   = GHC.Types.TyCon
       12224997609886144634##
       9866011944332051160##
       T8958.$trModule
+<<<<<<< HEAD
       (GHC.Types.TrNameS "Nominal"#)
       0
       $krep
+=======
+      (GHC.Types.TrNameS 7# "Nominal"#)
+>>>>>>> c0e6759aeb... Create (# Int#, Addr# #) pairs for strings and pass that to unpackCString#
 T8958.$tc'C:Nominal
   = GHC.Types.TyCon
       10562260635335201742##
       1215478186250709459##
       T8958.$trModule
+<<<<<<< HEAD
       (GHC.Types.TrNameS "'C:Nominal"#)
       1
       $krep
@@ -97,9 +118,12 @@ $krep [InlPrag=[~]]
   = GHC.Types.KindRepTyConApp
       T8958.$tcNominal
       ((:) @ GHC.Types.KindRep $krep [] @ GHC.Types.KindRep)
+=======
+      (GHC.Types.TrNameS 10# "'C:Nominal"#)
+>>>>>>> c0e6759aeb... Create (# Int#, Addr# #) pairs for strings and pass that to unpackCString#
 T8958.$trModule
   = GHC.Types.Module
-      (GHC.Types.TrNameS "main"#) (GHC.Types.TrNameS "T8958"#)
+      (GHC.Types.TrNameS 4# "main"#) (GHC.Types.TrNameS 5# "T8958"#)
 AbsBinds [a] []
   {Exports: [T8958.$fRepresentationala <= $dRepresentational
                wrap: <>]

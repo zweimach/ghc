@@ -46,6 +46,7 @@ module HsUtils(
 
   -- Literals
   mkHsIntegral, mkHsFractional, mkHsIsString, mkHsString, mkHsStringPrimLit,
+  mkHsStringLenPrimLit,
 
   -- Patterns
   mkNPat, mkNPlusKPat, nlVarPat, nlLitPat, nlConVarPat, nlConVarPatName, nlConPat,
@@ -353,6 +354,17 @@ mkHsString s = HsString noSourceText (mkFastString s)
 mkHsStringPrimLit :: SourceTextX p => FastString -> HsLit p
 mkHsStringPrimLit fs
   = HsStringPrim noSourceText (fastStringToByteString fs)
+
+-- | Create an unboxed tuple with string length and address.
+mkHsStringLenPrimLit :: SourceTextX p => SrcSpan -> FastString -> HsExpr p
+mkHsStringLenPrimLit loc fs
+  = ExplicitTuple [lenArg, strArg] Unboxed
+  where
+    len     = toInteger (lengthFS fs)
+    primLen = HsIntPrim noSourceText len
+    primStr = mkHsStringPrimLit fs
+    lenArg  = L loc (Present (L loc (HsLit primLen)))
+    strArg  = L loc (Present (L loc (HsLit primStr)))
 
 -------------
 userHsLTyVarBndrs :: SrcSpan -> [Located (IdP name)] -> [LHsTyVarBndr name]

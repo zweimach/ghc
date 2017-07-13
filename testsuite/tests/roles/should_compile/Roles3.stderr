@@ -38,46 +38,79 @@ Roles3.$tcC4
       6800596812149592130##
       15513203864133461281##
       Roles3.$trModule
+<<<<<<< HEAD
       (GHC.Types.TrNameS "C4"#)
       0
       $krep
+=======
+      (GHC.Types.TrNameS 2# "C4"#)
+Roles3.$tc'C:C4
+  = GHC.Types.TyCon
+      5012080351591218464##
+      14312195554521420369##
+      Roles3.$trModule
+      (GHC.Types.TrNameS 5# "'C:C4"#)
+>>>>>>> c0e6759aeb... Create (# Int#, Addr# #) pairs for strings and pass that to unpackCString#
 Roles3.$tcC3
   = GHC.Types.TyCon
       5076086601454991970##
       10299714674904836194##
       Roles3.$trModule
+<<<<<<< HEAD
       (GHC.Types.TrNameS "C3"#)
       0
       $krep
+=======
+      (GHC.Types.TrNameS 2# "C3"#)
+Roles3.$tc'C:C3
+  = GHC.Types.TyCon
+      5363370173992879615##
+      3444510123613553605##
+      Roles3.$trModule
+      (GHC.Types.TrNameS 5# "'C:C3"#)
+>>>>>>> c0e6759aeb... Create (# Int#, Addr# #) pairs for strings and pass that to unpackCString#
 Roles3.$tcC2
   = GHC.Types.TyCon
       7902873224172523979##
       11840994447152209031##
       Roles3.$trModule
+<<<<<<< HEAD
       (GHC.Types.TrNameS "C2"#)
       0
       $krep
+=======
+      (GHC.Types.TrNameS 2# "C2"#)
+>>>>>>> c0e6759aeb... Create (# Int#, Addr# #) pairs for strings and pass that to unpackCString#
 Roles3.$tc'C:C2
   = GHC.Types.TyCon
       11218882737915989529##
       9454910899374397367##
       Roles3.$trModule
+<<<<<<< HEAD
       (GHC.Types.TrNameS "'C:C2"#)
       2
       $krep
+=======
+      (GHC.Types.TrNameS 5# "'C:C2"#)
+>>>>>>> c0e6759aeb... Create (# Int#, Addr# #) pairs for strings and pass that to unpackCString#
 Roles3.$tcC1
   = GHC.Types.TyCon
       11013585501375994163##
       16371608655219610659##
       Roles3.$trModule
+<<<<<<< HEAD
       (GHC.Types.TrNameS "C1"#)
       0
       $krep
+=======
+      (GHC.Types.TrNameS 2# "C1"#)
+>>>>>>> c0e6759aeb... Create (# Int#, Addr# #) pairs for strings and pass that to unpackCString#
 Roles3.$tc'C:C1
   = GHC.Types.TyCon
       4508088879886988796##
       13962145553903222779##
       Roles3.$trModule
+<<<<<<< HEAD
       (GHC.Types.TrNameS "'C:C1"#)
       1
       $krep
@@ -100,7 +133,10 @@ $krep [InlPrag=[~]]
   = GHC.Types.KindRepTyConApp Roles3.$tcC2 ((:) $krep ((:) $krep []))
 $krep [InlPrag=[~]]
   = GHC.Types.KindRepTyConApp Roles3.$tcC1 ((:) $krep [])
+=======
+      (GHC.Types.TrNameS 5# "'C:C1"#)
+>>>>>>> c0e6759aeb... Create (# Int#, Addr# #) pairs for strings and pass that to unpackCString#
 Roles3.$trModule
   = GHC.Types.Module
-      (GHC.Types.TrNameS "main"#) (GHC.Types.TrNameS "Roles3"#)
+      (GHC.Types.TrNameS 4# "main"#) (GHC.Types.TrNameS 6# "Roles3"#)
 
