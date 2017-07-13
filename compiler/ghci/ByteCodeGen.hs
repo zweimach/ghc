@@ -1664,20 +1664,17 @@ TODO
 -- | Extract the arguments to an unboxed tuple constructor, ignoring any
 --   type arguments.
 splitUnboxedTuple_maybe :: AnnExpr' Id ann -> Maybe [AnnExpr Id ann]
-splitUnboxedTuple_maybe = fmap reverse . go
+splitUnboxedTuple_maybe = go []
   where
     -- drop type applications
-    go (AnnApp fun (_, AnnType{})) = go (snd fun)
-    go (AnnApp fun arg) = do
-      rs <- go (snd fun)
-      pure (arg:rs)
-    go (AnnVar id) = do
-        guard $ case idDetails id of
-          DataConWorkId dc -> isUnboxedTupleCon dc
-          DataConWrapId dc -> isUnboxedTupleCon dc
-          _                -> False
-        pure []
-    go _ = Nothing
+    go acc (AnnApp fun (_, AnnType{})) = go acc (snd fun)
+    go acc (AnnApp fun arg) = go (arg:acc) (snd fun)
+    go acc (AnnVar id) =
+        case idDetails id of
+          DataConWorkId dc | isUnboxedTupleCon dc -> Just acc
+          DataConWrapId dc | isUnboxedTupleCon dc -> Just acc
+          _                                       -> Nothing
+    go _ _ = Nothing
 
 -- | Replace unboxed tuple binders in an argument list
 replaceUbxTuples :: UBXEnv -- ^ Unboxed tuple env
