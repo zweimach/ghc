@@ -35,7 +35,7 @@ module CoreUnfold (
 
         callSiteInline, CallCtxt(..),
 
-        -- Reexport from CoreSubst (it only live there so it can be used
+        -- Reexport from CoreOpt (it only live there so it can be used
         -- by the Very Simple Optimiser)
         exprIsConApp_maybe, exprIsLiteral_maybe
     ) where
