@@ -86,6 +86,7 @@ module FastString
         -- ** Construction
         sLit,
         mkLitString#,
+        mkLitStringLen#,
         mkLitString,
 
         -- ** Deconstruction
@@ -573,6 +574,10 @@ data LitString = LitString !(Ptr Word8) !Int
 mkLitString# :: Addr# -> LitString
 mkLitString# a# = LitString (Ptr a#) (ptrStrLength (Ptr a#))
 
+-- | Wrap an unboxed address into a 'LitString'.
+mkLitStringLen# :: Addr# -> Int# -> LitString
+mkLitStringLen# a# len# = LitString (Ptr a#) (I# len#)
+
 -- | Encode a 'String' into a newly allocated 'LitString' using Latin-1
 -- encoding.  The original string must not contain non-Latin-1 characters
 -- (above codepoint @0xff@).
@@ -596,8 +601,8 @@ mkLitString s =
 -- | Decode a 'LitString' back into a 'String' using Latin-1 encoding.
 -- This does not free the memory associated with 'LitString'.
 unpackLitString :: LitString -> String
-#if __GLASGOW_HASKELL__ > 820
-unpackLitString (LitString p l) = unpackCString# (# l, p #)
+#if __GLASGOW_HASKELL__ > 802
+unpackLitString (LitString (Ptr p) (I# l)) = unpackCString# (# l, p #)
 #else
 unpackLitString (LitString (Ptr p) _) = unpackCString# p
 #endif
@@ -626,11 +631,11 @@ sLit x  = mkLitString x
 fsLit :: String -> FastString
 fsLit x = mkFastString x
 
-#if __GLASGOW_HASKELL__ > 820
+#if __GLASGOW_HASKELL__ > 802
 {-# RULES "slit"
     forall l x . sLit  (unpackCString# (# l, x #)) = mkLitString# x #-}
 {-# RULES "fslit"
-    forall l x . fsLit (unpackCString# (# l, x #)) = mkFastStringBytes x l #-}
+    forall l x . fsLit (unpackCString# (# l, x #)) = mkFastStringBytes (Ptr x) (I# l) #-}
 #else
 {-# RULES "slit"
     forall x . sLit  (unpackCString# x) = mkLitString#  x #-}

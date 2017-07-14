@@ -1123,7 +1123,7 @@ builtinIntegerRules =
 --      =  unpackFoldrCString# "foobaz" c n
 
 match_append_lit :: RuleFun
-match_append_lit _ id_unf _
+match_append_lit _ _ _
         [ Type ty1
         , arg1
         , c1

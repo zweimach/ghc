@@ -304,7 +304,7 @@ text s = case length s of {sl -> textBeside_ (Str s)  sl Empty}
 -- intermediate packing/unpacking of the string.
 #if __GLASGOW_HASKELL__ > 800
 {-# RULES
-  "text/str" forall l a. text (unpackCString# (# l, a #)) = ptext (LitString a l)
+  "text/str" forall l a. text (unpackCString# (# l, a #)) = ptext (mkLitStringLen# a l)
  #-}
 #else
 {-# RULES
