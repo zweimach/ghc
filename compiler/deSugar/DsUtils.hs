@@ -470,7 +470,7 @@ mkErrorAppDs err_id ty msg = do
     let
         full_msg = showSDoc dflags (hcat [ppr src_loc, vbar, msg])
         core_msg = mkStringLitExprS full_msg
-        -- mkMachString returns a result of type String#
+        -- mkStringLitExprS returns a result of type (# Int#, String# #)
     return (mkApps (Var err_id) [Type (getRuntimeRep "mkErrorAppDs" ty), Type ty, core_msg])
 
 {-
