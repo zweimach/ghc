@@ -129,7 +129,7 @@ import Foreign
 import GHC.Conc.Sync    (sharedCAF)
 #endif
 
-import GHC.Base         ( unpackCString# )
+import GHC.Base         ( unpackCString#, unpackCStringUtf8# )
 
 #define hASH_TBL_SIZE          4091
 #define hASH_TBL_SIZE_UNBOXED  4091#
@@ -631,8 +631,12 @@ fsLit x = mkFastString x
 #if __GLASGOW_HASKELL__ > 802
 {-# RULES "slit"
     forall l x . sLit  (unpackCString# (# l, x #)) = mkLitString# x #-}
+{-# RULES "slitUtf8"
+    forall l x . sLit (unpackCStringUtf8# (# l, x #)) = LitString (Ptr x) (I# l) #-}
 {-# RULES "fslit"
     forall l x . fsLit (unpackCString# (# l, x #)) = mkFastStringBytes (Ptr x) (I# l) #-}
+{-# RULES "fslitUtf8"
+    forall l x . fsLit (unpackCStringUtf8# (# l, x #)) = mkFastStringBytes (Ptr x) (I# l) #-}
 #else
 {-# RULES "slit"
     forall x . sLit  (unpackCString# x) = mkLitString#  x #-}
