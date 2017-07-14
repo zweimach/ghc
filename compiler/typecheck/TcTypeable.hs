@@ -714,4 +714,3 @@ primStringPair x fs =
     x
    `nlHsApp` nlHsLit (HsIntPrim noSourceText (toInteger (lengthFS fs)))
    `nlHsApp` nlHsLit (mkHsStringPrimLit fs)
-

@@ -724,7 +724,7 @@ schemeT d s p m app
         -- Extract the args (R->L) and fn
         -- The function will necessarily be a variable,
         -- because we are compiling a tail call
-      (AnnVar fn, args_r_to_l) = 
+      (AnnVar fn, args_r_to_l) =
           second (replaceUbxTuples m reverse) (splitApp app)
 
       -- Only consider this to be a constructor application iff it is

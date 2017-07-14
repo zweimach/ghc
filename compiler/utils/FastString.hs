@@ -565,10 +565,7 @@ hPutFS handle fs = BS.hPut handle $ fastStringToByteString fs
 -- LitStrings, here for convenience only.
 
 -- | A 'LitString' is a pointer to some null-terminated array of bytes.
-data LitString = LitString !(Ptr Word8) !Int
---Why do we recalculate length every time it's requested?
---If it's commonly needed, we should perhaps have
---data LitString = LitString {-#UNPACK#-}!Addr# {-#UNPACK#-}!Int#
+data LitString = LitString {-# UNPACK #-} !(Ptr Word8) {-# UNPACK #-} !Int
 
 -- | Wrap an unboxed address into a 'LitString'.
 mkLitString# :: Addr# -> LitString
