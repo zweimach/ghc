@@ -483,7 +483,8 @@ schemeE d s p m (AnnLet (AnnNonRec x (_,rhs)) (_,body))
         -- saturated constructor application.
         -- Just allocate the constructor and carry on
         alloc_code <- mkConAppCode d s p data_con args_r_to_l
-        body_code <- schemeE (d+1) s (Map.insert x d p) m body
+        let !d2 = d + 1
+        body_code <- schemeE d2 s (Map.insert x d p) m body
         return (alloc_code `appOL` body_code)
 
 -- General case for let.  Generates correct, if inefficient, code in
