@@ -78,13 +78,15 @@ module Data.Typeable.Internal (
 
 import GHC.Base
 import qualified GHC.Arr as A
-import GHC.Types ( TYPE )
+import GHC.Types     ( TYPE )
 import Data.Type.Equality
-import GHC.List ( splitAt, foldl' )
+import GHC.List      ( splitAt, foldl' )
+import GHC.Ptr       ( Ptr(..) )
 import GHC.Word
 import GHC.Show
-import GHC.TypeLits ( KnownSymbol, symbolVal' )
-import GHC.TypeNats ( KnownNat, natVal' )
+import GHC.IO.Unsafe
+import GHC.TypeLits  ( KnownSymbol, symbolVal' )
+import GHC.TypeNats  ( KnownNat, natVal' )
 import Unsafe.Coerce ( unsafeCoerce )
 
 import GHC.Fingerprint.Type
@@ -591,13 +593,17 @@ mkTyCon# (# pkg_len, pkg #)
   where
     mod = Module (TrNameS pkg_len pkg) (TrNameS modl_len modl)
     fingerprint :: Fingerprint
-    fingerprint = mkTyConFingerprint (unpackCString# (# pkg_len, pkg #))
-                                     (unpackCString# (# modl_len, modl #))
-                                     (unpackCString# (# name_len, name #))
+    !fingerprint = unsafePerformIO $ do
+        pkg_fpr  <- fingerprintData (Ptr pkg) (I# pkg_len)
+        modl_fpr <- fingerprintData (Ptr modl) (I# modl_len)
+        name_fpr <- fingerprintData (Ptr name) (I# name_len)
+        return $ fingerprintFingerprints [pkg_fpr, modl_fpr, name_fpr]
 
--- it is extremely important that this fingerprint computation
--- remains in sync with that in TcTypeable to ensure that type
--- equality is correct.
+-- it is extremely important that these fingerprint computation methods
+-- remain in sync to ensure that equality is correct,
+--    * mkTyCon#
+--    * mkTyCon
+--    * TcTypeable
 
 -- | Exquisitely unsafe.
 mkTyCon :: String       -- ^ package name
@@ -614,19 +620,9 @@ mkTyCon pkg modl name (I# n_kinds) kind_rep
   where
     mod = Module (TrNameD pkg) (TrNameD modl)
     fingerprint :: Fingerprint
-    fingerprint = mkTyConFingerprint pkg modl name
-
--- This must match the computation done in TcTypeable.mkTyConRepTyConRHS.
-mkTyConFingerprint :: String -- ^ package name
-                   -> String -- ^ module name
-                   -> String -- ^ tycon name
-                   -> Fingerprint
-mkTyConFingerprint pkg_name mod_name tycon_name =
-        fingerprintFingerprints
-        [ fingerprintString pkg_name
-        , fingerprintString mod_name
-        , fingerprintString tycon_name
-        ]
+    fingerprint = fingerprintFingerprints [ fingerprintString pkg
+                                          , fingerprintString modl
+                                          , fingerprintString name ]
 
 mkTypeLitTyCon :: String -> TyCon -> TyCon
 mkTypeLitTyCon name kind_tycon

@@ -3,12 +3,15 @@
 
 module GHC.Fingerprint (
         fingerprintString,
-        fingerprintFingerprints
+        fingerprintFingerprints,
+        fingerprintData
   ) where
 
-import GHC.Base
-import GHC.Fingerprint.Type
+import GHC.Base (String, Int, IO)
+import GHC.Ptr (Ptr)
+import GHC.Word (Word8)
+import GHC.Fingerprint.Type (Fingerprint)
 
 fingerprintFingerprints :: [Fingerprint] -> Fingerprint
 fingerprintString :: String -> Fingerprint
-
+fingerprintData :: Ptr Word8 -> Int -> IO Fingerprint
