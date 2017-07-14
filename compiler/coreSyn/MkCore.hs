@@ -780,8 +780,7 @@ mkRuntimeErrorId name
     --   See Note [Error and friends have an "open-tyvar" forall]
     runtime_err_ty = mkSpecSigmaTy [runtimeRep1TyVar, openAlphaTyVar] []
                                    (mkFunTy stringPrimTy openAlphaTy)
-    -- TODO: this can be done better, but this is the fastest way for testing
-    stringPrimTy = exprType $ mkStringLitExpr mempty
+    stringPrimTy = mkTyConApp (tupleTyCon Unboxed 2) [intPrimTy, addrPrimTy]
 
 {- Note [Error and friends have an "open-tyvar" forall]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
