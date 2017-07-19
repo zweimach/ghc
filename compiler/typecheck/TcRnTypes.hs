@@ -1077,7 +1077,7 @@ data PromotionErr
   | ClassPE          -- Ditto Class
 
   | FamDataConPE     -- Data constructor for a data family
-                     -- See Note [AFamDataCon: not promoting data family constructors] in TcRnDriver
+                     -- See Note [AFamDataCon: not promoting data family constructors] below
   | PatSynPE         -- Pattern synonyms
                      -- See Note [Don't promote pattern synonyms] in TcEnv
 
