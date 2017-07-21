@@ -780,7 +780,14 @@ mkRuntimeErrorId name
     --   See Note [Error and friends have an "open-tyvar" forall]
     runtime_err_ty = mkSpecSigmaTy [runtimeRep1TyVar, openAlphaTyVar] []
                                    (mkFunTy stringPrimTy openAlphaTy)
-    stringPrimTy = mkTyConApp (tupleTyCon Unboxed 2) [intPrimTy, addrPrimTy]
+
+-- | A primitive string represented by @(# Int#, Addr# #)@.
+stringPrimTy :: Type
+stringPrimTy =
+    mkTyConApp (tupleTyCon Unboxed 2)
+    [ intRepDataConTy, addrRepDataConTy -- runtime reps
+    , intPrimTy, addrPrimTy             -- types
+    ]
 
 {- Note [Error and friends have an "open-tyvar" forall]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
