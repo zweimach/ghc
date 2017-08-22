@@ -81,8 +81,8 @@ int main(int argc, char *argv[])
                 epsfwidth = WidthInPoints(*argv + 1);
                 goto nextarg;
             case 'd':
-                dflag++;
-                goto nextarg;
+                dflag = true;
+                break;
             case 'i':
                 switch( *(*argv + 1) ) {
                 case '-':
@@ -94,17 +94,17 @@ int main(int argc, char *argv[])
                 }
                 goto nextarg;
             case 'g':
-                gflag++;
-                goto nextarg;
+                gflag = true;
+                break;
             case 'y':
-                yflag++;
-                goto nextarg;
+                yflag = true;
+                break;
             case 'b':
-                bflag++;
-                goto nextarg;
+                bflag = true;
+                break;
             case 's':
-                sflag++;
-                goto nextarg;
+                sflag = true;
+                break;
             case 'm':
                 mflag++;
                 TWENTY = atoi(*argv + 1);
@@ -122,8 +122,8 @@ int main(int argc, char *argv[])
                     Usage(*argv-1);
                 goto nextarg;
             case 'c':
-                cflag++;
-                goto nextarg;
+                cflag = true;
+                break;
             case '?':
             default:
                 Usage(*argv-1);
