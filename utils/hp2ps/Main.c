@@ -17,21 +17,21 @@
 #include "Utilities.h"
 
 static boolish pflag = 0;	/* read auxiliary file			*/
-boolish eflag = 0;	/* scaled EPSF 				*/
+boolish eflag = 0;	/* scaled EPSF        */
 static boolish dflag = 0;	/* sort by standard deviation		*/
 static int     iflag = 0;	/* sort by identifier (3-way flag)      */
 boolish gflag = 0;	/* output suitable for previewer	*/
-boolish yflag = 0; 	/* ignore marks				*/
-boolish bflag = 0; 	/* use a big title box			*/
+boolish yflag = 0;  /* ignore marks				*/
+boolish bflag = 0;  /* use a big title box			*/
 boolish sflag = 0;	/* use a small title box		*/
 static int     mflag = 0;	/* max no. of bands displayed (default 20) */
 static boolish tflag = 0;	/* ignored threshold specified          */
 boolish cflag = 0;      /* colour output                        */
 
 static boolish filter;		/* true when running as a filter	*/
-boolish multipageflag = 0;  /* true when the output should be 2 pages - key and profile */ 
+boolish multipageflag = 0;  /* true when the output should be 2 pages - key and profile */
 
-static floatish WidthInPoints PROTO((char *));		  /* forward */
+static floatish WidthInPoints PROTO((char *));      /* forward */
 static FILE *Fp PROTO((char *, char **, char *, char *)); /* forward */
 
 char *hpfile;
@@ -72,62 +72,62 @@ int main(int argc, char *argv[])
     while (argc && argv[0][0] == '-') {
         while (*++*argv)
             switch(**argv) {
-	    case 'p':
+            case 'p':
                 pflag++;
                 break;
-	    case 'e':
-		eflag++;
+            case 'e':
+                eflag++;
                 epsfwidth = WidthInPoints(*argv + 1);
                 goto nextarg;
-	    case 'd':
-		dflag++;
+            case 'd':
+                dflag++;
                 goto nextarg;
-	    case 'i':
-		switch( *(*argv + 1) ) {
-		  case '-':
-		    iflag = -1;
-		    break;
-		  case '+':
-		  default:
-		    iflag = 1;
-		}
+            case 'i':
+                switch( *(*argv + 1) ) {
+                case '-':
+                    iflag = -1;
+                    break;
+                case '+':
+                default:
+                    iflag = 1;
+                }
                 goto nextarg;
-	    case 'g':
-		gflag++;
-		goto nextarg;
-	    case 'y':
-		yflag++;
-		goto nextarg;
-	    case 'b':
-		bflag++;
-		goto nextarg;
-	    case 's':
-		sflag++;
-		goto nextarg;
-	    case 'm':
-		mflag++;
-		TWENTY = atoi(*argv + 1);
-		// only 20 keys fit on a page
-		if (TWENTY > DEFAULT_TWENTY) 
-		   multipageflag++;
-		goto nextarg;
-	    case 'M':
-	        multipageflag++;
+            case 'g':
+                gflag++;
                 goto nextarg;
-	    case 't':
-		tflag++;
-		THRESHOLD_PERCENT = (floatish) atof(*argv + 1);
-		if (THRESHOLD_PERCENT < 0 || THRESHOLD_PERCENT > 5)
-		    Usage(*argv-1);
-		goto nextarg;
-	    case 'c':
-		cflag++;
-		goto nextarg;
-	    case '?':
-	    default:
-		Usage(*argv-1);
+            case 'y':
+                yflag++;
+                goto nextarg;
+            case 'b':
+                bflag++;
+                goto nextarg;
+            case 's':
+                sflag++;
+                goto nextarg;
+            case 'm':
+                mflag++;
+                TWENTY = atoi(*argv + 1);
+                    // only 20 keys fit on a page
+                if (TWENTY > DEFAULT_TWENTY)
+                    multipageflag++;
+                goto nextarg;
+            case 'M':
+                multipageflag++;
+                goto nextarg;
+            case 't':
+                tflag++;
+                THRESHOLD_PERCENT = (floatish) atof(*argv + 1);
+                if (THRESHOLD_PERCENT < 0 || THRESHOLD_PERCENT > 5)
+                    Usage(*argv-1);
+                goto nextarg;
+            case 'c':
+                cflag++;
+                goto nextarg;
+            case '?':
+            default:
+                Usage(*argv-1);
             }
-nextarg: ;
+    nextarg: ;
         argc--, argv++;
     }
 
@@ -142,17 +142,17 @@ nextarg: ;
 
 
     if (!filter) {
-	pathName = copystring(argv[0]);
-	DropSuffix(pathName, ".hp");
+        pathName = copystring(argv[0]);
+        DropSuffix(pathName, ".hp");
 #if defined(_WIN32)
-	DropSuffix(pathName, ".exe");
+        DropSuffix(pathName, ".exe");
 #endif
-	baseName = copystring(Basename(pathName));
-        
-        hpfp  = Fp(pathName, &hpfile, ".hp", "r"); 
-	psfp  = Fp(baseName, &psfile, ".ps", "w"); 
+        baseName = copystring(Basename(pathName));
 
-	if (pflag) auxfp = Fp(baseName, &auxfile, ".aux", "r");
+        hpfp  = Fp(pathName, &hpfile, ".hp", "r");
+        psfp  = Fp(baseName, &psfile, ".ps", "w");
+
+        if (pflag) auxfp = Fp(baseName, &auxfile, ".aux", "r");
     }
 
     GetHpFile(hpfp);
@@ -168,8 +168,8 @@ nextarg: ;
 
     if (pflag) Reorder();    /* ReOrders on aux file */
 
-    /* Selects top bands (mflag) - can be more than 20 now */
-    if (TWENTY != 0) TopTwenty(); 
+        /* Selects top bands (mflag) - can be more than 20 now */
+    if (TWENTY != 0) TopTwenty();
 
     Dimensions();
 
@@ -181,8 +181,8 @@ nextarg: ;
 
     if (!filter) {
         auxfp = Fp(baseName, &auxfile, ".aux", "w");
-	PutAuxFile(auxfp);
-    } 
+        PutAuxFile(auxfp);
+    }
 
     return(0);
 }
@@ -201,36 +201,36 @@ WidthInPoints(char *wstr)
     result = (floatish) atof(wstr);
 
     switch (Units(wstr)) {
-	case INCHES:  		
-	    result *= 72.0;
-	    break;
-        case MILLIMETRES:	
-	    result *= 2.834646;
-	    break;
-        case POINTS:
-	default: ;
+    case INCHES:
+        result *= 72.0;
+        break;
+    case MILLIMETRES:
+        result *= 2.834646;
+        break;
+    case POINTS:
+    default: ;
     }
 
     if (result <= 144)   /* Minimum of 2in wide ! */
-	Usage(wstr);
+        Usage(wstr);
 
     return result;
 }
 
-	
+
 static pim
 Units(char *wstr)
 {
-int i;
+    int i;
 
     i = strlen(wstr) - 2;
 
     if (wstr[i] == 'p' && wstr[i+1] == 't') {
-	return POINTS;
+        return POINTS;
     } else if (wstr[i] == 'i' && wstr[i+1] == 'n') {
-	return INCHES;	
+        return INCHES;
     } else if (wstr[i] == 'm' && wstr[i+1] == 'm') {
-	return MILLIMETRES;
+        return MILLIMETRES;
     } else {
         return POINTS;
     }
@@ -247,8 +247,8 @@ Fp(char *rootname, char **filename, char *suffix, char *mode)
 #if defined(DEBUG)
 void
 _stgAssert (filename, linenum)
-  char		*filename;
-  unsigned int  linenum;
+     char		*filename;
+     unsigned int  linenum;
 {
     fflush(stdout);
     fprintf(stderr, "ASSERTION FAILED: file %s, line %u\n", filename, linenum);
