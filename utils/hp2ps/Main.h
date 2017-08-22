@@ -2,6 +2,7 @@
 
 #include "ghcconfig.h"
 #include <stdio.h>
+#include <stdbool.h>
 
 #if defined(__STDC__)
 #define PROTO(x)	x
@@ -54,14 +55,14 @@ extern floatish yrange;
 extern floatish auxxrange;
 extern floatish auxyrange;
 
-extern boolish eflag;
-extern boolish gflag;
-extern boolish yflag;
-extern boolish bflag;
-extern boolish sflag;
-extern boolish cflag;
+extern bool eflag;
+extern bool gflag;
+extern bool yflag;
+extern bool bflag;
+extern bool sflag;
+extern bool cflag;
 
-extern boolish multipageflag;
+extern bool multipageflag;
 
 extern char *programname;
 

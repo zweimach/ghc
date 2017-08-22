@@ -1,7 +1,8 @@
-#include "Main.h"
-#include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+
+#include "Main.h"
+#include <stdio.h>
 #include "Defines.h"
 #include "AuxFile.h"
 #include "AreaBelow.h"
@@ -16,20 +17,20 @@
 #include "Error.h"
 #include "Utilities.h"
 
-static boolish pflag = 0;	/* read auxiliary file			*/
-boolish eflag = 0;	/* scaled EPSF        */
-static boolish dflag = 0;	/* sort by standard deviation		*/
+static bool pflag = 0;	/* read auxiliary file			*/
+bool eflag = false;	/* scaled EPSF        */
+static bool dflag = 0;	/* sort by standard deviation		*/
 static int     iflag = 0;	/* sort by identifier (3-way flag)      */
-boolish gflag = 0;	/* output suitable for previewer	*/
-boolish yflag = 0;  /* ignore marks				*/
-boolish bflag = 0;  /* use a big title box			*/
-boolish sflag = 0;	/* use a small title box		*/
+bool gflag = false;	/* output suitable for previewer	*/
+bool yflag = false;  /* ignore marks				*/
+bool bflag = false;  /* use a big title box			*/
+bool sflag = false;	/* use a small title box		*/
 static int     mflag = 0;	/* max no. of bands displayed (default 20) */
-static boolish tflag = 0;	/* ignored threshold specified          */
-boolish cflag = 0;      /* colour output                        */
+static bool tflag = false;	/* ignored threshold specified          */
+bool cflag = false;      /* colour output                        */
 
-static boolish filter;		/* true when running as a filter	*/
-boolish multipageflag = 0;  /* true when the output should be 2 pages - key and profile */
+static bool filter;		/* true when running as a filter	*/
+bool multipageflag = false;  /* true when the output should be 2 pages - key and profile */
 
 static floatish WidthInPoints PROTO((char *));      /* forward */
 static FILE *Fp PROTO((char *, char **, char *, char *)); /* forward */
@@ -73,7 +74,7 @@ int main(int argc, char *argv[])
         while (*++*argv)
             switch(**argv) {
             case 'p':
-                pflag++;
+                pflag = true;
                 break;
             case 'e':
                 eflag++;
@@ -246,9 +247,7 @@ Fp(char *rootname, char **filename, char *suffix, char *mode)
 
 #if defined(DEBUG)
 void
-_stgAssert (filename, linenum)
-     char		*filename;
-     unsigned int  linenum;
+_stgAssert (char filename, unsigned int linenum)
 {
     fflush(stdout);
     fprintf(stderr, "ASSERTION FAILED: file %s, line %u\n", filename, linenum);
