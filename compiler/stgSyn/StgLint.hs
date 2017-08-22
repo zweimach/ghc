@@ -200,6 +200,8 @@ lintStgExpr (StgCase scrut bndr alts_type alts) = runMaybeT $ do
      case alts_type of
         AlgAlt tc     -> check_bndr (tyConPrimRep tc) >> return True
         PrimAlt rep   -> check_bndr [rep]             >> return True
+        MultiValAlt 0 -> return True  -- Allow use of binder for void values.
+                                      -- See #14118.
         MultiValAlt _ -> return False -- Binder is always dead in this case
         PolyAlt       -> return True
 
