@@ -1123,7 +1123,7 @@ dataConUserType (MkData { dcUnivTyVars = univ_tvs,
 -- NB: these INCLUDE any dictionary args
 --     but EXCLUDE the data-declaration context, which is discarded
 -- It's all post-flattening etc; this is a representation type
-dataConInstArgTys :: DataCon    -- ^ A datacon with no existentials or equality constraints
+dataConInstArgTys :: HasDebugCallStack => DataCon    -- ^ A datacon with no existentials or equality constraints
                                 -- However, it can have a dcTheta (notably it can be a
                                 -- class dictionary, with superclasses)
                   -> [Type]     -- ^ Instantiated at these types
