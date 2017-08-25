@@ -133,7 +133,7 @@ lintStgRhs (StgRhsClosure _ _ _ _ [] expr)
 
 lintStgRhs (StgRhsClosure _ _ _ _ binders expr)
   = addLoc (LambdaBodyOf binders) $
-      addInScopeVars binders $ runMaybeT $ do
+      addInScopeUnaryVars binders $ runMaybeT $ do
         body_ty <- MaybeT $ lintStgExpr expr
         return (mkFunTys (map idType binders) body_ty)
 
@@ -371,6 +371,24 @@ addInScopeVars ids m = LintM $ \lf loc scope errs
  -> let
         new_set = mkVarSet ids
     in unLintM m lf loc (scope `unionVarSet` new_set) errs
+
+-- | Add a set of identifiers to the in-scope set if,
+--
+-- * they are unary, or
+-- * we haven't yet unarised the program
+--
+addInScopeUnaryVars :: [Id] -> LintM a -> LintM a
+addInScopeUnaryVars ids m = do
+    lf <- getLintFlags
+    if not $ lf_unarised lf
+      then addInScopeVars ids m
+      else addInScopeVars (filter (is_unary . idType) ids) m
+  where
+    is_unary ty =
+        case typePrimRep ty of
+          --[]  -> True
+          [x] -> True
+          _   -> False
 
 getLintFlags :: LintM LintFlags
 getLintFlags = LintM $ \lf _loc _scope errs -> (lf, errs)
