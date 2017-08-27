@@ -284,11 +284,13 @@ data ChildCode64
 data Register
         = Fixed Format Reg InstrBlock
         | Any   Format (Reg -> InstrBlock)
+        | AnyV  (Reg -> InstrBlock)
 
 
 swizzleRegisterRep :: Register -> Format -> Register
 swizzleRegisterRep (Fixed _ reg code) format = Fixed format reg code
 swizzleRegisterRep (Any _ codefn)     format = Any   format codefn
+swizzleRegisterRep r@(AnyV{})         _      = r
 
 
 -- | Grab the Reg for a CmmReg
@@ -367,6 +369,9 @@ getSomeReg expr = do
   case r of
     Any rep code -> do
         tmp <- getNewRegNat rep
+        return (tmp, code tmp)
+    AnyV code -> do
+        tmp <- getVectorReg
         return (tmp, code tmp)
     Fixed _ reg code ->
         return (reg, code)
@@ -484,6 +489,16 @@ iselExpr64 (CmmMachOp (MO_UU_Conv _ W64) [expr]) = do
                           r_dst_lo
             )
 
+iselExpr64 (CmmMachOp (MO_V_Add len width) [expr1, expr2]) = do
+    r_dst <- getVectorReg
+    ChildCode64 code1 r1 <- iselExpr64 expr1
+    ChildCode64 code2 r2 <- iselExpr64 expr2
+    let fmt = VecFormat len width FmtInt
+    return $ ChildCode64 (code1 `appOL` code2 `appOL`
+                          toOL [ V_MOV fmt (OpReg r_dst) (OpReg r1)
+                               , V_ADD (VecFormat len width FmtInt) (OpReg r2) (OpReg r_dst)
+                               ]) r_dst
+
 iselExpr64 (CmmMachOp (MO_SS_Conv W32 W64) [expr]) = do
      fn <- getAnyReg expr
      r_dst_lo <-  getNewRegNat II32
@@ -501,6 +516,8 @@ iselExpr64 (CmmMachOp (MO_SS_Conv W32 W64) [expr]) = do
 iselExpr64 expr
    = pprPanic "iselExpr64(i386)" (ppr expr)
 
+getVectorReg :: NatM Reg
+getVectorReg = RegVirtual . VirtualRegSSE <$> getUniqueM
 
 --------------------------------------------------------------------------------
 getRegister :: CmmExpr -> NatM Register
@@ -822,7 +839,7 @@ getRegister' _ is32Bit (CmmMachOp mop [x, y]) = do -- dyadic MachOps
 
       MO_V_Insert {}   -> needLlvm
       MO_V_Extract {}  -> needLlvm
-      MO_V_Add {}      -> needLlvm
+      MO_V_Add {}      -> triv_op W512 V_ADD
       MO_V_Sub {}      -> needLlvm
       MO_V_Mul {}      -> needLlvm
       MO_VS_Quot {}    -> needLlvm
@@ -985,6 +1002,12 @@ getRegister' _ is32Bit (CmmMachOp mop [x, y]) = do -- dyadic MachOps
 
 
 getRegister' _ _ (CmmLoad mem pk)
+  | isVecType pk
+  = do
+    code <- vecLoadCode (V_MOV format) mem
+    return (AnyV code)
+
+getRegister' _ _ (CmmLoad mem pk)
   | isFloatType pk
   = do
     Amode addr mem_code <- getAmode mem
@@ -1096,6 +1119,9 @@ getByteReg expr = do
                     -- ToDo: could optimise slightly by checking for
                     -- byte-addressable real registers, but that will
                     -- happen very rarely if at all.
+                AnyV {} -> do
+                    tmp <- getVectorReg
+                    return (tmp, code tmp)
       else getSomeReg expr -- all regs are byte-addressable on x86_64
 
 -- Another variant: this time we want the result in a register that cannot
@@ -1116,6 +1142,9 @@ getNonClobberedReg expr = do
                 return (tmp, code `snocOL` reg2reg rep reg tmp)
         | otherwise ->
                 return (reg, code)
+    AnyV code -> do
+        tmp <- getVectorReg
+        return (tmp, code tmp)
 
 reg2reg :: Format -> Reg -> Reg -> Instr
 reg2reg format src dst = MOV format (OpReg src) (OpReg dst)

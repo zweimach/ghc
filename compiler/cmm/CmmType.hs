@@ -273,6 +273,7 @@ narrowS _ _ = panic "narrowTo"
 --              SIMD
 -----------------------------------------------------------------------------
 
+-- | SIMD vector length
 type Length = Int
 
 vec :: Length -> CmmType -> CmmType

@@ -8,8 +8,9 @@
 --
 -----------------------------------------------------------------------------
 
-module X86.Instr (Instr(..), Operand(..), PrefetchVariant(..), JumpDest(..),
-                  getJumpDestBlockId, canShortcut, shortcutStatics,
+module X86.Instr (Instr(..), Operand(..), PrefetchVariant(..),
+                  VecFormat(..), ScalarFormat(..),
+                  JumpDest(..), getJumpDestBlockId, canShortcut, shortcutStatics,
                   shortcutJump, allocMoreStack,
                   maxSpillSlots, archWordFormat )
 where
@@ -71,6 +72,19 @@ instance Instruction Instr where
         mkStackAllocInstr       = x86_mkStackAllocInstr
         mkStackDeallocInstr     = x86_mkStackDeallocInstr
 
+data VecFormat = VecFormat { vecLength :: !Length
+                           , vecWidth  :: !Width
+                           , vecScalar :: !ScalarFormat
+                           }
+
+instance Outputable VecFormat where
+    ppr (VecFormat l w f) = ppr (l,w,f)
+
+data ScalarFormat = FmtFloat | FmtInt
+
+instance Outputable ScalarFormat where
+    ppr FmtFloat = text "float"
+    ppr FmtInt   = text "int"
 
 -- -----------------------------------------------------------------------------
 -- Intel x86 instructions
@@ -193,6 +207,7 @@ data Instr
 
         -- Moves.
         | MOV         Format Operand Operand
+        | V_MOV       VecFormat Operand Operand
         | CMOV   Cond Format Operand Reg
         | MOVZxL      Format Operand Operand -- format is the size of operand 1
         | MOVSxL      Format Operand Operand -- format is the size of operand 1
@@ -205,6 +220,7 @@ data Instr
 
         -- Int Arithmetic.
         | ADD         Format Operand Operand
+        | V_ADD       VecFormat Operand Operand
         | ADC         Format Operand Operand
         | SUB         Format Operand Operand
         | SBB         Format Operand Operand

@@ -833,6 +833,15 @@ pprInstr (XADD format src dst) = pprFormatOpOp (sLit "xadd") format src dst
 pprInstr (CMPXCHG format src dst)
    = pprFormatOpOp (sLit "cmpxchg") format src dst
 
+-- SIMD
+pprInstr (V_ADD format src dst)
+  | VecFormat _ W32 FmtFloat <- format = pprVecFormatOpOp (sLit "addps") format src dst
+  | VecFormat _ W64 FmtFloat <- format = pprVecFormatOpOp (sLit "addpd") format src dst
+  | VecFormat _ W64 FmtInt   <- format = pprVecFormatOpOp (sLit "addpd") format src dst
+pprInstr (V_MOV format src dst)
+  | VecFormat _ W32 FmtFloat <- format = pprVecFormatOpOp (sLit "movaps") format src dst
+  | VecFormat _ W64 FmtFloat <- format = pprVecFormatOpOp (sLit "movapd") format src dst
+  | VecFormat _ _   FmtInt   <- format = pprVecFormatOpOp (sLit "movdqa") format src dst
 
 
 --------------------------
