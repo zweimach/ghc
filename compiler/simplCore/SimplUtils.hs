@@ -1186,6 +1186,60 @@ it's best to inline it anyway.  We often get a=E; b=a from desugaring,
 with both a and b marked NOINLINE.  But that seems incompatible with
 our new view that inlining is like a RULE, so I'm sticking to the 'active'
 story for now.
+
+
+Note [Don't postInlineUnconditionally join points]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+postInlineUnconditionally intentionally does not inline join points. Why?
+Well, inlining join points generally has few positive effects: they are cheap to
+call (e.g. requiring only a jump instruction) and avoiding duplication keep code
+size down.
+
+Consider this program,
+
+    f :: Char -> Bool
+    f c =
+      let isNumber c = '0' <= c && c <= '9'
+          isNumericChar c =
+              case c of
+                'e' -> True
+                'E' -> True
+                '.' -> True
+                '-' -> True
+                '+' -> True
+                _   -> False
+      in isNumber c || isNumericChar c
+
+After inlining and simplifying isNumber we will eventually make it here,
+
+    \ (c_a2gm :: Char) ->
+      case c_a2gm of { C# c2_a2t0 ->
+      join {
+        $j_s2yJ :: Bool
+        $j_s2yJ
+          = case c2_a2t0 of {
+              __DEFAULT -> False;
+              '+'# -> True;
+              '-'# -> True;
+              '.'# -> True;
+              'E'# -> True;
+              'e'# -> True
+            } } in
+      case leChar# '0'# c2_a2t0 of {
+        __DEFAULT -> jump $j_s2yJ;
+        1# ->
+          case leChar# c2_a2t0 '9'# of {
+            __DEFAULT -> jump $j_s2yJ;
+            1# -> True
+          }
+      }
+      }
+
+If we chose to inline #j_s2yJ at this point we would have duplicated a rather
+elaborate case analysis, which we could have just as easily just jumped to in
+the case alternatives.
+
 -}
 
 postInlineUnconditionally
@@ -1204,6 +1258,7 @@ postInlineUnconditionally env top_lvl bndr occ_info rhs
                                         -- because it might be referred to "earlier"
   | isStableUnfolding unfolding = False -- Note [Stable unfoldings and postInlineUnconditionally]
   | isTopLevel top_lvl          = False -- Note [Top level and postInlineUnconditionally]
+  | isJoinId bndr               = False -- Note [Don't postInlineUnconditionally join points]
   | exprIsTrivial rhs           = True
   | otherwise
   = case occ_info of
