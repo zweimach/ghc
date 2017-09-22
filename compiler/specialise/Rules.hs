@@ -989,9 +989,12 @@ match_ty :: RuleMatchEnv
 -- We only want to replace (f T) with f', not (f Int).
 
 match_ty renv subst ty1 ty2
-  = do  { tv_subst'
+  = do  { (tv_subst', cv_subst')
             <- Unify.ruleMatchTyKiX (rv_tmpls renv) (rv_lcl renv) tv_subst ty1 ty2
-        ; return (subst { rs_tv_subst = tv_subst' }) }
+        ; pprTrace "match_ty" (ppr ty1 $$ ppr ty2 $$ ppr tv_subst' $$ ppr cv_subst')
+          return (subst { rs_tv_subst = tv_subst'
+                        , rs_id_subst = rs_id_subst subst
+                                        `plusVarEnv` (fmap Coercion cv_subst') }) }
   where
     tv_subst = rs_tv_subst subst
 

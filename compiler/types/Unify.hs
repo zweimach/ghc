@@ -157,14 +157,14 @@ ruleMatchTyKiX
   -> TvSubstEnv          -- ^ type substitution to extend
   -> Type                -- ^ Template
   -> Type                -- ^ Target
-  -> Maybe TvSubstEnv
+  -> Maybe (TvSubstEnv, CvSubstEnv)
 ruleMatchTyKiX tmpl_tvs rn_env tenv tmpl target
 -- See Note [Kind coercions in Unify]
   = case tc_unify_tys (matchBindFun tmpl_tvs) False False
                       True -- <-- this means to match the kinds
                       rn_env tenv emptyCvSubstEnv [tmpl] [target] of
-      Unifiable (tenv', _) -> Just tenv'
-      _                    -> Nothing
+      Unifiable (tenv', cenv') -> Just (tenv', cenv')
+      _                        -> Nothing
 
 matchBindFun :: TyCoVarSet -> TyVar -> BindFlag
 matchBindFun tvs tv = if tv `elemVarSet` tvs then BindMe else Skolem
