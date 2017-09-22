@@ -830,7 +830,8 @@ unify_ty env ty1 ty2 kco
                                 else -- See Note [Matching in the presence of casts]
                                      do { subst <- getSubst env
                                         ; let co' = substCo subst co
-                                        ; unify_ty env ty1' ty2 (co' `mkTransCo` kco) }
+                                        ; pprTrace "unify_ty(Cast)" (ppr co $$ ppr subst $$ ppr co') $
+                                          unify_ty env ty1' ty2 (co' `mkTransCo` kco) }
   | CastTy ty2' co <- ty2     = unify_ty env ty1 ty2' (kco `mkTransCo` mkSymCo co)
 
 unify_ty env (TyVarTy tv1) ty2 kco
@@ -903,7 +904,8 @@ unify_ty env (CoercionTy co1) (CoercionTy co2) kco
   = do { c_subst <- getCvSubstEnv
        ; case co1 of
            CoVarCo cv
-             | not (um_unif env)
+             | pprTrace "unify_ty" (ppr co1 $$ ppr co2 $$ ppr (um_unif env) $$ ppr (tvBindFlagL env cv)) $
+               not (um_unif env)
              , not (cv `elemVarEnv` c_subst)
              , BindMe <- tvBindFlagL env cv
              -> do { checkRnEnvRCo env co2
@@ -1048,6 +1050,10 @@ data BindFlag
   | Skolem      -- This type variable is a skolem constant
                 -- Don't bind it; it only matches itself
   deriving Eq
+
+instance Outputable BindFlag where
+  ppr BindMe = text "BindMe"
+  ppr Skolem = text "Skolem"
 
 {-
 ************************************************************************
