@@ -536,7 +536,8 @@ matchN  :: InScopeEnv
 
 matchN (in_scope, id_unf) rule_name tmpl_vars tmpl_es target_es
   = do  { subst <- go init_menv emptyRuleSubst tmpl_es target_es
-        ; let (_, matched_es) = mapAccumL lookup_tmpl subst tmpl_vars
+        ; let (_, matched_es) = pprTrace "matchN(subst)" (ppr subst)
+                                $ mapAccumL lookup_tmpl subst tmpl_vars
         ; return (rs_binds subst, matched_es) }
   where
     init_rn_env = mkRnEnv2 (extendInScopeSetList in_scope tmpl_vars)
@@ -692,6 +693,14 @@ data RuleSubst = RS { rs_tv_subst :: TvSubstEnv   -- Range is the
                     , rs_bndrs    :: VarSet       -- Variables bound by floated lets
                     }
 
+instance Outputable RuleSubst where
+    ppr rs =
+        text "RuleSubst"
+        <+> braces (sep [ text "tv_subst =" <+> ppr (rs_tv_subst rs)
+                        , text "id_subst =" <+> ppr (rs_id_subst rs)
+                        , text "bndrs`` =" <+> ppr (rs_bndrs rs)
+                        ])
+
 type BindWrapper = CoreExpr -> CoreExpr
   -- See Notes [Matching lets] and [Matching cases]
   -- we represent the floated bindings as a core-to-core function
@@ -806,7 +815,7 @@ match renv subst (Case e1 x1 ty1 alts1) (Case e2 x2 ty2 alts2)
 match renv subst (Type ty1) (Type ty2)
   = match_ty renv subst ty1 ty2
 match renv subst (Coercion co1) (Coercion co2)
-  = match_co renv subst co1 co2
+  = pprTrace "matchCo" (ppr co1 $$ ppr co2) $ match_co renv subst co1 co2
 
 match renv subst (Cast e1 co1) (Cast e2 co2)
   = do  { subst1 <- match_co renv subst co1 co2
@@ -936,7 +945,7 @@ match_tmpl_var :: RuleMatchEnv
 match_tmpl_var renv@(RV { rv_lcl = rn_env, rv_fltR = flt_env })
                subst@(RS { rs_id_subst = id_subst, rs_bndrs = let_bndrs })
                v1' e2
-  | any (inRnEnvR rn_env) (exprFreeVarsList e2)
+  | pprTrace "match_tmpl_var" (ppr v1') $ any (inRnEnvR rn_env) (exprFreeVarsList e2)
   = Nothing     -- Occurs check failure
                 -- e.g. match forall a. (\x-> a x) against (\y. y y)
 

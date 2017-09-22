@@ -1682,9 +1682,9 @@ spec_one env fn arg_bndrs body (call_pat@(qvars, pats), rule_number)
               -- changes (#4012).
               rule_name  = mkFastString ("SC:" ++ occNameString fn_occ ++ show rule_number)
               spec_name  = mkInternalName spec_uniq spec_occ fn_loc
---      ; pprTrace "{spec_one" (ppr (sc_count env) <+> ppr fn
---                              <+> ppr pats <+> text "-->" <+> ppr spec_name) $
---        return ()
+       ; pprTrace "{spec_one" (ppr (sc_count env) <+> ppr fn
+                              <+> ppr pats <+> text "-->" <+> ppr spec_name) $
+         return ()
 
         -- Specialise the body
         ; (spec_usg, spec_body) <- scExpr spec_env body
@@ -1722,7 +1722,8 @@ spec_one env fn arg_bndrs body (call_pat@(qvars, pats), rule_number)
               rule       = mkRule this_mod True {- Auto -} True {- Local -}
                                   rule_name inline_act fn_name qvars pats rule_rhs
                            -- See Note [Transfer activation]
-        ; return (spec_usg, OS { os_pat = call_pat, os_rule = rule
+        ; pprTrace "spec_on" (ppr rule) $
+          return (spec_usg, OS { os_pat = call_pat, os_rule = rule
                                , os_id = spec_id
                                , os_rhs = spec_rhs }) }
 
