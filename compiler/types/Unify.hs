@@ -883,13 +883,13 @@ unify_ty env ty1 ty2 _kco
         -- They can match FunTy and TyConApp, so use splitAppTy_maybe
         -- NB: we've already dealt with type variables,
         -- so if one type is an App the other one jolly well better be too
-unify_ty env (AppTy ty1a ty1b) ty2 _kco
-  | Just (ty2a, ty2b) <- tcRepSplitAppTy_maybe ty2
-  = unify_ty_app env ty1a [ty1b] ty2a [ty2b]
+unify_ty env (AppTys ty1a tys1b) ty2 _kco
+  | Just (ty2a, tys2b) <- tcRepSplitAppTys_maybe ty2
+  = unify_ty_app env ty1a tys1b ty2a tys2b
 
-unify_ty env ty1 (AppTy ty2a ty2b) _kco
-  | Just (ty1a, ty1b) <- tcRepSplitAppTy_maybe ty1
-  = unify_ty_app env ty1a [ty1b] ty2a [ty2b]
+unify_ty env ty1 (AppTy ty2a tys2b) _kco
+  | Just (ty1a, tys1b) <- tcRepSplitAppTy_maybe ty1
+  = unify_ty_app env ty1a tys1b ty2a tys2b
 
 unify_ty _ (LitTy x) (LitTy y) _kco | x == y = return ()
 

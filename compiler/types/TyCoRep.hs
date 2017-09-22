@@ -772,12 +772,12 @@ data Coercion
 
   -- TyConAppCo :: "e" -> _ -> ?? -> e
   -- See Note [TyConAppCo roles]
-  | TyConAppCo Role TyCon [Coercion]    -- lift TyConApp
+  | TyConCo Role TyCon               -- lift TyConApp
                -- The TyCon is never a synonym;
                -- we expand synonyms eagerly
                -- But it can be a type function
 
-  | AppCo Coercion CoercionN             -- lift AppTy
+  | AppCos Coercion [CoercionN]      -- lift AppTys
           -- AppCo :: e -> N -> e
 
   -- See Note [Forall coercions]

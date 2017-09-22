@@ -274,6 +274,21 @@ splitAppCo_maybe (TyConAppCo r tc args)
        -- Use mkTyConAppCo to preserve the invariant
        --  that identity coercions are always represented by Refl
 
+splitAppCos_maybe :: Coercion -> Maybe (Coercion, [Coercion])
+-- ^ Attempt to take a coercion application apart.
+splitAppCos_maybe = go []
+  where
+    go acc (AppCo co arg) = go (arg:acc) co
+    go acc (TyConAppCo r tc args)
+      | mightBeUnsaturatedTyCon tc || args `lengthExceeds` tyConArity tc
+        -- Never create unsaturated type family apps!
+      , Just (args', arg') <- snocView args
+      , Just arg'' <- setNominalRole_maybe arg'
+      = Just ( mkTyConAppCo r tc args', arg'' )
+          -- Use mkTyConAppCo to preserve the invariant
+          --  that identity coercions are always represented by Refl
+    go _ co = Just (co, acc)
+
 splitAppCo_maybe (Refl r ty)
   | Just (ty1, ty2) <- splitAppTy_maybe ty
   = Just (mkReflCo r ty1, mkNomReflCo ty2)
