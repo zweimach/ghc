@@ -118,7 +118,6 @@ toIfaceTypeX :: VarSet -> Type -> IfaceType
 toIfaceTypeX fr (TyVarTy tv)   -- See Note [TcTyVars in IfaceType] in IfaceType
   | tv `elemVarSet` fr         = IfaceFreeTyVar tv
   | otherwise                  = IfaceTyVar (toIfaceTyVar tv)
-toIfaceTypeX fr (AppTy t1 t2)  = IfaceAppTy (toIfaceTypeX fr t1) (toIfaceTypeX fr t2)
 toIfaceTypeX _  (LitTy n)      = IfaceLitTy (toIfaceTyLit n)
 toIfaceTypeX fr (ForAllTy b t) = IfaceForAllTy (toIfaceForAllBndr b)
                                                (toIfaceTypeX (fr `delVarSet` binderVar b) t)
@@ -128,7 +127,7 @@ toIfaceTypeX fr (FunTy t1 t2)
 toIfaceTypeX fr (CastTy ty co)  = IfaceCastTy (toIfaceTypeX fr ty) (toIfaceCoercionX fr co)
 toIfaceTypeX fr (CoercionTy co) = IfaceCoercionTy (toIfaceCoercionX fr co)
 
-toIfaceTypeX fr (TyConApp tc tys)
+toIfaceTypeX fr (AppTys (TyConTy tc) tys)
     -- tuples
   | Just sort <- tyConTuple_maybe tc
   , n_tys == arity
@@ -156,6 +155,8 @@ toIfaceTypeX fr (TyConApp tc tys)
   where
     arity = tyConArity tc
     n_tys = length tys
+
+toIfaceTypeX fr (AppTys t1 t2) = foldl IfaceAppTy (toIfaceTypeX fr t1) (map (toIfaceTypeX fr) t2)
 
 toIfaceTyVar :: TyVar -> FastString
 toIfaceTyVar = occNameFS . getOccName

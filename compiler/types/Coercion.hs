@@ -333,8 +333,7 @@ mkCoercionType Representational = mkReprPrimEqPred
 mkCoercionType Phantom          = \ty1 ty2 ->
   let ki1 = typeKind ty1
       ki2 = typeKind ty2
-  in
-  TyConApp eqPhantPrimTyCon [ki1, ki2, ty1, ty2]
+  in mkTyConApp eqPhantPrimTyCon [ki1, ki2, ty1, ty2]
 
 mkHeteroCoercionType :: Role -> Kind -> Kind -> Type -> Type -> Type
 mkHeteroCoercionType Nominal          = mkHeteroPrimEqPred
@@ -1520,8 +1519,9 @@ ty_co_subst lc role ty
     go Phantom ty          = lift_phantom ty
     go r (TyVarTy tv)      = expectJust "ty_co_subst bad roles" $
                              liftCoSubstTyVar lc r tv
-    go r (AppTy ty1 ty2)   = mkAppCo (go r ty1) (go Nominal ty2)
-    go r (TyConApp tc tys) = mkTyConAppCo r tc (zipWith go (tyConRolesX r tc) tys)
+    go r (AppTys (TyConTy tc) tys) = mkTyConAppCo r tc (zipWith go (tyConRolesX r tc) tys)
+    go r (AppTys ty tys)   = mkAppCos (go r ty) (map (go Nominal) tys)
+    go r (TyConTy tc)      = mkTyConAppCo r tc []
     go r (FunTy ty1 ty2)   = mkFunCo r (go r ty1) (go r ty2)
     go r (ForAllTy (TvBndr v _) ty)
                            = let (lc', v', h) = liftCoSubstVarBndr lc v in

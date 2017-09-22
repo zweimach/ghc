@@ -140,7 +140,7 @@ import GhcPrelude
 import {-# SOURCE #-} DataCon( dataConFullSig
                              , dataConUnivTyVarBinders, dataConExTyVarBinders
                              , DataCon, filterEqSpec )
-import {-# SOURCE #-} Type( isPredTy, isCoercionTy, mkAppTy, mkCastTy
+import {-# SOURCE #-} Type( isPredTy, isCoercionTy, mkCastTy
                           , tyCoVarsOfTypeWellScoped
                           , tyCoVarsOfTypesWellScoped
                           , toposortTyVars
@@ -259,31 +259,18 @@ data Type
   -- See Note [Non-trivial definitional equality]
   = TyVarTy Var -- ^ Vanilla type or kind variable (*never* a coercion variable)
 
-  | AppTy
-        Type
-        Type            -- ^ Type application to something other than a 'TyCon'. Parameters:
-                        --
-                        --  1) Function: must /not/ be a 'TyConApp',
-                        --     must be another 'AppTy', or 'TyVarTy'
-                        --
-                        --  2) Argument type
+  | TyConTy
+        TyCon           -- ^ A type constructor
 
-  | TyConApp
-        TyCon
-        [KindOrType]    -- ^ Application of a 'TyCon', including newtypes /and/ synonyms.
-                        -- Invariant: saturated applications of 'FunTyCon' must
-                        -- use 'FunTy' and saturated synonyms must use their own
-                        -- constructors. However, /unsaturated/ 'FunTyCon's
-                        -- do appear as 'TyConApp's.
-                        -- Parameters:
+  | AppTys
+        Type
+        [Type]          -- ^ Type application to something other than a 'TyCon'. Parameters:
                         --
-                        -- 1) Type constructor being applied to.
-                        --
-                        -- 2) Type arguments. Might not have enough type arguments
-                        --    here to saturate the constructor.
-                        --    Even type synonyms are not necessarily saturated;
-                        --    for example unsaturated type synonyms
-                        --    can appear as the right hand side of a type synonym.
+                        --  1) Head type must not by a @TyCon (->)@ with
+                        --     exactly four arguments; this should be instead
+                        --     instead represented by 'FunTy'.
+                        --  2) Head type must not be another 'AppTys'
+                        --  3) List is not empty
 
   | ForAllTy
         {-# UNPACK #-} !TyVarBinder
@@ -307,7 +294,6 @@ data Type
                     -- GADT data constructor
 
   deriving Data.Data
-
 
 -- NOTE:  Other parts of the code assume that type literals do not contain
 -- types or type variables.
@@ -689,7 +675,7 @@ mkPiTys tbs ty = foldr mkPiTy ty tbs
 -- At either role nominal or representational
 --    (t1 ~# t2) or (t1 ~R# t2)
 isCoercionType :: Type -> Bool
-isCoercionType (TyConApp tc tys)
+isCoercionType (AppTys (TyConTy tc) tys)
   | (tc `hasKey` eqPrimTyConKey) || (tc `hasKey` eqReprPrimTyConKey)
   , tys `lengthIs` 4
   = True
@@ -698,7 +684,7 @@ isCoercionType _ = False
 
 -- | Create the plain type constructor type which has been applied to no type arguments at all.
 mkTyConTy :: TyCon -> Type
-mkTyConTy tycon = TyConApp tycon []
+mkTyConTy = TyConTy
 
 {-
 Some basic functions, put here to break loops eg with the pretty printer
@@ -708,7 +694,7 @@ is_TYPE :: (   Type    -- the single argument to TYPE; not a synonym
             -> Bool )  -- what to return
         -> Kind -> Bool
 is_TYPE f ki | Just ki' <- coreView ki = is_TYPE f ki'
-is_TYPE f (TyConApp tc [arg])
+is_TYPE f (AppTys (TyConTy tc) [arg])
   | tc `hasKey` tYPETyConKey
   = go arg
     where
@@ -721,8 +707,8 @@ is_TYPE _ _ = False
 isLiftedTypeKind :: Kind -> Bool
 isLiftedTypeKind = is_TYPE is_lifted
   where
-    is_lifted (TyConApp lifted_rep []) = lifted_rep `hasKey` liftedRepDataConKey
-    is_lifted _                        = False
+    is_lifted (TyConTy lifted_rep) = lifted_rep `hasKey` liftedRepDataConKey
+    is_lifted _                    = False
 
 -- | Returns True if the kind classifies unlifted types and False otherwise.
 -- Note that this returns False for levity-polymorphic kinds, which may
@@ -730,13 +716,14 @@ isLiftedTypeKind = is_TYPE is_lifted
 isUnliftedTypeKind :: Kind -> Bool
 isUnliftedTypeKind = is_TYPE is_unlifted
   where
-    is_unlifted (TyConApp rr _args) = not (rr `hasKey` liftedRepDataConKey)
-    is_unlifted _                   = False
+    is_unlifted (AppTys (TyConTy rr) _args) = not (rr `hasKey` liftedRepDataConKey)
+    is_unlifted (TyConTy rr)                = not (rr `hasKey` liftedRepDataConKey)
+    is_unlifted _                           = False
 
 -- | Is this the type 'RuntimeRep'?
 isRuntimeRepTy :: Type -> Bool
 isRuntimeRepTy ty | Just ty' <- coreView ty = isRuntimeRepTy ty'
-isRuntimeRepTy (TyConApp tc []) = tc `hasKey` runtimeRepTyConKey
+isRuntimeRepTy (TyConTy tc) = tc `hasKey` runtimeRepTyConKey
 isRuntimeRepTy _ = False
 
 -- | Is a tyvar of type 'RuntimeRep'?
@@ -1380,9 +1367,9 @@ tyCoVarsOfTypeList ty = fvVarList $ tyCoFVsOfType ty
 tyCoFVsOfType :: Type -> FV
 -- See Note [Free variables of types]
 tyCoFVsOfType (TyVarTy v)        a b c = (unitFV v `unionFV` tyCoFVsOfType (tyVarKind v)) a b c
-tyCoFVsOfType (TyConApp _ tys)   a b c = tyCoFVsOfTypes tys a b c
+tyCoFVsOfType (TyConTy _)        a b c = emptyFV a b c
 tyCoFVsOfType (LitTy {})         a b c = emptyFV a b c
-tyCoFVsOfType (AppTy fun arg)    a b c = (tyCoFVsOfType fun `unionFV` tyCoFVsOfType arg) a b c
+tyCoFVsOfType (AppTys fun args)  a b c = (tyCoFVsOfType fun `unionFV` tyCoFVsOfTypes args) a b c
 tyCoFVsOfType (FunTy arg res)    a b c = (tyCoFVsOfType arg `unionFV` tyCoFVsOfType res) a b c
 tyCoFVsOfType (ForAllTy bndr ty) a b c = tyCoFVsBndr bndr (tyCoFVsOfType ty)  a b c
 tyCoFVsOfType (CastTy ty co)     a b c = (tyCoFVsOfType ty `unionFV` tyCoFVsOfCo co) a b c
@@ -1492,9 +1479,9 @@ tyCoFVsOfCos (co:cos) fv_cand in_scope acc = (tyCoFVsOfCo co `unionFV` tyCoFVsOf
 
 coVarsOfType :: Type -> CoVarSet
 coVarsOfType (TyVarTy v)         = coVarsOfType (tyVarKind v)
-coVarsOfType (TyConApp _ tys)    = coVarsOfTypes tys
+coVarsOfType (TyConTy {})        = emptyVarSet
 coVarsOfType (LitTy {})          = emptyVarSet
-coVarsOfType (AppTy fun arg)     = coVarsOfType fun `unionVarSet` coVarsOfType arg
+coVarsOfType (AppTys fun args)   = coVarsOfType fun `unionVarSet` coVarsOfTypes args
 coVarsOfType (FunTy arg res)     = coVarsOfType arg `unionVarSet` coVarsOfType res
 coVarsOfType (ForAllTy (TvBndr tv _) ty)
   = (coVarsOfType ty `delVarSet` tv)
@@ -1564,8 +1551,8 @@ closeOverKindsDSet = fvDVarSet . closeOverKindsFV . dVarSetElems
 -- isEmptyVarSet . tyCoVarsOfType, but faster in the non-forall case.
 noFreeVarsOfType :: Type -> Bool
 noFreeVarsOfType (TyVarTy _)      = False
-noFreeVarsOfType (AppTy t1 t2)    = noFreeVarsOfType t1 && noFreeVarsOfType t2
-noFreeVarsOfType (TyConApp _ tys) = all noFreeVarsOfType tys
+noFreeVarsOfType (AppTys ty tys)  = noFreeVarsOfType ty && all noFreeVarsOfType tys
+noFreeVarsOfType (TyConTy _)      = True
 noFreeVarsOfType ty@(ForAllTy {}) = isEmptyVarSet (tyCoVarsOfType ty)
 noFreeVarsOfType (FunTy t1 t2)    = noFreeVarsOfType t1 && noFreeVarsOfType t2
 noFreeVarsOfType (LitTy _)        = True
@@ -2176,12 +2163,12 @@ subst_ty subst ty
    = go ty
   where
     go (TyVarTy tv)      = substTyVar subst tv
-    go (AppTy fun arg)   = mkAppTy (go fun) $! (go arg)
-                -- The mkAppTy smart constructor is important
+    go (AppTys fun args) = let args' = map go args
+                           in args' `seqList` AppTys (go fun) args'
+                -- The mkAppTys smart constructor is important
                 -- we might be replacing (a Int), represented with App
                 -- by [Int], represented with TyConApp
-    go (TyConApp tc tys) = let args = map go tys
-                           in  args `seqList` TyConApp tc args
+    go t@(TyConTy _)     = t
     go (FunTy arg res)   = (FunTy $! go arg) $! go res
     go (ForAllTy (TvBndr tv vis) ty)
                          = case substTyVarBndrUnchecked subst tv of
@@ -2573,14 +2560,12 @@ debug_ppr_ty prec (FunTy arg res)
   = maybeParen prec FunPrec $
     sep [debug_ppr_ty FunPrec arg, arrow <+> debug_ppr_ty prec res]
 
-debug_ppr_ty prec (TyConApp tc tys)
-  | null tys  = ppr tc
-  | otherwise = maybeParen prec TyConPrec $
-                hang (ppr tc) 2 (sep (map (debug_ppr_ty TyConPrec) tys))
+debug_ppr_ty _ (TyConTy tc)
+  = ppr tc
 
-debug_ppr_ty prec (AppTy t1 t2)
+debug_ppr_ty prec (AppTys t1 t2)
   = hang (debug_ppr_ty prec t1)
-       2 (debug_ppr_ty TyConPrec t2)
+       2 (hsep (map (debug_ppr_ty TyConPrec) t2))
 
 debug_ppr_ty prec (CastTy ty co)
   = maybeParen prec TopPrec $
@@ -2784,9 +2769,9 @@ tidyTypes env tys = map (tidyType env) tys
 tidyType :: TidyEnv -> Type -> Type
 tidyType _   (LitTy n)            = LitTy n
 tidyType env (TyVarTy tv)         = TyVarTy (tidyTyVarOcc env tv)
-tidyType env (TyConApp tycon tys) = let args = tidyTypes env tys
-                                    in args `seqList` TyConApp tycon args
-tidyType env (AppTy fun arg)      = (AppTy $! (tidyType env fun)) $! (tidyType env arg)
+tidyType _   t@(TyConTy _)        = t
+tidyType env (AppTys fun args)    = let args' = tidyTypes env args
+                                    in args' `seqList` (AppTys $! (tidyType env fun)) args'
 tidyType env (FunTy fun arg)      = (FunTy $! (tidyType env fun)) $! (tidyType env arg)
 tidyType env (ty@(ForAllTy{}))    = mkForAllTys' (zip tvs' vis) $! tidyType env' body_ty
   where
@@ -2906,10 +2891,10 @@ tidyCos env = map (tidyCo env)
 typeSize :: Type -> Int
 typeSize (LitTy {})                 = 1
 typeSize (TyVarTy {})               = 1
-typeSize (AppTy t1 t2)              = typeSize t1 + typeSize t2
+typeSize (AppTys ty ts)             = typeSize ty + sum (map typeSize ts)
 typeSize (FunTy t1 t2)              = typeSize t1 + typeSize t2
 typeSize (ForAllTy (TvBndr tv _) t) = typeSize (tyVarKind tv) + typeSize t
-typeSize (TyConApp _ ts)            = 1 + sum (map typeSize ts)
+typeSize (TyConTy _)                = 1
 typeSize (CastTy ty co)             = typeSize ty + coercionSize co
 typeSize (CoercionTy co)            = coercionSize co
 

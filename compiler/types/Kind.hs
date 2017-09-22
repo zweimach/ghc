@@ -70,11 +70,12 @@ isConstraintKindCon :: TyCon -> Bool
 
 isConstraintKindCon   tc = tyConUnique tc == constraintKindTyConKey
 
-isConstraintKind (TyConApp tc _) = isConstraintKindCon tc
-isConstraintKind _               = False
+isConstraintKind (AppTys ty _)  = isConstraintKind ty
+isConstraintKind (TyConTy tc)   = isConstraintKindCon tc
+isConstraintKind _              = False
 
 isTYPEApp :: Kind -> Maybe DataCon
-isTYPEApp (TyConApp tc args)
+isTYPEApp (AppTys (TyConTy tc) args)
   | tc `hasKey` tYPETyConKey
   , [arg] <- args
   , Just (tc, []) <- splitTyConApp_maybe arg
@@ -87,7 +88,8 @@ isTYPEApp _ = Nothing
 returnsTyCon :: Unique -> Type -> Bool
 returnsTyCon tc_u (ForAllTy _ ty)  = returnsTyCon tc_u ty
 returnsTyCon tc_u (FunTy    _ ty)  = returnsTyCon tc_u ty
-returnsTyCon tc_u (TyConApp tc' _) = tc' `hasKey` tc_u
+returnsTyCon tc_u (AppTys (TyConTy tc') _) = tc' `hasKey` tc_u
+returnsTyCon tc_u (TyConTy tc')    = tc' `hasKey` tc_u
 returnsTyCon _  _                  = False
 
 returnsConstraintKind :: Kind -> Bool
@@ -102,8 +104,8 @@ isKindLevPoly k = ASSERT2( isStarKind k || _is_type, ppr k )
   where
     go ty | Just ty' <- coreView ty = go ty'
     go TyVarTy{}         = True
-    go AppTy{}           = True  -- it can't be a TyConApp
-    go (TyConApp tc tys) = isFamilyTyCon tc || any go tys
+    go (TyConTy tc)      = isFamilyTyCon tc
+    go (AppTys ty tys)   = go ty || any go tys
     go ForAllTy{}        = True
     go (FunTy t1 t2)     = go t1 || go t2
     go LitTy{}           = False
@@ -111,7 +113,7 @@ isKindLevPoly k = ASSERT2( isStarKind k || _is_type, ppr k )
     go CoercionTy{}      = True
 
     _is_type
-      | TyConApp typ [_] <- k
+      | AppTys (TyConTy typ) [_] <- k
       = typ `hasKey` tYPETyConKey
       | otherwise
       = False
@@ -129,13 +131,13 @@ isKindLevPoly k = ASSERT2( isStarKind k || _is_type, ppr k )
 classifiesTypeWithValues :: Kind -> Bool
 -- ^ True of any sub-kind of OpenTypeKind
 classifiesTypeWithValues t | Just t' <- coreView t = classifiesTypeWithValues t'
-classifiesTypeWithValues (TyConApp tc [_]) = tc `hasKey` tYPETyConKey
+classifiesTypeWithValues (AppTys (TyConTy tc) [_]) = tc `hasKey` tYPETyConKey
 classifiesTypeWithValues _ = False
 
 -- | Is this kind equivalent to *?
 tcIsStarKind :: Kind -> Bool
 tcIsStarKind k | Just k' <- tcView k = isStarKind k'
-tcIsStarKind (TyConApp tc [TyConApp ptr_rep []])
+tcIsStarKind (AppTys (TyConTy tc) [TyConTy ptr_rep])
   =  tc      `hasKey` tYPETyConKey
   && ptr_rep `hasKey` liftedRepDataConKey
 tcIsStarKind _ = False
@@ -143,7 +145,7 @@ tcIsStarKind _ = False
 -- | Is this kind equivalent to *?
 isStarKind :: Kind -> Bool
 isStarKind k | Just k' <- coreView k = isStarKind k'
-isStarKind (TyConApp tc [TyConApp ptr_rep []])
+isStarKind (AppTys (TyConTy tc) [TyConTy ptr_rep])
   =  tc      `hasKey` tYPETyConKey
   && ptr_rep `hasKey` liftedRepDataConKey
 isStarKind _ = False

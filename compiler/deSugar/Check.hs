@@ -499,7 +499,7 @@ pmTopNormaliseType_maybe env typ
     newTypeStepper rec_nts tc tys
       | Just (ty', _co) <- instNewTyCon_maybe tc tys
       = case checkRecTc rec_nts tc of
-          Just rec_nts' -> let tyf = ((TyConApp tc tys):)
+          Just rec_nts' -> let tyf = ((mkTyConApp tc tys):)
                                tmf = ((tyConSingleDataCon tc):)
                            in  NS_Step rec_nts' ty' (tyf, tmf)
           Nothing       -> NS_Abort
