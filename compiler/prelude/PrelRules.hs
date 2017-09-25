@@ -122,7 +122,11 @@ primOpRules nm NotIOp      = mkPrimOpRule nm 1 [ unaryLit complementOp
                                                , inversePrimOp NotIOp ]
 primOpRules nm IntNegOp    = mkPrimOpRule nm 1 [ unaryLit negOp
                                                , inversePrimOp IntNegOp ]
-primOpRules nm ISllOp      = mkPrimOpRule nm 2 [ binaryLit (intOp2 Bits.shiftL)
+primOpRules nm ISllOp      = mkPrimOpRule nm 2 [ do MachInt l <- getLiteral 1
+                                                    dflags <- getDynFlags
+                                                    guard (l > wordSizeInBits dflags)
+                                                    retLit zeroi
+                                               , binaryLit (intOp2 Bits.shiftL)
                                                , rightIdentityDynFlags zeroi ]
 primOpRules nm ISraOp      = mkPrimOpRule nm 2 [ binaryLit (intOp2 Bits.shiftR)
                                                , rightIdentityDynFlags zeroi ]
