@@ -186,3 +186,4 @@ test('ffi023', [ omit_ways(['ghci']),
 test('T12134', [omit_ways(['ghci'])], compile_and_run, ['T12134_c.c'])
 
 test('T12614', [omit_ways(['ghci'])], compile_and_run, ['T12614_c.c'])
+test('T9352', [omit_ways(['ghci'])], compile_and_run, ['T9352_c.c'])
