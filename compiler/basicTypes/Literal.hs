@@ -19,7 +19,7 @@ module Literal
         , mkMachWord64, mkMachWord64Wrap
         , mkMachFloat, mkMachDouble
         , mkMachChar, mkMachString
-        , mkLitInteger
+        , mkLitInteger, mkLitNatural
 
         -- ** Operations on Literals
         , literalType
@@ -126,6 +126,7 @@ data Literal
 
   | LitInteger Integer Type --  ^ Integer literals
                             -- See Note [Integer literals]
+  | LitNatural Integer Type --  ^ Natural literals
   deriving Data
 
 {-
@@ -146,8 +147,12 @@ below), we don't have convenient access to the mkInteger Id.  So we
 just use an error thunk, and fill in the real Id when we do tcIfaceLit
 in TcIface.
 
+Note [Natural literals]
+~~~~~~~~~~~~~~~~~~~~~~~
+Natural literals are quite similar to Integers (see Note [Integer literals]).
+They have a separate Literal constructor, which carries the Natural type instead
+of the Integer type. Otherwise they are treated rather similarly.
 
-Binary instance
 -}
 
 instance Binary Literal where
@@ -166,6 +171,7 @@ instance Binary Literal where
              put_ bh mb
              put_ bh fod
     put_ bh (LitInteger i _) = do putByte bh 10; put_ bh i
+    put_ bh (LitNatural i _) = do putByte bh 11; put_ bh i
     get bh = do
             h <- getByte bh
             case h of
@@ -200,10 +206,15 @@ instance Binary Literal where
                     mb <- get bh
                     fod <- get bh
                     return (MachLabel aj mb fod)
-              _ -> do
+              10 -> do
                     i <- get bh
                     -- See Note [Integer literals]
                     return $ mkLitInteger i (panic "Evaluated the place holder for mkInteger")
+              11 -> do
+                    i <- get bh
+                    -- See Note [Natural literals]
+                    return $ mkLitNatural i (panic "Evaluated the place holder for mkNatural")
+              _ -> fail $ "Binary(Literal): Unknown tag: "++show h
 
 instance Outputable Literal where
     ppr lit = pprLiteral (\d -> d) lit
@@ -313,6 +324,9 @@ mkMachString s = MachStr (fastStringToByteString $ mkFastString s)
 mkLitInteger :: Integer -> Type -> Literal
 mkLitInteger = LitInteger
 
+mkLitNatural :: Integer -> Type -> Literal
+mkLitNatural = LitNatural
+
 inIntRange, inWordRange :: DynFlags -> Integer -> Bool
 inIntRange  dflags x = x >= tARGET_MIN_INT dflags && x <= tARGET_MAX_INT dflags
 inWordRange dflags x = x >= 0                     && x <= tARGET_MAX_WORD dflags
@@ -352,6 +366,7 @@ isLitValue_maybe (MachInt64  i)   = Just i
 isLitValue_maybe (MachWord   i)   = Just i
 isLitValue_maybe (MachWord64 i)   = Just i
 isLitValue_maybe (LitInteger i _) = Just i
+isLitValue_maybe (LitNatural i _) = Just i
 isLitValue_maybe _                = Nothing
 
 -- | Apply a function to the 'Integer' contained in the 'Literal', for when that
@@ -367,6 +382,7 @@ mapLitValue _      f (MachInt64  i)   = mkMachInt64Wrap (f i)
 mapLitValue dflags f (MachWord   i)   = mkMachWordWrap dflags (f i)
 mapLitValue _      f (MachWord64 i)   = mkMachWord64Wrap (f i)
 mapLitValue _      f (LitInteger i t) = mkLitInteger (f i) t
+mapLitValue _      f (LitNatural i t) = mkLitNatural (f i) t
 mapLitValue _      _ l                = pprPanic "mapLitValue" (ppr l)
 
 -- | Indicate if the `Literal` contains an 'Integer' value, e.g. 'Char',
@@ -475,6 +491,7 @@ litIsTrivial :: Literal -> Bool
 --      c.f. CoreUtils.exprIsTrivial
 litIsTrivial (MachStr _)      = False
 litIsTrivial (LitInteger {})  = False
+litIsTrivial (LitNatural {})  = False
 litIsTrivial _                = True
 
 -- | True if code space does not go bad if we duplicate this literal
@@ -483,6 +500,7 @@ litIsDupable :: DynFlags -> Literal -> Bool
 --      c.f. CoreUtils.exprIsDupable
 litIsDupable _      (MachStr _)      = False
 litIsDupable dflags (LitInteger i _) = inIntRange dflags i
+litIsDupable dflags (LitNatural i _) = inIntRange dflags i
 litIsDupable _      _                = True
 
 litFitsInChar :: Literal -> Bool
@@ -492,6 +510,7 @@ litFitsInChar _           = False
 
 litIsLifted :: Literal -> Bool
 litIsLifted (LitInteger {}) = True
+litIsLifted (LitNatural {}) = True
 litIsLifted _               = False
 
 {-
@@ -512,6 +531,7 @@ literalType (MachFloat _)   = floatPrimTy
 literalType (MachDouble _)  = doublePrimTy
 literalType (MachLabel _ _ _) = addrPrimTy
 literalType (LitInteger _ t) = t
+literalType (LitNatural _ t) = t
 
 absentLiteralOf :: TyCon -> Maybe Literal
 -- Return a literal of the appropriate primitive
@@ -545,6 +565,7 @@ cmpLit (MachFloat     a)   (MachFloat      b)   = a `compare` b
 cmpLit (MachDouble    a)   (MachDouble     b)   = a `compare` b
 cmpLit (MachLabel     a _ _) (MachLabel      b _ _) = a `compare` b
 cmpLit (LitInteger    a _) (LitInteger     b _) = a `compare` b
+cmpLit (LitNatural    a _) (LitNatural     b _) = a `compare` b
 cmpLit lit1                lit2                 | litTag lit1 < litTag lit2 = LT
                                                 | otherwise                 = GT
 
@@ -560,6 +581,7 @@ litTag (MachFloat     _)   = 8
 litTag (MachDouble    _)   = 9
 litTag (MachLabel _ _ _)   = 10
 litTag (LitInteger  {})    = 11
+litTag (LitNatural  {})    = 12
 
 {-
         Printing
@@ -578,6 +600,7 @@ pprLiteral _       (MachWord64 w)   = pprPrimWord64 w
 pprLiteral _       (MachFloat f)    = float (fromRat f) <> primFloatSuffix
 pprLiteral _       (MachDouble d)   = double (fromRat d) <> primDoubleSuffix
 pprLiteral add_par (LitInteger i _) = pprIntegerVal add_par i
+pprLiteral add_par (LitNatural i _) = pprIntegerVal add_par i
 pprLiteral add_par (MachLabel l mb fod) = add_par (text "__label" <+> b <+> ppr fod)
     where b = case mb of
               Nothing -> pprHsString l
@@ -622,5 +645,6 @@ MachWord64       1L##
 MachFloat       -1.0#
 MachDouble      -1.0##
 LitInteger      -1                 (-1)
+LitNatural      -1                 (-1)
 MachLabel       "__label" ...      ("__label" ...)
 -}
