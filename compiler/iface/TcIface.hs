@@ -1493,12 +1493,16 @@ tcIfaceTickish (IfaceSource src name)   = return (SourceNote src name)
 
 -------------------------
 tcIfaceLit :: Literal -> IfL Literal
--- Integer literals deserialise to (LitInteger i <error thunk>)
--- so tcIfaceLit just fills in the type.
+-- Integer literals deserialise to (LitInteger i <error thunk>) so tcIfaceLit
+-- just fills in the type.
 -- See Note [Integer literals] in Literal
 tcIfaceLit (LitInteger i _)
   = do t <- tcIfaceTyConByName integerTyConName
        return (mkLitInteger i (mkTyConTy t))
+-- The same logic describe above applies to Naturals.
+tcIfaceLit (LitNatural i _)
+  = do t <- tcIfaceTyConByName naturalTyConName
+       return (mkLitNatural i (mkTyConTy t))
 tcIfaceLit lit = return lit
 
 -------------------------

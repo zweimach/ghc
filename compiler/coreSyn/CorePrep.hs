@@ -603,9 +603,15 @@ cpeRhsE :: CorePrepEnv -> CoreExpr -> UniqSM (Floats, CpeRhs)
 
 cpeRhsE _env expr@(Type {})      = return (emptyFloats, expr)
 cpeRhsE _env expr@(Coercion {})  = return (emptyFloats, expr)
-cpeRhsE env (Lit (LitInteger i _))
-    = cpeRhsE env (cvtLitInteger (cpe_dynFlags env) (getMkIntegerId env)
-                   (cpe_integerSDataCon env) i)
+cpeRhsE env (Lit (LitInteger i ty))
+    | ty `eqType` integerTy
+    = cpeRhsE env integer
+    | ty `eqType` naturalTy
+    = cpeRhsE env (getNaturalFromIntegerId `mkApp` integer)
+    | otherwise
+    = panic "cpeRhsE"
+    where integer = cvtLitInteger (cpe_dynFlags env) (getMkIntegerId env)
+                                  (cpe_integerSDataCon env) i
 cpeRhsE _env expr@(Lit {}) = return (emptyFloats, expr)
 cpeRhsE env expr@(Var {})  = cpeApp env expr
 cpeRhsE env expr@(App {}) = cpeApp env expr
@@ -1445,7 +1451,12 @@ data CorePrepEnv
         --      and Note [CorePrep inlines trivial CoreExpr not Id] (#12076)
         , cpe_mkIntegerId     :: Id
         , cpe_integerSDataCon :: Maybe DataCon
+        , cpe_naturalFromIntegerId :: Id
     }
+
+lookupNaturalFromIntegerId :: DynFlags -> HscEnv -> IO Id
+lookupNaturalFromIntegerId dflags hsc_env
+    = liftM tyThingId $ lookupGlobal hsc_env naturalFromIntegerName
 
 lookupMkIntegerName :: DynFlags -> HscEnv -> IO Id
 lookupMkIntegerName dflags hsc_env
@@ -1470,12 +1481,14 @@ guardIntegerUse dflags act
 mkInitialCorePrepEnv :: DynFlags -> HscEnv -> IO CorePrepEnv
 mkInitialCorePrepEnv dflags hsc_env
     = do mkIntegerId <- lookupMkIntegerName dflags hsc_env
+         naturalFromIntegerId <- loookupNaturalFromIntegerName dflags has_env
          integerSDataCon <- lookupIntegerSDataConName dflags hsc_env
          return $ CPE {
                       cpe_dynFlags = dflags,
                       cpe_env = emptyVarEnv,
                       cpe_mkIntegerId = mkIntegerId,
-                      cpe_integerSDataCon = integerSDataCon
+                      cpe_integerSDataCon = integerSDataCon,
+                      cpe_naturalFromIntegerId = naturalFromIntegerId
                   }
 
 extendCorePrepEnv :: CorePrepEnv -> Id -> Id -> CorePrepEnv
@@ -1499,6 +1512,9 @@ lookupCorePrepEnv cpe id
 
 getMkIntegerId :: CorePrepEnv -> Id
 getMkIntegerId = cpe_mkIntegerId
+
+getNaturalFromIntegerId :: CorePrepEnv -> Id
+getNaturalFromIntegerId = cpe_naturalFromIntegerId
 
 ------------------------------------------------------------------------------
 -- Cloning binders

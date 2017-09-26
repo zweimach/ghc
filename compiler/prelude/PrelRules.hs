@@ -1008,6 +1008,7 @@ builtinRules
         ]
      ]
  ++ builtinIntegerRules
+ ++ builtinNaturalRules
 {-# NOINLINE builtinRules #-}
 -- there is no benefit to inlining these yet, despite this, GHC produces
 -- unfoldings for this regardless since the floated list entries look small.
@@ -1042,6 +1043,103 @@ builtinIntegerRules =
   rule_convert        "doubleFromInteger"   doubleFromIntegerName   (\_ -> mkDoubleLitDouble),
   rule_rationalTo     "rationalToFloat"     rationalToFloatName     mkFloatExpr,
   rule_rationalTo     "rationalToDouble"    rationalToDoubleName    mkDoubleExpr,
+  rule_binop          "gcdInteger"          gcdIntegerName          gcd,
+  rule_binop          "lcmInteger"          lcmIntegerName          lcm,
+  rule_binop          "andInteger"          andIntegerName          (.&.),
+  rule_binop          "orInteger"           orIntegerName           (.|.),
+  rule_binop          "xorInteger"          xorIntegerName          xor,
+  rule_unop           "complementInteger"   complementIntegerName   complement,
+  rule_Int_binop      "shiftLInteger"       shiftLIntegerName       shiftL,
+  rule_Int_binop      "shiftRInteger"       shiftRIntegerName       shiftR,
+  rule_bitInteger     "bitInteger"          bitIntegerName,
+  -- See Note [Integer division constant folding] in libraries/base/GHC/Real.hs
+  rule_divop_one      "quotInteger"         quotIntegerName         quot,
+  rule_divop_one      "remInteger"          remIntegerName          rem,
+  rule_divop_one      "divInteger"          divIntegerName          div,
+  rule_divop_one      "modInteger"          modIntegerName          mod,
+  rule_divop_both     "divModInteger"       divModIntegerName       divMod,
+  rule_divop_both     "quotRemInteger"      quotRemIntegerName      quotRem,
+  -- These rules below don't actually have to be built in, but if we
+  -- put them in the Haskell source then we'd have to duplicate them
+  -- between all Integer implementations
+  rule_XToIntegerToX "smallIntegerToInt"       integerToIntName    smallIntegerName,
+  rule_XToIntegerToX "wordToIntegerToWord"     integerToWordName   wordToIntegerName,
+  rule_XToIntegerToX "int64ToIntegerToInt64"   integerToInt64Name  int64ToIntegerName,
+  rule_XToIntegerToX "word64ToIntegerToWord64" integerToWord64Name word64ToIntegerName,
+  rule_smallIntegerTo "smallIntegerToWord"   integerToWordName     Int2WordOp,
+  rule_smallIntegerTo "smallIntegerToFloat"  floatFromIntegerName  Int2FloatOp,
+  rule_smallIntegerTo "smallIntegerToDouble" doubleFromIntegerName Int2DoubleOp
+  ]
+    where rule_convert str name convert
+           = BuiltinRule { ru_name = fsLit str, ru_fn = name, ru_nargs = 1,
+                           ru_try = match_Integer_convert convert }
+          rule_IntToInteger str name
+           = BuiltinRule { ru_name = fsLit str, ru_fn = name, ru_nargs = 1,
+                           ru_try = match_IntToInteger }
+          rule_WordToInteger str name
+           = BuiltinRule { ru_name = fsLit str, ru_fn = name, ru_nargs = 1,
+                           ru_try = match_WordToInteger }
+          rule_Int64ToInteger str name
+           = BuiltinRule { ru_name = fsLit str, ru_fn = name, ru_nargs = 1,
+                           ru_try = match_Int64ToInteger }
+          rule_Word64ToInteger str name
+           = BuiltinRule { ru_name = fsLit str, ru_fn = name, ru_nargs = 1,
+                           ru_try = match_Word64ToInteger }
+          rule_unop str name op
+           = BuiltinRule { ru_name = fsLit str, ru_fn = name, ru_nargs = 1,
+                           ru_try = match_Integer_unop op }
+          rule_bitInteger str name
+           = BuiltinRule { ru_name = fsLit str, ru_fn = name, ru_nargs = 1,
+                           ru_try = match_IntToInteger_unop (bit . fromIntegral) }
+          rule_binop str name op
+           = BuiltinRule { ru_name = fsLit str, ru_fn = name, ru_nargs = 2,
+                           ru_try = match_Integer_binop op }
+          rule_divop_both str name op
+           = BuiltinRule { ru_name = fsLit str, ru_fn = name, ru_nargs = 2,
+                           ru_try = match_Integer_divop_both op }
+          rule_divop_one str name op
+           = BuiltinRule { ru_name = fsLit str, ru_fn = name, ru_nargs = 2,
+                           ru_try = match_Integer_divop_one op }
+          rule_Int_binop str name op
+           = BuiltinRule { ru_name = fsLit str, ru_fn = name, ru_nargs = 2,
+                           ru_try = match_Integer_Int_binop op }
+          rule_binop_Prim str name op
+           = BuiltinRule { ru_name = fsLit str, ru_fn = name, ru_nargs = 2,
+                           ru_try = match_Integer_binop_Prim op }
+          rule_binop_Ordering str name op
+           = BuiltinRule { ru_name = fsLit str, ru_fn = name, ru_nargs = 2,
+                           ru_try = match_Integer_binop_Ordering op }
+          rule_encodeFloat str name op
+           = BuiltinRule { ru_name = fsLit str, ru_fn = name, ru_nargs = 2,
+                           ru_try = match_Integer_Int_encodeFloat op }
+          rule_decodeDouble str name
+           = BuiltinRule { ru_name = fsLit str, ru_fn = name, ru_nargs = 1,
+                           ru_try = match_decodeDouble }
+          rule_XToIntegerToX str name toIntegerName
+           = BuiltinRule { ru_name = fsLit str, ru_fn = name, ru_nargs = 1,
+                           ru_try = match_XToIntegerToX toIntegerName }
+          rule_smallIntegerTo str name primOp
+           = BuiltinRule { ru_name = fsLit str, ru_fn = name, ru_nargs = 1,
+                           ru_try = match_smallIntegerTo primOp }
+          rule_rationalTo str name mkLit
+           = BuiltinRule { ru_name = fsLit str, ru_fn = name, ru_nargs = 2,
+                           ru_try = match_rationalTo mkLit }
+
+builtinNaturalRules :: [CoreRule]
+builtinNaturalRules =
+ [rule_binop          "plusInteger"         plusIntegerName         (+),
+  rule_binop          "minusInteger"        minusIntegerName        (-),
+  rule_binop          "timesInteger"        timesIntegerName        (*),
+  rule_unop           "negateInteger"       negateIntegerName       negate,
+  rule_binop_Prim     "eqInteger#"          eqIntegerPrimName       (==),
+  rule_binop_Prim     "neqInteger#"         neqIntegerPrimName      (/=),
+  rule_unop           "absInteger"          absIntegerName          abs,
+  rule_unop           "signumInteger"       signumIntegerName       signum,
+  rule_binop_Prim     "leInteger#"          leIntegerPrimName       (<=),
+  rule_binop_Prim     "gtInteger#"          gtIntegerPrimName       (>),
+  rule_binop_Prim     "ltInteger#"          ltIntegerPrimName       (<),
+  rule_binop_Prim     "geInteger#"          geIntegerPrimName       (>=),
+  rule_binop_Ordering "compareInteger"      compareIntegerName      compare,
   rule_binop          "gcdInteger"          gcdIntegerName          gcd,
   rule_binop          "lcmInteger"          lcmIntegerName          lcm,
   rule_binop          "andInteger"          andIntegerName          (.&.),

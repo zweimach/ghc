@@ -66,6 +66,20 @@ import Data.Bits
 
 default ()
 
+-- Most high-level operations need to be marked `NOINLINE` as
+-- otherwise GHC doesn't recognize them and fails to apply constant
+-- folding to `Integer`-typed expression.
+--
+-- To this end, the CPP hack below allows to write the pseudo-pragma
+--
+--   {-# CONSTANT_FOLDED plusNatural #-}
+--
+-- which is simply expanded into a
+--
+--   {-# NOINLINE plusNatural #-}
+--
+#define CONSTANT_FOLDED NOINLINE
+
 -------------------------------------------------------------------------------
 -- Arithmetic underflow
 -------------------------------------------------------------------------------
@@ -378,6 +392,7 @@ plusNatural (NatS# x) (NatS# y)
 plusNatural (NatS# x) (NatJ# y) = NatJ# (plusBigNatWord y x)
 plusNatural (NatJ# x) (NatS# y) = NatJ# (plusBigNatWord x y)
 plusNatural (NatJ# x) (NatJ# y) = NatJ# (plusBigNat     x y)
+{-# CONSTANT_FOLDED plusNatural #-}
 
 -- | 'Natural' multiplication
 timesNatural :: Natural -> Natural -> Natural
@@ -392,6 +407,7 @@ timesNatural (NatS# x) (NatS# y) = case timesWord2# x y of
 timesNatural (NatS# x) (NatJ# y) = NatJ# $ timesBigNatWord y x
 timesNatural (NatJ# x) (NatS# y) = NatJ# $ timesBigNatWord x y
 timesNatural (NatJ# x) (NatJ# y) = NatJ# $ timesBigNat     x y
+{-# CONSTANT_FOLDED timesNatural #-}
 
 -- | 'Natural' subtraction. May @'throw' 'Underflow'@.
 minusNatural :: Natural -> Natural -> Natural
@@ -404,6 +420,7 @@ minusNatural (NatJ# x) (NatS# y)
     = bigNatToNatural $ minusBigNatWord x y
 minusNatural (NatJ# x) (NatJ# y)
     = bigNatToNatural $ minusBigNat     x y
+{-# CONSTANT_FOLDED minusNatural #-}
 
 -- | 'Natural' subtraction. Returns 'Nothing's for non-positive results.
 --
@@ -422,6 +439,7 @@ minusNaturalMaybe (NatJ# x) (NatJ# y)
   | otherwise = Just (bigNatToNatural res)
   where
     res = minusBigNat x y
+{-# CONSTANT_FOLDED minusNaturalMaybe #-}
 
 -- | Convert 'BigNat' to 'Natural'.
 -- Throws 'Underflow' if passed a 'nullBigNat'.
