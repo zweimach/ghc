@@ -82,4 +82,5 @@
 #define SMALL_MUT_ARR_PTRS_FROZEN0    61
 #define SMALL_MUT_ARR_PTRS_FROZEN     62
 #define COMPACT_NFDATA                63
-#define N_CLOSURE_TYPES               64
+#define WITH_FRAME                    64
+#define N_CLOSURE_TYPES               65

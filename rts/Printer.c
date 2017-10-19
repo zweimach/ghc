@@ -883,7 +883,8 @@ const char *closure_type_names[] = {
  [CATCH_RETRY_FRAME]     = "CATCH_RETRY_FRAME",
  [CATCH_STM_FRAME]       = "CATCH_STM_FRAME",
  [WHITEHOLE]             = "WHITEHOLE",
- [COMPACT_NFDATA]        = "COMPACT_NFDATA"
+ [COMPACT_NFDATA]        = "COMPACT_NFDATA",
+ [WITH_FRAME]            = "WITH_FRAME"
 };
 
 const char *
