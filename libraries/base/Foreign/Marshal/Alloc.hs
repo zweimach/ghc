@@ -136,9 +136,11 @@ allocaBytes (I# size) action = IO $ \ s0 ->
      case newPinnedByteArray# size s0      of { (# s1, mbarr# #) ->
      case unsafeFreezeByteArray# mbarr# s1 of { (# s2, barr#  #) ->
      let addr = Ptr (byteArrayContents# barr#) in
-     case action addr                      of { IO action' ->
-     with# barr# action' s2
-  }}}
+     case action addr     of { IO action' ->
+     case action' s2      of { (# s3, r #) ->
+     case touch# barr# s3 of { s4 ->
+     (# s4, r #)
+  }}}}}
 
 allocaBytesAligned :: Int -> Int -> (Ptr a -> IO b) -> IO b
 allocaBytesAligned (I# size) (I# align) action = IO $ \ s0 ->
@@ -146,8 +148,10 @@ allocaBytesAligned (I# size) (I# align) action = IO $ \ s0 ->
      case unsafeFreezeByteArray# mbarr# s1 of { (# s2, barr#  #) ->
      let addr = Ptr (byteArrayContents# barr#) in
      case action addr     of { IO action' ->
-     with# barr# action' s2
-  }}}
+     case action' s2      of { (# s3, r #) ->
+     case touch# barr# s3 of { s4 ->
+     (# s4, r #)
+  }}}}}
 
 -- |Resize a memory area that was allocated with 'malloc' or 'mallocBytes'
 -- to the size needed to store values of type @b@.  The returned pointer
