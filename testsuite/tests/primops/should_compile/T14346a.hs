@@ -11,7 +11,7 @@ import Numeric
 main :: IO ()
 main = do
     replicateM_ 49 $ threadDelay 1
-    allocaBytes 4 $ \p -> do
+    allocaBytes 4 $ \p ->
       forever $ do
         poke p (0xDEADBEEF :: Word32)
         threadDelay 10
