@@ -512,6 +512,12 @@ coreToStgApp
         -> CtsM (StgExpr, FreeVarsInfo)
 
 
+coreToStgApp _ f args ticks
+  | Just op <- isPrimOpId_maybe f
+  , Just primApp <- isPrimApp op res_ty args ticks
+  = primApp
+  where res_ty = exprType (mkApps (Var f) args)
+
 coreToStgApp _ f args ticks = do
     (args', args_fvs, ticks') <- coreToStgArgs args
     how_bound <- lookupVarCts f
@@ -572,6 +578,29 @@ coreToStgApp _ f args ticks = do
         fvs
      )
 
+-- | See #14375.
+primApp :: PrimOp -> Type -> [CoreArg] -> [Tickish Id] -> Maybe (CtsM (StgExpr, FreeVarsInfo))
+primApp CatchOp res_ty args@[normal,exception,s] ticks
+  = Just $ do
+        let mkJoinBind :: StgExpr -> Arity -> StgBinding
+            mkJoinBind x arity = do
+                bndr <- mkBndr
+                let (arg_tys, res_ty) = splitFunTys x
+                arg <- mapM (const mkBndr)
+                let rhs = StgRhsClosure CurrentCCS
+                                        satCallsOnly
+                                        fvs
+                                        SingleEntry
+                                        [arg]
+                                        x
+                return $ StgRec bndr rhs
+
+        b1 <- mkJoinBind normal 1
+        b2 <- mkJoinBind exception 2
+        let expr = StgLetNoEscape b1
+                 $ StgLetNoEscape b2
+                 $ StgOpApp (StgPrimOp CatchOp) [b1, b2, s] res_ty
+        return (expr, fvi)
 
 
 -- ---------------------------------------------------------------------------
