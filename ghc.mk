@@ -1357,6 +1357,7 @@ clean : clean_files clean_libraries
 clean_files :
 	$(call removeFiles,$(CLEAN_FILES))
 # this is here since CLEAN_FILES can't handle folders
+	$(call removeTrees,includes/dist)
 	$(call removeTrees,includes/dist-derivedconstants)
 	$(call removeTrees,inplace/bin)
 	$(call removeTrees,inplace/lib)

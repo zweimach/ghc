@@ -12,11 +12,9 @@
 
 #
 # Header files built from the configure script's findings
-#
-# XXX: these should go in includes/dist/build?
-includes_H_CONFIG   = includes/ghcautoconf.h
-includes_H_PLATFORM = includes/ghcplatform.h
-includes_H_VERSION  = includes/ghcversion.h
+includes_H_CONFIG   = includes/dist/ghcautoconf.h
+includes_H_PLATFORM = includes/dist/ghcplatform.h
+includes_H_VERSION  = includes/dist/ghcversion.h
 
 #
 # All header files are in includes/{one of these subdirectories}

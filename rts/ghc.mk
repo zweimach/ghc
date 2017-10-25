@@ -572,7 +572,7 @@ DTRACE_FLAGS = -x cpppath=$(CC)
 endif
 
 DTRACEPROBES_SRC = rts/RtsProbes.d
-$(DTRACEPROBES_H): $(DTRACEPROBES_SRC) includes/ghcplatform.h | $$(dir $$@)/.
+$(DTRACEPROBES_H): $(DTRACEPROBES_SRC) includes/dist/ghcplatform.h | $$(dir $$@)/.
 	"$(DTRACE)" $(filter -I%,$(rts_CC_OPTS)) -C $(DTRACE_FLAGS) -h -o $@ -s $<
 endif
 
