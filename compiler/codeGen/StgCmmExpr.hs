@@ -53,6 +53,8 @@ import Control.Monad (unless,void)
 import Control.Arrow (first)
 import Data.Function ( on )
 
+import CLabel
+import Module (rtsUnitId)
 ------------------------------------------------------------------------
 --              cgExpr: the main function
 ------------------------------------------------------------------------
@@ -719,8 +721,26 @@ cgConApp con stg_args
         ; tickyReturnNewCon (length stg_args)
         ; emitReturn [idInfoToAmode idinfo] }
 
+emitMaskFrame :: FCode ReturnKind -> FCode ReturnKind
+emitMaskFrame cont = do
+    dflags <- getDynFlags
+    let exprs = [CmmLit $ CmmLabel $ mkCmmRetInfoLabel rtsUnitId (fsLit "stg_unmaskAsyncExceptionszh")]
+    updfr_off <- getUpdFrameOff
+    let (new_updfr_off, _, g) = copyOutOflow dflags NativeReturn Ret Old
+                                [] updfr_off exprs
+    emit g
+    withUpdFrameOff new_updfr_off cont
+
 cgIdApp :: Id -> [StgArg] -> FCode ReturnKind
-cgIdApp fun_id args = do
+cgIdApp fun_id args
+  | Just MaskAsyncExceptionsOp <- isPrimOpId_maybe fun_id
+  , [StgContArg s_arg rhs, s] <- args =
+    -- See Note [Optimized code generation for CPS primops]
+    emitMaskFrame $ do
+    -- XXX Technically we should now codegen with `s_arg = s` in the context.
+    cgExpr rhs
+
+  | otherwise = do
     dflags         <- getDynFlags
     fun_info       <- getCgIdInfo fun_id
     self_loop_info <- getSelfLoop

@@ -104,6 +104,11 @@ data GenStgBinding bndr occ
 data GenStgArg occ
   = StgVarArg  occ
   | StgLitArg  Literal
+  | StgContArg occ (GenStgExpr occ occ)
+    -- ^ A continuation. In this context this means an argument
+    -- of the form (\(s :: State# s) -> expr). The @occ@ here is
+    -- the lambda-bound @State#@ token and the 'StgExpr' is the body.
+    -- See Note [Optimized code generation for CPS primops].
 
 -- | Does this constructor application refer to
 -- anything in a different *Windows* DLL?

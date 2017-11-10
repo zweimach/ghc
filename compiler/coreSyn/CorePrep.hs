@@ -823,6 +823,12 @@ cpeApp top_env expr
         -- rather than the far superior "f x y".  Test case is par01.
         = let (terminal, args', depth') = collect_args arg
           in cpe_app env terminal (args' ++ args) (depth + depth' - 1)
+    cpe_app env (Var f) args depth
+        | Just MaskAsyncExceptionsOp <- isPrimOpId_maybe f
+        , (CpeApp Type{} : CpeApp (Lam s_arg rhs) : CpeApp s : []) <- args
+        -- See Note [Optimized code generation for CPS primops]
+        = do { (floats, rhs') <- cpeRhsE env rhs
+             ; return (floats, mkApps f args) }
     cpe_app env (Var f) [CpeApp _runtimeRep@Type{}, CpeApp _type@Type{}, CpeApp arg] 1
         | f `hasKey` runRWKey
         -- Replace (runRW# f) by (f realWorld#), beta reducing if possible (this
