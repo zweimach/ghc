@@ -104,11 +104,6 @@ data GenStgBinding bndr occ
 data GenStgArg occ
   = StgVarArg  occ
   | StgLitArg  Literal
-  | StgContArg occ (GenStgExpr occ occ)
-    -- ^ A continuation. In this context this means an argument
-    -- of the form (\(s :: State# s) -> expr). The @occ@ here is
-    -- the lambda-bound @State#@ token and the 'StgExpr' is the body.
-    -- See Note [Optimized code generation for CPS primops].
 
 -- | Does this constructor application refer to
 -- anything in a different *Windows* DLL?
@@ -184,6 +179,43 @@ There is no constructor for a lone variable; it would appear as
 @StgApp var []@.
 -}
 
+{-
+Note [Optimized code-generation for CPS primops]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Consider a primop like maskAsyncExceptions,
+
+    maskAsyncExceptions :: (State# s -> (# State# s, a #))
+                        -> State# s
+                        -> (# State# s, a #)
+
+For concreteness, consider the program
+
+    let x = someExpression
+    in maskAsyncExceptions (\s -> print# x s) s
+
+where someExpression is some known expression and print# is some hypothetical IO
+operation.
+
+Operationally, this primop should push a stack frame to mask exceptions and then
+enter (print# x s). The naive way to generate code for this would be
+
+    allocate closure for (print# x s)
+    push stack frame
+    enter previously built closure
+
+However, this is suboptimal as we allocate a closure only to enter it soon
+thereafter. You might wonder, why not do away with the closure and instead
+generate the following code
+
+    push stack frame
+    print# x s
+
+It turns out, we do precisely this. Such primop applications are presented in
+STG using the StgContOpApp constructor. For instance, the expression
+`maskAsyncExceptions (\s -> print# x s) s` will be represented by
+`StgContOpApp s (print# x s) []`
+-}
+
 data GenStgExpr bndr occ
   = StgApp
         occ             -- function
@@ -213,6 +245,14 @@ primitives, and literals.
                 Type            -- Result type
                                 -- We need to know this so that we can
                                 -- assign result registers
+
+    -- | A primop accepting a start continuation. In this context this means an
+    -- argument of the form (\(s :: State# s) -> expr). See Note [Optimized code
+    -- generation for CPS primops].
+  | StgContOpApp StgOp
+                 bndr           -- state token binder to be lambda-bound by continuation
+                 StgExpr        -- "start" continuation
+                 [GenStgArg occ] -- remaining arguments
 
 {-
 ************************************************************************
@@ -723,6 +763,10 @@ pprStgExpr (StgConApp con args _)
 
 pprStgExpr (StgOpApp op args _)
   = hsep [ pprStgOp op, brackets (interppSP args)]
+
+pprStgExpr (StgContOpApp op s_bndr cont args)
+  = hsep [ pprStgOp op
+         , brackets (text "cont = \\" <+> ppr s_bndr <+> text "->" <+> ppr cont <+> text "," <+> interppSP args)]
 
 pprStgExpr (StgLam bndrs body)
   = sep [ char '\\' <+> ppr_list (map (pprBndr LambdaBind) bndrs)

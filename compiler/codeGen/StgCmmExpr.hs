@@ -736,7 +736,7 @@ cgIdApp fun_id args
   | Just MaskAsyncExceptionsOp <- isPrimOpId_maybe fun_id
   , [StgContArg s_arg rhs, s] <- args =
     -- See Note [Optimized code generation for CPS primops]
-    emitMaskFrame $ do
+    emitMaskFrame $ do 
     -- XXX Technically we should now codegen with `s_arg = s` in the context.
     cgExpr rhs
 

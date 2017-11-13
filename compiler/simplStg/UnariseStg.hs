@@ -330,6 +330,10 @@ unariseExpr rho (StgConApp dc args ty_args)
 unariseExpr rho (StgOpApp op args ty)
   = return (StgOpApp op (unariseFunArgs rho args) ty)
 
+unariseExpr rho (StgContOpApp op s_bndr rhs args)
+  = do rhs' <- unariseExpr rho rhs
+       return (StgContOpApp op s_bndr rhs' (unariseFunArgs rho args))
+
 unariseExpr _ e@StgLam{}
   = pprPanic "unariseExpr: found lambda" (ppr e)
 

@@ -512,11 +512,12 @@ coreToStgApp
         -> CtsM (StgExpr, FreeVarsInfo)
 
 coreToStgApp _ f args ticks
-  | Just MaskAsyncExceptionsOp <- isPrimOpId_maybe f
-  , [Type{}, Lam s_arg rhs, s] <- args
+  | Just op@MaskAsyncExceptionsOp <- isPrimOpId_maybe f
+  , [Type{}, Lam s_arg rhs, Var s] <- args
   -- See Note [Optimized code generation for CPS primops]
   = do (rhs', fvs) <- coreToStgExpr rhs
-       return (StgApp f [StgContArg s_arg rhs', s], fvs)
+       return (StgContOpApp (PrimOpId op) s_arg rhs' [StgVarArg s], fvs)
+
 coreToStgApp _ f args ticks = do
     (args', args_fvs, ticks') <- coreToStgArgs args
     how_bound <- lookupVarCts f

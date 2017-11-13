@@ -289,6 +289,9 @@ stgCseExpr _ (StgLit lit)
 stgCseExpr env (StgOpApp op args tys)
     = StgOpApp op args' tys
   where args' = substArgs env args
+stgCseExpr env (StgContOpApp op s_bndr rhs args)
+    = StgContOpApp op s_bndr rhs args'
+  where args' = substArgs env args
 stgCseExpr _ (StgLam _ _)
     = pprPanic "stgCseExp" (text "StgLam")
 stgCseExpr env (StgTick tick body)
