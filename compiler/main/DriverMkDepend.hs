@@ -48,6 +48,23 @@ import Data.Maybe       ( isJust )
 --
 -----------------------------------------------------------------
 
+{-
+Note [Boot modules in dependency collection]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+If a module M has an hs-boot file we need to pretend that M.o depends upon
+M.hi-boot. Why? Well, when we typecheck M.hs in single-shot compilation mode we
+need to load the M.hi-boot to ensure consistency as well to identify DFuns
+needing impedance matching bindings (see Note [DFun impedance matching]).
+
+If we fail to do this, the user may be led to compile M.hs before M.hs-boot,
+leading to issues like #14481.
+-}
+
+-- | The set of modules having associated hs-boot files.
+-- See Note [Boot modules in dependency collection].
+type BootModuleSet = ModuleSet
+
 doMkDependHS :: GhcMonad m => [FilePath] -> m ()
 doMkDependHS srcs = do
     -- Initialisation
@@ -82,6 +99,11 @@ doMkDependHS srcs = do
     -- There should be no cycles
     let sorted = GHC.topSortModuleGraph False module_graph Nothing
 
+    -- Collect the known boot modules.
+    -- See Note [Boot modules in dependency collection].
+    let boot_modules :: BootModuleSet
+        boot_modules = mgBootModules module_graph
+
     -- Print out the dependencies if wanted
     liftIO $ debugTraceMsg dflags 2 (text "Module dependencies" $$ ppr sorted)
 
@@ -89,7 +111,7 @@ doMkDependHS srcs = do
     -- and complaining about cycles
     hsc_env <- getSession
     root <- liftIO getCurrentDirectory
-    mapM_ (liftIO . processDeps dflags hsc_env excl_mods root (mkd_tmp_hdl files)) sorted
+    mapM_ (liftIO . processDeps dflags hsc_env excl_mods boot_modules root (mkd_tmp_hdl files)) sorted
 
     -- If -ddump-mod-cycles, show cycles in the module graph
     liftIO $ dumpModCycles dflags module_graph
@@ -175,6 +197,7 @@ beginMkDependHS dflags = do
 processDeps :: DynFlags
             -> HscEnv
             -> [ModuleName]
+            -> BootModuleSet
             -> FilePath
             -> Handle           -- Write dependencies to here
             -> SCC ModSummary
@@ -194,17 +217,18 @@ processDeps :: DynFlags
 --
 -- For {-# SOURCE #-} imports the "hi" will be "hi-boot".
 
-processDeps dflags _ _ _ _ (CyclicSCC nodes)
+processDeps dflags _ _ _ _ _ (CyclicSCC nodes)
   =     -- There shouldn't be any cycles; report them
     throwGhcExceptionIO (ProgramError (showSDoc dflags $ GHC.cyclicModuleErr nodes))
 
-processDeps dflags hsc_env excl_mods root hdl (AcyclicSCC node)
+processDeps dflags hsc_env excl_mods boot_mods root hdl (AcyclicSCC node)
   = do  { let extra_suffixes = depSuffixes dflags
               include_pkg_deps = depIncludePkgDeps dflags
               src_file  = msHsFilePath node
               obj_file  = msObjFilePath node
               obj_files = insertSuffixes obj_file extra_suffixes
 
+              do_imp :: SrcSpan -> Bool -> Maybe FastString -> ModuleName -> IO ()
               do_imp loc is_boot pkg_qual imp_mod
                 = do { mb_hi <- findDependency hsc_env loc pkg_qual imp_mod
                                                is_boot include_pkg_deps
@@ -233,6 +257,12 @@ processDeps dflags hsc_env excl_mods root hdl (AcyclicSCC node)
 
         ; do_imps True  (ms_srcimps node)
         ; do_imps False (ms_imps node)
+
+                -- Emit a dependency on the module's hi-boot file, if one exists.
+                -- See Note []
+        ; when (not (isBootSummary node)
+                && ms_mod node `elemModuleSet` boot_mods) $
+            do_imp noSrcSpan True Nothing (ms_mod_name node)
         }
 
 
