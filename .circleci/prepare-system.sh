@@ -27,9 +27,14 @@ case "$(uname)" in
         # cross-compiling to FreeBSD
         add-apt-repository -y ppa:hvr/ghc
         apt-get update -qq
-        apt-get install -qy ghc-8.0.2 cabal-install-1.24 alex happy \
+        ghc_version=8.0.2
+        cabal_version=2.0
+        apt-get install -qy ghc-$ghc_version cabal-install-$cabal_version \
+                            alex happy \
                             ncurses-dev git make automake autoconf gcc perl \
                             python3 texinfo xz-utils lbzip2 patch
+        ln -s /opt/cabal/$cabal_version/bin/cabal /usr/local/bin/cabal
+        ln -s /opt/ghc/$ghc_version/bin/ghc /usr/local/bin/ghc
         cabal update
         cabal install --reinstall hscolour --index-state=$hackage_index_state
         ln -s $HOME/.cabal/bin/HsColour /usr/local/bin/HsColour
