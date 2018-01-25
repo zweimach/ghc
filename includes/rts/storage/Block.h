@@ -97,6 +97,8 @@ typedef struct bdescr_ {
                                // block allocator.  In particular, the
                                // value (StgPtr)(-1) is used to
                                // indicate that a block is unallocated.
+                               //
+                               // Unused by the non-moving allocator.
 
     struct bdescr_ *link;      // used for chaining blocks together
 
@@ -155,6 +157,8 @@ typedef struct bdescr_ {
 #define BF_SWEPT     256
 /* Block is part of a Compact */
 #define BF_COMPACT   512
+/* A non-moving allocator segment (see NonMoving.c) */
+#define BF_NONMOVING 1024
 /* Maximum flag value (do not define anything higher than this!) */
 #define BF_FLAG_MAX  (1 << 15)
 
