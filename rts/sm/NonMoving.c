@@ -11,8 +11,6 @@
 
 struct nonmoving_heap heap;
 
-typedef uint32_t block_idx;
-
 // Request a fresh segment from the free segment list
 static struct nonmoving_segment *nonmoving_request_segment(uint32_t node)
 {
@@ -32,25 +30,10 @@ static struct nonmoving_segment *nonmoving_request_segment(uint32_t node)
     RELEASE_LOCK(&heap->mutex);
 }
 
-// The block size of a given segment in bytes.
-static int nonmoving_segment_block_size(struct nonmoving_segment *seg)
+static void nonmoving_clear_bitmap(struct nonmoving_segment *seg)
 {
-    ASSERT(seg->block_size != 0);
-    return 1 << seg->block_size;
-}
-
-static int nonmoving_segment_block_count(struct nonmoving_segment *seg)
-{
-    int sz = nonmoving_segment_block_size(seg);
-    return (NONMOVING_SEGMENT_SIZE - sizeof(*seg)) / (sz + 1);
-}
-
-// Get a pointer to the given block index
-static void *nonmoving_segment_get_block(struct nonmoving_segment *seg, block_idx i)
-{
-    int blk_size = nonmoving_segment_block_size(seg);
-    int n = nonmoving_segment_block_count(seg);
-    return ((uint8_t*) seg) + n + i * blk_size;
+    unsigned int n = nonmoving_segment_block_count(seg);
+    memset(seg->bitmap, 0, n);
 }
 
 static int log2_ceil(int x)
