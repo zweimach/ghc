@@ -50,6 +50,7 @@ STATIC_INLINE void evacuate_large(StgPtr p);
    Allocate some space in which to copy an object.
    -------------------------------------------------------------------------- */
 
+#if 0
 STATIC_INLINE StgPtr
 alloc_for_copy (uint32_t size, uint32_t gen_no)
 {
@@ -83,6 +84,13 @@ alloc_for_copy (uint32_t size, uint32_t gen_no)
 
     return to;
 }
+#else
+STATIC_INLINE StgPtr
+alloc_for_copy (uint32_t size, uint32_t gen_no)
+{
+    return nonmoving_allocate(TODO, size);
+}
+#endif
 
 /* -----------------------------------------------------------------------------
    The evacuate() code
