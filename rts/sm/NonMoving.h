@@ -10,8 +10,12 @@
 
 #include "BeginPrivate.h"
 
+// Segments
+#define NONMOVING_SEGMENT_BITS 15   // 2^15 = 32kByte
+// Mask to find base of segment
+#define NONMOVING_SEGMENT_MASK ((1 << NONMOVING_SEGMENT_BITS) - 1)
 // In bytes
-#define NONMOVING_SEGMENT_SIZE (32*1024)
+#define NONMOVING_SEGMENT_SIZE (1 << NONMOVING_SEGMENT_BITS)
 // In blocks
 #define NONMOVING_SEGMENT_BLOCKS (NONMOVING_SEGMENT_SIZE / BLOCK_SIZE)
 
@@ -25,6 +29,9 @@ struct nonmoving_segment {
     uint8_t block_size;  // log2 of block size
     uint8_t bitmap[];    // liveness bitmap
 };
+
+// The index of a block within a segment
+typedef uint32_t block_idx;
 
 // A non-moving allocator for a particular block size
 struct nonmoving_allocator {
@@ -50,5 +57,56 @@ struct nonmoving_heap {
 void nonmoving_init();
 void *nonmoving_allocate(Capability *cap, int sz);
 void nonmoving_add_capabilities(int new_n_caps);
+
+// The block size of a given segment in bytes.
+INLINE_HEADER unsigned int nonmoving_segment_block_size(struct nonmoving_segment *seg)
+{
+  ASSERT(seg->block_size != 0);
+  return 1 << seg->block_size;
+}
+
+static unsigned int nonmoving_segment_block_count(struct nonmoving_segment *seg)
+{
+  unsigned int sz = nonmoving_segment_block_size(seg);
+  return (NONMOVING_SEGMENT_SIZE - sizeof(*seg)) / (sz + 1);
+}
+
+// Get a pointer to the given block index
+static void *nonmoving_segment_get_block(struct nonmoving_segment *seg, block_idx i)
+{
+  int blk_size = nonmoving_segment_block_size(seg);
+  int n = nonmoving_segment_block_count(seg);
+  return ((uint8_t*) seg) + n + i * blk_size;
+}
+
+// Get the segment which a closure resides in. Assumes that pointer points into
+// non-moving heap.
+INLINE_HEADER struct nonmoving_segment *nonmoving_get_segment(StgPtr p)
+{
+    ASSERT(Bdescr(p)->flags & BF_NONMOVING);
+    const uintptr_t mask = ~(NONMOVING_SEGMENT_MASK - 1);
+    return (struct nonmoving_segment *) (((uintptr_t) p) & mask);
+}
+
+INLINE_HEADER block_idx nonmoving_get_block_idx(StgPtr p)
+{
+    ASSERT(Bdescr(p)->flags & BF_NONMOVING);
+    const uintptr_t mask = (NONMOVING_SEGMENT_MASK - 1);
+    struct nonmoving_segment *seg = nonmoving_get_segment(p);
+    StgPtr blk0 = nonmoving_segment_get_block(seg, 0);
+    unsigned int blk_size = nonmoving_segment_block_size(seg);
+    ptrdiff_t offset = p - blk0;
+    return (block_idx) offset / blk_size;
+}
+
+INLINE_HEADER void nonmoving_set_mark_bit(struct nonmoving_segment *seg, block_idx i)
+{
+    seg->bitmap[i] = 1;
+}
+
+INLINE_HEADER bool nonmoving_get_mark_bit(struct nonmoving_segment *seg, block_idx i)
+{
+    return seg->bitmap[i];
+}
 
 #include "EndPrivate.h"
