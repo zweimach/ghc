@@ -41,17 +41,19 @@ struct nonmoving_allocator {
     struct nonmoving_segment *current[];
 };
 
-// first allocator is of size 2^NONNOVING_ALLOCA0
+// first allocator is of size 2^NONMOVING_ALLOCA0
 #define NONMOVING_ALLOCA0 3
 
-// allocators cover block sizes of 2^NONNOVING_ALLOCA0 to
-// 2^(NONMOVING_ALLOCA0 + NONNOVING_ALLOCA_CNT)
+// allocators cover block sizes of 2^NONMOVING_ALLOCA0 to
+// 2^(NONMOVING_ALLOCA0 + NONMOVING_ALLOCA_CNT)
 #define NONMOVING_ALLOCA_CNT 12
 
 struct nonmoving_heap {
     struct nonmoving_allocator *allocators[NONMOVING_ALLOCA_CNT];
     struct nonmoving_segment *free; // free segment list
     struct Mutex mutex; // protects free list
+
+    // records the current length of the nonmoving_allocator.current arrays
     unsigned int n_caps;
 
     // The set of segments being marked this GC (or NULL if no mark is active).
@@ -71,6 +73,7 @@ INLINE_HEADER unsigned int nonmoving_segment_block_size(struct nonmoving_segment
   return 1 << seg->block_size;
 }
 
+// How many blocks does the given segment contain?
 INLINE_HEADER unsigned int nonmoving_segment_block_count(struct nonmoving_segment *seg)
 {
   unsigned int sz = nonmoving_segment_block_size(seg);
@@ -102,7 +105,7 @@ INLINE_HEADER nonmoving_block_idx nonmoving_get_block_idx(StgPtr p)
     StgPtr blk0 = nonmoving_segment_get_block(seg, 0);
     unsigned int blk_size = nonmoving_segment_block_size(seg);
     ptrdiff_t offset = p - blk0;
-    return (nonmoving_block_idx) offset / blk_size;
+    return (nonmoving_block_idx) (offset / blk_size);
 }
 
 INLINE_HEADER void nonmoving_clear_bitmap(struct nonmoving_segment *seg)
