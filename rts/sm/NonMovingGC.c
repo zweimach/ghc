@@ -75,6 +75,40 @@ static void init_mark_queue(MarkQueue *q) {
     q->head = 0;
 }
 
+/* Prepare to enter the mark phase. Must be done in stop-the-world. */
+void nonmoving_prepare_mark()
+{
+    // The mark list should be empty since we shouldn't be in a GC.
+    ASSERT(nonmoving_heap.mark_list == NULL);
+
+    // Move blocks in allocators' filled lists to mark_list and clear their
+    // bitmaps
+    for (struct nonmoving_allocator *alloc = nonmoving_heap.allocators;
+         alloc < nonmoving_heap.allocators[NONMOVING_ALLOCA_CNT];
+         alloc++)
+    {
+        const struct nonmoving_segment *filled = alloc->filled;
+        alloc->filled = NULL;
+        if (filled == NULL) continue;
+
+        // Walk down filled list, clearing bitmaps and updating snapshot
+        // pointers as we go
+        struct nonmoving_segment *seg = filled;
+        while (true) {
+            nonmoving_clear_bitmap(seg);
+            seg->next_free_snap = seg->next_free;
+            if (seg->link == NULL) {
+                // We've reached the end; link into mark_list.
+                seg->link = nonmoving_heap.mark_list;
+                nonmoving_heap.mark_list = filled;
+                break;
+            }
+            seg = seg->link;
+        }
+    }
+}
+
+/* This is the main mark loop */
 GNUC_ATTR_HOT void nonmoving_mark(MarkQueue *queue, const StgClosure *p)
 {
     while (p) {
@@ -89,8 +123,10 @@ GNUC_ATTR_HOT void nonmoving_mark(MarkQueue *queue, const StgClosure *p)
 
         bdescr *bd = Bdescr(p);
         if (bd->flags & BF_NONMOVING) {
+            // Mark the block
             struct nonmoving_segment *seg = nonmoving_get_segment(p);
-            seg->bitmap ;
+            nonmoving_block_idx block_idx = nonmoving_get_block_idx(p);
+            nonmoving_set_mark_bit(seg, block_idx);
 
         // The object lives outside of the non-moving heap
         } else {
@@ -103,7 +139,6 @@ GNUC_ATTR_HOT void nonmoving_mark(MarkQueue *queue, const StgClosure *p)
         q->b;
         if (!q->blocks) {
             allocGroup_lock(1)
-                }
-        
+        }
     }
 }

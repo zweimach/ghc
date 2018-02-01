@@ -9,15 +9,15 @@
 #include "Rts.h"
 #include "NonMoving.h"
 
-struct nonmoving_heap heap;
+struct nonmoving_heap nonmoving_heap;
 
 // Request a fresh segment from the free segment list
 static struct nonmoving_segment *nonmoving_request_segment(uint32_t node)
 {
-    ACQUIRE_LOCK(&heap->mutex);
-    if (heap->free) {
-        struct nonmoving_segment *ret = heap->free;
-        heap->free = ret->link;
+    ACQUIRE_LOCK(&nonmoving_heap->mutex);
+    if (nonmoving_heap->free) {
+        struct nonmoving_segment *ret = nonmoving_heap->free;
+        nonmoving_heap->free = ret->link;
         return ret;
     } else {
         // TODO Aligned block allocation
@@ -27,13 +27,7 @@ static struct nonmoving_segment *nonmoving_request_segment(uint32_t node)
         // TODO allocation accounting?
         return res->start + NONMOVING_SEGMENT_SIZE - ((uintptr_t) res % NONMOVING_SEGMENT_SIZE); // XXX: yuck
     }
-    RELEASE_LOCK(&heap->mutex);
-}
-
-static void nonmoving_clear_bitmap(struct nonmoving_segment *seg)
-{
-    unsigned int n = nonmoving_segment_block_count(seg);
-    memset(seg->bitmap, 0, n);
+    RELEASE_LOCK(&nonmoving_heap->mutex);
 }
 
 static int log2_ceil(int x)
@@ -67,7 +61,7 @@ void *nonmoving_allocate(Capability *cap, int sz)
         // TODO: Allocate large object? Perhaps this should be handled elsewhere
     }
 
-    struct nonmoving_allocator *alloca = &heap->allocators[allocator_idx];
+    struct nonmoving_allocator *alloca = &nonmoving_heap->allocators[allocator_idx];
 
     // First try allocating into current segment
     while (true) {
@@ -105,7 +99,7 @@ void *nonmoving_allocate(Capability *cap, int sz)
                 // Wait until other thread has finished
                 while (alloca->current[cap->no] == NULL) {}
             } else {
-                alloca->current[cap->no] = nonmoving_request_segment(heap);
+                alloca->current[cap->no] = nonmoving_request_segment(node);
             }
         }
     }
@@ -119,16 +113,16 @@ static struct nonmoving_allocator *alloc_nonmoving_allocators(int n_caps)
 
 void nonmoving_init()
 {
-    initMutex(&heap.mutex);
-    heap.allocators = alloc_nonmoving_allocators(n_capabilities);
+    initMutex(&nonmoving_heap.mutex);
+    nonmoving_heap.allocators = alloc_nonmoving_allocators(n_capabilities);
 }
 
 // Assumes that no garbage collector or mutator threads are running to safely
 // resize the nonmoving_allocators.
 void nonmoving_add_capabilities(int new_n_caps)
 {
-    unsigned int old_n_caps = heap.n_caps;
-    struct nonmoving_allocator *old = heap.allocators;
+    unsigned int old_n_caps = nonmoving_heap.n_caps;
+    struct nonmoving_allocator *old = nonmoving_heap.allocators;
     struct nonmoving_allocator *allocs = alloc_nonmoving_allocators(new_n_caps);
 
     for (int i = 0; i < NONMOVING_ALLOCA_CNT; i++) {
@@ -150,8 +144,8 @@ void nonmoving_add_capabilities(int new_n_caps)
             }
         }
     }
-    heap.allocators = allocators;
-    heap.n_caps = new_n_caps;
+    nonmoving_heap.allocators = allocators;
+    nonmoving_heap.n_caps = new_n_caps;
     if (old != NULL) {
         stgFree(old);
     }

@@ -24,14 +24,15 @@ _Static_assert(NONMOVING_SEGMENT_SIZE % BLOCK_SIZE == 0,
 
 // A non-moving heap segment
 struct nonmoving_segment {
-    struct nonmoving_segment *link;
-    uint16_t next_free;  // index of the next unallocated block
-    uint8_t block_size;  // log2 of block size
-    uint8_t bitmap[];    // liveness bitmap
+    struct nonmoving_segment *link;  // for linking together segments into lists
+    uint16_t next_free;              // index of the next unallocated block
+    uint16_t next_free_snap;         // snapshot of next_free
+    uint8_t block_size;              // log2 of block size
+    uint8_t bitmap[];                // liveness bitmap
 };
 
 // The index of a block within a segment
-typedef uint32_t block_idx;
+typedef uint32_t nonmoving_block_idx;
 
 // A non-moving allocator for a particular block size
 struct nonmoving_allocator {
@@ -52,7 +53,12 @@ struct nonmoving_heap {
     struct nonmoving_segment *free; // free segment list
     struct Mutex mutex; // protects free list
     unsigned int n_caps;
+
+    // The set of segments being marked this GC (or NULL if no mark is active).
+    struct nonmoving_segment *mark_list;
 };
+
+extern struct nonmoving_heap nonmoving_heap;
 
 void nonmoving_init();
 void *nonmoving_allocate(Capability *cap, int sz);
@@ -65,14 +71,14 @@ INLINE_HEADER unsigned int nonmoving_segment_block_size(struct nonmoving_segment
   return 1 << seg->block_size;
 }
 
-static unsigned int nonmoving_segment_block_count(struct nonmoving_segment *seg)
+INLINE_HEADER unsigned int nonmoving_segment_block_count(struct nonmoving_segment *seg)
 {
   unsigned int sz = nonmoving_segment_block_size(seg);
   return (NONMOVING_SEGMENT_SIZE - sizeof(*seg)) / (sz + 1);
 }
 
 // Get a pointer to the given block index
-static void *nonmoving_segment_get_block(struct nonmoving_segment *seg, block_idx i)
+INLINE_HEADER void *nonmoving_segment_get_block(struct nonmoving_segment *seg, nonmoving_block_idx i)
 {
   int blk_size = nonmoving_segment_block_size(seg);
   int n = nonmoving_segment_block_count(seg);
@@ -88,7 +94,7 @@ INLINE_HEADER struct nonmoving_segment *nonmoving_get_segment(StgPtr p)
     return (struct nonmoving_segment *) (((uintptr_t) p) & mask);
 }
 
-INLINE_HEADER block_idx nonmoving_get_block_idx(StgPtr p)
+INLINE_HEADER nonmoving_block_idx nonmoving_get_block_idx(StgPtr p)
 {
     ASSERT(Bdescr(p)->flags & BF_NONMOVING);
     const uintptr_t mask = (NONMOVING_SEGMENT_MASK - 1);
@@ -96,15 +102,21 @@ INLINE_HEADER block_idx nonmoving_get_block_idx(StgPtr p)
     StgPtr blk0 = nonmoving_segment_get_block(seg, 0);
     unsigned int blk_size = nonmoving_segment_block_size(seg);
     ptrdiff_t offset = p - blk0;
-    return (block_idx) offset / blk_size;
+    return (nonmoving_block_idx) offset / blk_size;
 }
 
-INLINE_HEADER void nonmoving_set_mark_bit(struct nonmoving_segment *seg, block_idx i)
+INLINE_HEADER void nonmoving_clear_bitmap(struct nonmoving_segment *seg)
+{
+    unsigned int n = nonmoving_segment_block_count(seg);
+    memset(seg->bitmap, 0, n);
+}
+
+INLINE_HEADER void nonmoving_set_mark_bit(struct nonmoving_segment *seg, nonmoving_block_idx i)
 {
     seg->bitmap[i] = 1;
 }
 
-INLINE_HEADER bool nonmoving_get_mark_bit(struct nonmoving_segment *seg, block_idx i)
+INLINE_HEADER bool nonmoving_get_mark_bit(struct nonmoving_segment *seg, nonmoving_block_idx i)
 {
     return seg->bitmap[i];
 }
