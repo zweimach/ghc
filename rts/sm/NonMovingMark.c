@@ -2,14 +2,12 @@
  *
  * (c) The GHC Team, 1998-2018
  *
- * Non-moving garbage collector and allocator
+ * Non-moving garbage collector and allocator: Mark phase
  *
  * ---------------------------------------------------------------------------*/
 
 #include "Rts.h"
 #include "NonMoving.h"
-
-#define NONMOVING_RSET_CHUNK_SIZE 4096 // in bytes
 
 typedef struct {
     StgClosure *p;      // the object to be marked
