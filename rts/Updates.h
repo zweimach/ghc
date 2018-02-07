@@ -40,10 +40,15 @@
                  p_ updatee
 
 
+// TODO: Add info table ptr to the set too, to be able to
+// mark CAFs
 #define updateWithIndirection(p1, p2, and_then) \
     W_ bd;                                                      \
                                                                 \
     OVERWRITING_CLOSURE(p1);                                    \
+    if (upd_rem_set == 1) {                                     \
+      ccall upd_rem_set_push_thunk_(BaseReg, p1 "ptr");         \
+    }                                                           \
     StgInd_indirectee(p1) = p2;                                 \
     prim_write_barrier;                                         \
     SET_INFO(p1, stg_BLACKHOLE_info);                           \
@@ -52,11 +57,10 @@
     if (bdescr_gen_no(bd) != 0 :: bits16) {                     \
       recordMutableCap(p1, TO_W_(bdescr_gen_no(bd)));           \
       TICK_UPD_OLD_IND();                                       \
-      and_then;                                                 \
     } else {                                                    \
       TICK_UPD_NEW_IND();                                       \
-      and_then;                                                 \
-  }
+    }                                                           \
+    and_then;
 
 #else /* !CMINUSMINUS */
 
@@ -70,6 +74,11 @@ INLINE_HEADER void updateWithIndirection (Capability *cap,
     /* not necessarily true: ASSERT( !closure_IND(p1) ); */
     /* occurs in RaiseAsync.c:raiseAsync() */
     OVERWRITING_CLOSURE(p1);
+    if (upd_rem_set) {
+        upd_rem_set_push_thunk(cap, (StgThunk*)p1);
+        // TODO: Add info table ptr to the set too
+        // TODO: Not sure how to get pointer to the containing object + index
+    }
     ((StgInd *)p1)->indirectee = p2;
     write_barrier();
     SET_INFO(p1, &stg_BLACKHOLE_info);
