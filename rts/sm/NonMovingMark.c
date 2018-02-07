@@ -9,10 +9,35 @@
 #include "Rts.h"
 #include "NonMoving.h"
 
+enum EntryType {
+    MARK_CLOSURE,
+    MARK_STATIC_INFO,
+    MARK_FROM_SEL,
+    MARK_ARRAY
+};
+
 typedef struct {
-    StgClosure *p;      // the object to be marked
-    StgClosure *origin; // the object where this reference was found
-    uint16_t field_n;   // index of the referencing field
+    enum EntryType type;
+    union {
+        struct {
+            StgClosure *p;            // the object to be marked
+            StgClosure *origin;       // the object where this reference was found
+            StgWord origin_field;     // index of the referencing field
+            StgClosure *origin_value;
+        } mark_closure;
+        struct {
+            StgClosure *p;
+        } mark_static_info;
+        struct {
+            StgClosure *p;
+            StgWord origin_field;    // index of the referencing field
+            StgClosure *mark_indir;
+        } mark_from_sel;
+        struct {
+            StgClosure *p;
+            StgWord *p;
+        } mark_array;
+    };
 } MarkQueueEnt;
 
 typedef struct {
