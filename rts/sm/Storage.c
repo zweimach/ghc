@@ -268,6 +268,11 @@ void storageAddCapabilities (uint32_t from, uint32_t to)
         }
     }
 
+    // Initialize UpdRemSets
+    for (i = 0; i < to; ++i) {
+        init_mark_queue(&capabilities[i]->upd_rem_set);
+    }
+
 #if defined(THREADED_RTS) && defined(llvm_CC_FLAVOR) && (CC_SUPPORTS_TLS == 0)
     newThreadLocalKey(&gctKey);
 #endif
