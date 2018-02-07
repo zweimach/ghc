@@ -89,7 +89,7 @@ alloc_for_copy (uint32_t size, uint32_t gen_no)
 STATIC_INLINE StgPtr
 alloc_for_copy (uint32_t size, uint32_t gen_no)
 {
-    return nonmoving_allocate(TODO, size);
+    return nonmoving_allocate(NULL /* TODO */, size);
 }
 #endif
 
