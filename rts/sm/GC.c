@@ -107,6 +107,8 @@
 uint32_t N;
 bool major_gc;
 
+bool upd_rem_set = true;
+
 /* Data used for allocation area sizing.
  */
 static W_ g0_pcnt_kept = 30; // percentage of g0 live at last minor GC
@@ -330,6 +332,14 @@ GarbageCollect (uint32_t collect_gen,
 
   // Prepare this gc_thread
   init_gc_thread(gct);
+
+  // Hand out the UpdRemSets
+  for (uint32_t n = 0; n < n_capabilities; n++) {
+      MarkQueue set = cap->upd_rem_set;
+      debugTrace(true, "%d UpdRemSet blocks freed.", countBlocks(set.blocks));
+      freeChain(set.blocks);
+      init_mark_queue(&cap->upd_rem_set);
+  }
 
   /* Allocate a mark stack if we're doing a major collection.
    */

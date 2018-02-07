@@ -632,8 +632,15 @@ stg_atomicModifyMutVarzh ( gcptr mv, gcptr f )
     (h) = prim %cmpxchgW(mv + SIZEOF_StgHeader + OFFSET_StgMutVar_var, x, y);
     if (h != x) { goto retry; }
 #else
+    h = StgMutVar_var(mv);
     StgMutVar_var(mv) = y;
 #endif
+
+    // Add old value to upd_rem_set
+    ccall upd_rem_set_push_closure_(BaseReg "ptr",
+                                    h "ptr",
+                                    mv "ptr",
+                                    (mv + SIZEOF_StgHeader + OFFSET_StgMutVar_var) "ptr");
 
     if (GET_INFO(mv) == stg_MUT_VAR_CLEAN_info) {
         ccall dirty_MUT_VAR(BaseReg "ptr", mv "ptr");
@@ -1482,6 +1489,12 @@ stg_takeMVarzh ( P_ mvar /* :: MVar a */ )
     /* we got the value... */
     val = StgMVar_value(mvar);
 
+    // Add val to upd_rem_set
+    ccall upd_rem_set_push_closure_(BaseReg "ptr",
+                                    val "ptr",
+                                    mvar "ptr",
+                                    mvar + SIZEOF_StgHeader + OFFSET_StgMVar_value "ptr");
+
     q = StgMVar_head(mvar);
 loop:
     if (q == stg_END_TSO_QUEUE_closure) {
@@ -1548,6 +1561,12 @@ stg_tryTakeMVarzh ( P_ mvar /* :: MVar a */ )
 
     /* we got the value... */
     val = StgMVar_value(mvar);
+
+    // Add val to upd_rem_set
+    ccall upd_rem_set_push_closure_(BaseReg "ptr",
+                                    val "ptr",
+                                    mvar "ptr",
+                                    mvar + SIZEOF_StgHeader + OFFSET_StgMVar_value "ptr");
 
     q = StgMVar_head(mvar);
 loop:

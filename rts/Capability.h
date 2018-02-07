@@ -23,8 +23,20 @@
 #include "sm/GC.h" // for evac_fn
 #include "Task.h"
 #include "Sparks.h"
+#include "sm/NonMovingMark.h" // for MarkQueue
 
 #include "BeginPrivate.h"
+
+void upd_rem_set_push_thunk(Capability *cap, StgThunk *origin);
+
+void upd_rem_set_push_thunk_(StgRegTable *reg, StgThunk *origin);
+void upd_rem_set_push_closure_(StgRegTable *reg,
+                               StgClosure *p,
+                               StgClosure *origin_closure,
+                               StgClosure **origin_field);
+
+// Debug only -- count number of entries in UpdRemSet
+int count_upd_rem_set(Capability* cap);
 
 struct Capability_ {
     // State required by the STG virtual machine when running Haskell
@@ -83,6 +95,8 @@ struct Capability_ {
     // unnecessarily moving the data from one cache to another.
     bdescr **mut_lists;
     bdescr **saved_mut_lists; // tmp use during GC
+
+    MarkQueue upd_rem_set;
 
     // block for allocating pinned objects into
     bdescr *pinned_object_block;

@@ -27,6 +27,7 @@
 #include "STM.h"
 #include "RtsUtils.h"
 #include "sm/OSMem.h"
+#include "sm/BlockAlloc.h" // for countBlocks()
 
 #if !defined(mingw32_HOST_OS)
 #include "rts/IOManager.h" // for setIOManagerControlFd()
@@ -290,6 +291,11 @@ initCapability (Capability *cap, uint32_t i)
     cap->saved_mut_lists = stgMallocBytes(sizeof(bdescr *) *
                                           RtsFlags.GcFlags.generations,
                                           "initCapability");
+
+
+    // At this point storage manager not initialized yet, so this is
+    // initialized in initStorage().
+    cap->upd_rem_set.blocks = NULL;
 
     for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
         cap->mut_lists[g] = NULL;
@@ -1105,6 +1111,8 @@ shutdownCapability (Capability *cap USED_IF_THREADS,
     // return via resumeThread() and attempt to grab cap->lock.
     // closeMutex(&cap->lock);
 #endif
+
+    debugTrace(true, "upd_rem_set size: %d", count_upd_rem_set(cap));
 }
 
 void
@@ -1240,3 +1248,34 @@ setIOManagerControlFd(uint32_t cap_no USED_IF_THREADS, int fd USED_IF_THREADS) {
 #endif
 }
 #endif
+
+void upd_rem_set_push_thunk(Capability *cap, StgThunk *origin)
+{
+    const StgInfoTable *info = get_itbl((StgClosure*)origin);
+    mark_queue_push_thunk_srt(&cap->upd_rem_set, info);
+    mark_queue_push_closure(&cap->upd_rem_set,
+                            origin->payload[0],
+                            (StgClosure*)origin,
+                            &origin->payload[0]);
+}
+
+void upd_rem_set_push_thunk_(StgRegTable *reg, StgThunk *origin)
+{
+    upd_rem_set_push_thunk(regTableToCapability(reg), origin);
+}
+
+void upd_rem_set_push_closure_(StgRegTable *reg,
+                               StgClosure *p,
+                               StgClosure *origin_closure,
+                               StgClosure **origin_field)
+{
+    MarkQueue *upd_rem_set = &regTableToCapability(reg)->upd_rem_set;
+    mark_queue_push_closure(upd_rem_set, p, origin_closure, origin_field);
+}
+
+int count_upd_rem_set(Capability *cap)
+{
+    MarkQueue *upd_rem_set = &cap->upd_rem_set;
+    return countBlocks(upd_rem_set->blocks->link) * MARK_QUEUE_BLOCK_ENTRIES
+        + upd_rem_set->top->head;
+}
