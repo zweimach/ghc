@@ -9,6 +9,7 @@
 #pragma once
 
 #include "BeginPrivate.h"
+#include <string.h>
 
 // Segments
 #define NONMOVING_SEGMENT_BITS 15   // 2^15 = 32kByte
@@ -51,7 +52,7 @@ struct nonmoving_allocator {
 struct nonmoving_heap {
     struct nonmoving_allocator *allocators[NONMOVING_ALLOCA_CNT];
     struct nonmoving_segment *free; // free segment list
-    struct Mutex mutex; // protects free list
+    Mutex mutex; // protects free list
 
     // records the current length of the nonmoving_allocator.current arrays
     unsigned int n_caps;
@@ -62,7 +63,7 @@ struct nonmoving_heap {
 
 extern struct nonmoving_heap nonmoving_heap;
 
-void nonmoving_init();
+void nonmoving_init(void);
 void *nonmoving_allocate(Capability *cap, int sz);
 void nonmoving_add_capabilities(int new_n_caps);
 
@@ -100,7 +101,6 @@ INLINE_HEADER struct nonmoving_segment *nonmoving_get_segment(StgPtr p)
 INLINE_HEADER nonmoving_block_idx nonmoving_get_block_idx(StgPtr p)
 {
     ASSERT(Bdescr(p)->flags & BF_NONMOVING);
-    const uintptr_t mask = (NONMOVING_SEGMENT_MASK - 1);
     struct nonmoving_segment *seg = nonmoving_get_segment(p);
     StgPtr blk0 = nonmoving_segment_get_block(seg, 0);
     unsigned int blk_size = nonmoving_segment_block_size(seg);
