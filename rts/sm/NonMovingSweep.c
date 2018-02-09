@@ -56,6 +56,11 @@ nonmoving_sweep_segment(struct nonmoving_segment *seg)
     // N.B. this function must be compiled with -funroll-loops to ensure
     // efficient code is produced for the loops below.
 
+    // There are three possible cases here:
+    //  a. the bitmap is all clear (a free segment)
+    //  b. the bitmap is all set (a filled segment)
+    //  c. the bitmap is partially set
+    // This check allows us to quickly rule out (a) or (b).
     if (seg->bitmap[0]) {
         // We have at least one live object
         for (uint8_t *b = seg->bitmap;
