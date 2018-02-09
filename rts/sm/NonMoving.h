@@ -64,8 +64,8 @@ struct nonmoving_heap {
 extern struct nonmoving_heap nonmoving_heap;
 
 void nonmoving_init(void);
-void *nonmoving_allocate(Capability *cap, int sz);
-void nonmoving_add_capabilities(int new_n_caps);
+void *nonmoving_allocate(Capability *cap, StgWord sz);
+void nonmoving_add_capabilities(uint32_t new_n_caps);
 
 // The block size of a given segment in bytes.
 INLINE_HEADER unsigned int nonmoving_segment_block_size(struct nonmoving_segment *seg)

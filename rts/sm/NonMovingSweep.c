@@ -7,7 +7,7 @@
  * ---------------------------------------------------------------------------*/
 
 #include "Rts.h"
-#include "NonMoving.h"
+#include "NonMovingSweep.h"
 
 // On which list should a particular segment be placed?
 enum sweep_result {
@@ -19,7 +19,7 @@ enum sweep_result {
 // Add a segment to the free list.
 // We will never run concurrently with the allocator (i.e. the nursery
 // collector), so no synchronization is needed here.
-static void push_free_segment(nonmoving_segment *seg)
+static void push_free_segment(struct nonmoving_segment *seg)
 {
     seg->link = nonmoving_heap.free;
     nonmoving_heap.free = seg;
@@ -29,7 +29,7 @@ static void push_free_segment(nonmoving_segment *seg)
 // Add a segment to the appropriate active list.
 // We will never run concurrently with the allocator (i.e. the nursery
 // collector), so no synchronization is needed here.
-static void push_active_segment(nonmoving_segment *seg)
+static void push_active_segment(struct nonmoving_segment *seg)
 {
     struct nonmoving_allocator *alloc =
         nonmoving_heap.allocators[seg->block_size - NONMOVING_ALLOCA0];
@@ -40,7 +40,7 @@ static void push_active_segment(nonmoving_segment *seg)
 // Add a segment to the appropriate active list.
 // We will never run concurrently with the allocator (i.e. the nursery
 // collector), so no synchronization is needed here.
-static void push_filled_segment(nonmoving_segment *seg)
+static void push_filled_segment(struct nonmoving_segment *seg)
 {
     struct nonmoving_allocator *alloc =
         nonmoving_heap.allocators[seg->block_size - NONMOVING_ALLOCA0];
@@ -64,7 +64,7 @@ nonmoving_sweep_segment(struct nonmoving_segment *seg)
     if (seg->bitmap[0]) {
         // We have at least one live object
         for (uint8_t *b = seg->bitmap;
-             b < seg->bitmap[nonmoving_segment_block_count(seg)];
+             b < &seg->bitmap[nonmoving_segment_block_count(seg)];
              b++)
         {
             if (! *b) {
@@ -81,7 +81,7 @@ nonmoving_sweep_segment(struct nonmoving_segment *seg)
     } else {
         // Perhaps the block is completely free...
         for (uint8_t *b = seg->bitmap;
-             b < seg->bitmap[nonmoving_segment_block_count(seg)];
+             b < &seg->bitmap[nonmoving_segment_block_count(seg)];
              b++)
         {
             if (*b) {
@@ -96,7 +96,7 @@ nonmoving_sweep_segment(struct nonmoving_segment *seg)
     }
 }
 
-GNUC_ATTR_HOT void nonmoving_sweep()
+GNUC_ATTR_HOT void nonmoving_sweep(void)
 {
     while (nonmoving_heap.mark_list != NULL) {
         struct nonmoving_segment *seg = nonmoving_heap.mark_list;

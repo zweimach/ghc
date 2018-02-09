@@ -195,7 +195,7 @@ void nonmoving_prepare_mark(void)
     // their bitmaps
     for (int i=0; i < NONMOVING_ALLOCA_CNT; i++)
     {
-        struct nonmoving_allocator *alloc = nonmoving_heap.allocators[i];
+        struct nonmoving_allocator *alloc = &nonmoving_heap.allocators[i];
         struct nonmoving_segment *filled = alloc->filled;
         alloc->filled = NULL;
         if (filled == NULL) continue;
