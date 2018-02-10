@@ -251,13 +251,118 @@ void nonmoving_prepare_mark(void)
     }
 }
 
-static void mark_static_object(StgClosure **static_link, StgClosure *p)
+static void mark_tso (MarkQueue *queue, StgTSO *tso)
 {
-    TODO;
+    // TODO
 }
 
-static GNUC_ATTR_HOT void mark_closure(MarkQueue *queue,
-                                       MarkQueueEnt *ent)
+static void mark_large_srt_bitmap (MarkQueue *queue, StgLargeSRT *large_srt)
+{
+    // TODO
+}
+
+static GNUC_ATTR_HOT void mark_srt (MarkQueue *queue, MarkQueueEnt *ent)
+{
+    uint32_t bitmap = ent->mark_srt.srt_bitmap;
+    if (bitmap == (StgHalfWord)(-1)) {
+        mark_large_srt_bitmap(queue, (StgLargeSRT *) ent->mark_srt.srt);
+        return;
+    }
+
+    StgClosure **p = (StgClosure **) ent->mark_srt.srt;
+    while (bitmap != 0) {
+        if ((bitmap & 1) != 0) {
+            // TODO: COMPILING_WINDOWS_DLL hack
+            mark_queue_push_closure(queue, p, NULL, NULL);
+        }
+        p++;
+        bitmap = bitmap >> 1;
+    }
+}
+
+static void mark_static_object (MarkQueue *queue, StgClosure **static_link, StgClosure *p)
+{
+    // TODO
+}
+
+static void
+mark_large_bitmap (MarkQueue *queue,
+                   StgClosure **p,
+                   StgLargeBitmap *large_bitmap,
+                   StgWord size)
+{
+    uint32_t i, j, b;
+    StgWord bitmap;
+
+    b = 0;
+
+    for (i = 0; i < size; b++) {
+        bitmap = large_bitmap->bitmap[b];
+        j = stg_min(size-i, BITS_IN(W_));
+        i += j;
+        for (; j > 0; j--, p++) {
+            if ((bitmap & 1) == 0) {
+                // TODO: Origin? need reference to containing closure
+                mark_queue_push_closure(queue, *p, NULL, NULL);
+            }
+            bitmap = bitmap >> 1;
+        }
+    }
+}
+
+static void
+mark_small_bitmap (MarkQueue *queue, StgClosure **p, StgWord size, StgWord bitmap)
+{
+    while (size > 0) {
+        if ((bitmap & 1) == 0) {
+            // TODO: Origin?
+            mark_queue_push_closure(queue, *p, NULL, NULL);
+        }
+        p++;
+        bitmap = bitmap >> 1;
+        size--;
+    }
+}
+
+static GNUC_ATTR_HOT
+void mark_PAP_payload (MarkQueue *queue,
+                       StgClosure *fun,
+                       StgClosure **payload,
+                       StgWord size)
+{
+    const StgFunInfoTable *fun_info = get_fun_itbl(UNTAG_CONST_CLOSURE(fun));
+    ASSERT(fun_info->i.type != PAP);
+    StgPtr p = (StgPtr) payload;
+
+    StgWord bitmap;
+    switch (fun_info->f.fun_type) {
+    case ARG_GEN:
+        bitmap = BITMAP_BITS(fun_info->f.b.bitmap);
+        goto small_bitmap;
+    case ARG_GEN_BIG:
+        mark_large_bitmap(queue, p, GET_FUN_LARGE_BITMAP(fun_info), size);
+        break;
+    case ARG_BCO:
+        mark_large_bitmap(queue, payload, BCO_BITMAP(fun), size);
+        break;
+    default:
+        bitmap = BITMAP_BITS(stg_arg_bitmaps[fun_info->f.fun_type]);
+    small_bitmap:
+        mark_small_bitmap(queue, (StgClosure **) p, size, bitmap);
+        break;
+    }
+}
+
+static GNUC_ATTR_HOT void mark_stack (MarkQueue *queue, StgPtr sp, StgPtr spBottom)
+{
+    ASSERT(sp <= spBottom);
+    for (; sp < spBottom; sp += stack_frame_sizeW((StgClosure *)sp)) {
+        // TODO
+    }
+}
+
+static GNUC_ATTR_HOT void mark_closure (MarkQueue *queue,
+                                        MarkQueueEnt *ent)
 {
     ASSERT(ent->type == MARK_CLOSURE);
     StgClosure *p = ent->mark_closure.p;
@@ -420,6 +525,7 @@ static GNUC_ATTR_HOT void mark_closure(MarkQueue *queue,
         }
         break;
     }
+
     case CONSTR:
     case CONSTR_NOCAF:
     case WEAK:
@@ -464,13 +570,26 @@ static GNUC_ATTR_HOT void mark_closure(MarkQueue *queue,
         // TODO: selector optimization
         break;
 
-    case PAP:
-        // TODO
+    case AP_STACK: {
+        StgAP_STACK *ap = (StgAP_STACK *)p;
+        PUSH_FIELD(ap, fun);
+        mark_stack(queue, (StgPtr) ap->payload, (StgPtr) ap->payload + ap->size);
         break;
+    }
 
-    case AP:
-        // TODO
+    case PAP: {
+        StgPAP *pap = (StgPAP *) p;
+        PUSH_FIELD(pap, fun);
+        mark_PAP_payload(queue, pap->fun, pap->payload, pap->n_args);
         break;
+    }
+
+    case AP: {
+        StgAP *ap = (StgAP *) p;
+        PUSH_FIELD(ap, fun);
+        mark_PAP_payload(queue, ap->fun, ap->payload, ap->n_args);
+        break;
+    }
 
     case ARR_WORDS:
         // nothing to follow
@@ -497,13 +616,14 @@ static GNUC_ATTR_HOT void mark_closure(MarkQueue *queue,
     }
 
     case TSO:
-        // TODO
+        mark_tso(queue, (StgTSO *) p);
         break;
 
-    case STACK:
-        // TODO
+    case STACK: {
+        StgStack *stack = (StgStack *) p;
+        mark_stack(queue, stack->sp, stack->stack);
         break;
-
+    }
 
     case MUT_PRIM:
         // TODO
@@ -548,7 +668,7 @@ GNUC_ATTR_HOT void nonmoving_mark(MarkQueue *queue)
             mark_closure(queue, &ent);
             break;
         case MARK_SRT:
-            // TODO
+            mark_srt(queue, &ent);
             break;
         case MARK_FROM_SEL:
             // TODO
