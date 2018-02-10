@@ -11,10 +11,12 @@
 #include "NonMoving.h"
 #include "HeapAlloc.h"
 
+#define MIN(l,o) ((l) < (o) ? (l) : (o))
+
 enum EntryType {
     NULL_ENTRY = 0,
     MARK_CLOSURE,
-    MARK_STATIC_INFO,
+    MARK_SRT,
     MARK_FROM_SEL,
     MARK_ARRAY
 };
@@ -23,21 +25,22 @@ typedef struct {
     enum EntryType type;
     union {
         struct {
-            StgClosure *p;            // the object to be marked
-            StgClosure *origin;       // the object where this reference was found
-            StgWord origin_field;     // index of the referencing field
+            StgClosure *p;             // the object to be marked
+            StgClosure *origin;        // the object where this reference was found
+            StgClosure **origin_field; // pointer to field where the reference was found
             StgClosure *origin_value;
         } mark_closure;
         struct {
-            StgClosure *p;
-        } mark_static_info;
+            const StgSRT *srt;
+            uint32_t srt_bitmap;
+        } mark_srt;
         struct {
             StgClosure *p;
             StgWord origin_field;    // index of the referencing field
             StgClosure *mark_indir;
         } mark_from_sel;
         struct {
-            StgClosure *p;           // may be StgMutArrPtrs or StgSmallMutArrPtrs
+            StgMutArrPtrs *array;
             StgWord start_index;
         } mark_array;
     };
@@ -97,24 +100,10 @@ static void mark_queue_push (MarkQueue *q,
     q->top->head++;
 }
 
-static void mark_queue_push_array (MarkQueue *q,
-                                   StgClosure *array,
-                                   StgWord start_index)
-{
-    MarkQueueEnt ent = {
-        .type = MARK_ARRAY,
-        .mark_array = {
-            .p = array,
-            .start_index = start_index
-        }
-    };
-    mark_queue_push(q, &ent);
-}
 static void mark_queue_push_closure (MarkQueue *q,
                                      StgClosure *p,
                                      StgClosure *origin_closure,
-                                     unsigned int origin_field,
-                                     StgClosure *origin_value)
+                                     StgClosure **origin_field)
 {
     MarkQueueEnt ent = {
         .type = MARK_CLOSURE,
@@ -122,7 +111,52 @@ static void mark_queue_push_closure (MarkQueue *q,
             .p = p,
             .origin = origin_closure,
             .origin_field = origin_field,
-            .origin_value = origin_value
+            .origin_value = p
+        }
+    };
+    mark_queue_push(q, &ent);
+}
+
+static void mark_queue_push_srt (MarkQueue *q,
+                                 const StgSRT *srt,
+                                 uint32_t srt_bitmap)
+{
+    if (srt_bitmap) {
+        MarkQueueEnt ent = {
+            .type = MARK_SRT,
+            .mark_srt = {
+                .srt = srt,
+                .srt_bitmap = srt_bitmap
+            }
+        };
+        mark_queue_push(q, &ent);
+    }
+}
+
+static void mark_queue_push_thunk_srt (MarkQueue *q,
+                                       const StgInfoTable *info)
+{
+    const StgThunkInfoTable *thunk_info = itbl_to_thunk_itbl(info);
+    mark_queue_push_srt(q, GET_SRT(thunk_info), thunk_info->i.srt_bitmap);
+}
+
+static void mark_queue_push_fun_srt (MarkQueue *q,
+                                     const StgInfoTable *info)
+{
+    const StgFunInfoTable *fun_info = itbl_to_fun_itbl(info);
+    mark_queue_push_srt(q, GET_FUN_SRT(fun_info), fun_info->i.srt_bitmap);
+}
+
+
+static void mark_queue_push_array (MarkQueue *q,
+                                   StgMutArrPtrs *array,
+                                   StgWord start_index)
+{
+    MarkQueueEnt ent = {
+        .type = MARK_ARRAY,
+        .mark_array = {
+            .array = array,
+            .start_index = start_index
         }
     };
     mark_queue_push(q, &ent);
@@ -195,7 +229,7 @@ void nonmoving_prepare_mark(void)
     // their bitmaps
     for (int i=0; i < NONMOVING_ALLOCA_CNT; i++)
     {
-        struct nonmoving_allocator *alloc = &nonmoving_heap.allocators[i];
+        struct nonmoving_allocator *alloc = nonmoving_heap.allocators[i];
         struct nonmoving_segment *filled = alloc->filled;
         alloc->filled = NULL;
         if (filled == NULL) continue;
@@ -217,34 +251,9 @@ void nonmoving_prepare_mark(void)
     }
 }
 
-/* Given a pointer array (i.e. StgMutArrPtrs or StgSmallMutArrPtrs),
- * return a pointer to the payload and the array length (in pointers).
- */
-static StgClosure **get_ptr_array_payload(const StgClosure *arr, StgWord len[1])
+static void mark_static_object(StgClosure **static_link, StgClosure *p)
 {
-    switch (arr->header.info->type) {
-    case MUT_ARR_PTRS_CLEAN:
-    case MUT_ARR_PTRS_DIRTY:
-    case MUT_ARR_PTRS_FROZEN:
-    case MUT_ARR_PTRS_FROZEN0: {
-        StgMutArrPtrs *arr2 = (StgMutArrPtrs *) arr;
-        *len = arr2->ptrs;
-        return arr2->payload;
-    }
-
-    case SMALL_MUT_ARR_PTRS_CLEAN:
-    case SMALL_MUT_ARR_PTRS_DIRTY:
-    case SMALL_MUT_ARR_PTRS_FROZEN:
-    case SMALL_MUT_ARR_PTRS_FROZEN0: {
-        StgSmallMutArrPtrs *arr2 = (StgSmallMutArrPtrs *) arr;
-        *len = arr2->ptrs;
-        return arr2->payload;
-    }
-
-    default:
-        barf("nonmoving_mark: Unexpected non-array in MARK_ARRAY queue entry: 0x%x",
-             arr->header.info->type);
-    }
+    TODO;
 }
 
 static GNUC_ATTR_HOT void mark_closure(MarkQueue *queue,
@@ -260,8 +269,38 @@ static GNUC_ATTR_HOT void mark_closure(MarkQueue *queue,
     if (!HEAP_ALLOCED_GC(p)) {
         switch (info->type) {
         case THUNK_STATIC:
+            if (info->srt_bitmap != 0) {
+                // TODO
+            }
+            return;
+
+        case FUN_STATIC:
+            if (info->srt_bitmap != 0) {
+                // TODO
+            }
+            return;
+
+        case IND_STATIC:
             // TODO
-            break;
+            return;
+
+        case CONSTR:
+        case CONSTR_1_0:
+        case CONSTR_2_0:
+        case CONSTR_1_1:
+            // TODO
+            return;
+
+        case CONSTR_0_1:
+        case CONSTR_0_2:
+        case CONSTR_NOCAF:
+            /* no need to put these on the static linked list, they don't need
+             * to be marked.
+             */
+            return;
+
+        default:
+            barf("mark_closure(static): strange closure type %d", (int)(info->type));
         }
     }
 
@@ -281,11 +320,215 @@ static GNUC_ATTR_HOT void mark_closure(MarkQueue *queue,
     nonmoving_block_idx block_idx = nonmoving_get_block_idx((StgPtr) p);
     nonmoving_set_mark_bit(seg, block_idx);
 
+    /////////////////////////////////////////////////////
     // Trace pointers
-    // TODO: Write everything below here
-}
+    /////////////////////////////////////////////////////
 
-#define MIN(l,o) ((l) < (o) ? (l) : (o))
+#   define PUSH_FIELD(obj, field)                                \
+        mark_queue_push_closure(queue,                           \
+                                (StgClosure *) (obj)->field,   \
+                                p,                               \
+                                (StgClosure **) &(obj)->field)
+
+    // TODO: Write everything below here
+    switch (INFO_PTR_TO_STRUCT(info)->type) {
+
+    case MVAR_CLEAN:
+    case MVAR_DIRTY: {
+        StgMVar *mvar = (StgMVar *) p;
+        PUSH_FIELD(mvar, head);
+        PUSH_FIELD(mvar, tail);
+        PUSH_FIELD(mvar, value);
+        break;
+    }
+
+    case TVAR: {
+        StgTVar *tvar = ((StgTVar *)p);
+        PUSH_FIELD(tvar, current_value);
+        PUSH_FIELD(tvar, first_watch_queue_entry);
+        break;
+    }
+
+    case FUN_2_0:
+        mark_queue_push_fun_srt(queue, info);
+        PUSH_FIELD(p, payload[1]);
+        PUSH_FIELD(p, payload[0]);
+        break;
+
+    case THUNK_2_0: {
+        StgThunk *thunk = (StgThunk *) p;
+        mark_queue_push_thunk_srt(queue, info);
+        PUSH_FIELD(thunk, payload[1]);
+        PUSH_FIELD(thunk, payload[0]);
+        break;
+    }
+
+    case CONSTR_2_0:
+        PUSH_FIELD(p, payload[1]);
+        PUSH_FIELD(p, payload[0]);
+        break;
+
+    case THUNK_1_0:
+        mark_queue_push_thunk_srt(queue, info);
+        PUSH_FIELD((StgThunk *) p, payload[0]);
+        break;
+
+    case FUN_1_0:
+        mark_queue_push_fun_srt(queue, info);
+        PUSH_FIELD(p, payload[0]);
+        break;
+
+    case CONSTR_0_1:
+        // TODO: Factor out Evac's low-value Int/Char coalesce logic
+        PUSH_FIELD(p, payload[0]);
+        break;
+
+    case THUNK_0_2:
+        mark_queue_push_thunk_srt(queue, info);
+        break;
+
+    case FUN_0_2:
+        mark_queue_push_fun_srt(queue, info);
+        break;
+
+    case CONSTR_0_2:
+        break;
+
+    case THUNK_1_1:
+        mark_queue_push_thunk_srt(queue, info);
+        PUSH_FIELD((StgThunk *) p, payload[0]);
+        break;
+
+    case FUN_1_1:
+        mark_queue_push_fun_srt(queue, info);
+        PUSH_FIELD(p, payload[0]);
+        break;
+
+    case CONSTR_1_1:
+        PUSH_FIELD(p, payload[0]);
+        break;
+
+    case FUN:
+        mark_queue_push_fun_srt(queue, info);
+        break;
+
+    case THUNK: {
+        mark_queue_push_thunk_srt(queue, info);
+        StgClosure **end = (StgClosure **) ((StgThunk *)p)->payload + info->layout.payload.ptrs;
+        for (StgClosure **field = (StgClosure **) ((StgThunk *)p)->payload; field < end; field++) {
+            mark_queue_push_closure(queue, *field, p, field);
+        }
+        break;
+    }
+    case CONSTR:
+    case CONSTR_NOCAF:
+    case WEAK:
+    case PRIM:
+    {
+        StgClosure **end = (StgClosure **) ((StgClosure *)p)->payload + info->layout.payload.ptrs;
+        for (StgClosure **field = (StgClosure **) ((StgClosure *)p)->payload; field < end; field++) {
+            mark_queue_push_closure(queue, *field, p, field);
+        }
+        break;
+    }
+
+    case BCO: {
+        StgBCO *bco = (StgBCO *)p;
+        PUSH_FIELD(bco, instrs);
+        PUSH_FIELD(bco, literals);
+        PUSH_FIELD(bco, ptrs);
+        break;
+    }
+
+
+    case BLACKHOLE:
+        PUSH_FIELD((StgInd *) p, indirectee);
+        break;
+
+    case MUT_VAR_CLEAN:
+    case MUT_VAR_DIRTY:
+        PUSH_FIELD((StgMutVar *)p, var);
+        break;
+
+    case BLOCKING_QUEUE: {
+        StgBlockingQueue *bq = (StgBlockingQueue *)p;
+        PUSH_FIELD(bq, bh);
+        PUSH_FIELD(bq, owner);
+        PUSH_FIELD(bq, queue);
+        PUSH_FIELD(bq, link);
+        break;
+    }
+
+    case THUNK_SELECTOR:
+        PUSH_FIELD((StgSelector *) p, selectee);
+        // TODO: selector optimization
+        break;
+
+    case PAP:
+        // TODO
+        break;
+
+    case AP:
+        // TODO
+        break;
+
+    case ARR_WORDS:
+        // nothing to follow
+        break;
+
+    case MUT_ARR_PTRS_CLEAN:
+    case MUT_ARR_PTRS_DIRTY:
+    case MUT_ARR_PTRS_FROZEN:
+    case MUT_ARR_PTRS_FROZEN0:
+        // TODO: Check this against Scav.c
+        mark_queue_push_array(queue, (StgMutArrPtrs *) p, 0);
+        break;
+
+    case SMALL_MUT_ARR_PTRS_CLEAN:
+    case SMALL_MUT_ARR_PTRS_DIRTY:
+    case SMALL_MUT_ARR_PTRS_FROZEN:
+    case SMALL_MUT_ARR_PTRS_FROZEN0: {
+        StgSmallMutArrPtrs *arr = (StgSmallMutArrPtrs *) p;
+        StgClosure **end = arr->payload + arr->ptrs;
+        for (StgClosure **i = arr->payload; i < end; i++) {
+            mark_queue_push_closure(queue, *i, p, i);
+        }
+        break;
+    }
+
+    case TSO:
+        // TODO
+        break;
+
+    case STACK:
+        // TODO
+        break;
+
+
+    case MUT_PRIM:
+        // TODO
+        break;
+
+    case TREC_CHUNK: {
+        StgTRecChunk *tc = ((StgTRecChunk *) p);
+        // TODO
+        PUSH_FIELD(tc, prev_chunk);
+        TRecEntry *end = &tc->entries[tc->next_entry_idx];
+        for (TRecEntry *e = &tc->entries[0]; e < end; e++) {
+            mark_queue_push_closure(queue, (StgClosure *) e->tvar, NULL, NULL);
+            mark_queue_push_closure(queue, (StgClosure *) e->expected_value, NULL, NULL);
+            mark_queue_push_closure(queue, (StgClosure *) e->new_value, NULL, NULL);
+        }
+        break;
+    }
+
+    default:
+        barf("mark_closure: unimplemented/strange closure type %d @ %p",
+             info->type, p);
+    }
+
+#   undef PUSH_FIELD
+}
 
 /* This is the main mark loop.
  * Invariants:
@@ -304,24 +547,23 @@ GNUC_ATTR_HOT void nonmoving_mark(MarkQueue *queue)
         case MARK_CLOSURE:
             mark_closure(queue, &ent);
             break;
-        case MARK_STATIC_INFO:
+        case MARK_SRT:
             // TODO
             break;
         case MARK_FROM_SEL:
             // TODO
             break;
         case MARK_ARRAY: {
-            StgWord len;
-            StgClosure** payload = get_ptr_array_payload(ent.mark_array.p, &len);
-            const StgWord start = ent.mark_array.start_index;
+            StgMutArrPtrs *arr = ent.mark_array.array;
+            StgWord start = ent.mark_array.start_index;
             StgWord end = start + MARK_ARRAY_CHUNK_LENGTH;
-            if (end < len) {
-                mark_queue_push_array(queue, ent.mark_array.p, end);
+            if (end < arr->ptrs) {
+                mark_queue_push_array(queue, ent.mark_array.array, end);
             } else {
-                end = len;
+                end = arr->ptrs;
             }
             for (StgWord i = start; i < end; i++) {
-                mark_queue_push_closure(queue, payload[i], NULL, 0, NULL);
+                mark_queue_push_closure(queue, arr->payload[i], NULL, NULL);
             }
             break;
         }
