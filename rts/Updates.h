@@ -40,8 +40,6 @@
                  p_ updatee
 
 
-// TODO: Add info table ptr to the set too, to be able to
-// mark CAFs
 #define updateWithIndirection(p1, p2, and_then) \
     W_ bd;                                                      \
                                                                 \
@@ -76,8 +74,6 @@ INLINE_HEADER void updateWithIndirection (Capability *cap,
     OVERWRITING_CLOSURE(p1);
     if (upd_rem_set) {
         upd_rem_set_push_thunk(cap, (StgThunk*)p1);
-        // TODO: Add info table ptr to the set too
-        // TODO: Not sure how to get pointer to the containing object + index
     }
     ((StgInd *)p1)->indirectee = p2;
     write_barrier();
