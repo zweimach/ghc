@@ -339,9 +339,9 @@ GarbageCollect (uint32_t collect_gen,
 
   // Hand out the UpdRemSets
   for (uint32_t n = 0; n < n_capabilities; n++) {
-      MarkQueue set = cap->upd_rem_set;
-      debugTrace(true, "%d UpdRemSet blocks freed.", countBlocks(set.blocks));
-      freeChain(set.blocks);
+      MarkQueue *set = &cap->upd_rem_set;
+      debugTrace(true, "%d UpdRemSet blocks freed.", countBlocks(set->blocks));
+      freeChain(set->blocks);
       init_mark_queue(&cap->upd_rem_set);
   }
 
