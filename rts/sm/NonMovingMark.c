@@ -11,6 +11,7 @@
 #include "NonMoving.h"
 #include "HeapAlloc.h"
 #include "Task.h"
+#include "HeapUtils.h"
 
 #define MIN(l,o) ((l) < (o) ? (l) : (o))
 
@@ -280,9 +281,17 @@ static void mark_tso (MarkQueue *queue, StgTSO *tso)
     }
 }
 
+static void
+do_push_closure(StgClosure **p, void *user)
+{
+    MarkQueue *queue = (MarkQueue *) user;
+    // TODO: Origin? need reference to containing closure
+    mark_queue_push_closure_(queue, *p);
+}
+
 static void mark_large_srt_bitmap (MarkQueue *queue, StgLargeSRT *large_srt)
 {
-    // TODO
+    walk_large_srt(do_push_closure, large_srt, queue);
 }
 
 static GNUC_ATTR_HOT void mark_srt (MarkQueue *queue, MarkQueueEnt *ent)
@@ -315,23 +324,7 @@ mark_large_bitmap (MarkQueue *queue,
                    StgLargeBitmap *large_bitmap,
                    StgWord size)
 {
-    uint32_t i, j, b;
-    StgWord bitmap;
-
-    b = 0;
-
-    for (i = 0; i < size; b++) {
-        bitmap = large_bitmap->bitmap[b];
-        j = stg_min(size-i, BITS_IN(W_));
-        i += j;
-        for (; j > 0; j--, p++) {
-            if ((bitmap & 1) == 0) {
-                // TODO: Origin? need reference to containing closure
-                mark_queue_push_closure(queue, *p, NULL, NULL);
-            }
-            bitmap = bitmap >> 1;
-        }
-    }
+    walk_large_bitmap(do_push_closure, p, large_bitmap, size, queue);
 }
 
 static void
