@@ -310,11 +310,6 @@ GarbageCollect (uint32_t collect_gen,
   debugTrace(DEBUG_gc, "GC (gen %d, using %d thread(s))",
              N, n_gc_threads);
 
-#if defined(DEBUG)
-  // check for memory leaks if DEBUG is on
-  memInventory(DEBUG_gc);
-#endif
-
   // do this *before* we start scavenging
   collectFreshWeakPtrs();
 
@@ -338,12 +333,14 @@ GarbageCollect (uint32_t collect_gen,
   init_gc_thread(gct);
 
   // Hand out the UpdRemSets
+  /*
   for (uint32_t n = 0; n < n_capabilities; n++) {
       MarkQueue *set = &cap->upd_rem_set;
       debugTrace(true, "%d UpdRemSet blocks freed.", countBlocks(set->blocks));
       freeChain(set->blocks);
       init_mark_queue(&cap->upd_rem_set);
   }
+  */
 
   /* Allocate a mark stack if we're doing a major collection.
    */

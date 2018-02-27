@@ -39,6 +39,7 @@ typedef uint32_t nonmoving_block_idx;
 struct nonmoving_allocator {
     struct nonmoving_segment *filled;
     struct nonmoving_segment *active;
+    // indexed by capability number
     struct nonmoving_segment *current[];
 };
 
