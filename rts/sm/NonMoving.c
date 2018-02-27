@@ -74,7 +74,11 @@ void *nonmoving_allocate(Capability *cap, StgWord sz)
     // First try allocating into current segment
     while (true) {
         struct nonmoving_segment *current = alloca->current[cap->no];
-        void *ret = nonmoving_allocate_block_from_segment(current);
+
+        void *ret = NULL;
+        if (current)
+            ret = nonmoving_allocate_block_from_segment(current);
+
         if (ret) {
             return ret;
 
