@@ -29,6 +29,7 @@
 #include "Trace.h"
 #include "GC.h"
 #include "Evac.h"
+#include "NonMoving.h"
 #if defined(ios_HOST_OS)
 #include "Hash.h"
 #endif
@@ -159,6 +160,7 @@ initStorage (void)
   for(g = 0; g < RtsFlags.GcFlags.generations; g++) {
       initGeneration(&generations[g], g);
   }
+  nonmoving_init();
 
   /* A couple of convenience pointers */
   g0 = &generations[0];
