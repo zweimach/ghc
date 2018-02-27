@@ -19,7 +19,7 @@ generation nonmoving_gen;
 
 // Request a fresh segment from the free segment list or allocate one of the
 // given node.
-static struct nonmoving_segment *nonmoving_request_segment(uint32_t node)
+static struct nonmoving_segment *nonmoving_alloc_segment(uint32_t node)
 {
     struct nonmoving_segment *ret;
     ACQUIRE_LOCK(&nonmoving_heap.mutex);
@@ -116,7 +116,9 @@ void *nonmoving_allocate(Capability *cap, StgWord sz)
                 // Wait until other thread has finished
                 while (alloca->current[cap->no] == NULL) {}
             } else {
-                alloca->current[cap->no] = nonmoving_request_segment(cap->node);
+                nonmoving_segment *seg = nonmoving_alloc_segment(cap->node);
+                nonmoving_init_segment(seg, allocator_idx);
+                alloca->current[cap->no] = seg;
             }
         }
     }

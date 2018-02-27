@@ -114,6 +114,15 @@ INLINE_HEADER void nonmoving_clear_bitmap(struct nonmoving_segment *seg)
     memset(seg->bitmap, 0, n);
 }
 
+INLINE_HEADER void nonmoving_init_segment(struct nonmoving_segment *seg, uint8_t block_size)
+{
+    seg->link = NULL;
+    seg->next_free = 0;
+    seg->next_free_snap = 0;
+    seg->block_size = block_size;
+    nonmoving_clear_bitmap(seg);
+}
+
 INLINE_HEADER void nonmoving_set_mark_bit(struct nonmoving_segment *seg, nonmoving_block_idx i)
 {
     seg->bitmap[i] = 1;
