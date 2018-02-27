@@ -11,13 +11,13 @@
 #include "NonMoving.h"
 #include "HeapAlloc.h"
 #include "Task.h"
+#include "HeapUtils.h"
 
 #define MIN(l,o) ((l) < (o) ? (l) : (o))
 
 enum EntryType {
     NULL_ENTRY = 0,
     MARK_CLOSURE,
-    MARK_SRT,
     MARK_FROM_SEL,
     MARK_ARRAY
 };
@@ -123,22 +123,6 @@ static void mark_queue_push_closure_ (MarkQueue *q,
                                       StgClosure *p)
 {
     mark_queue_push_closure(q, p, NULL, NULL);
-}
-
-static void mark_queue_push_srt (MarkQueue *q,
-                                 const StgSRT *srt,
-                                 uint32_t srt_bitmap)
-{
-    if (srt_bitmap) {
-        MarkQueueEnt ent = {
-            .type = MARK_SRT,
-            .mark_srt = {
-                .srt = srt,
-                .srt_bitmap = srt_bitmap
-            }
-        };
-        mark_queue_push(q, &ent);
-    }
 }
 
 static void mark_queue_push_thunk_srt (MarkQueue *q,
@@ -280,30 +264,6 @@ static void mark_tso (MarkQueue *queue, StgTSO *tso)
     }
 }
 
-static void mark_large_srt_bitmap (MarkQueue *queue, StgLargeSRT *large_srt)
-{
-    // TODO
-}
-
-static GNUC_ATTR_HOT void mark_srt (MarkQueue *queue, MarkQueueEnt *ent)
-{
-    uint32_t bitmap = ent->mark_srt.srt_bitmap;
-    if (bitmap == (StgHalfWord)(-1)) {
-        mark_large_srt_bitmap(queue, (StgLargeSRT *) ent->mark_srt.srt);
-        return;
-    }
-
-    StgClosure **p = (StgClosure **) ent->mark_srt.srt;
-    while (bitmap != 0) {
-        if ((bitmap & 1) != 0) {
-            // TODO: COMPILING_WINDOWS_DLL hack
-            mark_queue_push_closure(queue, *p, NULL, NULL);
-        }
-        p++;
-        bitmap = bitmap >> 1;
-    }
-}
-
 static void mark_static_object (MarkQueue *queue, StgClosure **static_link, StgClosure *p)
 {
     // TODO
@@ -315,23 +275,7 @@ mark_large_bitmap (MarkQueue *queue,
                    StgLargeBitmap *large_bitmap,
                    StgWord size)
 {
-    uint32_t i, j, b;
-    StgWord bitmap;
-
-    b = 0;
-
-    for (i = 0; i < size; b++) {
-        bitmap = large_bitmap->bitmap[b];
-        j = stg_min(size-i, BITS_IN(W_));
-        i += j;
-        for (; j > 0; j--, p++) {
-            if ((bitmap & 1) == 0) {
-                // TODO: Origin? need reference to containing closure
-                mark_queue_push_closure(queue, *p, NULL, NULL);
-            }
-            bitmap = bitmap >> 1;
-        }
-    }
+    walk_large_bitmap(do_push_closure, p, large_bitmap, size, queue);
 }
 
 static void
@@ -690,9 +634,6 @@ GNUC_ATTR_HOT void nonmoving_mark(MarkQueue *queue)
         switch (ent.type) {
         case MARK_CLOSURE:
             mark_closure(queue, &ent);
-            break;
-        case MARK_SRT:
-            mark_srt(queue, &ent);
             break;
         case MARK_FROM_SEL:
             // TODO
