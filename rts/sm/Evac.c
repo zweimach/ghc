@@ -26,6 +26,7 @@
 #include "Trace.h"
 #include "LdvProfile.h"
 #include "CNF.h"
+#include "NonMoving.h"
 #include "Scav.h"
 
 #if defined(THREADED_RTS) && !defined(PARALLEL_GC)
