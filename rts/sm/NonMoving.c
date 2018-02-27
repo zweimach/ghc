@@ -116,7 +116,7 @@ void *nonmoving_allocate(Capability *cap, StgWord sz)
                 // Wait until other thread has finished
                 while (alloca->current[cap->no] == NULL) {}
             } else {
-                nonmoving_segment *seg = nonmoving_alloc_segment(cap->node);
+                struct nonmoving_segment *seg = nonmoving_alloc_segment(cap->node);
                 nonmoving_init_segment(seg, allocator_idx);
                 alloca->current[cap->no] = seg;
             }
@@ -124,6 +124,7 @@ void *nonmoving_allocate(Capability *cap, StgWord sz)
     }
 }
 
+/* Allocate a nonmoving_allocator */
 static struct nonmoving_allocator *alloc_nonmoving_allocator(uint32_t n_caps)
 {
     size_t allocator_sz =
@@ -164,7 +165,7 @@ void nonmoving_add_capabilities(uint32_t new_n_caps)
 
         // Initialize current segments for the new capabilities
         for (int j = old_n_caps; i < new_n_caps; i++) {
-            allocs[i]->current[j] = nonmoving_request_segment(capabilities[j]->node);
+            allocs[i]->current[j] = nonmoving_alloc_segment(capabilities[j]->node);
             allocs[i]->current[j]->link = NULL;
         }
     }
