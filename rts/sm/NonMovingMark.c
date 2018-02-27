@@ -10,6 +10,7 @@
 #include "NonMovingMark.h"
 #include "NonMoving.h"
 #include "HeapAlloc.h"
+#include "Task.h"
 
 #define MIN(l,o) ((l) < (o) ? (l) : (o))
 
@@ -115,6 +116,13 @@ static void mark_queue_push_closure (MarkQueue *q,
         }
     };
     mark_queue_push(q, &ent);
+}
+
+/* Push a closure to the mark queue without origin information */
+static void mark_queue_push_closure_ (MarkQueue *q,
+                                      StgClosure *p)
+{
+    mark_queue_push_closure(q, p, NULL, NULL);
 }
 
 static void mark_queue_push_srt (MarkQueue *q,
@@ -253,7 +261,23 @@ void nonmoving_prepare_mark(void)
 
 static void mark_tso (MarkQueue *queue, StgTSO *tso)
 {
-    // TODO
+    if (tso->bound != NULL) {
+        mark_queue_push_closure_(queue, (StgClosure *) tso->bound->tso);
+    }
+
+    mark_queue_push_closure_(queue, (StgClosure *) tso->blocked_exceptions);
+    mark_queue_push_closure_(queue, (StgClosure *) tso->bq);
+    mark_queue_push_closure_(queue, (StgClosure *) tso->trec);
+    mark_queue_push_closure_(queue, (StgClosure *) tso->stackobj);
+    mark_queue_push_closure_(queue, (StgClosure *) tso->_link);
+    if (   tso->why_blocked == BlockedOnMVar
+        || tso->why_blocked == BlockedOnMVarRead
+        || tso->why_blocked == BlockedOnBlackHole
+        || tso->why_blocked == BlockedOnMsgThrowTo
+        || tso->why_blocked == NotBlocked
+        ) {
+        mark_queue_push_closure_(queue, tso->block_info.closure);
+    }
 }
 
 static void mark_large_srt_bitmap (MarkQueue *queue, StgLargeSRT *large_srt)
