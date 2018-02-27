@@ -273,7 +273,7 @@ static GNUC_ATTR_HOT void mark_srt (MarkQueue *queue, MarkQueueEnt *ent)
     while (bitmap != 0) {
         if ((bitmap & 1) != 0) {
             // TODO: COMPILING_WINDOWS_DLL hack
-            mark_queue_push_closure(queue, p, NULL, NULL);
+            mark_queue_push_closure(queue, *p, NULL, NULL);
         }
         p++;
         bitmap = bitmap >> 1;
