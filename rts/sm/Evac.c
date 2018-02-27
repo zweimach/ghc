@@ -28,6 +28,7 @@
 #include "CNF.h"
 #include "NonMoving.h"
 #include "Scav.h"
+#include "NonMoving.h"
 
 #if defined(THREADED_RTS) && !defined(PARALLEL_GC)
 #define evacuate(p) evacuate1(p)
@@ -51,10 +52,14 @@ STATIC_INLINE void evacuate_large(StgPtr p);
    Allocate some space in which to copy an object.
    -------------------------------------------------------------------------- */
 
-#if 0
 STATIC_INLINE StgPtr
 alloc_for_copy (uint32_t size, uint32_t gen_no)
 {
+    if (major_gc) {
+        // unconditionally promote to non-moving heap in major gc
+        return nonmoving_allocate(gct->cap, size);
+    }
+
     StgPtr to;
     gen_workspace *ws;
 
@@ -71,6 +76,10 @@ alloc_for_copy (uint32_t size, uint32_t gen_no)
         }
     }
 
+    if (gen_no == oldest_gen->no) {
+        return nonmoving_allocate(gct->cap, size);
+    }
+
     ws = &gct->gens[gen_no];  // zero memory references here
 
     /* chain a new block onto the to-space for the destination gen if
@@ -85,13 +94,6 @@ alloc_for_copy (uint32_t size, uint32_t gen_no)
 
     return to;
 }
-#else
-STATIC_INLINE StgPtr
-alloc_for_copy (uint32_t size, uint32_t gen_no)
-{
-    return nonmoving_allocate(NULL /* TODO */, size);
-}
-#endif
 
 /* -----------------------------------------------------------------------------
    The evacuate() code
