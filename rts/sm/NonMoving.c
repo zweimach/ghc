@@ -73,17 +73,19 @@ void *nonmoving_allocate(Capability *cap, StgWord sz)
 
     // First try allocating into current segment
     while (true) {
+        // First try allocating into current segment
         struct nonmoving_segment *current = alloca->current[cap->no];
-
-        void *ret = NULL;
-        if (current)
+        if (current) {
+            void *ret = NULL;
             ret = nonmoving_allocate_block_from_segment(current);
 
-        if (ret) {
-            return ret;
+            if (ret) {
+                return ret;
+            }
+        }
 
         // Current segments is filled; look elsewhere
-        } else if (alloca->active) {
+        if (alloca->active) {
             // We want to move the current segment to the filled list and pull a
             // new segment from active. This is a bit tricky in the face of
             // parallel allocation
