@@ -603,9 +603,9 @@ static GNUC_ATTR_HOT void mark_closure (MarkQueue *queue,
         PUSH_FIELD(tc, prev_chunk);
         TRecEntry *end = &tc->entries[tc->next_entry_idx];
         for (TRecEntry *e = &tc->entries[0]; e < end; e++) {
-            mark_queue_push_closure(queue, (StgClosure *) e->tvar, NULL, NULL);
-            mark_queue_push_closure(queue, (StgClosure *) e->expected_value, NULL, NULL);
-            mark_queue_push_closure(queue, (StgClosure *) e->new_value, NULL, NULL);
+            mark_queue_push_closure_(queue, (StgClosure *) e->tvar);
+            mark_queue_push_closure_(queue, (StgClosure *) e->expected_value);
+            mark_queue_push_closure_(queue, (StgClosure *) e->new_value);
         }
         break;
     }
@@ -648,7 +648,7 @@ GNUC_ATTR_HOT void nonmoving_mark(MarkQueue *queue)
                 end = arr->ptrs;
             }
             for (StgWord i = start; i < end; i++) {
-                mark_queue_push_closure(queue, arr->payload[i], NULL, NULL);
+                mark_queue_push_closure_(queue, arr->payload[i]);
             }
             break;
         }
