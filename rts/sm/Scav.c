@@ -335,19 +335,15 @@ scavenge_AP (StgAP *ap)
 static void
 scavenge_large_srt_bitmap( StgLargeSRT *large_srt )
 {
-    uint32_t i, j, size;
-    StgWord bitmap;
-    StgClosure **p;
+    const uint32_t size = (uint32_t)large_srt->l.size;
+    StgClosure **p = (StgClosure **)large_srt->srt;
 
-    size   = (uint32_t)large_srt->l.size;
-    p      = (StgClosure **)large_srt->srt;
-
-    for (i = 0; i < size / BITS_IN(W_); i++) {
-        bitmap = large_srt->l.bitmap[i];
+    for (uint32_t i = 0; i < size / BITS_IN(W_); i++) {
+        StgWord bitmap = large_srt->l.bitmap[i];
         // skip zero words: bitmaps can be very sparse, and this helps
         // performance a lot in some cases.
         if (bitmap != 0) {
-            for (j = 0; j < BITS_IN(W_); j++) {
+            for (uint32_t j = 0; j < BITS_IN(W_); j++) {
                 if ((bitmap & 1) != 0) {
                     evacuate(p);
                 }
@@ -359,8 +355,8 @@ scavenge_large_srt_bitmap( StgLargeSRT *large_srt )
         }
     }
     if (size % BITS_IN(W_) != 0) {
-        bitmap = large_srt->l.bitmap[i];
-        for (j = 0; j < size % BITS_IN(W_); j++) {
+        StgWord bitmap = large_srt->l.bitmap[i];
+        for (uint32_t j = 0; j < size % BITS_IN(W_); j++) {
             if ((bitmap & 1) != 0) {
                 evacuate(p);
             }
