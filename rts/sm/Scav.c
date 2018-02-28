@@ -1822,7 +1822,7 @@ scavenge_static(void)
 static void
 scavenge_large_bitmap( StgPtr p, StgLargeBitmap *large_bitmap, StgWord size )
 {
-    walk_large_bitmap(do_evacuate, p, large_bitmap, size, NULL);
+    walk_large_bitmap(do_evacuate, (StgClosure **) p, large_bitmap, size, NULL);
 }
 
 
