@@ -32,7 +32,7 @@ static struct nonmoving_segment *nonmoving_alloc_segment(uint32_t node)
         initBdescr(bd, &nonmoving_gen, &nonmoving_gen); // TODO: hmmmm, refactoring needed?
         bd->flags = BF_NONMOVING;
         // TODO allocation accounting?
-        ret = (struct nonmoving_segment *) (bd->start + NONMOVING_SEGMENT_SIZE - ((uintptr_t) bd->start % NONMOVING_SEGMENT_SIZE)); // XXX: yuck
+        ret = (struct nonmoving_segment *)(bd->start);
     }
     RELEASE_LOCK(&nonmoving_heap.mutex);
     return ret;
@@ -164,14 +164,15 @@ void nonmoving_add_capabilities(uint32_t new_n_caps)
         // Copy the old state
         allocs[i]->filled = old->filled;
         allocs[i]->active = old->active;
-        for (int j = 0; i < old_n_caps; i++) {
+        for (int j = 0; j < old_n_caps; j++) {
             allocs[i]->current[j] = old->current[j];
         }
         stgFree(old);
 
         // Initialize current segments for the new capabilities
-        for (int j = old_n_caps; i < new_n_caps; i++) {
+        for (int j = old_n_caps; j < new_n_caps; j++) {
             allocs[i]->current[j] = nonmoving_alloc_segment(capabilities[j]->node);
+            nonmoving_init_segment(allocs[i]->current[j], NONMOVING_ALLOCA0 + i);
             allocs[i]->current[j]->link = NULL;
         }
     }
