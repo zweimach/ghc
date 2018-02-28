@@ -171,7 +171,9 @@ static void mark_queue_push_array (MarkQueue *q,
     mark_queue_push(q, &ent);
 }
 
-static bool is_valid_mark_queue_ent(const MarkQueueEnt *ent) {
+bool is_valid_mark_queue_ent(const MarkQueueEnt *ent);
+
+bool is_valid_mark_queue_ent(const MarkQueueEnt *ent) {
     return ent->type != NULL_ENTRY;
 }
 
@@ -383,7 +385,6 @@ static GNUC_ATTR_HOT void mark_closure (MarkQueue *queue,
 {
     ASSERT(ent->type == MARK_CLOSURE);
     StgClosure *p = ent->mark_closure.p;
-    const StgWord tag = GET_CLOSURE_TAG(p);
     p = UNTAG_CLOSURE(p);
     const StgInfoTable *info = get_itbl(p);
     ASSERTM(LOOKS_LIKE_CLOSURE_PTR(p), "invalid closure, info=%p", p->header.info);
