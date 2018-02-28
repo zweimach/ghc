@@ -306,9 +306,46 @@ static GNUC_ATTR_HOT void mark_srt (MarkQueue *queue, MarkQueueEnt *ent)
     }
 }
 
-static void mark_static_object (MarkQueue *queue, StgClosure **static_link, StgClosure *p)
+static void
+mark_static_object (MarkQueue *queue, StgClosure *p)
 {
-    // TODO
+    const StgInfoTable *info = get_itbl(p);;
+
+    switch (info -> type) {
+    case IND_STATIC:
+    {
+        StgInd *ind = (StgInd *)p;
+        mark_queue_push_closure_(queue, ind->indirectee);
+        break;
+    }
+
+    case THUNK_STATIC:
+        mark_queue_push_thunk_srt(queue, info);
+        break;
+
+    case FUN_STATIC:
+        mark_queue_push_fun_srt(queue, info);
+        break;
+
+    case CONSTR:
+    case CONSTR_NOCAF:
+    case CONSTR_1_0:
+    case CONSTR_0_1:
+    case CONSTR_2_0:
+    case CONSTR_1_1:
+    case CONSTR_0_2:
+    {
+        StgClosure **next = p->payload + info->layout.payload.ptrs;
+        // evacuate the pointers
+        for (StgClosure **q = p->payload; q < next; q++) {
+            mark_queue_push_closure_(queue, *q);
+        }
+        break;
+    }
+
+    default:
+        barf("scavenge_static: strange closure %d", (int)(info->type));
+    }
 }
 
 static void
@@ -366,7 +403,7 @@ void mark_PAP_payload (MarkQueue *queue,
         bitmap = BITMAP_BITS(fun_info->f.b.bitmap);
         goto small_bitmap;
     case ARG_GEN_BIG:
-        mark_large_bitmap(queue, p, GET_FUN_LARGE_BITMAP(fun_info), size);
+        mark_large_bitmap(queue, payload, GET_FUN_LARGE_BITMAP(fun_info), size);
         break;
     case ARG_BCO:
         mark_large_bitmap(queue, payload, BCO_BITMAP(fun), size);
@@ -399,26 +436,13 @@ static GNUC_ATTR_HOT void mark_closure (MarkQueue *queue,
     if (!HEAP_ALLOCED_GC(p)) {
         switch (info->type) {
         case THUNK_STATIC:
-            if (info->srt_bitmap != 0) {
-                // TODO
-            }
-            return;
-
         case FUN_STATIC:
-            if (info->srt_bitmap != 0) {
-                // TODO
-            }
-            return;
-
         case IND_STATIC:
-            // TODO
-            return;
-
         case CONSTR:
         case CONSTR_1_0:
         case CONSTR_2_0:
         case CONSTR_1_1:
-            // TODO
+            mark_static_object(queue, p);
             return;
 
         case CONSTR_0_1:
