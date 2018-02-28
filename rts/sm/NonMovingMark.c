@@ -85,6 +85,8 @@ typedef struct MarkQueue_ {
 #endif
 } MarkQueue;
 
+static void mark_closure (MarkQueue *queue, MarkQueueEnt *ent);
+
 static void mark_queue_push (MarkQueue *q,
                              const MarkQueueEnt *ent)
 {
@@ -409,16 +411,110 @@ void mark_PAP_payload (MarkQueue *queue,
     }
 }
 
-static GNUC_ATTR_HOT void mark_stack (MarkQueue *queue, StgPtr sp, StgPtr spBottom)
+/* Helper for mark_stack; returns next stack frame. */
+static StgPtr
+mark_arg_block (MarkQueue *queue, const StgFunInfoTable *fun_info, StgClosure **args)
+{
+    StgWord bitmap, size;
+    switch (fun_info->f.fun_type) {
+    case ARG_GEN:
+        bitmap = BITMAP_BITS(fun_info->f.b.bitmap);
+        size = BITMAP_SIZE(fun_info->f.b.bitmap);
+        goto small_bitmap;
+    case ARG_GEN_BIG:
+        size = GET_FUN_LARGE_BITMAP(fun_info)->size;
+        mark_large_bitmap(queue, args, GET_FUN_LARGE_BITMAP(fun_info), size);
+        break;
+    default:
+        bitmap = BITMAP_BITS(stg_arg_bitmaps[fun_info->f.fun_type]);
+        size = BITMAP_SIZE(stg_arg_bitmaps[fun_info->f.fun_type]);
+    small_bitmap:
+        mark_small_bitmap(queue, args, size, bitmap);
+        break;
+    }
+    return (StgPtr) args + size;
+}
+
+static GNUC_ATTR_HOT void
+mark_stack (MarkQueue *queue, StgPtr sp, StgPtr spBottom)
 {
     ASSERT(sp <= spBottom);
     for (; sp < spBottom; sp += stack_frame_sizeW((StgClosure *)sp)) {
-        // TODO
+        const StgRetInfoTable *info = get_ret_itbl((StgClosure *)sp);
+        switch (info->i.type) {
+        case UPDATE_FRAME:
+        {
+            // See Note [upd-black-hole] in rts/Scav.c
+            StgUpdateFrame *frame = (StgUpdateFrame *) sp;
+            mark_queue_push_closure_(queue, frame->updatee);
+            sp += sizeofW(StgUpdateFrame);
+            continue;
+        }
+
+            // small bitmap (< 32 entries, or 64 on a 64-bit machine)
+        case CATCH_STM_FRAME:
+        case CATCH_RETRY_FRAME:
+        case ATOMICALLY_FRAME:
+        case UNDERFLOW_FRAME:
+        case STOP_FRAME:
+        case CATCH_FRAME:
+        case RET_SMALL:
+        {
+            StgWord bitmap = BITMAP_BITS(info->i.layout.bitmap);
+            StgWord size   = BITMAP_SIZE(info->i.layout.bitmap);
+            // NOTE: the payload starts immediately after the info-ptr, we
+            // don't have an StgHeader in the same sense as a heap closure.
+            sp++;
+            mark_small_bitmap(queue, (StgClosure **) sp, size, bitmap);
+            sp += size;
+        }
+        follow_srt:
+            mark_queue_push_srt(queue, GET_SRT(info), info->i.srt_bitmap);
+            continue;
+
+        case RET_BCO: {
+            sp++;
+            mark_queue_push_closure_(queue, (StgClosure *) sp);
+            StgBCO *bco = (StgBCO *)*sp;
+            sp++;
+            StgWord size = BCO_BITMAP_SIZE(bco);
+            mark_large_bitmap(queue, (StgClosure **) sp, BCO_BITMAP(bco), size);
+            sp += size;
+            continue;
+        }
+
+          // large bitmap (> 32 entries, or > 64 on a 64-bit machine)
+        case RET_BIG:
+        {
+            StgWord size;
+
+            size = GET_LARGE_BITMAP(&info->i)->size;
+            sp++;
+            mark_large_bitmap(queue, (StgClosure **) sp, GET_LARGE_BITMAP(&info->i), size);
+            sp += size;
+            // and don't forget to follow the SRT
+            goto follow_srt;
+        }
+
+        case RET_FUN:
+        {
+            StgRetFun *ret_fun = (StgRetFun *)sp;
+            const StgFunInfoTable *fun_info;
+
+            mark_queue_push_closure_(queue, ret_fun->fun);
+            fun_info = get_fun_itbl(UNTAG_CLOSURE(ret_fun->fun));
+            sp = mark_arg_block(queue, fun_info, ret_fun->payload);
+            goto follow_srt;
+        }
+
+        default:
+            barf("scavenge_stack: weird activation record found on stack: %d", (int)(info->i.type));
+        }
     }
 }
 
-static GNUC_ATTR_HOT void mark_closure (MarkQueue *queue,
-                                        MarkQueueEnt *ent)
+static GNUC_ATTR_HOT void
+mark_closure (MarkQueue *queue, MarkQueueEnt *ent)
 {
     ASSERT(ent->type == MARK_CLOSURE);
     StgClosure *p = ent->mark_closure.p;
