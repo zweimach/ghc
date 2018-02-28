@@ -161,6 +161,7 @@ initStorage (void)
       initGeneration(&generations[g], g);
   }
   nonmoving_init();
+  nonmoving_add_capabilities(n_capabilities);
 
   /* A couple of convenience pointers */
   g0 = &generations[0];
