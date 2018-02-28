@@ -573,7 +573,6 @@ mark_closure (MarkQueue *queue, MarkQueueEnt *ent)
                                 p,                               \
                                 (StgClosure **) &(obj)->field)
 
-    // TODO: Write everything below here
     switch (INFO_PTR_TO_STRUCT(info)->type) {
 
     case MVAR_CLEAN:
@@ -764,12 +763,11 @@ mark_closure (MarkQueue *queue, MarkQueueEnt *ent)
     }
 
     case MUT_PRIM:
-        // TODO
+        ASSERT(0); // TODO
         break;
 
     case TREC_CHUNK: {
         StgTRecChunk *tc = ((StgTRecChunk *) p);
-        // TODO
         PUSH_FIELD(tc, prev_chunk);
         TRecEntry *end = &tc->entries[tc->next_entry_idx];
         for (TRecEntry *e = &tc->entries[0]; e < end; e++) {
@@ -809,7 +807,7 @@ GNUC_ATTR_HOT void nonmoving_mark(MarkQueue *queue)
             mark_srt(queue, &ent);
             break;
         case MARK_FROM_SEL:
-            // TODO
+            ASSERT(0); // TODO
             break;
         case MARK_ARRAY: {
             StgMutArrPtrs *arr = ent.mark_array.array;
