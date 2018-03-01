@@ -681,6 +681,7 @@
       SymI_HasProto(newSpark)                                           \
       SymI_HasProto(upd_rem_set_push_thunk)                             \
       SymI_HasProto(upd_rem_set_push_thunk_)                            \
+      SymI_HasProto(upd_rem_set_push_closure_)                          \
       SymI_HasProto(performGC)                                          \
       SymI_HasProto(performMajorGC)                                     \
       SymI_HasProto(prog_argc)                                          \
