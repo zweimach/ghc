@@ -807,6 +807,7 @@ findMemoryLeak (void)
     for (i = 0; i < n_capabilities; i++) {
         markBlocks(gc_threads[i]->free_blocks);
         markBlocks(capabilities[i]->pinned_object_block);
+        markBlocks(capabilities[i]->upd_rem_set.blocks);
     }
 
 #if defined(PROFILING)
@@ -883,7 +884,7 @@ memInventory (bool show)
   uint32_t g, i;
   W_ gen_blocks[RtsFlags.GcFlags.generations];
   W_ nursery_blocks, retainer_blocks,
-      arena_blocks, exec_blocks, gc_free_blocks = 0;
+      arena_blocks, exec_blocks, gc_free_blocks, upd_rem_set_blocks = 0;
   W_ live_blocks = 0, free_blocks = 0;
   bool leak;
 
@@ -929,12 +930,18 @@ memInventory (bool show)
   /* count the blocks on the free list */
   free_blocks = countFreeList();
 
+  // count UpdRemSet blocks
+  for (i = 0; i < n_capabilities; ++i) {
+      upd_rem_set_blocks += countBlocks(capabilities[i]->upd_rem_set.blocks);
+  }
+
   live_blocks = 0;
   for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
       live_blocks += gen_blocks[g];
   }
   live_blocks += nursery_blocks +
-               + retainer_blocks + arena_blocks + exec_blocks + gc_free_blocks;
+               + retainer_blocks + arena_blocks + exec_blocks + gc_free_blocks
+               + upd_rem_set_blocks;
 
 #define MB(n) (((double)(n) * BLOCK_SIZE_W) / ((1024*1024)/sizeof(W_)))
 
@@ -963,6 +970,8 @@ memInventory (bool show)
                  gc_free_blocks, MB(gc_free_blocks));
       debugBelch("  free         : %5" FMT_Word " blocks (%6.1lf MB)\n",
                  free_blocks, MB(free_blocks));
+      debugBelch("  UpdRemSet    : %5" FMT_Word " blocks (%6.1lf MB)\n",
+                 upd_rem_set_blocks, MB(upd_rem_set_blocks));
       debugBelch("  total        : %5" FMT_Word " blocks (%6.1lf MB)\n",
                  live_blocks + free_blocks, MB(live_blocks+free_blocks));
       if (leak) {

@@ -45,6 +45,7 @@ import SMRep
 import FastString
 import Outputable
 import Util
+import Module ( rtsUnitId )
 
 import Data.Bits ((.&.), bit)
 import Control.Monad (liftM, when, unless)
@@ -313,6 +314,13 @@ emitPrimOp dflags res@[] WriteMutVarOp [mutv,var]
    = do -- Without this write barrier, other CPUs may see this pointer before
         -- the writes for the closure it points to have occurred.
         emitPrimCall res MO_WriteBarrier []
+
+        -- Update upd_rem_set --
+        old_val <- CmmLocal <$> newTemp (cmmExprType dflags var)
+        emitAssign old_val (cmmLoadIndexW dflags mutv (fixedHdrSizeW dflags) (gcWord dflags))
+        emitUpdRemSet (CmmReg old_val) mutv (cmmOffsetW dflags mutv (fixedHdrSizeW dflags))
+        ------------------------
+
         emitStore (cmmOffsetW dflags mutv (fixedHdrSizeW dflags)) var
         emitCCall
                 [{-no results-}]
@@ -2307,3 +2315,18 @@ emitCtzCall res x width = do
         [ res ]
         (MO_Ctz width)
         [ x ]
+
+emitUpdRemSet
+    :: CmmExpr -- ^ object to be marked (e.g. old value of an overwritten field)
+    -> CmmExpr -- ^ object where this reference was found
+    -> CmmExpr -- ^ pointer to where the reference to this object was found
+    -> FCode ()
+emitUpdRemSet p origin origin_field =
+    emitRtsCall
+      rtsUnitId
+      (fsLit "upd_rem_set_push_closure_")
+      [(CmmReg (CmmGlobal BaseReg), AddrHint),
+       (p, AddrHint),
+       (origin, AddrHint),
+       (origin_field, AddrHint)]
+      False

@@ -29,6 +29,7 @@
 #include "Trace.h"
 #include "GC.h"
 #include "Evac.h"
+#include "NonMoving.h"
 #if defined(ios_HOST_OS)
 #include "Hash.h"
 #endif
@@ -159,6 +160,8 @@ initStorage (void)
   for(g = 0; g < RtsFlags.GcFlags.generations; g++) {
       initGeneration(&generations[g], g);
   }
+  nonmoving_init();
+  nonmoving_add_capabilities(n_capabilities);
 
   /* A couple of convenience pointers */
   g0 = &generations[0];
@@ -266,6 +269,11 @@ void storageAddCapabilities (uint32_t from, uint32_t to)
             capabilities[n]->mut_lists[g] =
                 allocBlockOnNode(capNoToNumaNode(n));
         }
+    }
+
+    // Initialize UpdRemSets
+    for (i = 0; i < to; ++i) {
+        init_mark_queue(&capabilities[i]->upd_rem_set);
     }
 
 #if defined(THREADED_RTS) && defined(llvm_CC_FLAVOR) && (CC_SUPPORTS_TLS == 0)
