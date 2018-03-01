@@ -32,6 +32,11 @@ static struct nonmoving_segment *nonmoving_alloc_segment(uint32_t node)
         initBdescr(bd, &nonmoving_gen, &nonmoving_gen); // TODO: hmmmm, refactoring needed?
         bd->flags = BF_NONMOVING;
         // TODO allocation accounting?
+
+        // TODO(osa): Teach block allocator about aligned allocation and use it here (#7)
+        // The manual alignment below causes segfaults so it's disabled.
+        // ret = (struct nonmoving_segment *)
+        //       (bd->start + NONMOVING_SEGMENT_SIZE - ((uintptr_t) bd->start % NONMOVING_SEGMENT_SIZE));
         ret = (struct nonmoving_segment *)(bd->start);
     }
     RELEASE_LOCK(&nonmoving_heap.mutex);
