@@ -34,12 +34,16 @@ static struct nonmoving_segment *nonmoving_alloc_segment(uint32_t node)
         // TODO allocation accounting?
 
         // TODO(osa): Teach block allocator about aligned allocation and use it here (#7)
-        // The manual alignment below causes segfaults so it's disabled.
-        // ret = (struct nonmoving_segment *)
-        //       (bd->start + NONMOVING_SEGMENT_SIZE - ((uintptr_t) bd->start % NONMOVING_SEGMENT_SIZE));
-        ret = (struct nonmoving_segment *)(bd->start);
+        if (((uintptr_t)bd->start % NONMOVING_SEGMENT_SIZE) == 0) {
+            ret = (struct nonmoving_segment *)bd->start;
+        } else {
+            ret = (struct nonmoving_segment *)
+                  ((uintptr_t)bd->start + NONMOVING_SEGMENT_SIZE - ((uintptr_t)bd->start % NONMOVING_SEGMENT_SIZE));
+        }
     }
     RELEASE_LOCK(&nonmoving_heap.mutex);
+    // Check alignment
+    ASSERT(((uintptr_t)ret % NONMOVING_SEGMENT_SIZE) == 0);
     return ret;
 }
 
