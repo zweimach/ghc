@@ -326,6 +326,24 @@ split_free_block (bdescr *bd, uint32_t node, W_ n, uint32_t ln)
     return fg;
 }
 
+static bdescr *
+split_block (bdescr *bd, uint32_t node, W_ n, uint32_t ln)
+{
+    ASSERT(bd->blocks > n);
+    dbl_link_remove(bd, &free_list[node][ln]);
+
+    bdescr* bd_ = bd + n;
+    bd_->blocks = bd->blocks - n;
+    bd->blocks = n;
+
+    // TODO (osa): do I need to update any other fields?
+    setup_tail(bd);
+    ln = log_2(bd_->blocks);
+    dbl_link_onto(bd_, &free_list[node][ln]);
+
+    return bd;
+}
+
 /* Only initializes the start pointers on the first megablock and the
  * blocks field of the first bdescr; callers are responsible for calling
  * initGroup afterwards.
@@ -459,6 +477,54 @@ allocGroupOnNode (uint32_t node, W_ n)
 finish:
     IF_DEBUG(sanity, memset(bd->start, 0xaa, bd->blocks * BLOCK_SIZE));
     IF_DEBUG(sanity, checkFreeListSanity());
+    return bd;
+}
+
+bdescr *
+allocAlignedGroupOnNode (uint32_t node, W_ n)
+{
+    // allocate enough blocks to have enough space aligned at n-block boundary
+    // free any slops on the low and high side of this space
+
+    // number of blocks to allocate to make sure we have enough aligned space
+    uint32_t num_blocks = 2*n - 1;
+    W_ group_size = n * BLOCK_SIZE;
+
+    bdescr *bd = allocGroupOnNode(node, num_blocks);
+
+    // slop on the low side
+    W_ slop_low = 0;
+    if ((uintptr_t)bd->start % group_size != 0) {
+        slop_low = group_size - ((uintptr_t)bd->start % group_size);
+    }
+
+    W_ slop_high = (bd->blocks*BLOCK_SIZE) - group_size - slop_low;
+
+    ASSERT((slop_low % BLOCK_SIZE) == 0);
+    ASSERT((slop_high % BLOCK_SIZE) == 0);
+
+    W_ slop_low_blocks = slop_low / BLOCK_SIZE;
+    W_ slop_high_blocks = slop_high / BLOCK_SIZE;
+
+    ASSERT(slop_low_blocks + slop_high_blocks + n == num_blocks);
+
+    if (slop_low_blocks != 0) {
+        bd = split_free_block(bd, node, num_blocks - slop_low_blocks, log_2_ceil(num_blocks - slop_low_blocks));
+    }
+
+    // At this point the bd should be aligned, but we may have slop on the high side
+    ASSERT((uintptr_t)bd->start % group_size == 0);
+
+    if (slop_high_blocks != 0) {
+        bd = split_block(bd, node, n, log_2_ceil(n));
+    }
+
+    // Should still be aligned
+    ASSERT((uintptr_t)bd->start % group_size == 0);
+
+    // Just to make sure I get this right
+    ASSERT(Bdescr(bd->start) == bd);
+
     return bd;
 }
 
