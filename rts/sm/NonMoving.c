@@ -43,21 +43,10 @@ static struct nonmoving_segment *nonmoving_alloc_segment(uint32_t node)
         ret = nonmoving_heap.free;
         nonmoving_heap.free = ret->link;
     } else {
-        // TODO Aligned block allocation (#7)
-        bdescr *bd = allocGroupOnNode(node, 2*NONMOVING_SEGMENT_BLOCKS - 1);
-        for (unsigned int i=0; i < 2*NONMOVING_SEGMENT_BLOCKS - 1; i++) {
-            initBdescr(bd+i, &nonmoving_gen, &nonmoving_gen); // TODO: hmmmm, refactoring needed?
-        }
+        bdescr *bd = allocAlignedGroupOnNode(node, NONMOVING_SEGMENT_BLOCKS);
+        initBdescr(bd, &nonmoving_gen, &nonmoving_gen);
         bd->flags = BF_NONMOVING;
-        // TODO allocation accounting?
-
-        // TODO(osa): Teach block allocator about aligned allocation and use it here (#7)
-        if (((uintptr_t)bd->start % NONMOVING_SEGMENT_SIZE) == 0) {
-            ret = (struct nonmoving_segment *)bd->start;
-        } else {
-            ret = (struct nonmoving_segment *)
-                  ((uintptr_t)bd->start + NONMOVING_SEGMENT_SIZE - ((uintptr_t)bd->start % NONMOVING_SEGMENT_SIZE));
-        }
+        ret = (struct nonmoving_segment *)bd->start;
     }
     RELEASE_LOCK(&nonmoving_heap.mutex);
     // Check alignment
