@@ -95,7 +95,7 @@ INLINE_HEADER void *nonmoving_segment_get_block(struct nonmoving_segment *seg, n
 INLINE_HEADER struct nonmoving_segment *nonmoving_get_segment(StgPtr p)
 {
     ASSERT(Bdescr(p)->flags & BF_NONMOVING);
-    const uintptr_t mask = ~(NONMOVING_SEGMENT_MASK - 1);
+    const uintptr_t mask = ~NONMOVING_SEGMENT_MASK;
     return (struct nonmoving_segment *) (((uintptr_t) p) & mask);
 }
 
