@@ -310,7 +310,7 @@ setup_tail (bdescr *bd)
 // Take a free block group bd, and split off a group of size n from
 // it.  Adjust the free list as necessary, and return the new group.
 static bdescr *
-split_free_block (bdescr *bd, uint32_t node, W_ n, uint32_t ln)
+split_free_block (bdescr *bd, uint32_t node, W_ n, uint32_t ln /* log_2_ceil(n) */)
 {
     bdescr *fg; // free group
 
@@ -325,8 +325,10 @@ split_free_block (bdescr *bd, uint32_t node, W_ n, uint32_t ln)
     return fg;
 }
 
+// Like `split_free_block`, but takes n blocks off the beginning rather
+// than the end.
 static bdescr *
-split_block (bdescr *bd, uint32_t node, W_ n, uint32_t ln)
+split_block (bdescr *bd, uint32_t node, W_ n, uint32_t ln /* log_2_ceil(n) */)
 {
     ASSERT(bd->blocks > n);
     dbl_link_remove(bd, &free_list[node][ln]);
