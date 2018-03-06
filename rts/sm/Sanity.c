@@ -29,6 +29,7 @@
 #include "Arena.h"
 #include "RetainerProfile.h"
 #include "CNF.h"
+#include "sm/NonMoving.h"
 
 /* -----------------------------------------------------------------------------
    Forward decls.
@@ -789,6 +790,15 @@ markCompactBlocks(bdescr *bd)
     }
 }
 
+static void
+markNonMovingSegments(struct nonmoving_segment *seg)
+{
+    while (seg) {
+        markBlocks(Bdescr(seg));
+        seg = seg->link;
+    }
+}
+
 // If memInventory() calculates that we have a memory leak, this
 // function will try to find the block(s) that are leaking by marking
 // all the ones that we know about, and search through memory to find
@@ -799,7 +809,7 @@ markCompactBlocks(bdescr *bd)
 static void
 findMemoryLeak (void)
 {
-    uint32_t g, i;
+    uint32_t g, i, j;
     for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
         for (i = 0; i < n_capabilities; i++) {
             markBlocks(capabilities[i]->mut_lists[g]);
@@ -821,6 +831,16 @@ findMemoryLeak (void)
         markBlocks(capabilities[i]->pinned_object_block);
         markBlocks(capabilities[i]->upd_rem_set.blocks);
     }
+
+    for (i = 0; i < NONMOVING_ALLOCA_CNT; i++) {
+        struct nonmoving_allocator *alloc = nonmoving_heap.allocators[i];
+        markNonMovingSegments(alloc->filled);
+        markNonMovingSegments(alloc->active);
+        for (j = 0; j < n_capabilities; j++) {
+            markNonMovingSegments(alloc->current[j]);
+        }
+    }
+    markNonMovingSegments(nonmoving_heap.free);
 
 #if defined(PROFILING)
   // TODO:
@@ -890,13 +910,36 @@ genBlocks (generation *gen)
         countAllocdCompactBlocks(gen->compact_blocks_in_import);
 }
 
+static W_
+countNonMovingSegments(struct nonmoving_segment *segs)
+{
+    W_ ret = 0;
+    while (segs) {
+        ret += countBlocks(Bdescr(segs));
+        segs = segs->link;
+    }
+    return ret;
+}
+
+static W_
+countNonMovingAllocator(struct nonmoving_allocator *alloc)
+{
+    W_ ret = countNonMovingSegments(alloc->filled)
+           + countNonMovingSegments(alloc->active);
+    for (int i = 0; i < n_capabilities; ++i) {
+        ret += countNonMovingSegments(alloc->current[i]);
+    }
+    return ret;
+}
+
 void
 memInventory (bool show)
 {
   uint32_t g, i;
   W_ gen_blocks[RtsFlags.GcFlags.generations];
-  W_ nursery_blocks, retainer_blocks,
-      arena_blocks, exec_blocks, gc_free_blocks, upd_rem_set_blocks = 0;
+  W_ nursery_blocks = 0, retainer_blocks = 0,
+      arena_blocks = 0, exec_blocks = 0, gc_free_blocks = 0,
+      upd_rem_set_blocks = 0, nonmoving_blocks = 0;
   W_ live_blocks = 0, free_blocks = 0;
   bool leak;
 
@@ -913,20 +956,19 @@ memInventory (bool show)
       gen_blocks[g] += genBlocks(&generations[g]);
   }
 
-  nursery_blocks = 0;
   for (i = 0; i < n_nurseries; i++) {
       ASSERT(countBlocks(nurseries[i].blocks) == nurseries[i].n_blocks);
       nursery_blocks += nurseries[i].n_blocks;
   }
   for (i = 0; i < n_capabilities; i++) {
-      gc_free_blocks += countBlocks(gc_threads[i]->free_blocks);
+      W_ n = countBlocks(gc_threads[i]->free_blocks);
+      gc_free_blocks += n;
       if (capabilities[i]->pinned_object_block != NULL) {
           nursery_blocks += capabilities[i]->pinned_object_block->blocks;
       }
       nursery_blocks += countBlocks(capabilities[i]->pinned_object_blocks);
   }
 
-  retainer_blocks = 0;
 #if defined(PROFILING)
   if (RtsFlags.ProfFlags.doHeapProfile == HEAP_BY_RETAINER) {
       retainer_blocks = retainerStackBlocks();
@@ -947,13 +989,19 @@ memInventory (bool show)
       upd_rem_set_blocks += countBlocks(capabilities[i]->upd_rem_set.blocks);
   }
 
+  // count nonmoving blocks
+  for (int alloc_idx = 0; alloc_idx < NONMOVING_ALLOCA_CNT; alloc_idx++) {
+      nonmoving_blocks += countNonMovingAllocator(nonmoving_heap.allocators[alloc_idx]);
+  }
+  nonmoving_blocks += countNonMovingSegments(nonmoving_heap.free);
+
   live_blocks = 0;
   for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
       live_blocks += gen_blocks[g];
   }
   live_blocks += nursery_blocks +
                + retainer_blocks + arena_blocks + exec_blocks + gc_free_blocks
-               + upd_rem_set_blocks;
+               + upd_rem_set_blocks + nonmoving_blocks;
 
 #define MB(n) (((double)(n) * BLOCK_SIZE_W) / ((1024*1024)/sizeof(W_)))
 
@@ -984,6 +1032,8 @@ memInventory (bool show)
                  free_blocks, MB(free_blocks));
       debugBelch("  UpdRemSet    : %5" FMT_Word " blocks (%6.1lf MB)\n",
                  upd_rem_set_blocks, MB(upd_rem_set_blocks));
+      debugBelch("  nonmoving    : %5" FMT_Word " blocks (%6.1lf MB)\n",
+                 nonmoving_blocks, MB(nonmoving_blocks));
       debugBelch("  total        : %5" FMT_Word " blocks (%6.1lf MB)\n",
                  live_blocks + free_blocks, MB(live_blocks+free_blocks));
       if (leak) {

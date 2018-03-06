@@ -524,6 +524,9 @@ allocAlignedGroupOnNode (uint32_t node, W_ n)
     // Just to make sure I get this right
     ASSERT(Bdescr(bd->start) == bd);
 
+    // Fix allocation records, we allocated `num_blocks` blocks but later freed slops
+    recordFreedBlocks(node, slop_low_blocks + slop_high_blocks);
+
     return bd;
 }
 
