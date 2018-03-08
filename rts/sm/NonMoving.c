@@ -17,8 +17,12 @@ generation nonmoving_gen;
 
 #define MAX(h,i) ((h) > (i) ? (h) : (i))
 
-// Request a fresh segment from the free segment list or allocate one of the
-// given node.
+/*
+ * Request a fresh segment from the free segment list or allocate one of the
+ * given node.
+ *
+ * Must hold sm_mutex.
+ */
 static struct nonmoving_segment *nonmoving_alloc_segment(uint32_t node)
 {
     struct nonmoving_segment *ret;
@@ -28,7 +32,7 @@ static struct nonmoving_segment *nonmoving_alloc_segment(uint32_t node)
         nonmoving_heap.free = ret->link;
     } else {
         // TODO Aligned block allocation (#7)
-        bdescr *bd = allocGroupOnNode_lock(node, 2*NONMOVING_SEGMENT_BLOCKS - 1);
+        bdescr *bd = allocGroupOnNode(node, 2*NONMOVING_SEGMENT_BLOCKS - 1);
         initBdescr(bd, &nonmoving_gen, &nonmoving_gen); // TODO: hmmmm, refactoring needed?
         bd->flags = BF_NONMOVING;
         // TODO allocation accounting?
@@ -159,8 +163,12 @@ void nonmoving_init(void)
     }
 }
 
-// Assumes that no garbage collector or mutator threads are running to safely
-// resize the nonmoving_allocators.
+/*
+ * Assumes that no garbage collector or mutator threads are running to safely
+ * resize the nonmoving_allocators.
+ *
+ * Must hold sm_mutex.
+ */
 void nonmoving_add_capabilities(uint32_t new_n_caps)
 {
     unsigned int old_n_caps = nonmoving_heap.n_caps;
