@@ -83,7 +83,7 @@ Mutex sm_mutex;
 static void allocNurseries (uint32_t from, uint32_t to);
 static void assignNurseriesToCapabilities (uint32_t from, uint32_t to);
 
-static void
+void
 initGeneration (generation *gen, int g)
 {
     gen->no = g;
