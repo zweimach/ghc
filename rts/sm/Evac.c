@@ -26,7 +26,6 @@
 #include "Trace.h"
 #include "LdvProfile.h"
 #include "CNF.h"
-#include "NonMoving.h"
 #include "Scav.h"
 #include "NonMoving.h"
 
