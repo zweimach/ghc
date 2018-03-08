@@ -171,6 +171,9 @@ void _assertFail(const char *filename, unsigned int linenum)
 #include "rts/Messages.h"
 #include "rts/Threads.h"
 
+/* For the code generator */
+#include "rts/NonMoving.h"
+
 /* Storage format definitions */
 #include "rts/storage/FunTypes.h"
 #include "rts/storage/InfoTables.h"
