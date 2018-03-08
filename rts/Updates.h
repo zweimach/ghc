@@ -55,10 +55,11 @@
     if (bdescr_gen_no(bd) != 0 :: bits16) {                     \
       recordMutableCap(p1, TO_W_(bdescr_gen_no(bd)));           \
       TICK_UPD_OLD_IND();                                       \
+      and_then;                                                 \
     } else {                                                    \
       TICK_UPD_NEW_IND();                                       \
-    }                                                           \
-    and_then;
+      and_then;                                                 \
+    }
 
 #else /* !CMINUSMINUS */
 
