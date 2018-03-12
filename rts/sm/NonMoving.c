@@ -72,17 +72,8 @@ static inline unsigned long log2_floor(unsigned long x)
 
 static inline unsigned long log2_ceil(unsigned long x)
 {
-#if 0
-    int res = 0;
-    while (x) {
-        res++;
-        x = x >> 1;
-    }
-    return res;
-#else
     unsigned long log = log2_floor(x);
     return (x - (1 << log)) ? log + 1 : log;
-#endif
 }
 
 static void *nonmoving_allocate_block_from_segment(struct nonmoving_segment *seg)
