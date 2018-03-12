@@ -51,6 +51,7 @@ STATIC_INLINE void evacuate_large(StgPtr p);
    Allocate some space in which to copy an object.
    -------------------------------------------------------------------------- */
 
+/* size is in words */
 STATIC_INLINE StgPtr
 alloc_for_copy (uint32_t size, uint32_t gen_no)
 {
@@ -98,6 +99,7 @@ alloc_for_copy (uint32_t size, uint32_t gen_no)
    The evacuate() code
    -------------------------------------------------------------------------- */
 
+/* size is in words */
 STATIC_INLINE GNUC_ATTR_HOT void
 copy_tag(StgClosure **p, const StgInfoTable *info,
          StgClosure *src, uint32_t size, uint32_t gen_no, StgWord tag)
