@@ -20,6 +20,15 @@ generation nonmoving_gen;
 // TODO: Forward-declare this more reasonably
 void initGeneration (generation *gen, int g);
 
+static void nonmoving_init_segment(struct nonmoving_segment *seg, uint8_t block_size)
+{
+    seg->link = NULL;
+    seg->next_free = 0;
+    seg->next_free_snap = 0;
+    seg->block_size = block_size;
+    nonmoving_clear_bitmap(seg);
+}
+
 /*
  * Request a fresh segment from the free segment list or allocate one of the
  * given node.
@@ -88,12 +97,13 @@ static void *nonmoving_allocate_block_from_segment(struct nonmoving_segment *seg
     return 0;
 }
 
+/* sz is in words */
 void *nonmoving_allocate(Capability *cap, StgWord sz)
 {
-    int allocator_idx = MAX(log2_ceil(sz), NONMOVING_ALLOCA0);
-    if (allocator_idx < NONMOVING_ALLOCA0) {
-        allocator_idx = NONMOVING_ALLOCA0;
-    } else if (allocator_idx > NONMOVING_ALLOCA0 + NONMOVING_ALLOCA_CNT) {
+    int allocator_idx = log2_ceil(sz) - NONMOVING_ALLOCA0 + log2_ceil(sizeof(StgWord));
+    if (allocator_idx < 0) {
+        allocator_idx = 0;
+    } else if (allocator_idx > NONMOVING_ALLOCA_CNT) {
         // TODO: Allocate large object? Perhaps this should be handled elsewhere
         ASSERT(false);
     }
@@ -113,7 +123,7 @@ void *nonmoving_allocate(Capability *cap, StgWord sz)
             }
         }
 
-        // Current segments is filled; look elsewhere
+        // Current segment is filled; look elsewhere
         if (alloca->active) {
             // We want to move the current segment to the filled list and pull a
             // new segment from active. This is a bit tricky in the face of

@@ -87,7 +87,7 @@ INLINE_HEADER void *nonmoving_segment_get_block(struct nonmoving_segment *seg, n
 {
   int blk_size = nonmoving_segment_block_size(seg);
   int n = nonmoving_segment_block_count(seg);
-  return ((uint8_t*) seg) + n + i * blk_size;
+  return (void *) (((uint8_t*) seg) + n + i * blk_size);
 }
 
 // Get the segment which a closure resides in. Assumes that pointer points into
@@ -113,15 +113,6 @@ INLINE_HEADER void nonmoving_clear_bitmap(struct nonmoving_segment *seg)
 {
     unsigned int n = nonmoving_segment_block_count(seg);
     memset(seg->bitmap, 0, n);
-}
-
-INLINE_HEADER void nonmoving_init_segment(struct nonmoving_segment *seg, uint8_t block_size)
-{
-    seg->link = NULL;
-    seg->next_free = 0;
-    seg->next_free_snap = 0;
-    seg->block_size = block_size;
-    nonmoving_clear_bitmap(seg);
 }
 
 INLINE_HEADER void nonmoving_set_mark_bit(struct nonmoving_segment *seg, nonmoving_block_idx i)
