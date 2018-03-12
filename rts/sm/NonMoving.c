@@ -90,6 +90,7 @@ void *nonmoving_allocate(Capability *cap, StgWord sz)
         allocator_idx = NONMOVING_ALLOCA0;
     } else if (allocator_idx > NONMOVING_ALLOCA0 + NONMOVING_ALLOCA_CNT) {
         // TODO: Allocate large object? Perhaps this should be handled elsewhere
+        ASSERT(false);
     }
 
     struct nonmoving_allocator *alloca = nonmoving_heap.allocators[allocator_idx];
