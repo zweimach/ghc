@@ -33,7 +33,9 @@ static struct nonmoving_segment *nonmoving_alloc_segment(uint32_t node)
     } else {
         // TODO Aligned block allocation (#7)
         bdescr *bd = allocGroupOnNode(node, 2*NONMOVING_SEGMENT_BLOCKS - 1);
-        initBdescr(bd, &nonmoving_gen, &nonmoving_gen); // TODO: hmmmm, refactoring needed?
+        for (unsigned int i=0; i < 2*NONMOVING_SEGMENT_BLOCKS - 1; i++) {
+            initBdescr(bd+i, &nonmoving_gen, &nonmoving_gen); // TODO: hmmmm, refactoring needed?
+        }
         bd->flags = BF_NONMOVING;
         // TODO allocation accounting?
 
