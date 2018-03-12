@@ -37,7 +37,7 @@ typedef struct {
             StgClosure *mark_indir;
         } mark_from_sel;
         struct {
-            StgMutArrPtrs *array;
+            const StgMutArrPtrs *array;
             StgWord start_index;
         } mark_array;
     };
