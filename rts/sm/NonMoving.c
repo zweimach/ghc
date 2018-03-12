@@ -51,14 +51,24 @@ static struct nonmoving_segment *nonmoving_alloc_segment(uint32_t node)
     return ret;
 }
 
-static int log2_ceil(int x)
+static inline unsigned long log2_floor(unsigned long x)
 {
+    return sizeof(unsigned long)*8 - 1 - __builtin_clzl(x);
+}
+
+static inline unsigned long log2_ceil(unsigned long x)
+{
+#if 0
     int res = 0;
     while (x) {
         res++;
         x = x >> 1;
     }
     return res;
+#else
+    unsigned long log = log2_floor(x);
+    return (x - (1 << log)) ? log + 1 : log;
+#endif
 }
 
 static void *nonmoving_allocate_block_from_segment(struct nonmoving_segment *seg)
