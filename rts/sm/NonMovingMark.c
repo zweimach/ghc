@@ -693,7 +693,7 @@ GNUC_ATTR_HOT void nonmoving_mark(MarkQueue *queue)
             ASSERT(0); // TODO
             break;
         case MARK_ARRAY: {
-            StgMutArrPtrs *arr = ent.mark_array.array;
+            const StgMutArrPtrs *arr = ent.mark_array.array;
             StgWord start = ent.mark_array.start_index;
             StgWord end = start + MARK_ARRAY_CHUNK_LENGTH;
             if (end < arr->ptrs) {
