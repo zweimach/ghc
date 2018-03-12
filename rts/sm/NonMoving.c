@@ -17,6 +17,9 @@ generation nonmoving_gen;
 
 #define MAX(h,i) ((h) > (i) ? (h) : (i))
 
+// TODO: Forward-declare this more reasonably
+void initGeneration (generation *gen, int g);
+
 /*
  * Request a fresh segment from the free segment list or allocate one of the
  * given node.
