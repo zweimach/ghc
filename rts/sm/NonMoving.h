@@ -30,6 +30,9 @@ struct nonmoving_segment {
     uint16_t next_free_snap;         // snapshot of next_free
     uint8_t block_size;              // log2 of block size
     uint8_t bitmap[];                // liveness bitmap
+    // After the liveness bitmap comes the data blocks. Note that we need to
+    // ensure that the size of the liveness bitmap is a multiple of the word size
+    // since GHC assumes that all object pointers are so-aligned.
 };
 
 // The index of a block within a segment
@@ -86,8 +89,10 @@ INLINE_HEADER unsigned int nonmoving_segment_block_count(struct nonmoving_segmen
 INLINE_HEADER void *nonmoving_segment_get_block(struct nonmoving_segment *seg, nonmoving_block_idx i)
 {
   int blk_size = nonmoving_segment_block_size(seg);
-  int n = nonmoving_segment_block_count(seg);
-  return (void *) (((uint8_t*) seg) + n + i * blk_size);
+  // Bitmap size must be aligned to word size
+  unsigned int bitmap_size = (nonmoving_segment_block_count(seg) + sizeof(W_) - 1) / sizeof(W_) * sizeof(W_);
+  uint8_t *res = ((uint8_t*) seg) + sizeof(struct nonmoving_segment) + bitmap_size + i * blk_size;
+  return (void *) res;
 }
 
 // Get the segment which a closure resides in. Assumes that pointer points into
