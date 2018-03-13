@@ -13,7 +13,7 @@
 
 struct nonmoving_heap nonmoving_heap;
 
-generation nonmoving_gen;
+generation *nonmoving_gen;
 
 #define MAX(h,i) ((h) > (i) ? (h) : (i))
 
@@ -46,7 +46,7 @@ static struct nonmoving_segment *nonmoving_alloc_segment(uint32_t node)
         // TODO Aligned block allocation (#7)
         bdescr *bd = allocGroupOnNode(node, 2*NONMOVING_SEGMENT_BLOCKS - 1);
         for (unsigned int i=0; i < 2*NONMOVING_SEGMENT_BLOCKS - 1; i++) {
-            initBdescr(bd+i, &nonmoving_gen, &nonmoving_gen); // TODO: hmmmm, refactoring needed?
+            initBdescr(bd+i, nonmoving_gen, nonmoving_gen); // TODO: hmmmm, refactoring needed?
         }
         bd->flags = BF_NONMOVING;
         // TODO allocation accounting?
@@ -175,7 +175,7 @@ static struct nonmoving_allocator *alloc_nonmoving_allocator(uint32_t n_caps)
 void nonmoving_init(void)
 {
     initMutex(&nonmoving_heap.mutex);
-    initGeneration(&nonmoving_gen, RtsFlags.GcFlags.generations);
+    nonmoving_gen = &generations[RtsFlags.GcFlags.generations-1];
     for (unsigned int i = 0; i < NONMOVING_ALLOCA_CNT; i++) {
         nonmoving_heap.allocators[i] = alloc_nonmoving_allocator(n_capabilities);
     }
