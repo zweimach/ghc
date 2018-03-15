@@ -799,7 +799,7 @@ static void
 markNonMovingSegments(struct nonmoving_segment *seg)
 {
     while (seg) {
-        markBlocks(Bdescr(seg));
+        markBlocks(Bdescr((P_)seg));
         seg = seg->link;
     }
 }
@@ -920,7 +920,7 @@ countNonMovingSegments(struct nonmoving_segment *segs)
 {
     W_ ret = 0;
     while (segs) {
-        ret += countBlocks(Bdescr(segs));
+        ret += countBlocks(Bdescr((P_)segs));
         segs = segs->link;
     }
     return ret;
@@ -931,7 +931,7 @@ countNonMovingAllocator(struct nonmoving_allocator *alloc)
 {
     W_ ret = countNonMovingSegments(alloc->filled)
            + countNonMovingSegments(alloc->active);
-    for (int i = 0; i < n_capabilities; ++i) {
+    for (uint32_t i = 0; i < n_capabilities; ++i) {
         ret += countNonMovingSegments(alloc->current[i]);
     }
     return ret;
