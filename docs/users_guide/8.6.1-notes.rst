@@ -13,6 +13,13 @@ Highlights
 
 The highlights, since the 8.4.1 release, are:
 
+- Programs are no longer constrained by the Windows ``MAX_PATH`` file path
+  length limit. The file path limit is now approximately 32,767 characters. Note
+  that GHC itself is still somewhat limited due to GCC not supporting file
+  namespaced paths. Paths that are passed directly to the compiler, linker or
+  other GNU tools are currently still constrained. See :ref:`windows-file-paths`
+  for details.
+
 - Many, many bug fixes.
 
 
