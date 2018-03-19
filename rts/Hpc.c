@@ -13,6 +13,7 @@
 #include <ctype.h>
 #include <string.h>
 #include <assert.h>
+#include <fs.h>
 
 #if defined(HAVE_SYS_TYPES_H)
 #include <sys/types.h>
@@ -233,7 +234,7 @@ startupHpc(void)
     sprintf(tixFilename, "%s.tix", prog_name);
   }
 
-  if (init_open(fopen(tixFilename,"r"))) {
+  if (init_open(__hs_fopen(tixFilename,"r"))) {
     readTix();
   }
 }
@@ -387,7 +388,7 @@ exitHpc(void) {
   // not clober the .tix file.
 
   if (hpc_pid == getpid()) {
-    FILE *f = fopen(tixFilename,"w");
+    FILE *f = __hs_fopen(tixFilename,"w");
     writeTix(f);
   }
 

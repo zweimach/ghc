@@ -14,7 +14,7 @@
 #if defined(mingw32_HOST_OS)
 #define pathcmp wcscmp
 #define pathlen wcslen
-#define pathopen _wfopen
+#define pathopen __hs_fwopen
 #define pathstat _wstat
 #define struct_stat struct _stat
 #define open wopen
