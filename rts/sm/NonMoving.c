@@ -164,7 +164,7 @@ static struct nonmoving_allocator *alloc_nonmoving_allocator(uint32_t n_caps)
 void nonmoving_init(void)
 {
     initMutex(&nonmoving_heap.mutex);
-    initGeneration(&nonmoving_gen, RtsFlags.GcFlags.generations);
+    initGeneration(&nonmoving_gen, RtsFlags.GcFlags.generations-1);
     for (unsigned int i = 0; i < NONMOVING_ALLOCA_CNT; i++) {
         nonmoving_heap.allocators[i] = alloc_nonmoving_allocator(n_capabilities);
     }
