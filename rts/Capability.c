@@ -1111,8 +1111,6 @@ shutdownCapability (Capability *cap USED_IF_THREADS,
     // return via resumeThread() and attempt to grab cap->lock.
     // closeMutex(&cap->lock);
 #endif
-
-    debugTrace(true, "upd_rem_set size: %d", count_upd_rem_set(cap));
 }
 
 void
