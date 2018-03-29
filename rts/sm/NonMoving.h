@@ -130,4 +130,10 @@ INLINE_HEADER bool nonmoving_get_mark_bit(struct nonmoving_segment *seg, nonmovi
     return seg->bitmap[i];
 }
 
+#if defined(DEBUG)
+
+void nonmoving_print_segment(struct nonmoving_segment *seg);
+
+#endif
+
 #include "EndPrivate.h"

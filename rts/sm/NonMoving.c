@@ -202,3 +202,30 @@ void nonmoving_add_capabilities(uint32_t new_n_caps)
     }
     nonmoving_heap.n_caps = new_n_caps;
 }
+
+#if defined(DEBUG)
+
+void nonmoving_print_segment(struct nonmoving_segment *seg)
+{
+    int num_blocks = nonmoving_segment_block_count(seg);
+
+    debugBelch("Segment with %d blocks of size 2^%d (%d bytes, %lu words)\n",
+               num_blocks,
+               seg->block_size,
+               1 << seg->block_size,
+               ROUNDUP_BYTES_TO_WDS(1 << seg->block_size));
+
+    for (nonmoving_block_idx p_idx = 0; p_idx < seg->next_free; ++p_idx) {
+        StgClosure *p = (StgClosure*)nonmoving_segment_get_block(seg, p_idx);
+        if (nonmoving_get_mark_bit(seg, p_idx)) {
+            debugBelch("%d (%p)* :\t", p_idx, (void*)p);
+        } else {
+            debugBelch("%d (%p)  :\t", p_idx, (void*)p);
+        }
+        printClosure(p);
+    }
+
+    debugBelch("End of segment\n\n");
+}
+
+#endif
