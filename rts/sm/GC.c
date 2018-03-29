@@ -50,6 +50,7 @@
 #include "CheckUnload.h"
 #include "CNF.h"
 #include "RtsFlags.h"
+#include "NonMovingScav.h"
 
 #if defined(PROFILING)
 #include "RetainerProfile.h"
@@ -420,6 +421,9 @@ GarbageCollect (uint32_t collect_gen,
    * Repeatedly scavenge all the areas we know about until there's no
    * more scavenging to be done.
    */
+
+  scavenge_nonmoving_heap();
+
   for (;;)
   {
       scavenge_until_all_done();

@@ -45,6 +45,7 @@ static void scavenge_large_bitmap (StgPtr p,
 # define scavenge_block(a) scavenge_block1(a)
 # define scavenge_mutable_list(bd,g) scavenge_mutable_list1(bd,g)
 # define scavenge_capability_mut_lists(cap) scavenge_capability_mut_Lists1(cap)
+# define scavenge_one(a) scavenge_one1(a)
 #endif
 
 static void do_evacuate(StgClosure **p, void *user STG_UNUSED)
@@ -1249,7 +1250,7 @@ scavenge_mark_stack(void)
    objects can have this property.
    -------------------------------------------------------------------------- */
 
-static bool
+bool
 scavenge_one(StgPtr p)
 {
     const StgInfoTable *info;
