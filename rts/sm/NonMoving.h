@@ -23,20 +23,20 @@
 _Static_assert(NONMOVING_SEGMENT_SIZE % BLOCK_SIZE == 0,
                "non-moving segment size must be multiple of block size");
 
+// The index of a block within a segment
+typedef uint16_t nonmoving_block_idx;
+
 // A non-moving heap segment
 struct nonmoving_segment {
-    struct nonmoving_segment *link;  // for linking together segments into lists
-    uint16_t next_free;              // index of the next unallocated block
-    uint16_t next_free_snap;         // snapshot of next_free
-    uint8_t block_size;              // log2 of block size
-    uint8_t bitmap[];                // liveness bitmap
+    struct nonmoving_segment *link;     // for linking together segments into lists
+    nonmoving_block_idx next_free;      // index of the next unallocated block
+    nonmoving_block_idx next_free_snap; // snapshot of next_free
+    uint8_t block_size;                 // log2 of block size
+    uint8_t bitmap[];                   // liveness bitmap
     // After the liveness bitmap comes the data blocks. Note that we need to
     // ensure that the size of the liveness bitmap is a multiple of the word size
     // since GHC assumes that all object pointers are so-aligned.
 };
-
-// The index of a block within a segment
-typedef uint32_t nonmoving_block_idx;
 
 // A non-moving allocator for a particular block size
 struct nonmoving_allocator {
@@ -67,6 +67,9 @@ struct nonmoving_heap {
 
 extern struct nonmoving_heap nonmoving_heap;
 
+// Segments to scavenge
+extern struct nonmoving_segment* nonmoving_todos;
+
 void nonmoving_init(void);
 void *nonmoving_allocate(Capability *cap, StgWord sz);
 void nonmoving_add_capabilities(uint32_t new_n_caps);
@@ -78,11 +81,14 @@ INLINE_HEADER unsigned int nonmoving_segment_block_size(struct nonmoving_segment
   return 1 << seg->block_size;
 }
 
-// How many blocks does the given segment contain?
+// How many blocks does the given segment contain? Also the size of the bitmap.
 INLINE_HEADER unsigned int nonmoving_segment_block_count(struct nonmoving_segment *seg)
 {
   unsigned int sz = nonmoving_segment_block_size(seg);
-  return (NONMOVING_SEGMENT_SIZE - sizeof(*seg)) / (sz + 1);
+  // return (NONMOVING_SEGMENT_SIZE - sizeof(*seg)) / (sz + 1);
+  unsigned int segment_data_size = NONMOVING_SEGMENT_SIZE - sizeof(struct nonmoving_segment);
+  segment_data_size -= segment_data_size % SIZEOF_VOID_P;
+  return segment_data_size / (sz + 1);
 }
 
 // Get a pointer to the given block index
@@ -90,8 +96,13 @@ INLINE_HEADER void *nonmoving_segment_get_block(struct nonmoving_segment *seg, n
 {
   int blk_size = nonmoving_segment_block_size(seg);
   // Bitmap size must be aligned to word size
-  unsigned int bitmap_size = (nonmoving_segment_block_count(seg) + sizeof(W_) - 1) / sizeof(W_) * sizeof(W_);
-  uint8_t *res = ((uint8_t*) seg) + sizeof(struct nonmoving_segment) + bitmap_size + i * blk_size;
+  unsigned int bitmap_size = nonmoving_segment_block_count(seg);
+  W_ res = ROUNDUP_BYTES_TO_WDS(((W_)seg) + sizeof(struct nonmoving_segment) + bitmap_size) * sizeof(W_) + i * blk_size;
+  /*
+  unsigned int bitmap_size = nonmoving_segment_block_count(seg);
+  unsigned int bitmap_size_padding = ROUNDUP_BYTES_TO_WDS(bitmap_size) * SIZEOF_VOID_P;
+  uint8_t *res = ((uint8_t*) seg) + sizeof(struct nonmoving_segment) + bitmap_size_padding + i * blk_size;
+  */
   return (void *) res;
 }
 
