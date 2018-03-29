@@ -55,6 +55,8 @@ STATIC_INLINE void evacuate_large(StgPtr p);
 STATIC_INLINE StgPtr
 alloc_for_copy (uint32_t size, uint32_t gen_no)
 {
+    ASSERT(gen_no < RtsFlags.GcFlags.generations);
+
     if (major_gc) {
         // unconditionally promote to non-moving heap in major gc
         return nonmoving_allocate(gct->cap, size);
@@ -577,6 +579,7 @@ loop:
 
   if ((bd->flags & (BF_LARGE | BF_MARKED | BF_EVACUATED | BF_COMPACT | BF_NONMOVING)) != 0) {
       if (bd->flags & BF_NONMOVING) {
+          gct->failed_to_evac = true;
           return;
       }
 

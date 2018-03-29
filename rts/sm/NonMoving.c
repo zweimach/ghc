@@ -10,10 +10,13 @@
 #include "RtsUtils.h"
 #include "NonMoving.h"
 #include "Capability.h"
+#include "Printer.h"
 
 struct nonmoving_heap nonmoving_heap;
 
 generation nonmoving_gen;
+
+struct nonmoving_segment* nonmoving_todos = NULL;
 
 #define MAX(h,i) ((h) > (i) ? (h) : (i))
 
@@ -81,6 +84,14 @@ static void *nonmoving_allocate_block_from_segment(struct nonmoving_segment *seg
 void *nonmoving_allocate(Capability *cap, StgWord sz)
 {
     int allocator_idx = log2_ceil(sz) - NONMOVING_ALLOCA0 + log2_ceil(sizeof(StgWord));
+
+    // break when allocator_idx == 2
+
+    debugBelch("Allocating %lu words in nonmoving heap using allocator %d with %lu-word sized blocks\n",
+               sz,
+               allocator_idx,
+               (1 << (NONMOVING_ALLOCA0 + allocator_idx)) / sizeof(W_));
+
     if (allocator_idx < 0) {
         allocator_idx = 0;
     } else if (allocator_idx > NONMOVING_ALLOCA_CNT) {
@@ -99,6 +110,10 @@ void *nonmoving_allocate(Capability *cap, StgWord sz)
             ret = nonmoving_allocate_block_from_segment(current);
 
             if (ret) {
+                // add the segment to the todo list
+                current->link = nonmoving_todos;
+                nonmoving_todos = current;
+                ASSERT(GET_CLOSURE_TAG(ret) == 0); // check alignment
                 return ret;
             }
         }
