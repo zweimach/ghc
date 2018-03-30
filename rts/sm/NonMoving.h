@@ -29,6 +29,7 @@ typedef uint16_t nonmoving_block_idx;
 // A non-moving heap segment
 struct nonmoving_segment {
     struct nonmoving_segment *link;     // for linking together segments into lists
+    struct nonmoving_segment *todo_link;
     nonmoving_block_idx next_free;      // index of the next unallocated block
     nonmoving_block_idx next_free_snap; // snapshot of next_free
     uint8_t block_size;                 // log2 of block size
@@ -144,6 +145,7 @@ INLINE_HEADER bool nonmoving_get_mark_bit(struct nonmoving_segment *seg, nonmovi
 #if defined(DEBUG)
 
 void nonmoving_print_segment(struct nonmoving_segment *seg);
+void nonmoving_print_allocator(struct nonmoving_allocator *alloc);
 
 #endif
 
