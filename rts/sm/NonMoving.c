@@ -18,6 +18,18 @@ generation nonmoving_gen;
 
 struct nonmoving_segment* nonmoving_todos = NULL;
 
+// Add a todo segment if it's not already in the list. Slow. FIXME
+// We should probably mark block of the segment as "NONMOVING_IN_TODOS"
+static void add_todo_segment(struct nonmoving_segment* seg)
+{
+    for (struct nonmoving_segment* todo = nonmoving_todos; todo != NULL; todo = todo->link) {
+        if (todo == seg)
+            return;
+    }
+    seg->link = nonmoving_todos;
+    nonmoving_todos = seg;
+}
+
 #define MAX(h,i) ((h) > (i) ? (h) : (i))
 
 // TODO: Forward-declare this more reasonably
@@ -110,9 +122,7 @@ void *nonmoving_allocate(Capability *cap, StgWord sz)
             ret = nonmoving_allocate_block_from_segment(current);
 
             if (ret) {
-                // add the segment to the todo list
-                current->link = nonmoving_todos;
-                nonmoving_todos = current;
+                add_todo_segment(current);
                 ASSERT(GET_CLOSURE_TAG(ret) == 0); // check alignment
                 return ret;
             }
