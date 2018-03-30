@@ -22,11 +22,11 @@ struct nonmoving_segment* nonmoving_todos = NULL;
 // We should probably mark block of the segment as "NONMOVING_IN_TODOS"
 static void add_todo_segment(struct nonmoving_segment* seg)
 {
-    for (struct nonmoving_segment* todo = nonmoving_todos; todo != NULL; todo = todo->link) {
+    for (struct nonmoving_segment* todo = nonmoving_todos; todo != NULL; todo = todo->todo_link) {
         if (todo == seg)
             return;
     }
-    seg->link = nonmoving_todos;
+    seg->todo_link = nonmoving_todos;
     nonmoving_todos = seg;
 }
 
@@ -38,6 +38,7 @@ void initGeneration (generation *gen, int g);
 static void nonmoving_init_segment(struct nonmoving_segment *seg, uint8_t block_size)
 {
     seg->link = NULL;
+    seg->todo_link = NULL;
     seg->next_free = 0;
     seg->next_free_snap = 0;
     seg->block_size = block_size;
@@ -251,6 +252,24 @@ void nonmoving_print_segment(struct nonmoving_segment *seg)
     }
 
     debugBelch("End of segment\n\n");
+}
+
+void nonmoving_print_allocator(struct nonmoving_allocator *alloc)
+{
+    debugBelch("Allocator at %p\n", (void*)alloc);
+    debugBelch("Filled segments:\n");
+    for (struct nonmoving_segment *seg = alloc->filled; seg != NULL; seg = seg->link) {
+        debugBelch("%p ", (void*)seg);
+    }
+    debugBelch("\nActive segments:\n");
+    for (struct nonmoving_segment *seg = alloc->active; seg != NULL; seg = seg->link) {
+        debugBelch("%p ", (void*)seg);
+    }
+    debugBelch("\nCurrent segments:\n");
+    for (uint32_t i = 0; i < n_capabilities; ++i) {
+        debugBelch("%p ", alloc->current[i]);
+    }
+    debugBelch("\n");
 }
 
 #endif

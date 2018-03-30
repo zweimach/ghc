@@ -36,7 +36,7 @@ void scavenge_nonmoving_heap(void)
 {
     while (nonmoving_todos) {
         struct nonmoving_segment* todo = nonmoving_todos;
-        nonmoving_todos = todo->link;
+        nonmoving_todos = todo->todo_link;
         scavenge_nonmoving_segment(todo);
     }
 }
