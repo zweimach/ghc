@@ -47,11 +47,11 @@ struct nonmoving_allocator {
     struct nonmoving_segment *current[];
 };
 
-// first allocator is of size 2^NONMOVING_ALLOCA0
+// first allocator is of size 2^NONMOVING_ALLOCA0 (in bytes)
 #define NONMOVING_ALLOCA0 3
 
 // allocators cover block sizes of 2^NONMOVING_ALLOCA0 to
-// 2^(NONMOVING_ALLOCA0 + NONMOVING_ALLOCA_CNT)
+// 2^(NONMOVING_ALLOCA0 + NONMOVING_ALLOCA_CNT) (in bytes)
 #define NONMOVING_ALLOCA_CNT 12
 
 struct nonmoving_heap {
