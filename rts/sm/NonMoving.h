@@ -32,7 +32,7 @@ struct nonmoving_segment {
     struct nonmoving_segment *todo_link;
     nonmoving_block_idx next_free;      // index of the next unallocated block
     nonmoving_block_idx next_free_snap; // snapshot of next_free
-    uint8_t block_size;                 // log2 of block size
+    uint8_t block_size;                 // log2 of block size in bytes
     uint8_t bitmap[];                   // liveness bitmap
     // After the liveness bitmap comes the data blocks. Note that we need to
     // ensure that the size of the liveness bitmap is a multiple of the word size
