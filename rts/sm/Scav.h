@@ -22,6 +22,7 @@ bool    scavenge_one(StgPtr p);
 #if defined(THREADED_RTS)
 void    scavenge_loop1 (void);
 void    scavenge_capability_mut_Lists1 (Capability *cap);
+bool    scavenge_one1(StgPtr p);
 #endif
 
 #include "EndPrivate.h"
