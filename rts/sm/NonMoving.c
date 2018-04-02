@@ -96,9 +96,7 @@ static void *nonmoving_allocate_block_from_segment(struct nonmoving_segment *seg
 /* sz is in words */
 void *nonmoving_allocate(Capability *cap, StgWord sz)
 {
-    int allocator_idx = log2_ceil(sz) - NONMOVING_ALLOCA0 + log2_ceil(sizeof(StgWord));
-
-    // break when allocator_idx == 2
+    int allocator_idx = log2_ceil(sz * sizeof(StgWord)) - NONMOVING_ALLOCA0;
 
     debugBelch("Allocating %lu words in nonmoving heap using allocator %d with %lu-word sized blocks\n",
                sz,
@@ -168,7 +166,7 @@ void *nonmoving_allocate(Capability *cap, StgWord sz)
                 while (alloca->current[cap->no] == NULL) {}
             } else {
                 struct nonmoving_segment *seg = nonmoving_alloc_segment(cap->node);
-                nonmoving_init_segment(seg, allocator_idx);
+                nonmoving_init_segment(seg, NONMOVING_ALLOCA0 + allocator_idx);
                 alloca->current[cap->no] = seg;
             }
         }
