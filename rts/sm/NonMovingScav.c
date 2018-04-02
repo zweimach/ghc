@@ -4,6 +4,8 @@
 #include "NonMovingScav.h"
 #include "Capability.h"
 #include "Scav.h"
+#include "GCThread.h" // for GCUtils.h
+#include "GCUtils.h"
 
 static void
 scavenge_nonmoving_segment(struct nonmoving_segment *seg)
@@ -24,7 +26,9 @@ scavenge_nonmoving_segment(struct nonmoving_segment *seg)
         // bit set = was allocated in the previous GC
         // bit not set = new allocation, so scavenge
         if (!(nonmoving_get_mark_bit(seg, p_idx))) {
-            scavenge_one((StgPtr)p);
+            if (scavenge_one((StgPtr)p)) {
+                recordMutableGen_GC((StgClosure*)p, oldest_gen->no);
+            }
         }
 
         p_idx++;
