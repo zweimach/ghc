@@ -325,22 +325,42 @@ split_free_block (bdescr *bd, uint32_t node, W_ n, uint32_t ln /* log_2_ceil(n) 
     return fg;
 }
 
-// Like `split_free_block`, but takes n blocks off the beginning rather
-// than the end.
+// Take N blocks off the end, free the rest.
 static bdescr *
-split_block (bdescr *bd, uint32_t node, W_ n, uint32_t ln /* log_2_ceil(n) */)
+split_block_high (bdescr *bd, W_ n)
 {
     ASSERT(bd->blocks > n);
-    dbl_link_remove(bd, &free_list[node][ln]);
+
+    bdescr* ret = bd + bd->blocks - n; // take n blocks off the end
+    ret->blocks = n;
+    ret->start = ret->free = bd->start + (bd->blocks - n)*BLOCK_SIZE_W;
+    ret->link = NULL;
+
+    bd->blocks -= n;
+
+    setup_tail(ret);
+    setup_tail(bd);
+    freeGroup(bd);
+
+    return ret;
+}
+
+// Like `split_block_high`, but takes n blocks off the beginning rather
+// than the end.
+static bdescr *
+split_block_low (bdescr *bd, W_ n)
+{
+    ASSERT(bd->blocks > n);
 
     bdescr* bd_ = bd + n;
     bd_->blocks = bd->blocks - n;
+    bd_->start = bd_->free = bd->start + n*BLOCK_SIZE_W;
+
     bd->blocks = n;
 
-    // TODO (osa): do I need to update any other fields?
+    setup_tail(bd_);
     setup_tail(bd);
-    ln = log_2(bd_->blocks);
-    dbl_link_onto(bd_, &free_list[node][ln]);
+    freeGroup(bd_);
 
     return bd;
 }
@@ -509,25 +529,43 @@ allocAlignedGroupOnNode (uint32_t node, W_ n)
 
     ASSERT(slop_low_blocks + slop_high_blocks + n == num_blocks);
 
+#ifdef DEBUG
+    checkFreeListSanity();
+    W_ free_before = countFreeList();
+#endif
+
     if (slop_low_blocks != 0) {
-        bd = split_free_block(bd, node, num_blocks - slop_low_blocks, log_2_ceil(num_blocks - slop_low_blocks));
+        bd = split_block_high(bd, num_blocks - slop_low_blocks);
+        ASSERT(countBlocks(bd) == num_blocks - slop_low_blocks);
     }
+
+#ifdef DEBUG
+    ASSERT(countFreeList() == free_before + slop_low_blocks);
+    checkFreeListSanity();
+#endif
 
     // At this point the bd should be aligned, but we may have slop on the high side
     ASSERT((uintptr_t)bd->start % group_size == 0);
 
+#ifdef DEBUG
+    free_before = countFreeList();
+#endif
+
     if (slop_high_blocks != 0) {
-        bd = split_block(bd, node, n, log_2_ceil(n));
+        bd = split_block_low(bd, n);
+        ASSERT(countBlocks(bd) == n);
     }
+
+#ifdef DEBUG
+    ASSERT(countFreeList() == free_before + slop_high_blocks);
+    checkFreeListSanity();
+#endif
 
     // Should still be aligned
     ASSERT((uintptr_t)bd->start % group_size == 0);
 
     // Just to make sure I get this right
     ASSERT(Bdescr(bd->start) == bd);
-
-    // Fix allocation records, we allocated `num_blocks` blocks but later freed slops
-    recordFreedBlocks(node, slop_low_blocks + slop_high_blocks);
 
     return bd;
 }
