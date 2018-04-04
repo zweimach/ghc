@@ -109,7 +109,7 @@ static MarkQueueEnt mark_queue_pop(MarkQueue *queue)
             // Is this the first block of the queue?
             if (queue->blocks->link == NULL) {
                 // Yes, therefore queue is empty...
-                MarkQueueEnt none = {NULL_ENTRY, {{0}}};
+                MarkQueueEnt none = {};
                 return none;
             } else {
                 // No, unwind to the previous block and try popping again...

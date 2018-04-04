@@ -31,8 +31,6 @@
 
 #include "sm/MarkWeak.h"
 
-static void scavenge_stack (StgPtr p, StgPtr stack_end);
-
 static void scavenge_large_bitmap (StgPtr p,
                                    StgLargeBitmap *large_bitmap,
                                    StgWord size );
@@ -44,14 +42,16 @@ static void scavenge_large_bitmap (StgPtr p,
 # define scavenge_block(a) scavenge_block1(a)
 # define scavenge_mutable_list(bd,g) scavenge_mutable_list1(bd,g)
 # define scavenge_capability_mut_lists(cap) scavenge_capability_mut_Lists1(cap)
-# define scavenge_one(a) scavenge_one1(a)
+# define scavengeTSO(tso) scavengeTSO1(tso)
+# define scavenge_stack(p, stack_end) scavenge_stack1(p, stack_end)
+# define scavenge_mut_arr_ptrs(info) scavenge_mut_arr_ptrs1(info)
 #endif
 
 /* -----------------------------------------------------------------------------
    Scavenge a TSO.
    -------------------------------------------------------------------------- */
 
-static void
+void
 scavengeTSO (StgTSO *tso)
 {
     bool saved_eager;
@@ -162,7 +162,7 @@ scavenge_compact(StgCompactNFData *str)
    Mutable arrays of pointers
    -------------------------------------------------------------------------- */
 
-static StgPtr scavenge_mut_arr_ptrs (StgMutArrPtrs *a)
+StgPtr scavenge_mut_arr_ptrs (StgMutArrPtrs *a)
 {
     W_ m;
     bool any_failed;
@@ -330,7 +330,7 @@ scavenge_AP (StgAP *ap)
    Scavenge SRTs
    -------------------------------------------------------------------------- */
 
-STATIC_INLINE GNUC_ATTR_HOT void
+GNUC_ATTR_HOT void
 scavenge_thunk_srt(const StgInfoTable *info)
 {
     StgThunkInfoTable *thunk_info;
@@ -344,7 +344,7 @@ scavenge_thunk_srt(const StgInfoTable *info)
     }
 }
 
-STATIC_INLINE GNUC_ATTR_HOT void
+GNUC_ATTR_HOT void
 scavenge_fun_srt(const StgInfoTable *info)
 {
     StgFunInfoTable *fun_info;
@@ -1185,7 +1185,7 @@ scavenge_mark_stack(void)
    objects can have this property.
    -------------------------------------------------------------------------- */
 
-bool
+static bool
 scavenge_one(StgPtr p)
 {
     const StgInfoTable *info;
@@ -1783,7 +1783,7 @@ scavenge_large_bitmap( StgPtr p, StgLargeBitmap *large_bitmap, StgWord size )
    AP_STACK_UPDs, since these are just sections of copied stack.
    -------------------------------------------------------------------------- */
 
-static void
+void
 scavenge_stack(StgPtr p, StgPtr stack_end)
 {
   const StgRetInfoTable* info;
