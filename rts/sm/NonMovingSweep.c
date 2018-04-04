@@ -8,6 +8,7 @@
 
 #include "Rts.h"
 #include "NonMovingSweep.h"
+#include "NonMoving.h"
 
 // On which list should a particular segment be placed?
 enum sweep_result {
@@ -96,6 +97,32 @@ nonmoving_sweep_segment(struct nonmoving_segment *seg)
     }
 }
 
+#if defined(DEBUG)
+
+static void
+clear_segment(struct nonmoving_segment* seg)
+{
+    unsigned int block_size = nonmoving_segment_block_size(seg);
+    unsigned int block_count = nonmoving_segment_block_count(seg);
+
+    size_t end = (size_t)nonmoving_segment_get_block(seg, block_count) + block_size;
+    memset(&seg->bitmap, 0, end - (size_t)&seg->bitmap);
+}
+
+static void
+clear_segment_free_blocks(struct nonmoving_segment* seg)
+{
+    unsigned int block_size = nonmoving_segment_block_size(seg);
+    for (unsigned int p_idx = 0; p_idx < nonmoving_segment_block_count(seg); ++p_idx) {
+        // after mark, so bit not set == dead
+        if (!(nonmoving_get_mark_bit(seg, p_idx))) {
+            memset(nonmoving_segment_get_block(seg, p_idx), 0, block_size);
+        }
+    }
+}
+
+#endif
+
 GNUC_ATTR_HOT void nonmoving_sweep(void)
 {
     while (nonmoving_heap.mark_list != NULL) {
@@ -105,9 +132,11 @@ GNUC_ATTR_HOT void nonmoving_sweep(void)
         switch (nonmoving_sweep_segment(seg)) {
         case SEGMENT_FREE:
             push_free_segment(seg);
+            IF_DEBUG(sanity, clear_segment(seg));
             break;
         case SEGMENT_PARTIAL:
             push_active_segment(seg);
+            IF_DEBUG(sanity, clear_segment_free_blocks(seg));
             break;
         case SEGMENT_FILLED:
             push_filled_segment(seg);
