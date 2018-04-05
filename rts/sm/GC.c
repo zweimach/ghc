@@ -422,10 +422,9 @@ GarbageCollect (uint32_t collect_gen,
    * more scavenging to be done.
    */
 
-  scavenge_nonmoving_heap();
-
   for (;;)
   {
+      scavenge_nonmoving_heap();
       scavenge_until_all_done();
       // The other threads are now stopped.  We might recurse back to
       // here, but from now on this is the only thread.
