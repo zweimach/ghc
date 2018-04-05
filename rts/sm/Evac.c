@@ -579,7 +579,6 @@ loop:
 
   if ((bd->flags & (BF_LARGE | BF_MARKED | BF_EVACUATED | BF_COMPACT | BF_NONMOVING)) != 0) {
       if (bd->flags & BF_NONMOVING) {
-          gct->failed_to_evac = true;
           return;
       }
 
