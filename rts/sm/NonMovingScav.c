@@ -326,7 +326,11 @@ scavenge_one(StgPtr p)
      */
     if (gct->failed_to_evac) {
         gct->failed_to_evac = false;
-        recordMutableGen_GC((StgClosure *)q, oldest_gen->no);
+        // generation 0 is always collected so we don't maintain a
+        // mutable list for it
+        if (oldest_gen->no > 0) {
+            recordMutableGen_GC((StgClosure *)q, oldest_gen->no);
+        }
     }
 }
 
