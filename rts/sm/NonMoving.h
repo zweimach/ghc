@@ -17,6 +17,8 @@
 #define NONMOVING_SEGMENT_MASK ((1 << NONMOVING_SEGMENT_BITS) - 1)
 // In bytes
 #define NONMOVING_SEGMENT_SIZE (1 << NONMOVING_SEGMENT_BITS)
+// In words
+#define NONMOVING_SEGMENT_SIZE_W ((1 << NONMOVING_SEGMENT_BITS) / SIZEOF_W)
 // In blocks
 #define NONMOVING_SEGMENT_BLOCKS (NONMOVING_SEGMENT_SIZE / BLOCK_SIZE)
 
@@ -146,6 +148,7 @@ INLINE_HEADER bool nonmoving_get_mark_bit(struct nonmoving_segment *seg, nonmovi
 
 void nonmoving_print_segment(struct nonmoving_segment *seg);
 void nonmoving_print_allocator(struct nonmoving_allocator *alloc);
+void locate_object(P_ obj);
 
 #endif
 

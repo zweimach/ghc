@@ -7,6 +7,7 @@
 #include "Evac.h"
 #include "GCThread.h" // for GCUtils.h
 #include "GCUtils.h"
+#include "Printer.h"
 
 static void
 scavenge_one(StgPtr p)
@@ -353,12 +354,21 @@ scavenge_nonmoving_segment(struct nonmoving_segment *seg)
         // bit set = was allocated in the previous GC
         // bit not set = new allocation, so scavenge
         if (!(nonmoving_get_mark_bit(seg, p_idx))) {
+#ifdef DEBUG
+            debugBelch("Scavenging %d: ", p_idx);
+            printClosure(p);
+#endif
             scavenge_one((StgPtr)p);
         }
 
         p_idx++;
         p = (StgClosure*)(((uint8_t*)p) + nonmoving_segment_block_size(seg));
     }
+
+
+#ifdef DEBUG
+    debugBelch("Scavenge done\n");
+#endif
 }
 
 void scavenge_nonmoving_heap(void)
