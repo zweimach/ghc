@@ -15,8 +15,6 @@
 
 struct nonmoving_heap nonmoving_heap;
 
-generation nonmoving_gen;
-
 struct nonmoving_segment* nonmoving_todos = NULL;
 
 // Add a todo segment if it's not already in the list. Slow. FIXME
@@ -61,10 +59,10 @@ static struct nonmoving_segment *nonmoving_alloc_segment(uint32_t node)
         nonmoving_heap.free = ret->link;
     } else {
         bdescr *bd = allocAlignedGroupOnNode(node, NONMOVING_SEGMENT_BLOCKS);
-        initBdescr(bd, &nonmoving_gen, &nonmoving_gen);
+        initBdescr(bd, oldest_gen, oldest_gen);
         for (StgWord32 i = 0; i < bd->blocks; ++i) {
             bd[i].flags = BF_NONMOVING;
-            bd[i].gen = &nonmoving_gen;
+            bd[i].gen = oldest_gen;
         }
         ret = (struct nonmoving_segment *)bd->start;
     }
@@ -166,7 +164,6 @@ static struct nonmoving_allocator *alloc_nonmoving_allocator(uint32_t n_caps)
 void nonmoving_init(void)
 {
     initMutex(&nonmoving_heap.mutex);
-    initGeneration(&nonmoving_gen, RtsFlags.GcFlags.generations-1);
     for (unsigned int i = 0; i < NONMOVING_ALLOCA_CNT; i++) {
         nonmoving_heap.allocators[i] = alloc_nonmoving_allocator(n_capabilities);
     }
