@@ -160,8 +160,6 @@ initStorage (void)
   for(g = 0; g < RtsFlags.GcFlags.generations; g++) {
       initGeneration(&generations[g], g);
   }
-  nonmoving_init();
-  nonmoving_add_capabilities(n_capabilities);
 
   /* A couple of convenience pointers */
   g0 = &generations[0];
@@ -172,6 +170,10 @@ initStorage (void)
       generations[g].to = &generations[g+1];
   }
   oldest_gen->to = oldest_gen;
+
+  // Nonmoving heap uses oldest_gen so initialize it after initializing oldest_gen
+  nonmoving_init();
+  nonmoving_add_capabilities(n_capabilities);
 
   /* The oldest generation has one step. */
   if (RtsFlags.GcFlags.compact || RtsFlags.GcFlags.sweep) {
