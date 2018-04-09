@@ -121,59 +121,32 @@ void *nonmoving_allocate(Capability *cap, StgWord sz)
     while (true) {
         // First try allocating into current segment
         struct nonmoving_segment *current = alloca->current[cap->no];
-        if (current) {
-            void *ret = NULL;
-            ret = nonmoving_allocate_block_from_segment(current);
-
-            if (ret) {
-                add_todo_segment(current);
-                ASSERT(GET_CLOSURE_TAG(ret) == 0); // check alignment
-                return ret;
-            }
+        ASSERT(current);
+        void *ret = nonmoving_allocate_block_from_segment(current);
+        if (ret) {
+            add_todo_segment(current);
+            ASSERT(GET_CLOSURE_TAG(ret) == 0); // check alignment
+            return ret;
         }
 
-        // Current segment is filled; look elsewhere
-        if (alloca->active) {
-            // We want to move the current segment to the filled list and pull a
-            // new segment from active. This is a bit tricky in the face of
-            // parallel allocation
-            struct nonmoving_segment *new_current = alloca->active;
-            struct nonmoving_segment *old_current = (struct nonmoving_segment *)
-                cas((StgVolatilePtr) &alloca->current[cap->no],
-                    (StgWord) current,
-                    (StgWord) new_current);
-            if (old_current == current) {
-                // we have successfully locked the allocator; insert old current into filled list
-                while (true) {
-                    old_current->link = alloca->filled;
-                    write_barrier(); // Ensure ->link update appears; TODO: Is this implied by CAS?
-                    struct nonmoving_segment *out = (struct nonmoving_segment *)
-                        cas((StgVolatilePtr) &alloca->filled,
-                            (StgWord) old_current->link,
-                            (StgWord) old_current);
-                    if (out == old_current->link) {
-                        break; // successful insert
-                    }
-                }
-            } else {
-                // someone else locked the allocator to perform the insertion
-            }
+        // current segment filled, link if to filled
+        current->link = alloca->filled;
+        alloca->filled = current;
 
-        // There are no active segments, allocate more segments
-        } else {
-            // Lock the allocator by setting current=NULL while we request a new segment.
-            struct nonmoving_segment *old_current = (struct nonmoving_segment *)
-                cas((StgVolatilePtr) &alloca->current[cap->no],
-                    (StgWord) current,
-                    0);
-            if (old_current == NULL) {
-                // Wait until other thread has finished
-                while (alloca->current[cap->no] == NULL) {}
-            } else {
-                struct nonmoving_segment *seg = nonmoving_alloc_segment(cap->node);
-                nonmoving_init_segment(seg, NONMOVING_ALLOCA0 + allocator_idx);
-                alloca->current[cap->no] = seg;
-            }
+        // check active
+        if (alloca->active) {
+            // remove an active, make it current
+            struct nonmoving_segment *new_current = alloca->active;
+            alloca->active = new_current->link;
+            new_current->link = NULL;
+            alloca->current[cap->no] = new_current;
+        }
+
+        // there are no active segments, allocate new segment
+        else {
+            struct nonmoving_segment *new_current = nonmoving_alloc_segment(cap->node);
+            nonmoving_init_segment(new_current, NONMOVING_ALLOCA0 + allocator_idx);
+            alloca->current[cap->no] = new_current;
         }
     }
 }
