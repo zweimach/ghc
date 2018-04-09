@@ -113,6 +113,7 @@ printThunkObject( StgThunk *obj, char* tag )
 void
 printClosure( const StgClosure *obj )
 {
+    debugBelch("%p: ", obj);
     obj = UNTAG_CONST_CLOSURE(obj);
     const StgInfoTable* info = get_itbl(obj);
 
@@ -650,6 +651,17 @@ static void printStack( StgStack *stack )
 void printTSO( StgTSO *tso )
 {
     printStack( tso->stackobj );
+}
+
+void printStaticObjects( StgClosure *p )
+{
+    while (p != END_OF_STATIC_OBJECT_LIST) {
+        p = UNTAG_STATIC_LIST_PTR(p);
+        printClosure(p);
+
+        const StgInfoTable *info = get_itbl(p);
+        p = *STATIC_LINK(info, p);
+    }
 }
 
 /* --------------------------------------------------------------------------
