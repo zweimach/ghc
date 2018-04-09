@@ -926,6 +926,10 @@ evacuate_BLACKHOLE(StgClosure **p)
     // blackholes can't be in a compact
     ASSERT((bd->flags & BF_COMPACT) == 0);
 
+    if (bd->flags & BF_NONMOVING) {
+        return;
+    }
+
     // blackholes *can* be in a large object: when raiseAsync() creates an
     // AP_STACK the payload might be large enough to create a large object.
     // See #14497.

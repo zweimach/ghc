@@ -11,6 +11,7 @@
 #include "NonMoving.h"
 #include "Capability.h"
 #include "Printer.h"
+#include "Storage.h"
 
 struct nonmoving_heap nonmoving_heap;
 
@@ -61,7 +62,10 @@ static struct nonmoving_segment *nonmoving_alloc_segment(uint32_t node)
     } else {
         bdescr *bd = allocAlignedGroupOnNode(node, NONMOVING_SEGMENT_BLOCKS);
         initBdescr(bd, &nonmoving_gen, &nonmoving_gen);
-        bd->flags = BF_NONMOVING;
+        for (StgWord32 i = 0; i < bd->blocks; ++i) {
+            bd[i].flags = BF_NONMOVING;
+            bd[i].gen = &nonmoving_gen;
+        }
         ret = (struct nonmoving_segment *)bd->start;
     }
     RELEASE_LOCK(&nonmoving_heap.mutex);
@@ -90,18 +94,13 @@ static void *nonmoving_allocate_block_from_segment(struct nonmoving_segment *seg
             return nonmoving_segment_get_block(seg, i);
         }
     }
-    return 0;
+    return NULL;
 }
 
 /* sz is in words */
 void *nonmoving_allocate(Capability *cap, StgWord sz)
 {
     int allocator_idx = log2_ceil(sz * sizeof(StgWord)) - NONMOVING_ALLOCA0;
-
-    debugBelch("Allocating %lu words in nonmoving heap using allocator %d with %lu-word sized blocks\n",
-               sz,
-               allocator_idx,
-               (1 << (NONMOVING_ALLOCA0 + allocator_idx)) / sizeof(W_));
 
     if (allocator_idx < 0) {
         allocator_idx = 0;
@@ -110,9 +109,15 @@ void *nonmoving_allocate(Capability *cap, StgWord sz)
         ASSERT(false);
     }
 
+#ifdef DEBUG
+    debugBelch("Allocating %lu words in nonmoving heap using allocator %d with %lu-word sized blocks\n",
+               sz,
+               allocator_idx,
+               (1 << (NONMOVING_ALLOCA0 + allocator_idx)) / sizeof(W_));
+#endif
+
     struct nonmoving_allocator *alloca = nonmoving_heap.allocators[allocator_idx];
 
-    // First try allocating into current segment
     while (true) {
         // First try allocating into current segment
         struct nonmoving_segment *current = alloca->current[cap->no];
@@ -268,6 +273,54 @@ void nonmoving_print_allocator(struct nonmoving_allocator *alloc)
         debugBelch("%p ", alloc->current[i]);
     }
     debugBelch("\n");
+}
+
+void locate_object(P_ obj)
+{
+    // Search allocators
+    for (int alloca_idx = 0; alloca_idx < NONMOVING_ALLOCA_CNT; ++alloca_idx) {
+        struct nonmoving_allocator *alloca = nonmoving_heap.allocators[alloca_idx];
+        struct nonmoving_segment *seg = alloca->current[0]; // only one capability for now
+        if (obj >= (P_)seg && obj < (((P_)seg) + NONMOVING_SEGMENT_SIZE)) {
+            debugBelch("%p is in current segment of allocator %d\n", obj, alloca_idx);
+            return;
+        }
+        int seg_idx = 0;
+        seg = alloca->active;
+        while (seg) {
+            if (obj >= (P_)seg && obj < (((P_)seg) + NONMOVING_SEGMENT_SIZE)) {
+                debugBelch("%p is in active segment %d of allocator %d\n", obj, seg_idx, alloca_idx);
+                return;
+            }
+            seg_idx++;
+            seg = seg->link;
+        }
+
+        seg_idx = 0;
+        seg = alloca->filled;
+        while (seg) {
+            if (obj >= (P_)seg && obj < (((P_)seg) + NONMOVING_SEGMENT_SIZE)) {
+                debugBelch("%p is in filled segment %d of allocator %d\n", obj, seg_idx, alloca_idx);
+                return;
+            }
+            seg_idx++;
+            seg = seg->link;
+        }
+    }
+
+    // TODO search free list
+
+    // Search nurseries
+    for (uint32_t nursery_idx = 0; nursery_idx < n_nurseries; ++nursery_idx) {
+        bdescr *nursery_blocks = nurseries[nursery_idx].blocks;
+        if (obj >= nursery_blocks->start && obj <= nursery_blocks->start + nursery_blocks->blocks*BLOCK_SIZE_W) {
+            debugBelch("%p is in nursery %d\n", obj, nursery_idx);
+            return;
+        }
+    }
+
+    // Search generations
+    // TODO
 }
 
 #endif
