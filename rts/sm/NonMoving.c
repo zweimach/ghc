@@ -29,11 +29,6 @@ static void add_todo_segment(struct nonmoving_segment* seg)
     nonmoving_todos = seg;
 }
 
-#define MAX(h,i) ((h) > (i) ? (h) : (i))
-
-// TODO: Forward-declare this more reasonably
-void initGeneration (generation *gen, int g);
-
 static void nonmoving_init_segment(struct nonmoving_segment *seg, uint8_t block_size)
 {
     seg->link = NULL;
