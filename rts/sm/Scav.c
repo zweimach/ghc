@@ -48,6 +48,8 @@ static void scavenge_large_bitmap (StgPtr p,
 # define scavenge_fun_srt(info) scavenge_fun_srt1(info)
 # define scavenge_thunk_srt(info) scavenge_thunk_srt1(info)
 # define scavenge_mut_arr_ptrs(info) scavenge_mut_arr_ptrs1(info)
+# define scavenge_PAP(pap) scavenge_PAP1(pap)
+# define scavenge_AP(ap) scavenge_AP1(ap)
 #endif
 
 /* -----------------------------------------------------------------------------
@@ -315,14 +317,14 @@ scavenge_PAP_payload (StgClosure *fun, StgClosure **payload, StgWord size)
     return p;
 }
 
-STATIC_INLINE GNUC_ATTR_HOT StgPtr
+GNUC_ATTR_HOT StgPtr
 scavenge_PAP (StgPAP *pap)
 {
     evacuate(&pap->fun);
     return scavenge_PAP_payload (pap->fun, pap->payload, pap->n_args);
 }
 
-STATIC_INLINE StgPtr
+StgPtr
 scavenge_AP (StgAP *ap)
 {
     evacuate(&ap->fun);
