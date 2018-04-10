@@ -196,9 +196,11 @@ scavenge_one(StgPtr p)
     }
 
     case PAP:
+        p = scavenge_PAP((StgPAP *)p);
         break;
 
     case AP:
+        scavenge_AP((StgAP *)p);
         break;
 
     case ARR_WORDS:
