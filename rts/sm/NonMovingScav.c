@@ -207,8 +207,6 @@ scavenge_one(StgPtr p)
         // nothing to follow
         break;
 
-///////////////////////////////////////////////////// MUT ARR STUFF ///////////////////////////////////////////////////
-
     case MUT_ARR_PTRS_CLEAN:
     case MUT_ARR_PTRS_DIRTY:
     {
@@ -281,8 +279,6 @@ scavenge_one(StgPtr p)
         }
         break;
     }
-
-/////////////////////////////////////////END OF MUT ARR STUFF //////////////////////////////////////////////////////////
 
     case TSO:
     {
