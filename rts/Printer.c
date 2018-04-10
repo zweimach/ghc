@@ -400,7 +400,7 @@ printClosure( const StgClosure *obj )
       break;
 
     case STACK:
-      debugBelch("STACK\n");
+      debugBelch("STACK");
       break;
 
 #if 0
