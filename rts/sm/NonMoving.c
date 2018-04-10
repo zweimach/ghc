@@ -273,7 +273,13 @@ void locate_object(P_ obj)
         }
     }
 
-    // TODO search free list
+    struct nonmoving_segment *seg = nonmoving_heap.free;
+    while (seg) {
+        if (obj >= (P_)seg && obj < (((P_)seg) + NONMOVING_SEGMENT_SIZE)) {
+            debugBelch("%p is in free segment %d\n", obj);
+            return;
+        }
+    }
 
     // Search nurseries
     for (uint32_t nursery_idx = 0; nursery_idx < n_nurseries; ++nursery_idx) {
