@@ -88,7 +88,6 @@ INLINE_HEADER unsigned int nonmoving_segment_block_size(struct nonmoving_segment
 INLINE_HEADER unsigned int nonmoving_segment_block_count(struct nonmoving_segment *seg)
 {
   unsigned int sz = nonmoving_segment_block_size(seg);
-  // return (NONMOVING_SEGMENT_SIZE - sizeof(*seg)) / (sz + 1);
   unsigned int segment_data_size = NONMOVING_SEGMENT_SIZE - sizeof(struct nonmoving_segment);
   segment_data_size -= segment_data_size % SIZEOF_VOID_P;
   return segment_data_size / (sz + 1);
@@ -98,15 +97,11 @@ INLINE_HEADER unsigned int nonmoving_segment_block_count(struct nonmoving_segmen
 INLINE_HEADER void *nonmoving_segment_get_block(struct nonmoving_segment *seg, nonmoving_block_idx i)
 {
   int blk_size = nonmoving_segment_block_size(seg);
-  // Bitmap size must be aligned to word size
   unsigned int bitmap_size = nonmoving_segment_block_count(seg);
-  W_ res = ROUNDUP_BYTES_TO_WDS(((W_)seg) + sizeof(struct nonmoving_segment) + bitmap_size) * sizeof(W_) + i * blk_size;
-  /*
-  unsigned int bitmap_size = nonmoving_segment_block_count(seg);
-  unsigned int bitmap_size_padding = ROUNDUP_BYTES_TO_WDS(bitmap_size) * SIZEOF_VOID_P;
-  uint8_t *res = ((uint8_t*) seg) + sizeof(struct nonmoving_segment) + bitmap_size_padding + i * blk_size;
-  */
-  return (void *) res;
+  // Use ROUNDUP_BYTES_TO_WDS: bitmap size must be aligned to word size
+  W_ res = ROUNDUP_BYTES_TO_WDS(((W_)seg) + sizeof(struct nonmoving_segment) + bitmap_size)
+              * sizeof(W_) + i * blk_size;
+  return (void*)res;
 }
 
 // Get the segment which a closure resides in. Assumes that pointer points into

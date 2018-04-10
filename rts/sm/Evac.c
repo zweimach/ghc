@@ -578,6 +578,8 @@ loop:
   bd = Bdescr((P_)q);
 
   if ((bd->flags & (BF_LARGE | BF_MARKED | BF_EVACUATED | BF_COMPACT | BF_NONMOVING)) != 0) {
+      // Pointer to non-moving heap. Non-moving heap is collected using
+      // mark-sweep so this object should be marked and then retained in sweep.
       if (bd->flags & BF_NONMOVING) {
           return;
       }
