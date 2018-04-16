@@ -507,7 +507,7 @@ mark_closure (MarkQueue *queue, MarkQueueEnt *ent)
                                 p,                               \
                                 (StgClosure **) &(obj)->field)
 
-    switch (INFO_PTR_TO_STRUCT(info)->type) {
+    switch (info->type) {
 
     case MVAR_CLEAN:
     case MVAR_DIRTY: {
@@ -539,6 +539,10 @@ mark_closure (MarkQueue *queue, MarkQueueEnt *ent)
         break;
     }
 
+    case CONSTR_1_0:
+        PUSH_FIELD(p, payload[0]);
+        break;
+
     case CONSTR_2_0:
         PUSH_FIELD(p, payload[1]);
         PUSH_FIELD(p, payload[0]);
@@ -555,8 +559,7 @@ mark_closure (MarkQueue *queue, MarkQueueEnt *ent)
         break;
 
     case CONSTR_0_1:
-        // TODO: Factor out Evac's low-value Int/Char coalesce logic
-        PUSH_FIELD(p, payload[0]);
+    case CONSTR_0_2:
         break;
 
     case THUNK_0_2:
@@ -565,9 +568,6 @@ mark_closure (MarkQueue *queue, MarkQueueEnt *ent)
 
     case FUN_0_2:
         mark_queue_push_fun_srt(queue, info);
-        break;
-
-    case CONSTR_0_2:
         break;
 
     case THUNK_1_1:
