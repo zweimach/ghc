@@ -152,9 +152,9 @@ static MarkQueueEnt mark_queue_pop(MarkQueue *queue)
 }
 
 /* Must hold sm_mutex. */
-void init_mark_queue(MarkQueue *queue) {
+void init_mark_queue(MarkQueue *queue)
+{
     bdescr *bd = allocGroup(1);
-    bd->link = NULL;
     queue->blocks = bd;
     queue->top = (MarkQueueBlock *) bd->start;
     queue->top->head = 0;
