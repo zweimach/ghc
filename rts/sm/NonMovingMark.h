@@ -47,7 +47,7 @@ typedef struct {
     MarkQueueEnt entries[];
 } MarkQueueBlock;
 
-#define MARK_PREFETCH_QUEUE_DEPTH 8
+#define MARK_PREFETCH_QUEUE_DEPTH 0 // TODO: 8
 
 /* The mark queue is not capable of concurrent read or write.
  *
