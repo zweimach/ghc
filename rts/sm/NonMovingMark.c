@@ -130,7 +130,7 @@ again:
     q->top->head--;
     MarkQueueEnt ent = q->top->entries[q->top->head];
 
-#if 0 && MARK_PREFETCH_QUEUE_DEPTH > 0
+#if MARK_PREFETCH_QUEUE_DEPTH > 0
     // TODO
     int old_head = queue->prefetch_head;
     queue->prefetch_head = (queue->prefetch_head + 1) % MARK_PREFETCH_QUEUE_DEPTH;
