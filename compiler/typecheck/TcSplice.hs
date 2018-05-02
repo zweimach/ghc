@@ -131,6 +131,7 @@ import Data.Typeable ( typeOf, Typeable, TypeRep, typeRep )
 import Data.Data (Data)
 import Data.Proxy    ( Proxy (..) )
 import GHC.Exts         ( unsafeCoerce# )
+import System.FilePath ((</>), (<.>))
 
 {-
 ************************************************************************
@@ -671,12 +672,43 @@ runQResult show_th f runQ expr_span hval
 
 
 -----------------
+whenSet :: Monad m => Maybe a -> (a -> m b) -> m b -> m b
+whenSet m j n = maybe n j m
+
+getModuleSplicesPath :: FilePath -> TcM FilePath
+getModuleSplicesPath splicesDir
+  = do { modname <- moduleNameString . moduleName <$> getModule
+       ; return (splicesDir </> toPath modname <.> "hs-splice") }
+
+  where toPath = map (\c -> if c == '.' then '/' else c)
+
 runMeta :: (MetaHook TcM -> LHsExpr GhcTc -> TcM hs_syn)
+        -> (FilePath -> LHsExpr GhcTc -> TcM hs_syn)
+           -- ^ function to load the result of the given expression from
+           --   an .hs-splice file at the given path
+        -> (FilePath -> LHsExpr GhcTc -> hs_syn -> TcM ())
+           -- ^ function to save the result (hs_syn) of evaluating the given
+           --   LHsExpr at the given filepath
         -> LHsExpr GhcTc
         -> TcM hs_syn
-runMeta unwrap e
-  = do { h <- getHooked runMetaHook defaultRunMeta
-       ; unwrap h e }
+runMeta unwrap loadSpliceFun saveSpliceFun e
+  = do { dflags <- getDynFlags
+       ; whenSet (loadSplicesDir dflags)
+           (\splicesDir ->
+              do { moduleSplicesPath <- getModuleSplicesPath splicesDir
+                 ; liftIO . putStrLn $
+                     "Loading splices from... " ++ moduleSplicesPath
+                 ; loadSpliceFun moduleSplicesPath e })
+           (do { h <- getHooked runMetaHook defaultRunMeta
+               ; res <- unwrap h e
+               ; whenSet (saveSplicesDir dflags)
+                   (\splicesDir ->
+                      do { moduleSplicesPath <- getModuleSplicesPath splicesDir
+                         ; liftIO . putStrLn $
+                             "Saving splices to... " ++ moduleSplicesPath
+                         ; saveSpliceFun moduleSplicesPath e res })
+                   (return ())
+               ; return res }) }
 
 defaultRunMeta :: MetaHook TcM
 defaultRunMeta (MetaE r)
@@ -695,27 +727,43 @@ defaultRunMeta (MetaAW r)
 ----------------
 runMetaAW :: LHsExpr GhcTc         -- Of type AnnotationWrapper
           -> TcM Serialized
-runMetaAW = runMeta metaRequestAW
+runMetaAW = runMeta metaRequestAW undefined undefined
 
 runMetaE :: LHsExpr GhcTc          -- Of type (Q Exp)
          -> TcM (LHsExpr GhcPs)
 runMetaE = runMeta metaRequestE
+  (\path (L srcSpan metaExpr) ->
+     liftIO $ do
+      putStrLn "Looking for..."
+      putStrLn $ "\tthe result of evaluating: " ++ showSDocUnsafe (ppr metaExpr)
+      putStrLn $ "\tfrom source span: " ++ showSDocUnsafe (ppr srcSpan)
+      putStrLn $ "\tat path: " ++ path
+      return undefined
+  )
+  (\path (L srcSpan metaExpr) metaRes ->
+     liftIO $ do
+      putStrLn "Saving..."
+      putStrLn $ "\tthe result of evaluating: " ++ showSDocUnsafe (ppr metaExpr)
+      putStrLn $ "\twhich is: " ++ showSDocUnsafe (ppr metaRes)
+      putStrLn $ "\tfrom source span: " ++ showSDocUnsafe (ppr srcSpan)
+      putStrLn $ "\tat path: " ++ path
+  )
 
 runMetaP :: LHsExpr GhcTc          -- Of type (Q Pat)
          -> TcM (LPat GhcPs)
-runMetaP = runMeta metaRequestP
+runMetaP = runMeta metaRequestP undefined undefined
 
 runMetaT :: LHsExpr GhcTc          -- Of type (Q Type)
          -> TcM (LHsType GhcPs)
-runMetaT = runMeta metaRequestT
+runMetaT = runMeta metaRequestT undefined undefined
 
 runMetaD :: LHsExpr GhcTc          -- Of type Q [Dec]
          -> TcM [LHsDecl GhcPs]
-runMetaD = runMeta metaRequestD
+runMetaD = runMeta metaRequestD undefined undefined
 
 ---------------
 runMeta' :: Bool                 -- Whether code should be printed in the exception message
-         -> (hs_syn -> SDoc)                                    -- how to print the code
+         -> (hs_syn -> SDoc)     -- how to print the code
          -> (SrcSpan -> ForeignHValue -> TcM (Either MsgDoc hs_syn))        -- How to run x
          -> LHsExpr GhcTc        -- Of type x; typically x = Q TH.Exp, or
                                  --    something like that

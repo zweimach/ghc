@@ -892,6 +892,8 @@ data DynFlags = DynFlags {
   hiDir                 :: Maybe String,
   stubDir               :: Maybe String,
   dumpDir               :: Maybe String,
+  saveSplicesDir        :: Maybe String,
+  loadSplicesDir        :: Maybe String,
 
   objectSuf             :: String,
   hcSuf                 :: String,
@@ -1769,6 +1771,8 @@ defaultDynFlags mySettings myLlvmTargets =
         hiDir                   = Nothing,
         stubDir                 = Nothing,
         dumpDir                 = Nothing,
+        saveSplicesDir          = Nothing,
+        loadSplicesDir          = Nothing,
 
         objectSuf               = phaseInputExt StopLn,
         hcSuf                   = phaseInputExt HCc,
@@ -2360,6 +2364,7 @@ getVerbFlags dflags
   | otherwise             = []
 
 setObjectDir, setHiDir, setStubDir, setDumpDir, setOutputDir,
+         setSaveSplicesDir, setLoadSplicesDir,
          setDynObjectSuf, setDynHiSuf,
          setDylibInstallName,
          setObjectSuf, setHiSuf, setHcSuf, parseDynLibLoaderMode,
@@ -2378,6 +2383,8 @@ setStubDir    f d = d { stubDir    = Just f
   -- \#included from the .hc file when compiling via C (i.e. unregisterised
   -- builds).
 setDumpDir    f d = d { dumpDir    = Just f}
+setSaveSplicesDir f d = d { saveSplicesDir = Just f}
+setLoadSplicesDir f d = d { loadSplicesDir = Just f}
 setOutputDir  f = setObjectDir f . setHiDir f . setStubDir f . setDumpDir f
 setDylibInstallName  f d = d { dylibInstallName = Just f}
 
@@ -2951,6 +2958,8 @@ dynamic_flags_deps = [
   , make_ord_flag defGhcFlag "tmpdir"            (hasArg setTmpDir)
   , make_ord_flag defGhcFlag "stubdir"           (hasArg setStubDir)
   , make_ord_flag defGhcFlag "dumpdir"           (hasArg setDumpDir)
+  , make_ord_flag defGhcFlag "save-splices"      (hasArg setSaveSplicesDir)
+  , make_ord_flag defGhcFlag "load-splices"      (hasArg setLoadSplicesDir)
   , make_ord_flag defGhcFlag "outputdir"         (hasArg setOutputDir)
   , make_ord_flag defGhcFlag "ddump-file-prefix"
         (hasArg (setDumpPrefixForce . Just))
