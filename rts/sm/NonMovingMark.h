@@ -10,6 +10,8 @@
 
 #include "BeginPrivate.h"
 
+#include "Hash.h"
+
 enum EntryType {
     NULL_ENTRY = 0,
     MARK_CLOSURE,
@@ -44,7 +46,7 @@ typedef struct {
 } MarkQueueEnt;
 
 typedef struct {
-    // index of first unused queue entry
+    // index of first *unused* queue entry
     uint32_t head;
 
     MarkQueueEnt entries[];
@@ -67,6 +69,9 @@ typedef struct MarkQueue_ {
     // Cached value of blocks->start.
     MarkQueueBlock *top;
 
+    // Marked static objects
+    HashTable *static_objects;
+
 #if MARK_PREFETCH_QUEUE_DEPTH > 0
     // Prefetch queue ring buffer
     int prefetch_head;
@@ -77,9 +82,16 @@ typedef struct MarkQueue_ {
 // The length of MarkQueueBlock.entries
 #define MARK_QUEUE_BLOCK_ENTRIES ((BLOCK_SIZE - sizeof(MarkQueueBlock)) / sizeof(MarkQueueEnt))
 
-void init_mark_queue(struct MarkQueue_ *queue);
-void nonmoving_prepare_mark(void);
+void mark_queue_add_root(MarkQueue* q, StgClosure** root);
+
+void init_mark_queue(MarkQueue *queue);
+void free_mark_queue(MarkQueue *queue);
 void nonmoving_mark(struct MarkQueue_ *restrict queue);
+
+bool nonmoving_mark_weaks(struct MarkQueue_ *queue);
+void nonmoving_mark_threads(struct MarkQueue_ *queue);
+void nonmoving_mark_dead_weaks(struct MarkQueue_ *queue);
+bool nonmoving_resurrect_threads(struct MarkQueue_ *queue);
 
 void mark_queue_push(MarkQueue *q, const MarkQueueEnt *ent);
 void mark_queue_push_closure(MarkQueue *q,
@@ -90,5 +102,12 @@ void mark_queue_push_srt(MarkQueue *q, const StgSRT *srt, uint32_t srt_bitmap);
 void mark_queue_push_thunk_srt(MarkQueue *q, const StgInfoTable *info);
 void mark_queue_push_fun_srt(MarkQueue *q, const StgInfoTable *info);
 void mark_queue_push_array(MarkQueue *q, const StgMutArrPtrs *array, StgWord start_index);
+
+#ifdef DEBUG
+
+void print_queue_ent(MarkQueueEnt *ent);
+void print_mark_queue(MarkQueue *q);
+
+#endif
 
 #include "EndPrivate.h"
