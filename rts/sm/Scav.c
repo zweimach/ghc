@@ -1707,7 +1707,14 @@ scavenge_mutable_list(bdescr *bd, generation *gen)
 void
 scavenge_capability_mut_lists (Capability *cap)
 {
-    uint32_t g;
+    // In a major GC only nonmoving heap's mut list is root
+    if (major_gc) {
+        uint32_t g = oldest_gen->no;
+        scavenge_mutable_list(cap->saved_mut_lists[g], oldest_gen);
+        freeChain_sync(cap->saved_mut_lists[g]);
+        cap->saved_mut_lists[g] = NULL;
+        return;
+    }
 
     /* Mutable lists from each generation > N
      * we want to *scavenge* these roots, not evacuate them: they're not
@@ -1715,7 +1722,7 @@ scavenge_capability_mut_lists (Capability *cap)
      * Also do them in reverse generation order, for the usual reason:
      * namely to reduce the likelihood of spurious old->new pointers.
      */
-    for (g = RtsFlags.GcFlags.generations-1; g > N; g--) {
+    for (uint32_t g = RtsFlags.GcFlags.generations-1; g > N; g--) {
         scavenge_mutable_list(cap->saved_mut_lists[g], &generations[g]);
         freeChain_sync(cap->saved_mut_lists[g]);
         cap->saved_mut_lists[g] = NULL;

@@ -102,13 +102,6 @@ void *nonmoving_allocate(Capability *cap, StgWord sz)
         ASSERT(false);
     }
 
-#ifdef DEBUG
-    debugBelch("Allocating %lu words in nonmoving heap using allocator %d with %lu-word sized blocks\n",
-               sz,
-               allocator_idx,
-               (1 << (NONMOVING_ALLOCA0 + allocator_idx)) / sizeof(W_));
-#endif
-
     struct nonmoving_allocator *alloca = nonmoving_heap.allocators[allocator_idx];
 
     while (true) {
@@ -197,6 +190,26 @@ void nonmoving_add_capabilities(uint32_t new_n_caps)
     nonmoving_heap.n_caps = new_n_caps;
 }
 
+static void nonmoving_clear_segment_bitmaps(struct nonmoving_segment *seg)
+{
+    while (seg) {
+        nonmoving_clear_bitmap(seg);
+        seg = seg->link;
+    }
+}
+
+void nonmoving_clear_all_bitmaps()
+{
+    for (int alloca_idx = 0; alloca_idx < NONMOVING_ALLOCA_CNT; ++alloca_idx) {
+        struct nonmoving_allocator *alloca = nonmoving_heap.allocators[alloca_idx];
+        nonmoving_clear_segment_bitmaps(alloca->filled);
+        nonmoving_clear_segment_bitmaps(alloca->active);
+        for (uint32_t cap_n = 0; cap_n < n_capabilities; ++cap_n) {
+            nonmoving_clear_segment_bitmaps(alloca->current[cap_n]);
+        }
+    }
+}
+
 #if defined(DEBUG)
 
 void nonmoving_print_segment(struct nonmoving_segment *seg)
@@ -246,14 +259,14 @@ void locate_object(P_ obj)
     for (int alloca_idx = 0; alloca_idx < NONMOVING_ALLOCA_CNT; ++alloca_idx) {
         struct nonmoving_allocator *alloca = nonmoving_heap.allocators[alloca_idx];
         struct nonmoving_segment *seg = alloca->current[0]; // TODO: only one capability for now
-        if (obj >= (P_)seg && obj < (((P_)seg) + NONMOVING_SEGMENT_SIZE)) {
+        if (obj >= (P_)seg && obj < (((P_)seg) + NONMOVING_SEGMENT_SIZE_W)) {
             debugBelch("%p is in current segment of allocator %d\n", obj, alloca_idx);
             return;
         }
         int seg_idx = 0;
         seg = alloca->active;
         while (seg) {
-            if (obj >= (P_)seg && obj < (((P_)seg) + NONMOVING_SEGMENT_SIZE)) {
+            if (obj >= (P_)seg && obj < (((P_)seg) + NONMOVING_SEGMENT_SIZE_W)) {
                 debugBelch("%p is in active segment %d of allocator %d\n", obj, seg_idx, alloca_idx);
                 return;
             }
@@ -264,7 +277,7 @@ void locate_object(P_ obj)
         seg_idx = 0;
         seg = alloca->filled;
         while (seg) {
-            if (obj >= (P_)seg && obj < (((P_)seg) + NONMOVING_SEGMENT_SIZE)) {
+            if (obj >= (P_)seg && obj < (((P_)seg) + NONMOVING_SEGMENT_SIZE_W)) {
                 debugBelch("%p is in filled segment %d of allocator %d\n", obj, seg_idx, alloca_idx);
                 return;
             }
@@ -275,7 +288,7 @@ void locate_object(P_ obj)
 
     struct nonmoving_segment *seg = nonmoving_heap.free;
     while (seg) {
-        if (obj >= (P_)seg && obj < (((P_)seg) + NONMOVING_SEGMENT_SIZE)) {
+        if (obj >= (P_)seg && obj < (((P_)seg) + NONMOVING_SEGMENT_SIZE_W)) {
             debugBelch("%p is in free segment\n", obj);
             return;
         }
@@ -291,6 +304,16 @@ void locate_object(P_ obj)
     }
 
     // TODO: Search generations
+}
+
+void nonmoving_print_sweep_list()
+{
+    debugBelch("==== SWEEP LIST =====\n");
+    int i = 0;
+    for (struct nonmoving_segment *seg = nonmoving_heap.sweep_list; seg; seg = seg->link) {
+        debugBelch("%d: %p\n", i++, (void*)seg);
+    }
+    debugBelch("= END OF SWEEP LIST =\n");
 }
 
 #endif

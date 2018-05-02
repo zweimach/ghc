@@ -10,6 +10,31 @@
 #include "NonMovingSweep.h"
 #include "NonMoving.h"
 
+/* Prepare to enter the mark phase. Must be done in stop-the-world. */
+static void prepare_sweep(void)
+{
+    ASSERT(nonmoving_heap.sweep_list == NULL);
+
+    // Move blocks in the allocators' filled lists into sweep_list
+    for (int alloc_idx = 0; alloc_idx < NONMOVING_ALLOCA_CNT; alloc_idx++)
+    {
+        struct nonmoving_allocator *alloc = nonmoving_heap.allocators[alloc_idx];
+        struct nonmoving_segment *filled = alloc->filled;
+        alloc->filled = NULL;
+        if (filled == NULL) {
+            continue;
+        }
+
+        // Link filled to sweep_list
+        struct nonmoving_segment *filled_head = filled;
+        while (filled->link) {
+            filled = filled->link;
+        }
+        filled->link = nonmoving_heap.sweep_list;
+        nonmoving_heap.sweep_list = filled_head;
+    }
+}
+
 // On which list should a particular segment be placed?
 enum sweep_result {
     SEGMENT_FREE,     // segment is empty: place on free list
@@ -102,10 +127,7 @@ nonmoving_sweep_segment(struct nonmoving_segment *seg)
 static void
 clear_segment(struct nonmoving_segment* seg)
 {
-    unsigned int block_size = nonmoving_segment_block_size(seg);
-    unsigned int block_count = nonmoving_segment_block_count(seg);
-
-    size_t end = (size_t)nonmoving_segment_get_block(seg, block_count) + block_size;
+    size_t end = ((size_t)seg) + NONMOVING_SEGMENT_SIZE;
     memset(&seg->bitmap, 0, end - (size_t)&seg->bitmap);
 }
 
@@ -125,11 +147,18 @@ clear_segment_free_blocks(struct nonmoving_segment* seg)
 
 GNUC_ATTR_HOT void nonmoving_sweep(void)
 {
-    while (nonmoving_heap.mark_list != NULL) {
-        struct nonmoving_segment *seg = nonmoving_heap.mark_list;
-        nonmoving_heap.mark_list = seg->link;
+    prepare_sweep();
 
-        switch (nonmoving_sweep_segment(seg)) {
+    while (nonmoving_heap.sweep_list) {
+        struct nonmoving_segment *seg = nonmoving_heap.sweep_list;
+
+        // Pushing the segment to one of the free/active/filled segments
+        // updates the link field, so update sweep_list here
+        nonmoving_heap.sweep_list = seg->link;
+
+        enum sweep_result ret = nonmoving_sweep_segment(seg);
+
+        switch (ret) {
         case SEGMENT_FREE:
             push_free_segment(seg);
             IF_DEBUG(sanity, clear_segment(seg));
@@ -141,6 +170,8 @@ GNUC_ATTR_HOT void nonmoving_sweep(void)
         case SEGMENT_FILLED:
             push_filled_segment(seg);
             break;
+        default:
+            barf("nonmoving_sweep: weird sweep return: %d\n", ret);
         }
     }
 }
