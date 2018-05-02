@@ -18,7 +18,7 @@
 // In bytes
 #define NONMOVING_SEGMENT_SIZE (1 << NONMOVING_SEGMENT_BITS)
 // In words
-#define NONMOVING_SEGMENT_SIZE_W ((1 << NONMOVING_SEGMENT_BITS) / SIZEOF_W)
+#define NONMOVING_SEGMENT_SIZE_W ((1 << NONMOVING_SEGMENT_BITS) / SIZEOF_VOID_P)
 // In blocks
 #define NONMOVING_SEGMENT_BLOCKS (NONMOVING_SEGMENT_SIZE / BLOCK_SIZE)
 
@@ -64,8 +64,8 @@ struct nonmoving_heap {
     // records the current length of the nonmoving_allocator.current arrays
     unsigned int n_caps;
 
-    // The set of segments being marked this GC (or NULL if no mark is active).
-    struct nonmoving_segment *mark_list;
+    // The set of segments being sweeped this GC.
+    struct nonmoving_segment *sweep_list;
 };
 
 extern struct nonmoving_heap nonmoving_heap;
@@ -117,9 +117,9 @@ INLINE_HEADER nonmoving_block_idx nonmoving_get_block_idx(StgPtr p)
 {
     ASSERT(Bdescr(p)->flags & BF_NONMOVING);
     struct nonmoving_segment *seg = nonmoving_get_segment(p);
-    StgPtr blk0 = nonmoving_segment_get_block(seg, 0);
+    ptrdiff_t blk0 = (ptrdiff_t)nonmoving_segment_get_block(seg, 0);
     unsigned int blk_size = nonmoving_segment_block_size(seg);
-    ptrdiff_t offset = p - blk0;
+    ptrdiff_t offset = (ptrdiff_t)p - blk0;
     return (nonmoving_block_idx) (offset / blk_size);
 }
 
@@ -128,6 +128,8 @@ INLINE_HEADER void nonmoving_clear_bitmap(struct nonmoving_segment *seg)
     unsigned int n = nonmoving_segment_block_count(seg);
     memset(seg->bitmap, 0, n);
 }
+
+void nonmoving_clear_all_bitmaps(void);
 
 INLINE_HEADER void nonmoving_set_mark_bit(struct nonmoving_segment *seg, nonmoving_block_idx i)
 {
@@ -139,11 +141,17 @@ INLINE_HEADER bool nonmoving_get_mark_bit(struct nonmoving_segment *seg, nonmovi
     return seg->bitmap[i];
 }
 
+INLINE_HEADER bool nonmoving_get_closure_mark_bit(StgPtr p)
+{
+    return nonmoving_get_mark_bit(nonmoving_get_segment(p), nonmoving_get_block_idx(p));
+}
+
 #if defined(DEBUG)
 
 void nonmoving_print_segment(struct nonmoving_segment *seg);
 void nonmoving_print_allocator(struct nonmoving_allocator *alloc);
 void locate_object(P_ obj);
+void nonmoving_print_sweep_list(void);
 
 #endif
 

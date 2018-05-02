@@ -1250,12 +1250,14 @@ setIOManagerControlFd(uint32_t cap_no USED_IF_THREADS, int fd USED_IF_THREADS) {
 
 void upd_rem_set_push_thunk(Capability *cap, StgThunk *origin)
 {
-    const StgInfoTable *info = get_itbl((StgClosure*)origin);
-    mark_queue_push_thunk_srt(&cap->upd_rem_set, info);
-    mark_queue_push_closure(&cap->upd_rem_set,
-                            origin->payload[0],
-                            (StgClosure*)origin,
-                            &origin->payload[0]);
+    // const StgInfoTable *info = get_itbl((StgClosure*)origin);
+    // mark_queue_push_thunk_srt(&cap->upd_rem_set, info);
+    // mark_queue_push_closure(&cap->upd_rem_set,
+    //                         origin->payload[0],
+    //                         (StgClosure*)origin,
+    //                         &origin->payload[0]);
+    (void)cap;
+    (void)origin;
 }
 
 void upd_rem_set_push_thunk_(StgRegTable *reg, StgThunk *origin)
@@ -1268,8 +1270,12 @@ void upd_rem_set_push_closure_(StgRegTable *reg,
                                StgClosure *origin_closure,
                                StgClosure **origin_field)
 {
-    MarkQueue *upd_rem_set = &regTableToCapability(reg)->upd_rem_set;
-    mark_queue_push_closure(upd_rem_set, p, origin_closure, origin_field);
+    (void)reg;
+    (void)p;
+    (void)origin_closure;
+    (void)origin_field;
+    // MarkQueue *upd_rem_set = &regTableToCapability(reg)->upd_rem_set;
+    // mark_queue_push_closure(upd_rem_set, p, origin_closure, origin_field);
 }
 
 int count_upd_rem_set(Capability *cap)
