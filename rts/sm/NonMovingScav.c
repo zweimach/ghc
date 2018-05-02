@@ -337,12 +337,6 @@ static void
 scavenge_nonmoving_segment(struct nonmoving_segment *seg)
 {
     // scavenge objects whose bitmap bits are 0
-
-#ifdef DEBUG
-    debugBelch("Scavenging segment:\n");
-    nonmoving_print_segment(seg);
-#endif
-
     nonmoving_block_idx p_idx = 0;
     // in this context block = closure
     StgClosure *p = (StgClosure*)nonmoving_segment_get_block(seg, 0);
@@ -352,21 +346,12 @@ scavenge_nonmoving_segment(struct nonmoving_segment *seg)
         // bit set = was allocated in the previous GC
         // bit not set = new allocation, so scavenge
         if (!(nonmoving_get_mark_bit(seg, p_idx))) {
-#ifdef DEBUG
-            debugBelch("Scavenging %d: ", p_idx);
-            printClosure(p);
-#endif
             scavenge_one((StgPtr)p);
         }
 
         p_idx++;
         p = (StgClosure*)(((uint8_t*)p) + nonmoving_segment_block_size(seg));
     }
-
-
-#ifdef DEBUG
-    debugBelch("Scavenge done\n");
-#endif
 }
 
 void scavenge_nonmoving_heap(void)

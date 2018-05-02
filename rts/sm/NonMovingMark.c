@@ -11,16 +11,22 @@
 #include "NonMoving.h"
 #include "HeapAlloc.h"
 #include "Task.h"
-
-#define MIN(l,o) ((l) < (o) ? (l) : (o))
+#include "HeapUtils.h"
+#include "Printer.h"
+#include "Weak.h"
+#include "MarkWeak.h"
 
 // How many Array# entries to add to the mark queue at once?
 #define MARK_ARRAY_CHUNK_LENGTH 128
 
 static void mark_closure (MarkQueue *queue, MarkQueueEnt *ent);
 
-void mark_queue_push (MarkQueue *q,
-                      const MarkQueueEnt *ent)
+void mark_queue_add_root(MarkQueue* q, StgClosure** root)
+{
+    mark_queue_push_closure(q, *root, NULL, NULL);
+}
+
+void mark_queue_push (MarkQueue *q, const MarkQueueEnt *ent)
 {
     // Are we at the end of the block?
     if (q->top->head == MARK_QUEUE_BLOCK_ENTRIES) {
@@ -105,40 +111,33 @@ void mark_queue_push_array (MarkQueue *q,
     mark_queue_push(q, &ent);
 }
 
-bool is_valid_mark_queue_ent(const MarkQueueEnt *ent);
-
-bool is_valid_mark_queue_ent(const MarkQueueEnt *ent) {
-    return ent->type != NULL_ENTRY;
-}
-
 // Returns invalid MarkQueueEnt if queue is empty.
-static MarkQueueEnt mark_queue_pop(MarkQueue *queue)
+static MarkQueueEnt mark_queue_pop(MarkQueue *q)
 {
-    bool again;
-    do {
-        MarkQueueBlock *top = queue->top;
-        again = false;
+    MarkQueueBlock *top;
 
-        // Are we at the beginning of the block?
-        if (top->head == 0) {
-            // Is this the first block of the queue?
-            if (queue->blocks->link == NULL) {
-                // Yes, therefore queue is empty...
-                MarkQueueEnt none = {};
-                return none;
-            } else {
-                // No, unwind to the previous block and try popping again...
-                bdescr *old_block = queue->blocks;
-                queue->blocks = old_block->link;
-                queue->top = (MarkQueueBlock *) old_block->start;
-                freeGroup_lock(old_block); // TODO: hold on to a block to avoid repeated allocation/deallocation?
-                again = true;
-            }
+again:
+    top = q->top;
+
+    // Are we at the beginning of the block?
+    if (top->head == 0) {
+        // Is this the first block of the queue?
+        if (q->blocks->link == NULL) {
+            // Yes, therefore queue is empty...
+            MarkQueueEnt none = {};
+            return none;
+        } else {
+            // No, unwind to the previous block and try popping again...
+            bdescr *old_block = q->blocks;
+            q->blocks = old_block->link;
+            q->top = (MarkQueueBlock*)q->blocks->start;
+            freeGroup_lock(old_block); // TODO: hold on to a block to avoid repeated allocation/deallocation?
+            goto again;
         }
-    } while (again);
+    }
 
-    MarkQueueEnt ent = queue->top->entries[queue->top->head];
-    queue->top->head--;
+    q->top->head--;
+    MarkQueueEnt ent = q->top->entries[q->top->head];
 
 #if 0 && MARK_PREFETCH_QUEUE_DEPTH > 0
     // TODO
@@ -157,6 +156,7 @@ void init_mark_queue(MarkQueue *queue)
     queue->blocks = bd;
     queue->top = (MarkQueueBlock *) bd->start;
     queue->top->head = 0;
+    queue->static_objects = allocHashTable();
 
 #if MARK_PREFETCH_QUEUE_DEPTH > 0
     queue->prefetch_head = 0;
@@ -165,36 +165,16 @@ void init_mark_queue(MarkQueue *queue)
 #endif
 }
 
-/* Prepare to enter the mark phase. Must be done in stop-the-world. */
-void nonmoving_prepare_mark(void)
+void free_mark_queue(MarkQueue *queue)
 {
-    // The mark list should be empty since we shouldn't be in a GC.
-    ASSERT(nonmoving_heap.mark_list == NULL);
-
-    // Move blocks in the allocators' filled lists into mark_list and clear
-    // their bitmaps
-    for (int i=0; i < NONMOVING_ALLOCA_CNT; i++)
+    bdescr* b = queue->blocks;
+    while (b)
     {
-        struct nonmoving_allocator *alloc = nonmoving_heap.allocators[i];
-        struct nonmoving_segment *filled = alloc->filled;
-        alloc->filled = NULL;
-        if (filled == NULL) continue;
-
-        // Walk down filled list, clearing bitmaps and updating snapshot
-        // pointers as we go
-        struct nonmoving_segment *seg = filled;
-        while (true) {
-            nonmoving_clear_bitmap(seg);
-            seg->next_free_snap = seg->next_free;
-            if (seg->link == NULL) {
-                // We've reached the end; link into mark_list.
-                seg->link = nonmoving_heap.mark_list;
-                nonmoving_heap.mark_list = filled;
-                break;
-            }
-            seg = seg->link;
-        }
+        bdescr* b_ = b->link;
+        freeGroup(b);
+        b = b_;
     }
+    freeHashTable(queue->static_objects, NULL);
 }
 
 static void mark_tso (MarkQueue *queue, StgTSO *tso)
@@ -245,7 +225,7 @@ static GNUC_ATTR_HOT void mark_srt (MarkQueue *queue, MarkQueueEnt *ent)
 static void
 mark_static_object (MarkQueue *queue, StgClosure *p)
 {
-    const StgInfoTable *info = get_itbl(p);;
+    const StgInfoTable *info = get_itbl(p);
 
     switch (info -> type) {
     case IND_STATIC:
@@ -357,6 +337,8 @@ static StgPtr
 mark_arg_block (MarkQueue *queue, const StgFunInfoTable *fun_info, StgClosure **args)
 {
     StgWord bitmap, size;
+
+    StgPtr p = (StgPtr)args;
     switch (fun_info->f.fun_type) {
     case ARG_GEN:
         bitmap = BITMAP_BITS(fun_info->f.b.bitmap);
@@ -364,23 +346,26 @@ mark_arg_block (MarkQueue *queue, const StgFunInfoTable *fun_info, StgClosure **
         goto small_bitmap;
     case ARG_GEN_BIG:
         size = GET_FUN_LARGE_BITMAP(fun_info)->size;
-        mark_large_bitmap(queue, args, GET_FUN_LARGE_BITMAP(fun_info), size);
+        mark_large_bitmap(queue, (StgClosure**)p, GET_FUN_LARGE_BITMAP(fun_info), size);
+        p += size;
         break;
     default:
         bitmap = BITMAP_BITS(stg_arg_bitmaps[fun_info->f.fun_type]);
         size = BITMAP_SIZE(stg_arg_bitmaps[fun_info->f.fun_type]);
     small_bitmap:
-        mark_small_bitmap(queue, args, size, bitmap);
+        mark_small_bitmap(queue, (StgClosure**)p, size, bitmap);
+        p += size;
         break;
     }
-    return (StgPtr) args + size;
+    return p;
 }
 
 static GNUC_ATTR_HOT void
 mark_stack (MarkQueue *queue, StgPtr sp, StgPtr spBottom)
 {
     ASSERT(sp <= spBottom);
-    for (; sp < spBottom; sp += stack_frame_sizeW((StgClosure *)sp)) {
+
+    while (sp < spBottom) {
         const StgRetInfoTable *info = get_ret_itbl((StgClosure *)sp);
         switch (info->i.type) {
         case UPDATE_FRAME:
@@ -449,7 +434,7 @@ mark_stack (MarkQueue *queue, StgPtr sp, StgPtr spBottom)
         }
 
         default:
-            barf("scavenge_stack: weird activation record found on stack: %d", (int)(info->i.type));
+            barf("mark_stack: weird activation record found on stack: %d", (int)(info->i.type));
         }
     }
 }
@@ -460,10 +445,10 @@ mark_closure (MarkQueue *queue, MarkQueueEnt *ent)
     ASSERT(ent->type == MARK_CLOSURE);
     StgClosure *p = ent->mark_closure.p;
     p = UNTAG_CLOSURE(p);
-    const StgInfoTable *info = get_itbl(p);
     ASSERTM(LOOKS_LIKE_CLOSURE_PTR(p), "invalid closure, info=%p", p->header.info);
 
     if (!HEAP_ALLOCED_GC(p)) {
+        const StgInfoTable *info = get_itbl(p);
         switch (info->type) {
         case THUNK_STATIC:
         case FUN_STATIC:
@@ -472,7 +457,10 @@ mark_closure (MarkQueue *queue, MarkQueueEnt *ent)
         case CONSTR_1_0:
         case CONSTR_2_0:
         case CONSTR_1_1:
-            mark_static_object(queue, p);
+            if (!lookupHashTable(queue->static_objects, (W_)p)) {
+                insertHashTable(queue->static_objects, (W_)p, (P_)1);
+                mark_static_object(queue, p);
+            }
             return;
 
         case CONSTR_0_1:
@@ -489,20 +477,32 @@ mark_closure (MarkQueue *queue, MarkQueueEnt *ent)
     }
 
     bdescr *bd = Bdescr((StgPtr) p);
-    if (! (bd->flags & BF_NONMOVING)) {
-        // The object lives outside of the non-moving heap; we needn't mark/trace
-        // it since all references that we must trace to maintain our
-        // liveness invariant were either promoted into the non-moving heap
-        // at the beginning of this collection or are added to the update
-        // remembered set.
-        return;
+
+    if (bd->flags & BF_NONMOVING) {
+        struct nonmoving_segment *seg = nonmoving_get_segment((StgPtr) p);
+        nonmoving_block_idx block_idx = nonmoving_get_block_idx((StgPtr) p);
+        if (nonmoving_get_mark_bit(seg, block_idx)) {
+            return;
+        }
+        nonmoving_set_mark_bit(seg, block_idx);
     }
 
+    else {
+        // This usually means
+        // - A large object
+        // - A pinned object (which is also a large object)
+        // - A static object like END_TSO_QUEUE
+        // - A bug
 
-    // Mark the object
-    struct nonmoving_segment *seg = nonmoving_get_segment((StgPtr) p);
-    nonmoving_block_idx block_idx = nonmoving_get_block_idx((StgPtr) p);
-    nonmoving_set_mark_bit(seg, block_idx);
+        if (lookupHashTable(queue->static_objects, (W_)p)) {
+            return;
+        }
+        insertHashTable(queue->static_objects, (W_)p, (P_)1);
+
+        if (bd->flags & BF_LARGE) {
+            p = (StgClosure*)bd->start;
+        }
+    }
 
     /////////////////////////////////////////////////////
     // Trace pointers
@@ -514,6 +514,7 @@ mark_closure (MarkQueue *queue, MarkQueueEnt *ent)
                                 p,                               \
                                 (StgClosure **) &(obj)->field)
 
+    const StgInfoTable *info = get_itbl(p);
     switch (info->type) {
 
     case MVAR_CLEAN:
@@ -546,10 +547,6 @@ mark_closure (MarkQueue *queue, MarkQueueEnt *ent)
         break;
     }
 
-    case CONSTR_1_0:
-        PUSH_FIELD(p, payload[0]);
-        break;
-
     case CONSTR_2_0:
         PUSH_FIELD(p, payload[1]);
         PUSH_FIELD(p, payload[0]);
@@ -563,6 +560,18 @@ mark_closure (MarkQueue *queue, MarkQueueEnt *ent)
     case FUN_1_0:
         mark_queue_push_fun_srt(queue, info);
         PUSH_FIELD(p, payload[0]);
+        break;
+
+    case CONSTR_1_0:
+        PUSH_FIELD(p, payload[0]);
+        break;
+
+    case THUNK_0_1:
+        mark_queue_push_thunk_srt(queue, info);
+        break;
+
+    case FUN_0_1:
+        mark_queue_push_fun_srt(queue, info);
         break;
 
     case CONSTR_0_1:
@@ -699,7 +708,7 @@ mark_closure (MarkQueue *queue, MarkQueueEnt *ent)
 
     case STACK: {
         StgStack *stack = (StgStack *) p;
-        mark_stack(queue, stack->sp, stack->stack);
+        mark_stack(queue, stack->sp, stack->stack + stack->stack_size);
         break;
     }
 
@@ -769,3 +778,146 @@ GNUC_ATTR_HOT void nonmoving_mark(MarkQueue *queue)
         }
     }
 }
+
+static bool nonmoving_is_alive(struct MarkQueue_ *queue, StgClosure *p)
+{
+    bdescr *bd = Bdescr((P_)p);
+    if (bd->flags & BF_NONMOVING) {
+        return nonmoving_get_closure_mark_bit((P_)p);
+    } else {
+        return lookupHashTable(queue->static_objects, (W_)p);
+    }
+}
+
+bool nonmoving_mark_weaks(struct MarkQueue_ *queue)
+{
+    bool did_work = false;
+
+    StgWeak **last_w = &oldest_gen->old_weak_ptr_list;
+    StgWeak *next_w;
+    for (StgWeak *w = oldest_gen->old_weak_ptr_list; w != NULL; w = next_w) {
+        if (w->header.info == &stg_DEAD_WEAK_info) {
+            // finalizeWeak# was called on the weak
+            next_w = w->link;
+            *last_w = next_w;
+            continue;
+        }
+
+        if (nonmoving_is_alive(queue, w->key)) {
+            // The whole weak (including the value and finalizers) has already
+            // been scavenged to the current generation, just mark them.
+            // Note that we can't just push the weak itself, because key, value
+            // and finalizers are not pointer fields so they won't be marked by
+            // mark_closure
+            mark_queue_push_closure_(queue, (StgClosure*)w);
+            mark_queue_push_closure_(queue, w->value);
+            mark_queue_push_closure_(queue, w->finalizer);
+            mark_queue_push_closure_(queue, w->cfinalizers);
+            did_work = true;
+
+            // remove this weak ptr from old_weak_ptr list
+            *last_w = w->link;
+            next_w = w->link;
+
+            // and put it on the weak ptr list
+            w->link = oldest_gen->weak_ptr_list;
+            oldest_gen->weak_ptr_list = w;
+        } else {
+            last_w = &(w->link);
+            next_w = w->link;
+        }
+    }
+
+    return did_work;
+}
+
+void nonmoving_mark_dead_weaks(struct MarkQueue_ *queue)
+{
+    StgWeak *next_w;
+    for (StgWeak *w = oldest_gen->old_weak_ptr_list; w; w = next_w) {
+        if (w->cfinalizers != &stg_NO_FINALIZER_closure) {
+            mark_queue_push_closure_(queue, w->value);
+        }
+        mark_queue_push_closure_(queue, w->finalizer);
+        next_w = w ->link;
+        w->link = dead_weak_ptr_list;
+        dead_weak_ptr_list = w;
+    }
+}
+
+void nonmoving_mark_threads(struct MarkQueue_ *queue)
+{
+    StgTSO *next;
+    StgTSO **prev = &oldest_gen->old_threads;
+    for (StgTSO *t = oldest_gen->old_threads; t != END_TSO_QUEUE; t = t->global_link) {
+
+        next = t->global_link;
+
+        if (nonmoving_is_alive(queue, (StgClosure*)t)) {
+            // alive
+            *prev = next;
+
+            // move this thread onto threads list
+            t->global_link = oldest_gen->threads;
+            oldest_gen->threads = t;
+        } else {
+            // not alive (yet): leave this thread on the old_threads list
+            prev = &(t->global_link);
+        }
+    }
+}
+
+bool nonmoving_resurrect_threads(struct MarkQueue_ *queue)
+{
+    bool did_work = false;
+
+    StgTSO *next;
+    for (StgTSO *t = oldest_gen->old_threads; t != END_TSO_QUEUE; t = next) {
+        next = t->global_link;
+
+        switch (t->what_next) {
+        case ThreadKilled:
+        case ThreadComplete:
+            continue;
+        default:
+            mark_queue_push_closure_(queue, (StgClosure*)t);
+            t->global_link = resurrected_threads;
+            resurrected_threads = t;
+            did_work = true;
+        }
+    }
+
+    return did_work;
+}
+
+#ifdef DEBUG
+
+void print_queue_ent(MarkQueueEnt *ent)
+{
+    if (ent->type == MARK_CLOSURE) {
+        debugBelch("Closure: ");
+        printClosure(ent->mark_closure.p);
+    } else if (ent->type == MARK_SRT) {
+        debugBelch("SRT: %p\n", (void*)ent->mark_srt.srt);
+    } else if (ent->type == MARK_FROM_SEL) {
+        debugBelch("Selector\n");
+    } else if (ent->type == MARK_ARRAY) {
+        debugBelch("Array\n");
+    } else {
+        debugBelch("End of mark\n");
+    }
+}
+
+void print_mark_queue(MarkQueue *q)
+{
+    debugBelch("======== MARK QUEUE ========\n");
+    for (bdescr *block = q->blocks; block; block = block->link) {
+        MarkQueueBlock *queue = (MarkQueueBlock*)block->start;
+        for (uint32_t i = 0; i < queue->head; ++i) {
+            print_queue_ent(&queue->entries[i]);
+        }
+    }
+    debugBelch("===== END OF MARK QUEUE ====\n");
+}
+
+#endif
