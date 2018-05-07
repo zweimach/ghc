@@ -40,6 +40,29 @@
         copy_tag(p, info, src, size, stp, tag)
 #endif
 
+#define TRACE_EVAC
+
+#if defined(TRACE_EVAC)
+#if defined(PARALLEL_GC)
+// Avoid multiple definition errors
+extern StgPtr tracedClosures[64];
+#else
+StgPtr tracedClosures[64] = {};
+#endif
+
+static void traceEvac(StgPtr src, StgPtr dest)
+{
+    for (int i=0; i<64; i++) {
+        if (tracedClosures[i] == src) {
+            debugBelch("traceEvac: %p -> %p", src, dest);
+            return;
+        }
+    }
+}
+#else
+static void traceEvac(StgPtr src, StgPtr dest) { }
+#endif
+
 /* Used to avoid long recursion due to selector thunks
  */
 #define MAX_THUNK_SELECTOR_DEPTH 16
@@ -116,6 +139,7 @@ copy_tag(StgClosure **p, const StgInfoTable *info,
     for (i = 1; i < size; i++) { // unroll for small i
         to[i] = from[i];
     }
+    traceEvac(from, to);
 
 //  if (to+size+2 < bd->start + BLOCK_SIZE_W) {
 //      __builtin_prefetch(to + size + 2, 1);
@@ -171,6 +195,7 @@ copy_tag_nolock(StgClosure **p, const StgInfoTable *info,
     for (i = 1; i < size; i++) { // unroll for small i
         to[i] = from[i];
     }
+    traceEvac(from, to);
 
     // if somebody else reads the forwarding pointer, we better make
     // sure there's a closure at the end of it.
@@ -228,6 +253,7 @@ spin:
     for (i = 1; i < size_to_copy; i++) { // unroll for small i
         to[i] = from[i];
     }
+    traceEvac(from, to);
 
     write_barrier();
     src->header.info = (const StgInfoTable*)MK_FORWARDING_PTR(to);
