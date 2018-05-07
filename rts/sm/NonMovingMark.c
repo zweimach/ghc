@@ -11,7 +11,6 @@
 #include "NonMoving.h"
 #include "HeapAlloc.h"
 #include "Task.h"
-#include "HeapUtils.h"
 #include "Printer.h"
 #include "Weak.h"
 #include "MarkWeak.h"
@@ -70,14 +69,20 @@ static void mark_queue_push_thunk_srt (MarkQueue *q,
                                        const StgInfoTable *info)
 {
     const StgThunkInfoTable *thunk_info = itbl_to_thunk_itbl(info);
-    mark_queue_push_srt(q, GET_SRT(thunk_info), thunk_info->i.srt_bitmap);
+    if (thunk_info->i.has_srt) {
+        StgClosure *srt = (StgClosure*)GET_SRT(thunk_info);
+        mark_queue_push_closure_(q, srt);
+    }
 }
 
 static void mark_queue_push_fun_srt (MarkQueue *q,
                                      const StgInfoTable *info)
 {
     const StgFunInfoTable *fun_info = itbl_to_fun_itbl(info);
-    mark_queue_push_srt(q, GET_FUN_SRT(fun_info), fun_info->i.srt_bitmap);
+    if (fun_info->i.has_srt) {
+        StgClosure *srt = (StgClosure*)GET_FUN_SRT(fun_info);
+        mark_queue_push_closure_(q, srt);
+    }
 }
 
 
@@ -230,7 +235,22 @@ mark_large_bitmap (MarkQueue *queue,
                    StgLargeBitmap *large_bitmap,
                    StgWord size)
 {
-    walk_large_bitmap(do_push_closure, p, large_bitmap, size, queue);
+    uint32_t i, j, b;
+    StgWord bitmap;
+
+    b = 0;
+
+    for (i = 0; i < size; b++) {
+        bitmap = large_bitmap->bitmap[b];
+        j = stg_min(size-i, BITS_IN(W_));
+        i += j;
+        for (; j > 0; j--, p++) {
+            if ((bitmap & 1) == 0) {
+                mark_queue_push_closure_(queue, *p);
+            }
+            bitmap = bitmap >> 1;
+        }
+    }
 }
 
 static void
@@ -339,7 +359,10 @@ mark_stack (MarkQueue *queue, StgPtr sp, StgPtr spBottom)
             sp += size;
         }
         follow_srt:
-            mark_queue_push_srt(queue, GET_SRT(info), info->i.srt_bitmap);
+            if (info->i.has_srt) {
+                StgClosure *srt = (StgClosure*)GET_SRT(info);
+                mark_queue_push_closure_(queue, srt);
+            }
             continue;
 
         case RET_BCO: {
@@ -838,8 +861,6 @@ void print_queue_ent(MarkQueueEnt *ent)
     if (ent->type == MARK_CLOSURE) {
         debugBelch("Closure: ");
         printClosure(ent->mark_closure.p);
-    } else if (ent->type == MARK_SRT) {
-        debugBelch("SRT: %p\n", (void*)ent->mark_srt.srt);
     } else if (ent->type == MARK_FROM_SEL) {
         debugBelch("Selector\n");
     } else if (ent->type == MARK_ARRAY) {
