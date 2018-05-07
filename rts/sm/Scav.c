@@ -44,6 +44,8 @@ static void scavenge_large_bitmap (StgPtr p,
 # define scavenge_capability_mut_lists(cap) scavenge_capability_mut_Lists1(cap)
 # define scavengeTSO(tso) scavengeTSO1(tso)
 # define scavenge_stack(p, stack_end) scavenge_stack1(p, stack_end)
+# define scavenge_fun_srt(info) scavenge_fun_srt1(info)
+# define scavenge_thunk_srt(info) scavenge_thunk_srt1(info)
 # define scavenge_mut_arr_ptrs(info) scavenge_mut_arr_ptrs1(info)
 # define scavenge_PAP(pap) scavenge_PAP1(pap)
 # define scavenge_AP(ap) scavenge_AP1(ap)
