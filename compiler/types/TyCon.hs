@@ -833,6 +833,73 @@ data TyCon
                            -- ^ What sort of 'TyCon' this represents.
       }
 
+instance Binary TyCon where
+  put_ bh tc
+    = case tc of
+        FunTyCon a b c d e f g ->
+          putByte bh 0 >> put_ bh a >> put_ bh b >> put_ bh c >> put_ bh d
+                       >> put_ bh e >> put_ bh f >> put_ bh g
+
+        AlgTyCon a b c d e f g h i j k l m n ->
+          putByte bh 1 >> put_ bh a >> put_ bh b >> put_ bh c >> put_ bh d
+                       >> put_ bh e >> put_ bh f >> put_ bh g >> put_ bh h
+                       >> put_ bh i >> put_ bh j >> put_ bh k >> put_ bh l
+                       >> put_ bh m >> put_ bh n
+
+        SynonymTyCon a b c d e f g h i j k ->
+          putByte bh 2 >> put_ bh a >> put_ bh b >> put_ bh c >> put_ bh d
+                       >> put_ bh e >> put_ bh f >> put_ bh g >> put_ bh h
+                       >> put_ bh i >> put_ bh j >> put_ bh k
+
+        FamilyTyCon a b c d e f g h i j k ->
+          putByte bh 3 >> put_ bh a >> put_ bh b >> put_ bh c >> put_ bh d
+                       >> put_ bh e >> put_ bh f >> put_ bh g >> put_ bh h
+                       >> put_ bh i >> put_ bh j >> put_ bh k
+
+        PrimTyCon a b c d e f g h i ->
+          putByte bh 4 >> put_ bh a >> put_ bh b >> put_ bh c >> put_ bh d
+                       >> put_ bh e >> put_ bh f >> put_ bh g >> put_ bh h
+                       >> put_ bh i
+
+        PromotedDataCon a b c d e f g h i j ->
+          putByte bh 5 >> put_ bh a >> put_ bh b >> put_ bh c >> put_ bh d
+                       >> put_ bh e >> put_ bh f >> put_ bh g >> put_ bh h
+                       >> put_ bh i >> put_ bh j
+
+        TcTyCon a b c d e f g h _i j ->
+          putByte bh 6 >> put_ bh a >> put_ bh b >> put_ bh c >> put_ bh d
+                       >> put_ bh e >> put_ bh f >> put_ bh g >> put_ bh h
+                       {- _i is an SDoc -} >> put_ bh j
+
+  get bh = do
+    tag <- getByte bh
+    case tag of
+      0 -> FunTyCon
+        <$> get bh <*> get bh <*> get bh <*> get bh <*> get bh
+        <*> get bh <*> get bh
+      1 -> AlgTyCon
+        <$> get bh <*> get bh <*> get bh <*> get bh <*> get bh
+        <*> get bh <*> get bh <*> get bh <*> get bh <*> get bh
+        <*> get bh <*> get bh <*> get bh <*> get bh
+      2 -> SynonymTyCon
+        <$> get bh <*> get bh <*> get bh <*> get bh <*> get bh
+        <*> get bh <*> get bh <*> get bh <*> get bh <*> get bh
+        <*> get bh
+      3 -> FamilyTyCon
+        <$> get bh <*> get bh <*> get bh <*> get bh <*> get bh
+        <*> get bh <*> get bh <*> get bh <*> get bh <*> get bh
+        <*> get bh
+      4 -> PrimTyCon
+        <$> get bh <*> get bh <*> get bh <*> get bh <*> get bh
+        <*> get bh <*> get bh <*> get bh <*> get bh
+      5 -> PromotedDataCon
+        <$> get bh <*> get bh <*> get bh <*> get bh <*> get bh
+        <*> get bh <*> get bh <*> get bh <*> get bh <*> get bh
+      6 -> TcTyCon
+        <$> get bh <*> get bh <*> get bh <*> get bh <*> get bh
+        <*> get bh <*> get bh <*> get bh <*> pure empty <*> get bh
+        -- the 'empty' above is an SDoc field that we just skip for now.
+
 -- | Represents right-hand-sides of 'TyCon's for algebraic types
 data AlgTyConRhs
 
@@ -900,6 +967,24 @@ data AlgTyConRhs
                              -- again check Trac #1072.
     }
 
+instance Binary AlgTyConRhs where
+  put_ bh x
+    = case x of
+        AbstractTyCon    -> putByte bh 0
+        DataTyCon a b c  -> putByte bh 1 >> put_ bh a >> put_ bh b >> put_ bh c
+        TupleTyCon a b   -> putByte bh 2 >> put_ bh a >> put_ bh b
+        SumTyCon a b     -> putByte bh 3 >> put_ bh a >> put_ bh b
+        NewTyCon a b c d -> putByte bh 4 >> put_ bh a >> put_ bh b >> put_ bh c
+                                         >> put_ bh d
+  get bh = do
+    tag <- getByte bh
+    case tag of
+      0 -> pure AbstractTyCon
+      1 -> DataTyCon  <$> get bh <*> get bh <*> get bh
+      2 -> TupleTyCon <$> get bh <*> get bh
+      3 -> SumTyCon   <$> get bh <*> get bh
+      4 -> NewTyCon   <$> get bh <*> get bh <*> get bh <*> get bh
+
 mkSumTyConRhs :: [DataCon] -> AlgTyConRhs
 mkSumTyConRhs data_cons = SumTyCon data_cons (length data_cons)
 
@@ -929,6 +1014,24 @@ data RuntimeRepInfo
       -- be the list of arguments to the promoted datacon.
   | VecCount Int         -- ^ A constructor of @VecCount@
   | VecElem PrimElemRep  -- ^ A constructor of @VecElem@
+
+instance Binary RuntimeRepInfo where
+  put_ bh r
+    = case r of
+        NoRRI -> putByte bh 0
+        RuntimeRep f -> putByte bh 1
+          -- FIXME: how should we handle 'f'?
+          --        if it's a contructor, maybe we can just
+          --        serialize the constructor tag...?
+        VecCount n -> putByte bh 2 >> put_ bh n
+        VecElem a -> putByte bh 3 >> put_ bh a
+  get bh = do
+    tag <- getByte bh
+    case tag of
+      0 -> pure NoRRI
+      1 -> undefined -- see FIXME above
+      2 -> VecCount <$> get bh
+      3 -> VecElem <$> get bh
 
 -- | Extract those 'DataCon's that we are able to learn about.  Note
 -- that visibility in this sense does not correspond to visibility in
@@ -1004,6 +1107,22 @@ instance Outputable AlgTyConFlav where
     ppr (DataFamInstTyCon _ tc tys) = text "Family parent (family instance)"
                                       <+> ppr tc <+> sep (map pprType tys)
 
+instance Binary AlgTyConFlav where
+  put_ bh a
+    = case a of
+        VanillaAlgTyCon a      -> putByte bh 0 >> put_ bh a
+        UnboxedAlgTyCon a      -> putByte bh 1 >> put_ bh a
+        ClassTyCon a b         -> putByte bh 2 >> put_ bh a >> put_ bh b
+        DataFamInstTyCon a b c -> putByte bh 3 >> put_ bh a >> put_ bh b
+                                               >> put_ bh c
+  get bh = do
+    tag <- getByte bh
+    case tag of
+      0 -> VanillaAlgTyCon  <$> get bh
+      1 -> UnboxedAlgTyCon  <$> get bh
+      2 -> ClassTyCon       <$> get bh <*> get bh
+      3 -> DataFamInstTyCon <$> get bh <*> get bh <*> get bh
+
 -- | Checks the invariants of a 'AlgTyConFlav' given the appropriate type class
 -- name, if any
 okParent :: Name -> AlgTyConFlav -> Bool
@@ -1061,6 +1180,23 @@ instance Outputable FamTyConFlav where
     ppr (ClosedSynFamilyTyCon (Just coax)) = text "closed type family" <+> ppr coax
     ppr AbstractClosedSynFamilyTyCon = text "abstract closed type family"
     ppr (BuiltInSynFamTyCon _) = text "built-in type family"
+
+instance Binary FamTyConFlav where
+  put_ bh a
+    = case a of
+        DataFamilyTyCon a            -> putByte bh 0 >> put_ bh a
+        OpenSynFamilyTyCon           -> putByte bh 1
+        ClosedSynFamilyTyCon a       -> putByte bh 2 >> put_ bh a
+        AbstractClosedSynFamilyTyCon -> putByte bh 3
+        BuiltInSynFamTyCon a         -> putByte bh 4 >> put_ bh a
+  get bh = do
+    tag <- getByte bh
+    case tag of
+      0 -> DataFamilyTyCon <$> get bh
+      1 -> pure OpenSynFamilyTyCon
+      2 -> ClosedSynFamilyTyCon <$> get bh
+      3 -> pure AbstractClosedSynFamilyTyCon
+      4 -> BuiltInSynFamTyCon <$> get bh
 
 {- Note [Closed type families]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1300,6 +1436,34 @@ data PrimRep
   | VecRep Int PrimElemRep  -- ^ A vector
   deriving( Eq, Show )
 
+instance Binary PrimRep where
+  put_ bh r = case r of
+    VoidRep     -> putByte bh 0
+    LiftedRep   -> putByte bh 1
+    UnliftedRep -> putByte bh 2
+    IntRep      -> putByte bh 3
+    WordRep     -> putByte bh 4
+    Int64Rep    -> putByte bh 5
+    Word64Rep   -> putByte bh 6
+    AddrRep     -> putByte bh 7
+    FloatRep    -> putByte bh 8
+    DoubleRep   -> putByte bh 9
+    VecRep n r  -> putByte bh 10 >> put_ bh n >> put_ bh r
+  get bh = do
+    tag <- getByte bh
+    case tag of
+      0  -> pure VoidRep
+      1  -> pure LiftedRep
+      2  -> pure UnliftedRep
+      3  -> pure IntRep
+      4  -> pure WordRep
+      5  -> pure Int64Rep
+      6  -> pure Word64Rep
+      7  -> pure AddrRep
+      8  -> pure FloatRep
+      9  -> pure DoubleRep
+      10 -> VecRep <$> get bh <*> get bh
+
 data PrimElemRep
   = Int8ElemRep
   | Int16ElemRep
@@ -1311,7 +1475,11 @@ data PrimElemRep
   | Word64ElemRep
   | FloatElemRep
   | DoubleElemRep
-   deriving( Eq, Show )
+   deriving( Eq, Show, Enum )
+
+instance Binary PrimElemRep where
+  put_ bh r = putByte bh (fromIntegral $ fromEnum r)
+  get bh = toEnum . fromIntegral <$> getByte bh
 
 instance Outputable PrimRep where
   ppr r = text (show r)
@@ -2420,6 +2588,36 @@ instance Outputable TyConFlavour where
       go TypeSynonymFlavour      = "type synonym"
       go BuiltInTypeFlavour      = "built-in type"
       go PromotedDataConFlavour  = "promoted data constructor"
+
+instance Binary TyConFlavour where
+  put_ bh r = case r of
+    ClassFlavour            -> putByte bh 0
+    TupleFlavour b          -> putByte bh 1 >> put_ bh b
+    SumFlavour              -> putByte bh 2
+    DataTypeFlavour         -> putByte bh 3
+    NewtypeFlavour          -> putByte bh 4
+    AbstractTypeFlavour     -> putByte bh 5
+    DataFamilyFlavour b     -> putByte bh 6 >> put_ bh b
+    OpenTypeFamilyFlavour b -> putByte bh 7 >> put_ bh b
+    ClosedTypeFamilyFlavour -> putByte bh 8
+    TypeSynonymFlavour      -> putByte bh 9
+    BuiltInTypeFlavour      -> putByte bh 10
+    PromotedDataConFlavour  -> putByte bh 11
+  get bh = do
+    tag <- getByte bh
+    case tag of
+      0  -> pure ClassFlavour
+      1  -> TupleFlavour <$> get bh
+      2  -> pure SumFlavour
+      3  -> pure DataTypeFlavour
+      4  -> pure NewtypeFlavour
+      5  -> pure AbstractTypeFlavour
+      6  -> DataFamilyFlavour <$> get bh
+      7  -> OpenTypeFamilyFlavour <$> get bh
+      8  -> pure ClosedTypeFamilyFlavour
+      9  -> pure TypeSynonymFlavour
+      10 -> pure BuiltInTypeFlavour
+      11 -> pure PromotedDataConFlavour
 
 tyConFlavour :: TyCon -> TyConFlavour
 tyConFlavour (AlgTyCon { algTcParent = parent, algTcRhs = rhs })

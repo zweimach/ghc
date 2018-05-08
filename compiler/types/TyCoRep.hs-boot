@@ -1,7 +1,7 @@
 module TyCoRep where
 
 import GhcPrelude
-
+import Binary
 import Outputable ( SDoc )
 import Data.Data  ( Data )
 
@@ -24,3 +24,5 @@ isRuntimeRepTy :: Type -> Bool
 
 instance Data Type
   -- To support Data instances in CoAxiom
+
+instance Binary Type

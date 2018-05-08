@@ -221,6 +221,7 @@ import PrelNames
 import TysWiredIn( coercibleClass, unitTyCon, unitTyConKey
                  , listTyCon, constraintKind )
 import BasicTypes
+import Binary
 import Util
 import Bag
 import Maybes
@@ -514,6 +515,20 @@ data TcTyVarDetails
            , mtv_ref   :: IORef MetaDetails
            , mtv_tclvl :: TcLevel }  -- See Note [TcLevel and untouchable type variables]
 
+instance Binary TcTyVarDetails where
+  put_ bh d
+    = case d of
+        SkolemTv l b -> putByte bh 0 >> put_ bh l >> put_ bh b
+        RuntimeUnk   -> putByte bh 1
+        MetaTv a refb c -> readIORef refb >>= \b ->
+          putByte bh 2 >> put_ bh a >> put_ bh b >> put_ bh c
+  get bh = do
+    tag <- getByte bh
+    case tag of
+      0 -> SkolemTv <$> get bh <*> get bh
+      1 -> pure RuntimeUnk
+      2 -> MetaTv   <$> get bh <*> (get bh >>= newIORef) <*> get bh
+
 vanillaSkolemTv, superSkolemTv :: TcTyVarDetails
 -- See Note [Binding when looking up instances] in InstEnv
 vanillaSkolemTv = SkolemTv (pushTcLevel topTcLevel) False  -- Might be instantiated
@@ -523,6 +538,17 @@ superSkolemTv   = SkolemTv (pushTcLevel topTcLevel) True   -- Treat this as a co
 data MetaDetails
   = Flexi  -- Flexi type variables unify to become Indirects
   | Indirect TcType
+
+instance Binary MetaDetails where
+  put_ bh d
+    = case d of
+        Flexi      -> putByte bh 0
+        Indirect t -> putByte bh 1 >> put_ bh t
+  get bh = do
+    tag <- getByte bh
+    case tag of
+      0 -> pure Flexi
+      _ -> Indirect <$> get bh
 
 data MetaInfo
    = TauTv         -- This MetaTv is an ordinary unification variable
@@ -542,6 +568,20 @@ data MetaInfo
                    --   its Given CFunEqCan.
                    -- It is filled in /only/ by unflattenGivens
                    -- See Note [The flattening story] in TcFlatten
+
+instance Binary MetaInfo where
+  put_ bh i = putByte bh $ case i of
+    TauTv      -> 0
+    SigTv      -> 1
+    FlatMetaTv -> 2
+    FlatSkolTv -> 3
+  get bh = do
+    tag <- getByte bh
+    pure $ case tag of
+      0 -> TauTv
+      1 -> SigTv
+      2 -> FlatMetaTv
+      _ -> FlatSkolTv
 
 instance Outputable MetaDetails where
   ppr Flexi         = text "Flexi"
@@ -676,6 +716,10 @@ isSigMaybe _                = Nothing
 newtype TcLevel = TcLevel Int deriving( Eq, Ord )
   -- See Note [TcLevel and untouchable type variables] for what this Int is
   -- See also Note [TcLevel assignment]
+
+instance Binary TcLevel where
+  put_ bh (TcLevel l) = put_ bh l
+  get bh = TcLevel <$> get bh
 
 {-
 Note [TcLevel and untouchable type variables]

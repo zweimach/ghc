@@ -30,6 +30,7 @@ import {-# SOURCE #-} TyCoRep   ( Type, PredType, pprType )
 import Var
 import Name
 import BasicTypes
+import Binary
 import Unique
 import Util
 import SrcLoc
@@ -70,6 +71,12 @@ data Class
 
      }
 
+instance Binary Class where
+  put_ bh (Class a b c d e f)
+    = put_ bh a >> put_ bh b >> put_ bh c >> put_ bh d >> put_ bh e >> put_ bh f
+  get bh
+    = Class <$> get bh <*> get bh <*> get bh <*> get bh <*> get bh <*> get bh
+
 --  | e.g.
 --
 -- >  class C a b c | a b -> c, a c -> b where...
@@ -99,6 +106,10 @@ data ClassATItem
                       -- Default associated type (if any) from this template
                       -- Note [Associated type defaults]
 
+instance Binary ClassATItem where
+  put_ bh (ATI a b) = put_ bh a >> put_ bh b
+  get bh = ATI <$> get bh <*> get bh
+
 type ClassMinimalDef = BooleanFormula Name -- Required methods
 
 data ClassBody
@@ -121,6 +132,19 @@ data ClassBody
         classMinimalDefStuff :: ClassMinimalDef
     }
     -- TODO: maybe super classes should be allowed in abstract class definitions
+
+instance Binary ClassBody where
+  put_ bh cb
+    = case cb of
+        AbstractClass -> putByte bh 0
+        ConcreteClass a b c d e ->
+          putByte bh 1 >> put_ bh a >> put_ bh b >> put_ bh c >> put_ bh d
+                       >> put_ bh e
+  get bh = do
+    tag <- getByte bh
+    case tag of
+      0 -> pure AbstractClass
+      1 -> ConcreteClass <$> get bh <*> get bh <*> get bh <*> get bh <*> get bh
 
 classMinimalDef :: Class -> ClassMinimalDef
 classMinimalDef Class{ classBody = ConcreteClass{ classMinimalDefStuff = d } } = d

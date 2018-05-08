@@ -33,6 +33,7 @@ import TcEvidence
 import Type
 import NameSet
 import BasicTypes
+import Binary
 import Outputable
 import SrcLoc
 import Var
@@ -94,6 +95,23 @@ data HsLocalBindsLR idL idR
   | XHsLocalBindsLR
         (XXHsLocalBindsLR idL idR)
 
+instance ( Binary (XHsValBinds l r), Binary (HsValBindsLR l r)
+         , Binary (XHsIPBinds l r), Binary (HsIPBinds r)
+         , Binary (XEmptyLocalBinds l r), Binary (XXHsLocalBindsLR l r)
+         ) => Binary (HsLocalBindsLR l r) where
+  put_ bh b = case b of
+    HsValBinds a b    -> putByte bh 0 >> put_ bh a >> put_ bh b
+    HsIPBinds a b     -> putByte bh 1 >> put_ bh a >> put_ bh b
+    EmptyLocalBinds a -> putByte bh 2 >> put_ bh a
+    XHsLocalBindsLR a -> putByte bh 3 >> put_ bh a
+  get bh = do
+    tag <- getByte bh
+    case tag of
+      0 -> HsValBinds      <$> get bh <*> get bh
+      1 -> HsIPBinds       <$> get bh <*> get bh
+      2 -> EmptyLocalBinds <$> get bh
+      _ -> XHsLocalBindsLR <$> get bh
+
 type instance XHsValBinds      (GhcPass pL) (GhcPass pR) = NoExt
 type instance XHsIPBinds       (GhcPass pL) (GhcPass pR) = NoExt
 type instance XEmptyLocalBinds (GhcPass pL) (GhcPass pR) = NoExt
@@ -125,6 +143,18 @@ data HsValBindsLR idL idR
     -- later bindings in the list may depend on earlier ones.
   | XValBindsLR
       (XXValBindsLR idL idR)
+
+instance ( Binary (Sig r), Binary (XValBinds l r)
+         , Binary (XXValBindsLR l r), Binary (LHsBindsLR l r)
+         ) => Binary (HsValBindsLR l r) where
+  put_ bh b = case b of
+    ValBinds a b c -> putByte bh 0 >> put_ bh a >> put_ bh b >> put_ bh c
+    XValBindsLR a  -> putByte bh 1 >> put_ bh a
+  get bh = do
+    tag <- getByte bh
+    case tag of
+      0 -> ValBinds <$> get bh <*> get bh <*> get bh
+      _ -> XValBindsLR <$> get bh
 
 -- ---------------------------------------------------------------------
 -- Deal with ValBindsOut

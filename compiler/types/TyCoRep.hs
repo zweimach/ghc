@@ -167,6 +167,7 @@ import FV
 
 -- others
 import BasicTypes ( LeftOrRight(..), TyPrec(..), maybeParen, pickLR )
+import Binary
 import PrelNames
 import Outputable
 import DynFlags
@@ -180,7 +181,7 @@ import UniqSet
 -- libraries
 import qualified Data.Data as Data hiding ( TyCon )
 import Data.List
-import Data.IORef ( IORef )   -- for CoercionHole
+import Data.IORef ( IORef, newIORef, readIORef )   -- for CoercionHole
 
 {-
 %************************************************************************
@@ -941,6 +942,50 @@ type CoercionR = Coercion       -- always representational
 type CoercionP = Coercion       -- always phantom
 type KindCoercion = CoercionN   -- always nominal
 
+instance Binary Coercion where
+  put_ bh co
+    = case co of
+        Refl a b          -> putByte bh 0  >> put_ bh a >> put_ bh b
+        TyConAppCo a b c  -> putByte bh 1  >> put_ bh a >> put_ bh b >> put_ bh c
+        AppCo a b         -> putByte bh 2  >> put_ bh a >> put_ bh b
+        ForAllCo a b c    -> putByte bh 3  >> put_ bh a >> put_ bh b >> put_ bh c
+        FunCo a b c       -> putByte bh 4  >> put_ bh a >> put_ bh b
+        CoVarCo a         -> putByte bh 5  >> put_ bh a
+        AxiomInstCo a b c -> putByte bh 6  >> put_ bh a >> put_ bh b >> put_ bh c
+        AxiomRuleCo a b   -> putByte bh 7  >> put_ bh a >> put_ bh b
+        UnivCo a b c d    -> putByte bh 8  >> put_ bh a >> put_ bh b >> put_ bh c
+                          >> put_ bh d
+        SymCo a           -> putByte bh 9  >> put_ bh a
+        TransCo a b       -> putByte bh 10 >> put_ bh a >> put_ bh b
+        NthCo a b c       -> putByte bh 11 >> put_ bh a >> put_ bh b >> put_ bh c
+        LRCo a b          -> putByte bh 12 >> put_ bh a >> put_ bh b
+        InstCo a b        -> putByte bh 13 >> put_ bh a >> put_ bh b
+        CoherenceCo a b   -> putByte bh 14 >> put_ bh a >> put_ bh b
+        KindCo a          -> putByte bh 15 >> put_ bh a
+        SubCo a           -> putByte bh 16 >> put_ bh a
+        HoleCo a          -> putByte bh 17 >> put_ bh a
+  get bh = do
+    tag <- getByte bh
+    case tag of
+      0  -> Refl        <$> get bh <*> get bh
+      1  -> TyConAppCo  <$> get bh <*> get bh <*> get bh
+      2  -> AppCo       <$> get bh <*> get bh
+      3  -> ForAllCo    <$> get bh <*> get bh <*> get bh
+      4  -> FunCo       <$> get bh <*> get bh <*> get bh
+      5  -> CoVarCo     <$> get bh
+      6  -> AxiomInstCo <$> get bh <*> get bh <*> get bh
+      7  -> AxiomRuleCo <$> get bh <*> get bh
+      8  -> UnivCo      <$> get bh <*> get bh <*> get bh <*> get bh
+      9  -> SymCo       <$> get bh
+      10 -> TransCo     <$> get bh <*> get bh
+      11 -> NthCo       <$> get bh <*> get bh <*> get bh
+      12 -> LRCo        <$> get bh <*> get bh
+      13 -> InstCo      <$> get bh <*> get bh
+      14 -> CoherenceCo <$> get bh <*> get bh
+      15 -> KindCo      <$> get bh
+      16 -> SubCo       <$> get bh
+      17 -> HoleCo      <$> get bh
+
 {-
 Note [Refl invariant]
 ~~~~~~~~~~~~~~~~~~~~~
@@ -1306,6 +1351,21 @@ data UnivCoProvenance
 
   deriving Data.Data
 
+instance Binary UnivCoProvenance where
+  put_ bh p
+    = case p of
+        UnsafeCoerceProv  -> putByte bh 0
+        PhantomProv kc    -> putByte bh 1 >> put_ bh kc
+        ProofIrrelProv kc -> putByte bh 2 >> put_ bh kc
+        PluginProv s      -> putByte bh 3 >> put_ bh s
+  get bh = do
+    tag <- getByte bh
+    case tag of
+      0 -> pure UnsafeCoerceProv
+      1 -> PhantomProv <$> get bh
+      2 -> ProofIrrelProv <$> get bh
+      3 -> PluginProv <$> get bh
+
 instance Outputable UnivCoProvenance where
   ppr UnsafeCoerceProv   = text "(unsafeCoerce#)"
   ppr (PhantomProv _)    = text "(phantom)"
@@ -1319,6 +1379,10 @@ data CoercionHole
 
                  , ch_ref    :: IORef (Maybe Coercion)
                  }
+
+instance Binary CoercionHole where
+  put_ bh (CoercionHole a b) = put_ bh a >> (readIORef b >>= put_ bh)
+  get bh = CoercionHole <$> get bh <*> (get bh >>= newIORef)
 
 coHoleCoVar :: CoercionHole -> CoVar
 coHoleCoVar = ch_co_var
@@ -2692,6 +2756,40 @@ instance Outputable Type where
 
 instance Outputable TyLit where
    ppr = pprTyLit
+
+instance Binary Type where
+  put_ bh t
+    = case t  of
+        TyVarTy v    -> putByte bh 0 >> put_ bh v
+        AppTy a b    -> putByte bh 1 >> put_ bh a >> put_ bh b
+        TyConApp a b -> putByte bh 2 >> put_ bh a >> put_ bh b
+        ForAllTy a b -> putByte bh 3 >> put_ bh a >> put_ bh b
+        FunTy a b    -> putByte bh 4 >> put_ bh a >> put_ bh b
+        LitTy a      -> putByte bh 5 >> put_ bh a
+        CastTy a b   -> putByte bh 6 >> put_ bh a >> put_ bh b
+        CoercionTy a -> putByte bh 7 >> put_ bh a
+  get bh = do
+    tag <- getByte bh
+    case tag of
+      0 -> TyVarTy    <$> get bh
+      1 -> AppTy      <$> get bh <*> get bh
+      2 -> TyConApp   <$> get bh <*> get bh
+      3 -> ForAllTy   <$> get bh <*> get bh
+      4 -> FunTy      <$> get bh <*> get bh
+      5 -> LitTy      <$> get bh
+      6 -> CastTy     <$> get bh <*> get bh
+      7 -> CoercionTy <$> get bh
+
+instance Binary TyLit where
+  put_ bh lit
+    = case lit of
+        NumTyLit i -> putByte bh 0 >> put_ bh i
+        StrTyLit s -> putByte bh 1 >> put_ bh s
+  get bh = do
+    tag <- getByte bh
+    case tag of
+      0 -> NumTyLit <$> get bh
+      1 -> StrTyLit <$> get bh
 
 ------------------
 pprSigmaType :: Type -> SDoc

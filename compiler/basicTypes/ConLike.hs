@@ -35,6 +35,7 @@ import Unique
 import Util
 import Name
 import BasicTypes
+import Binary
 import TyCoRep (Type, ThetaType)
 import Var
 import Type (mkTyConApp)
@@ -52,6 +53,16 @@ import qualified Data.Data as Data
 -- | A constructor-like thing
 data ConLike = RealDataCon DataCon
              | PatSynCon PatSyn
+
+instance Binary ConLike where
+  put_ bh c = case c of
+    RealDataCon dc -> putByte bh 0 >> put_ bh dc
+    PatSynCon p -> putByte bh 1 >> put_ bh p
+  get bh = do
+    tag <- getByte bh
+    case tag of
+      0 -> RealDataCon <$> get bh
+      _ -> PatSynCon <$> get bh
 
 {-
 ************************************************************************

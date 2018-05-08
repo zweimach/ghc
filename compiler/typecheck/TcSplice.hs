@@ -774,7 +774,7 @@ runMeta' show_code ppr_hs run_and_convert expr
                             -- we catch all kinds of splices and annotations.
 
         -- Check that we've had no errors of any sort so far.
-        -- For example, if we found an error in an earlier defn f, but
+        -- For example, if we fouénd an error in an earlier defn f, but
         -- recovered giving it type f :: forall a.a, it'd be very dodgy
         -- to carry ont.  Mind you, the staging restrictions mean we won't
         -- actually run f, but it still seems wrong. And, more concretely,

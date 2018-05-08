@@ -65,10 +65,12 @@ import GhcPrelude
 import {-# SOURCE #-} Name (Name)
 import FastString
 import Panic
+import Unique
 import UniqFM
 import FastMutInt
 import Fingerprint
 import BasicTypes
+import {-# SOURCE #-} PrimOp
 import SrcLoc
 
 import Foreign
@@ -76,14 +78,16 @@ import Data.Array
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Internal as BS
 import qualified Data.ByteString.Unsafe   as BS
+import qualified Data.IntMap              as IM
 import Data.IORef
 import Data.Char                ( ord, chr )
+import Data.List                ( find )
 import Data.Time
 import Type.Reflection
 import Type.Reflection.Unsafe
 import Data.Kind (Type)
 import GHC.Exts (TYPE, RuntimeRep(..), VecCount(..), VecElem(..))
-import Control.Monad            ( when )
+import Control.Monad            ( when, replicateM )
 import System.IO as IO
 import System.IO.Unsafe         ( unsafeInterleaveIO )
 import System.IO.Error          ( mkIOError, eofErrorType )
@@ -1173,3 +1177,113 @@ instance Binary SourceText where
         s <- get bh
         return (SourceText s)
       _ -> panic $ "Binary SourceText:" ++ show h
+
+instance Binary IntegralLit where
+  put_ bh (IL a b c) = put_ bh a >> put_ bh b >> put_ bh c
+  get bh = IL <$> get bh <*> get bh <*> get bh
+
+instance Binary FractionalLit where
+  put_ bh (FL a b c) = put_ bh a >> put_ bh b >> put_ bh c
+  get bh = FL <$> get bh <*> get bh <*> get bh
+
+instance Binary Boxity where
+  put_ bh b = case b of
+    Boxed   -> putByte bh 0
+    Unboxed -> putByte bh 1
+  get bh = do
+    tag <- getByte bh
+    case tag of
+      0 -> pure Boxed
+      _ -> pure Unboxed
+
+-- FIXME: optimise?
+instance (Ix i, Binary i, Binary a) => Binary (Array i a) where
+  put_ bh arr = case bounds arr of
+    (a, b) -> put_ bh a >> put_ bh b >> put_ bh (elems arr)
+  get bh = do
+    bounds <- (,) <$> get bh <*> get bh
+    xs <- replicateM (rangeSize bounds) (get bh)
+    return (listArray bounds xs)
+
+instance Binary Unique where
+  put_ bh u = put_ bh (getKey u)
+  get bh = mkUniqueGrimily <$> get bh
+
+instance Binary ty => Binary (DefMethSpec ty) where
+  put_ bh s
+    = case s of
+        VanillaDM   -> putByte bh 0
+        GenericDM t -> putByte bh 1 >> put_ bh t
+  get bh = do
+    tag <- getByte bh
+    case tag of
+      0 -> pure VanillaDM
+      _ -> GenericDM <$> get bh
+
+instance Binary a => Binary (IM.IntMap a) where
+  put_ bh m = put_ bh (IM.toAscList m)
+  get bh = IM.fromAscList <$> get bh
+
+instance Binary PrimOp where
+  put_ bh primop = put_ bh (primOpTag primop)
+  -- FIXME: inefficient.
+  get bh = do
+    tag <- getTag
+    case find (\p -> primOpTag p == tag) allThePrimOps of
+      Nothing -> error "Binary PrimOp.get: unknown primop tag"
+      Just p  -> pure p
+
+    where getTag :: IO Int
+          getTag = get bh
+
+instance Binary OccInfo where
+  put_ bh i
+    = case i of
+        ManyOccs a          -> putByte bh 0 >> put_ bh a
+        IAmDead             -> putByte bh 1
+        OneOcc a b c d      -> putByte bh 2 >> put_ bh a >> put_ bh b
+                                            >> put_ bh c >> put_ bh d
+        IAmALoopBreaker a b -> putByte bh 3 >> put_ bh a >> put_ bh b
+  get bh = do
+    tag <- getByte bh
+    case tag of
+      0 -> ManyOccs <$> get bh
+      1 -> pure IAmDead
+      2 -> OneOcc <$> get bh <*> get bh <*> get bh <*> get bh
+      _ -> IAmALoopBreaker <$> get bh <*> get bh
+
+instance Binary TailCallInfo where
+  put_ bh i
+    = case i of
+        AlwaysTailCalled a -> putByte bh 0 >> put_ bh a
+        NoTailCallInfo     -> putByte bh 1
+  get bh = do
+    tag <- getByte bh
+    case tag of
+      0 -> AlwaysTailCalled <$> get bh
+      _ -> pure NoTailCallInfo
+
+instance Binary OneShotInfo where
+  put_ bh i
+    = case i of
+        NoOneShotInfo -> putByte bh 0
+        OneShotLam    -> putByte bh 1
+  get bh = do
+    tag <- getByte bh
+    case tag of
+      0 -> pure NoOneShotInfo
+      _ -> pure OneShotLam
+
+instance Binary LexicalFixity where
+  put_ bh f = case f of
+    Prefix -> putByte bh 0
+    Infix  -> putByte bh 1
+  get bh = do
+    tag <- getByte bh
+    case tag of
+      0 -> pure Prefix
+      _ -> pure Infix
+
+instance Binary ele => Binary (UniqFM ele) where
+  put_ bh ufm = put_ bh (ufmToIntMap ufm)
+  get bh = intMapToUFM <$> get bh

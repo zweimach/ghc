@@ -97,6 +97,7 @@ import HsDoc
 import TyCon
 import Name
 import BasicTypes
+import Binary
 import Coercion
 import ForeignCall
 import HsExtension
@@ -163,6 +164,29 @@ type instance XSpliceD    (GhcPass _) = NoExt
 type instance XDocD       (GhcPass _) = NoExt
 type instance XRoleAnnotD (GhcPass _) = NoExt
 type instance XXHsDecl    (GhcPass _) = NoExt
+
+instance ( Binary (XTyClD p), Binary (TyClDecl p)
+         , Binary (XInstD p), Binary (InstDecl p)
+         , Binary (XDerivD p), Binary (DerivDecl p)
+         , Binary (XValD p), Binary (HsBind p)
+         , Binary (XSigD p), Binary (Sig p)
+         ) => Binary (HsDecl p) where
+  put_ bh d = case d of
+    TyClD a b  -> putByte bh 0 >> put_ bh a >> put_ bh b
+    InstD a b  -> putByte bh 1 >> put_ bh a >> put_ bh b
+    DerivD a b -> putByte bh 2 >> put_ bh a >> put_ bh b
+    ValD a b   -> putByte bh 3 >> put_ bh a >> put_ bh b
+    SigD a b   -> putByte bh 4 >> put_ bh a >> put_ bh b
+    _          -> error "Binary (HsDecl p).put: unsupported decl"
+  get bh = do
+    tag <- getByte bh
+    case tag of
+      0 -> TyClD  <$> get bh <*> get bh
+      1 -> InstD  <$> get bh <*> get bh
+      2 -> DerivD <$> get bh <*> get bh
+      3 -> ValD   <$> get bh <*> get bh
+      4 -> SigD   <$> get bh <*> get bh
+      _ -> error "Binary (HsDecl p).get: unsupported decl"
 
 -- NB: all top-level fixity decls are contained EITHER
 -- EITHER SigDs
@@ -770,6 +794,41 @@ pprTyClDeclFlavour (DataDecl { tcdDataDefn = XHsDataDefn x })
   = ppr x
 pprTyClDeclFlavour (XTyClDecl x) = ppr x
 
+
+instance ( Binary (FamEqn p (LHsQTyVars p) (LHsType p))
+         , Binary (LHsBinds p), Binary (Sig p)
+         , Binary (XClassDecl p), Binary (HsDataDefn p)
+         , Binary (XDataDecl p), Binary (HsType p)
+         , Binary (LHsQTyVars p), Binary (IdP p)
+         , Binary (XXTyClDecl p), Binary (XSynDecl p)
+         , Binary (FamilyDecl p), Binary (XFamDecl p)
+         ) => Binary (TyClDecl p) where
+  put_ bh d = case d of
+    FamDecl a b ->
+      putByte bh 0 >> put_ bh a >> put_ bh b
+    SynDecl a b c d e ->
+      putByte bh 1 >> put_ bh a >> put_ bh b >> put_ bh c
+                   >> put_ bh d >> put_ bh e
+    DataDecl a b c d e ->
+      putByte bh 2 >> put_ bh a >> put_ bh b >> put_ bh c
+                   >> put_ bh d >> put_ bh e
+    ClassDecl a b c d e f g h i j k ->
+      putByte bh 3 >> put_ bh a >> put_ bh b >> put_ bh c
+                   >> put_ bh d >> put_ bh e >> put_ bh f
+                   >> put_ bh g >> put_ bh h >> put_ bh i
+                   >> put_ bh j >> put_ bh k
+    XTyClDecl a ->
+      putByte bh 4 >> put_ bh a
+  get bh = do
+    tag <- getByte bh
+    case tag of
+      0 -> FamDecl <$> get bh <*> get bh
+      1 -> SynDecl <$> get bh <*> get bh <*> get bh <*> get bh <*> get bh
+      2 -> DataDecl <$> get bh <*> get bh <*> get bh <*> get bh <*> get bh
+      3 -> ClassDecl <$> get bh <*> get bh <*> get bh <*> get bh <*> get bh
+                     <*> get bh <*> get bh <*> get bh <*> get bh <*> get bh
+                     <*> get bh
+      _ -> XTyClDecl <$> get bh
 
 {- Note [Complete user-supplied kind signatures]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -2257,6 +2316,20 @@ data DocDecl
 -- Okay, I need to reconstruct the document comments, but for now:
 instance Outputable DocDecl where
   ppr _ = text "<document comment>"
+
+instance Binary DocDecl where
+  put_ bh d = case d of
+    DocCommentNext a    -> putByte bh 0 >> put_ bh a
+    DocCommentPrev a    -> putByte bh 1 >> put_ bh a
+    DocCommentNamed a b -> putByte bh 2 >> put_ bh a >> put_ bh b
+    DocGroup a b        -> putByte bh 3 >> put_ bh a >> put_ bh b
+  get bh = do
+    tag <- getByte bh
+    case tag of
+      0 -> DocCommentNext <$> get bh
+      1 -> DocCommentPrev <$> get bh
+      2 -> DocCommentNamed <$> get bh <*> get bh
+      _ -> DocGroup <$> get bh <*> get bh
 
 docDeclDoc :: DocDecl -> HsDocString
 docDeclDoc (DocCommentNext d) = d

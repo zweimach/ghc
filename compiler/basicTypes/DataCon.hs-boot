@@ -8,6 +8,7 @@ import FieldLabel ( FieldLabel )
 import Unique ( Uniquable )
 import Outputable ( Outputable, OutputableBndr )
 import BasicTypes (Arity)
+import Binary
 import {-# SOURCE #-} TyCoRep ( Type, ThetaType )
 
 data DataCon
@@ -26,6 +27,7 @@ dataConStupidTheta :: DataCon -> ThetaType
 dataConFullSig :: DataCon
                -> ([TyVar], [TyVar], [EqSpec], ThetaType, [Type], Type)
 
+instance Binary DataCon
 instance Eq DataCon
 instance Uniquable DataCon
 instance NamedThing DataCon

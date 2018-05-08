@@ -10,6 +10,7 @@ module HsDoc (
 
 import GhcPrelude
 
+import Binary
 import Outputable
 import SrcLoc
 import FastString
@@ -19,6 +20,10 @@ import Data.Data
 -- | Haskell Documentation String
 newtype HsDocString = HsDocString FastString
   deriving (Eq, Show, Data)
+
+instance Binary HsDocString where
+  put_ bh (HsDocString s) = put_ bh s
+  get bh = HsDocString <$> get bh
 
 -- | Located Haskell Documentation String
 type LHsDocString = Located HsDocString

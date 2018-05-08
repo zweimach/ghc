@@ -37,6 +37,7 @@ import Name
 import NameSet
 import RdrName  ( GlobalRdrEnv )
 import BasicTypes
+import Binary
 import ConLike
 import SrcLoc
 import Util
@@ -191,6 +192,16 @@ data UnboundVar
   | TrueExprHole OccName             -- ^ A "true" expression hole (_ or _x)
 
   deriving Data
+
+instance Binary UnboundVar where
+  put_ bh v = case v of
+    OutOfScope a b -> putByte bh 0 >> put_ bh a >> put_ bh b
+    TrueExprHole a -> putByte bh 1 >> put_ bh a
+  get bh = do
+    tag <- getByte bh
+    case tag of
+      0 -> OutOfScope <$> get bh <*> get bh
+      _ -> TrueExprHole <$> get bh
 
 instance Outputable UnboundVar where
     ppr (OutOfScope occ _) = text "OutOfScope" <> parens (ppr occ)
@@ -711,6 +722,111 @@ data HsExpr p
 
   | XExpr       (XXExpr p) -- Note [Trees that Grow] extension constructor
 
+instance ( Binary (XHsInteger p), Binary (XHsWord64Prim p)
+         , Binary (HsIPBinds p)
+         , Binary (XHsInt64Prim p), Binary (Sig p)
+         , Binary (XHsIntPrim p), Binary (LHsBindsLR p p)
+         , Binary (XXHsLocalBindsLR p p), Binary (XHsWordPrim p)
+         , Binary (XEmptyLocalBinds p p), Binary (XHsStringPrim p)
+         , Binary (XHsIPBinds p p), Binary (XVar p)
+         , Binary (IdP p), Binary (XUnboundVar p), Binary (XHsInt p)
+         , Binary (XConLikeOut p), Binary (XRecFld p)
+         , Binary (AmbiguousFieldOcc p), Binary (XOverLabel p)
+         , Binary (XIPVar p), Binary (XOverLitE p)
+         , Binary (XOverLit p), Binary (XXOverLit p), Binary (XHsCharPrim p)
+         , Binary (XXValBindsLR p p), Binary (XValBinds p p)
+         , Binary (XLitE p), Binary (XHsString p), Binary p
+         , Binary (XHsChar p), Binary (XLam p)
+         , Binary (MatchGroup p (LHsExpr p)), Binary (XLamCase p)
+         , Binary (XApp p), Binary (XAppTypeE p)
+         , Binary (XOpApp p), Binary (XNegApp p)
+         , Binary (SyntaxExpr p), Binary (XPar p)
+         , Binary (XSectionL p), Binary (XSectionR p)
+         , Binary (XExplicitTuple p), Binary (HsTupArg p)
+         , Binary (XExplicitSum p), Binary (XCase p), Binary (XIf p)
+         , Binary (XMultiIf p), Binary (GRHS p (LHsExpr p))
+         , Binary (XLet p), Binary (XHsValBinds p p)
+         , Binary (XDo p), Binary (StmtLR p p (LHsExpr p))
+         , Binary (XExplicitList p), Binary (XExplicitPArr p)
+         , Binary (XRecordCon p), Binary (HsRecordBinds p)
+         , Binary (HsRecField' (AmbiguousFieldOcc p) (LHsExpr p))
+         , Binary (XExprWithTySig p), Binary (XRecordUpd p)
+         , Binary (XArithSeq p), Binary (ArithSeqInfo p)
+         , Binary (XPArrSeq p), Binary (XXExpr p)
+         ) => Binary (HsExpr p) where
+  put_ bh e = case e of
+    HsVar a b -> putByte bh 0 >> put_ bh a >> put_ bh b
+    HsUnboundVar a b -> putByte bh 1 >> put_ bh a >> put_ bh b
+    HsConLikeOut a b -> putByte bh 2 >> put_ bh a >> put_ bh b
+    HsRecFld a b -> putByte bh 3 >> put_ bh a >> put_ bh b
+    HsOverLabel a b c -> putByte bh 4 >> put_ bh a >> put_ bh b >> put_ bh c
+    HsIPVar a b -> putByte bh 5 >> put_ bh a >> put_ bh b
+    HsOverLit a b -> putByte bh 6 >> put_ bh a >> put_ bh b
+    HsLit a b -> putByte bh 7 >> put_ bh a >> put_ bh b
+    HsLam a b -> putByte bh 8 >> put_ bh a >> put_ bh b
+    HsLamCase a b -> putByte bh 9 >> put_ bh a >> put_ bh b
+    HsApp a b c -> putByte bh 10 >> put_ bh a >> put_ bh b >> put_ bh c
+    HsAppType a b -> putByte bh 11 >> put_ bh a >> put_ bh b
+    OpApp a b c d -> putByte bh 12 >> put_ bh a >> put_ bh b >> put_ bh c
+                                   >> put_ bh d
+    NegApp a b c -> putByte bh 13 >> put_ bh a >> put_ bh b >> put_ bh c
+    HsPar a b -> putByte bh 14 >> put_ bh a >> put_ bh b
+    SectionL a b c -> putByte bh 15 >> put_ bh a >> put_ bh b >> put_ bh c
+    SectionR a b c -> putByte bh 16 >> put_ bh a >> put_ bh b >> put_ bh c
+    ExplicitTuple a b c -> putByte bh 17 >> put_ bh a >> put_ bh b >> put_ bh c
+    ExplicitSum a b c d -> putByte bh 18 >> put_ bh a >> put_ bh b >> put_ bh c
+                                         >> put_ bh d
+    HsCase a b c -> putByte bh 19 >> put_ bh a >> put_ bh b >> put_ bh c
+    HsIf a b c d e -> putByte bh 20 >> put_ bh a >> put_ bh b >> put_ bh c
+                                    >> put_ bh d >> put_ bh e
+    HsMultiIf a b -> putByte bh 21 >> put_ bh a >> put_ bh b
+    HsLet a b c -> putByte bh 22 >> put_ bh a >> put_ bh b >> put_ bh c
+    HsDo a b c -> putByte bh 23 >> put_ bh a >> put_ bh b >> put_ bh c
+    ExplicitList a b c -> putByte bh 24 >> put_ bh a >> put_ bh b >> put_ bh c
+    ExplicitPArr a b -> putByte bh 25 >> put_ bh a >> put_ bh b
+    RecordCon a b c -> putByte bh 26 >> put_ bh a >> put_ bh b >> put_ bh c
+    RecordUpd a b c -> putByte bh 27 >> put_ bh a >> put_ bh b >> put_ bh c
+    ExprWithTySig a b -> putByte bh 28 >> put_ bh a >> put_ bh b
+    ArithSeq a b c -> putByte bh 29 >> put_ bh a >> put_ bh b >> put_ bh c
+    PArrSeq a b -> putByte bh 30 >> put_ bh a >> put_ bh b
+    XExpr a -> putByte bh 31 >> put_ bh a
+    _ -> error "Binary (HsExpr p).put: unsupported Expr constructor"
+  get bh = do
+    tag <- getByte bh
+    case tag of
+      0  -> HsVar <$> get bh <*> get bh
+      1  -> HsUnboundVar <$> get bh <*> get bh
+      2  -> HsConLikeOut <$> get bh <*> get bh
+      3  -> HsRecFld <$> get bh <*> get bh
+      4  -> HsOverLabel <$> get bh <*> get bh <*> get bh
+      5  -> HsIPVar <$> get bh <*> get bh
+      6  -> HsOverLit <$> get bh <*> get bh
+      7  -> HsLit <$> get bh <*> get bh
+      8  -> HsLam <$> get bh <*> get bh
+      9  -> HsLamCase <$> get bh <*> get bh
+      10 -> HsApp <$> get bh <*> get bh <*> get bh
+      11 -> HsAppType <$> get bh <*> get bh
+      12 -> OpApp <$> get bh <*> get bh <*> get bh <*> get bh
+      13 -> NegApp <$> get bh <*> get bh <*> get bh
+      14 -> HsPar <$> get bh <*> get bh
+      15 -> SectionL <$> get bh <*> get bh <*> get bh
+      16 -> SectionR <$> get bh <*> get bh <*> get bh
+      17 -> ExplicitTuple <$> get bh <*> get bh <*> get bh
+      18 -> ExplicitSum <$> get bh <*> get bh <*> get bh <*> get bh
+      19 -> HsCase <$> get bh <*> get bh <*> get bh
+      20 -> HsIf <$> get bh <*> get bh <*> get bh <*> get bh <*> get bh
+      21 -> HsMultiIf <$> get bh <*> get bh
+      22 -> HsLet <$> get bh <*> get bh <*> get bh
+      23 -> HsDo <$> get bh <*> get bh <*> get bh
+      24 -> ExplicitList <$> get bh <*> get bh <*> get bh
+      25 -> ExplicitPArr <$> get bh <*> get bh
+      26 -> RecordCon <$> get bh <*> get bh <*> get bh
+      27 -> RecordUpd <$> get bh <*> get bh <*> get bh
+      28 -> ExprWithTySig <$> get bh <*> get bh
+      29 -> ArithSeq <$> get bh <*> get bh <*> get bh
+      30 -> PArrSeq <$> get bh <*> get bh
+      31 -> XExpr <$> get bh
+      _ -> error "Binary (HsExpr p).get: unsupported Expr constructor tag"
 
 -- | Extra data fields for a 'RecordCon', added by the type checker
 data RecordConTc = RecordConTc
@@ -1446,7 +1562,7 @@ type instance XCmdTop  GhcTc = CmdTopTc
 type instance XXCmdTop (GhcPass _) = NoExt
 
 instance (p ~ GhcPass pass, OutputableBndrId p) => Outputable (HsCmd p) where
-    ppr cmd = pprCmd cmd
+  ppr cmd = pprCmd cmd
 
 -----------------------
 -- pprCmd and pprLCmd call pprDeeper;
@@ -2727,6 +2843,36 @@ instance OutputableBndr id => Outputable (HsMatchContext id) where
   ppr ThPatQuote            = text "ThPatQuote"
   ppr PatSyn                = text "PatSyn"
 
+instance Binary id => Binary (HsMatchContext id) where
+  put_ bh c = case c of
+    FunRhs a b c  -> putByte bh 0 >> put_ bh a >> put_ bh b >> put_ bh c
+    LambdaExpr    -> putByte bh 1
+    CaseAlt       -> putByte bh 2
+    IfAlt         -> putByte bh 3
+    ProcExpr      -> putByte bh 4
+    PatBindRhs    -> putByte bh 5
+    PatBindGuards -> putByte bh 6
+    RecUpd        -> putByte bh 7
+    StmtCtxt a    -> putByte bh 8 >> put_ bh a
+    ThPatSplice   -> putByte bh 9
+    ThPatQuote    -> putByte bh 10
+    PatSyn        -> putByte bh 11
+  get bh = do
+    tag <- getByte bh
+    case tag of
+      0  -> FunRhs <$> get bh <*> get bh <*> get bh
+      1  -> pure LambdaExpr
+      2  -> pure CaseAlt
+      3  -> pure IfAlt
+      4  -> pure ProcExpr
+      5  -> pure PatBindRhs
+      6  -> pure PatBindGuards
+      7  -> pure RecUpd
+      8  -> StmtCtxt <$> get bh
+      9  -> pure ThPatSplice
+      10 -> pure ThPatQuote
+      _  -> pure PatSyn
+
 isPatSynCtxt :: HsMatchContext id -> Bool
 isPatSynCtxt ctxt =
   case ctxt of
@@ -2750,6 +2896,32 @@ data HsStmtContext id
   | TransStmtCtxt (HsStmtContext id) -- ^A branch of a transform stmt
   deriving Functor
 deriving instance (Data id) => Data (HsStmtContext id)
+
+instance Binary (HsMatchContext id) => Binary (HsStmtContext id) where
+  put_ bh c = case c of
+    ListComp -> putByte bh 0
+    MonadComp -> putByte bh 1
+    PArrComp -> putByte bh 2
+    DoExpr -> putByte bh 3
+    MDoExpr -> putByte bh 4
+    ArrowExpr -> putByte bh 5
+    GhciStmtCtxt -> putByte bh 6
+    PatGuard m -> putByte bh 7 >> put_ bh m
+    ParStmtCtxt c -> putByte bh 8 >> put_ bh c
+    TransStmtCtxt c -> putByte bh 9 >> put_ bh c
+  get bh = do
+    tag <- getByte bh
+    case tag of
+      0 -> pure ListComp
+      1 -> pure MonadComp
+      2 -> pure PArrComp
+      3 -> pure DoExpr
+      4 -> pure MDoExpr
+      5 -> pure ArrowExpr
+      6 -> pure GhciStmtCtxt
+      7 -> PatGuard <$> get bh
+      8 -> ParStmtCtxt <$> get bh
+      _ -> TransStmtCtxt <$> get bh
 
 isListCompExpr :: HsStmtContext id -> Bool
 -- Uses syntax [ e | quals ]

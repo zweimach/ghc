@@ -1562,6 +1562,7 @@ instance Binary IfaceUnivCoProv where
            _ -> panic ("get IfaceUnivCoProv " ++ show tag)
 
 
+{-
 instance Binary (DefMethSpec IfaceType) where
     put_ bh VanillaDM     = putByte bh 0
     put_ bh (GenericDM t) = putByte bh 1 >> put_ bh t
@@ -1570,3 +1571,4 @@ instance Binary (DefMethSpec IfaceType) where
             case h of
               0 -> return VanillaDM
               _ -> do { t <- get bh; return (GenericDM t) }
+-}

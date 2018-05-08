@@ -135,6 +135,10 @@ newtype Branches (br :: BranchFlag)
   = MkBranches { unMkBranches :: Array BranchIndex CoAxBranch }
 type role Branches nominal
 
+instance Binary (Branches br) where
+  put_ bh = put_ bh . unMkBranches
+  get bh = MkBranches <$> get bh
+
 manyBranches :: [CoAxBranch] -> Branches Branched
 manyBranches brs = ASSERT( snd bnds >= fst bnds )
                    MkBranches (listArray bnds brs)
@@ -216,6 +220,14 @@ data CoAxiom br
          -- INVARIANT: co_ax_implicit == True implies length co_ax_branches == 1.
     }
 
+instance Binary (CoAxiom br) where
+  put_ bh (CoAxiom a b c d e f)
+    = put_ bh a >> put_ bh b >> put_ bh c
+   >> put_ bh d >> put_ bh e >> put_ bh f
+  get bh
+    = CoAxiom <$> get bh <*> get bh <*> get bh
+              <*> get bh <*> get bh <*> get bh
+
 data CoAxBranch
   = CoAxBranch
     { cab_loc      :: SrcSpan       -- Location of the defining equation
@@ -234,6 +246,15 @@ data CoAxBranch
                                     -- See Note [Storing compatibility]
     }
   deriving Data.Data
+
+instance Binary CoAxBranch where
+  put_ bh (CoAxBranch a b c d e f g)
+    = put_ bh a >> put_ bh b >> put_ bh c
+   >> put_ bh d >> put_ bh e >> put_ bh f
+  get bh
+    = CoAxBranch <$> get bh <*> get bh <*> get bh
+                 <*> get bh <*> get bh <*> get bh
+                 <*> get bh
 
 toBranchedAxiom :: CoAxiom br -> CoAxiom Branched
 toBranchedAxiom (CoAxiom unique name role tc branches implicit)
@@ -483,6 +504,10 @@ data CoAxiomRule = CoAxiomRule
         -- checks for that.
   }
 
+instance Binary CoAxiomRule where
+  put = error "Binary CoAxiomRule"
+  get = error "Binary CoAxiomRule"
+
 instance Data.Data CoAxiomRule where
   -- don't traverse?
   toConstr _   = abstractConstr "CoAxiomRule"
@@ -501,7 +526,6 @@ instance Ord CoAxiomRule where
 instance Outputable CoAxiomRule where
   ppr = ppr . coaxrName
 
-
 -- Type checking of built-in families
 data BuiltInSynFamily = BuiltInSynFamily
   { sfMatchFam      :: [Type] -> Maybe (CoAxiomRule, [Type], Type)
@@ -509,6 +533,11 @@ data BuiltInSynFamily = BuiltInSynFamily
   , sfInteractInert :: [Type] -> Type ->
                        [Type] -> Type -> [TypeEqn]
   }
+
+-- FIXME: hopefully we won't actually need to serialise this
+instance Binary BuiltInSynFamily where
+  put_ = error "Binary BuiltInSynFamily: impossible"
+  get  = error "Binary BuiltInSynFamily: impossible"
 
 -- Provides default implementations that do nothing.
 trivialBuiltInFamily :: BuiltInSynFamily

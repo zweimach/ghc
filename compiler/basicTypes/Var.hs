@@ -369,6 +369,47 @@ updateVarTypeM :: Monad m => (Type -> m Type) -> Id -> m Id
 updateVarTypeM f id = do { ty' <- f (varType id)
                          ; return (id { varType = ty' }) }
 
+-- TODO: fail when unknown tags are encountered in all these
+-- instances (in definitions for 'get')
+
+instance Binary Var where
+  put_ bh v
+    = case v of
+        TyVar a b c     -> putByte bh 0 >> put_ bh a >> put_ bh b >> put_ bh c
+        TcTyVar a b c d -> putByte bh 1 >> put_ bh a >> put_ bh b >> put_ bh c
+                        >> put_ bh d
+        Id a b c d e f  -> putByte bh 2 >> put_ bh a >> put_ bh b >> put_ bh c
+                        >> put_ bh d >> put_ bh e >> put_ bh f
+  get bh = do
+    tag <- getByte bh
+    case tag of
+      0 -> TyVar   <$> get bh <*> get bh <*> get bh
+      1 -> TcTyVar <$> get bh <*> get bh <*> get bh <*> get bh
+      2 -> Id      <$> get bh <*> get bh <*> get bh <*> get bh
+                   <*> get bh <*> get bh
+
+instance Binary IdScope where
+  put_ bh a
+    = case a of
+        GlobalId  -> putByte bh 0
+        LocalId a -> putByte bh 1 >> put_ bh a
+  get bh = do
+    tag <- getByte bh
+    case tag of
+      0 -> pure GlobalId
+      1 -> LocalId <$> get bh
+
+instance Binary ExportFlag where
+  put_ bh e = putByte bh $
+    case e of
+      NotExported -> 0
+      Exported    -> 1
+  get bh = do
+    tag <- getByte bh
+    case tag of
+      0 -> pure NotExported
+      1 -> pure Exported
+
 {- *********************************************************************
 *                                                                      *
 *                   ArgFlag

@@ -18,7 +18,7 @@ module IdInfo (
         RecSelParent(..),
 
         -- * The IdInfo type
-        IdInfo,         -- Abstract
+        IdInfo,
         vanillaIdInfo, noCafIdInfo,
 
         -- ** The OneShotInfo type
@@ -91,6 +91,7 @@ import {-# SOURCE #-} PrimOp (PrimOp)
 import Name
 import VarSet
 import BasicTypes
+import Binary
 import DataCon
 import TyCon
 import PatSyn
@@ -169,6 +170,17 @@ data RecSelParent = RecSelData TyCon | RecSelPatSyn PatSyn deriving Eq
   -- on the origin of the record selector.
   -- For a data type family, this is the
   -- /instance/ 'TyCon' not the family 'TyCon'
+
+instance Binary RecSelParent where
+  put_ bh p
+    = case p of
+        RecSelData t   -> putByte bh 0 >> put_ bh t
+        RecSelPatSyn s -> putByte bh 1 >> put_ bh s
+  get bh = do
+    tag <- getByte bh
+    case tag of
+      0 -> RecSelData <$> get bh
+      _ -> RecSelPatSyn <$> get bh
 
 instance Outputable RecSelParent where
   ppr p = case p of
@@ -459,6 +471,17 @@ data CafInfo
                                         -- that refers to no CAFs.
         deriving (Eq, Ord)
 
+instance Binary CafInfo where
+  put_ bh ci
+    = case ci of
+        MayHaveCafRefs -> putByte bh 0
+        _              -> putByte bh 1
+  get bh = do
+    tag <- getByte bh
+    case tag of
+      0 -> pure MayHaveCafRefs
+      _ -> pure NoCafRefs
+
 -- | Assumes that the 'Id' has CAF references: definitely safe
 vanillaCafInfo :: CafInfo
 vanillaCafInfo = MayHaveCafRefs
@@ -577,6 +600,10 @@ type TickBoxId = Int
 data TickBoxOp
    = TickBox Module {-# UNPACK #-} !TickBoxId
 
+instance Binary TickBoxOp where
+  put_ bh (TickBox m i) = put_ bh m >> put_ bh i
+  get bh = TickBox <$> get bh <*> get bh
+
 instance Outputable TickBoxOp where
     ppr (TickBox mod n)         = text "tick" <+> ppr (mod,n)
 
@@ -604,6 +631,17 @@ data LevityInfo = NoLevityInfo  -- always safe
                 | NeverLevityPolymorphic
   deriving Eq
 
+instance Binary LevityInfo where
+  put_ bh i
+    = case i of
+        NoLevityInfo -> putByte bh 0
+        otherwise    -> putByte bh 1
+  get bh = do
+    tag <- getByte bh
+    case tag of
+      0 -> pure NoLevityInfo
+      _ -> pure NeverLevityPolymorphic
+
 instance Outputable LevityInfo where
   ppr NoLevityInfo           = text "NoLevityInfo"
   ppr NeverLevityPolymorphic = text "NeverLevityPolymorphic"
@@ -627,3 +665,42 @@ isNeverLevPolyIdInfo :: IdInfo -> Bool
 isNeverLevPolyIdInfo info
   | NeverLevityPolymorphic <- levityInfo info = True
   | otherwise                                 = False
+
+instance Binary IdInfo where
+  put_ bh (IdInfo a b c d e f g h i j k)
+    = put_ bh a >> {- put_ bh b >> put_ bh c >> -} put_ bh d
+   >> put_ bh e >> put_ bh f >> put_ bh g >> put_ bh h
+   >> put_ bh i >> put_ bh j >> put_ bh k
+  get bh = IdInfo <$> get bh <*> error "Binary IdInfo: RuleInfo field"
+                  <*> error "Binary IdInfo: Unfolding field"
+                  <*> get bh <*> get bh <*> get bh <*> get bh
+                  <*> get bh <*> get bh <*> get bh <*> get bh
+
+instance Binary IdDetails where
+  put_ bh d
+    = case d of
+        VanillaId       -> putByte bh 0
+        RecSelId a b    -> putByte bh 1 >> put_ bh a >> put_ bh b
+        DataConWorkId c -> putByte bh 2 >> put_ bh c
+        DataConWrapId c -> putByte bh 3 >> put_ bh c
+        ClassOpId c     -> putByte bh 4 >> put_ bh c
+        PrimOpId p      -> putByte bh 5 >> put_ bh p
+        FCallId c       -> putByte bh 6 >> put_ bh c
+        TickBoxOpId b   -> putByte bh 7 >> put_ bh b
+        DFunId b        -> putByte bh 8 >> put_ bh b
+        CoVarId         -> putByte bh 9
+        JoinId a        -> putByte bh 10 >> put_ bh a
+  get bh = do
+    tag <- getByte bh
+    case tag of
+      0  -> pure VanillaId
+      1  -> RecSelId      <$> get bh <*> get bh
+      2  -> DataConWorkId <$> get bh
+      3  -> DataConWrapId <$> get bh
+      4  -> ClassOpId     <$> get bh
+      5  -> PrimOpId      <$> get bh
+      6  -> FCallId       <$> get bh
+      7  -> TickBoxOpId   <$> get bh
+      8  -> DFunId        <$> get bh
+      9  -> pure CoVarId
+      10 -> JoinId        <$> get bh

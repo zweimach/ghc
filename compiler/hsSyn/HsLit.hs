@@ -23,6 +23,7 @@ import GhcPrelude
 import {-# SOURCE #-} HsExpr( HsExpr, pprExpr )
 import BasicTypes ( IntegralLit(..),FractionalLit(..),negateIntegralLit,
                     negateFractionalLit,SourceText(..),pprWithSourceText )
+import Binary
 import Type       ( Type )
 import Outputable
 import FastString
@@ -109,6 +110,38 @@ instance Eq (HsLit x) where
   (HsDoublePrim _ x1) == (HsDoublePrim _ x2) = x1==x2
   _                   == _                   = False
 
+instance ( Binary (XHsChar x), Binary (XHsCharPrim x)
+         , Binary (XHsString x), Binary (XHsStringPrim x)
+         , Binary (XHsInt x), Binary (XHsIntPrim x)
+         , Binary (XHsWordPrim x), Binary (XHsInt64Prim x)
+         , Binary (XHsWord64Prim x), Binary (XHsInteger x)
+         ) => Binary (HsLit x) where
+  put_ bh lit
+    = case lit of
+        HsChar a b       -> putByte bh 0 >> put_ bh a >> put_ bh b
+        HsCharPrim a b   -> putByte bh 1 >> put_ bh a >> put_ bh b
+        HsString a b     -> putByte bh 2 >> put_ bh a >> put_ bh b
+        HsStringPrim a b -> putByte bh 3 >> put_ bh a >> put_ bh b
+        HsInt a b        -> putByte bh 4 >> put_ bh a >> put_ bh b
+        HsIntPrim a b    -> putByte bh 5 >> put_ bh a >> put_ bh b
+        HsWordPrim a b   -> putByte bh 6 >> put_ bh a >> put_ bh b
+        HsInt64Prim a b  -> putByte bh 7 >> put_ bh a >> put_ bh b
+        HsWord64Prim a b -> putByte bh 8 >> put_ bh a >> put_ bh b
+        HsInteger a b c  -> putByte bh 9 >> put_ bh a >> put_ bh b >> put_ bh c
+  get bh = do
+    tag <- getByte bh
+    case tag of
+      0 -> HsChar       <$> get bh <*> get bh
+      1 -> HsCharPrim   <$> get bh <*> get bh
+      2 -> HsString     <$> get bh <*> get bh
+      3 -> HsStringPrim <$> get bh <*> get bh
+      4 -> HsInt        <$> get bh <*> get bh
+      5 -> HsIntPrim    <$> get bh <*> get bh
+      6 -> HsWordPrim   <$> get bh <*> get bh
+      7 -> HsInt64Prim  <$> get bh <*> get bh
+      8 -> HsWord64Prim <$> get bh <*> get bh
+      _ -> HsInteger    <$> get bh <*> get bh <*> get bh
+
 -- | Haskell Overloaded Literal
 data HsOverLit p
   = OverLit {
@@ -119,11 +152,27 @@ data HsOverLit p
   | XOverLit
       (XXOverLit p)
 
+instance ( Binary p, Binary (HsExpr p), Binary (XOverLit p), Binary (XXOverLit p) )
+      => Binary (HsOverLit p) where
+  put_ bh lit
+    = case lit of
+        OverLit a b c -> putByte bh 0 >> put_ bh a >> put_ bh b >> put_ bh c
+        XOverLit a    -> putByte bh 1 >> put_ bh a
+  get bh = do
+    tag <- getByte bh
+    case tag of
+      0 -> OverLit <$> get bh <*> get bh <*> get bh
+      _ -> XOverLit <$> get bh
+
 data OverLitTc
   = OverLitTc {
         ol_rebindable :: Bool, -- Note [ol_rebindable]
         ol_type :: Type }
   deriving Data
+
+instance Binary OverLitTc where
+  put_ bh (OverLitTc a b) = put_ bh a >> put_ bh b
+  get bh = OverLitTc <$> get bh <*> get bh
 
 type instance XOverLit GhcPs = NoExt
 type instance XOverLit GhcRn = Bool            -- Note [ol_rebindable]
@@ -139,6 +188,19 @@ data OverLitVal
   | HsFractional !FractionalLit          -- ^ Frac-looking literals
   | HsIsString   !SourceText !FastString -- ^ String-looking literals
   deriving Data
+
+instance Binary OverLitVal where
+  put_ bh v
+    = case v of
+        HsIntegral a   -> putByte bh 0 >> put_ bh a
+        HsFractional a -> putByte bh 1 >> put_ bh a
+        HsIsString a b -> putByte bh 2 >> put_ bh a >> put_ bh b
+  get bh = do
+    tag <- getByte bh
+    case tag of
+      0 -> HsIntegral <$> get bh
+      1 -> HsFractional <$> get bh
+      _ -> HsIsString <$> get bh <*> get bh
 
 negateOverLitVal :: OverLitVal -> OverLitVal
 negateOverLitVal (HsIntegral i) = HsIntegral (negateIntegralLit i)
