@@ -899,6 +899,7 @@ instance Binary TyCon where
         <$> get bh <*> get bh <*> get bh <*> get bh <*> get bh
         <*> get bh <*> get bh <*> get bh <*> pure empty <*> get bh
         -- the 'empty' above is an SDoc field that we just skip for now.
+      _ -> fail "TyCon"
 
 -- | Represents right-hand-sides of 'TyCon's for algebraic types
 data AlgTyConRhs
@@ -984,6 +985,7 @@ instance Binary AlgTyConRhs where
       2 -> TupleTyCon <$> get bh <*> get bh
       3 -> SumTyCon   <$> get bh <*> get bh
       4 -> NewTyCon   <$> get bh <*> get bh <*> get bh <*> get bh
+      _ -> fail "AlgTyConRhs"
 
 mkSumTyConRhs :: [DataCon] -> AlgTyConRhs
 mkSumTyConRhs data_cons = SumTyCon data_cons (length data_cons)
@@ -1032,6 +1034,7 @@ instance Binary RuntimeRepInfo where
       1 -> undefined -- see FIXME above
       2 -> VecCount <$> get bh
       3 -> VecElem <$> get bh
+      _ -> fail "RuntimeRepInfo"
 
 -- | Extract those 'DataCon's that we are able to learn about.  Note
 -- that visibility in this sense does not correspond to visibility in
@@ -1197,6 +1200,7 @@ instance Binary FamTyConFlav where
       2 -> ClosedSynFamilyTyCon <$> get bh
       3 -> pure AbstractClosedSynFamilyTyCon
       4 -> BuiltInSynFamTyCon <$> get bh
+      _ -> fail "FamTyConFlav"
 
 {- Note [Closed type families]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1463,6 +1467,7 @@ instance Binary PrimRep where
       8  -> pure FloatRep
       9  -> pure DoubleRep
       10 -> VecRep <$> get bh <*> get bh
+      _ -> fail "PrimRep"
 
 data PrimElemRep
   = Int8ElemRep
@@ -2618,6 +2623,7 @@ instance Binary TyConFlavour where
       9  -> pure TypeSynonymFlavour
       10 -> pure BuiltInTypeFlavour
       11 -> pure PromotedDataConFlavour
+      _  -> fail "TyConFlavour"
 
 tyConFlavour :: TyCon -> TyConFlavour
 tyConFlavour (AlgTyCon { algTcParent = parent, algTcRhs = rhs })

@@ -145,6 +145,7 @@ instance Binary ClassBody where
     case tag of
       0 -> pure AbstractClass
       1 -> ConcreteClass <$> get bh <*> get bh <*> get bh <*> get bh <*> get bh
+      _ -> fail "ClassBody"
 
 classMinimalDef :: Class -> ClassMinimalDef
 classMinimalDef Class{ classBody = ConcreteClass{ classMinimalDefStuff = d } } = d

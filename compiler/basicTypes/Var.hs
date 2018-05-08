@@ -387,6 +387,7 @@ instance Binary Var where
       1 -> TcTyVar <$> get bh <*> get bh <*> get bh <*> get bh
       2 -> Id      <$> get bh <*> get bh <*> get bh <*> get bh
                    <*> get bh <*> get bh
+      _ -> fail "Var"
 
 instance Binary IdScope where
   put_ bh a
@@ -398,6 +399,7 @@ instance Binary IdScope where
     case tag of
       0 -> pure GlobalId
       1 -> LocalId <$> get bh
+      _ -> fail "IdScope"
 
 instance Binary ExportFlag where
   put_ bh e = putByte bh $
@@ -409,6 +411,7 @@ instance Binary ExportFlag where
     case tag of
       0 -> pure NotExported
       1 -> pure Exported
+      _ -> fail "ExportFlag"
 
 {- *********************************************************************
 *                                                                      *

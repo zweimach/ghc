@@ -251,6 +251,7 @@ instance Binary CoAxBranch where
   put_ bh (CoAxBranch a b c d e f g)
     = put_ bh a >> put_ bh b >> put_ bh c
    >> put_ bh d >> put_ bh e >> put_ bh f
+   >> put_ bh g
   get bh
     = CoAxBranch <$> get bh <*> get bh <*> get bh
                  <*> get bh <*> get bh <*> get bh
