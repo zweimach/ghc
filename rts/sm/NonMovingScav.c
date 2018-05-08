@@ -8,6 +8,7 @@
 #include "GCThread.h" // for GCUtils.h
 #include "GCUtils.h"
 #include "Printer.h"
+#include "MarkWeak.h" // scavengeLiveWeak
 
 static void
 scavenge_one(StgPtr p)
@@ -128,13 +129,20 @@ scavenge_one(StgPtr p)
     gen_obj:
     case CONSTR:
     case CONSTR_NOCAF:
-    case WEAK:
     case PRIM:
     {
         StgPtr end = (P_)((StgClosure *)p)->payload + info->layout.payload.ptrs;
         for (p = (P_)((StgClosure *)p)->payload; p < end; p++) {
             evacuate((StgClosure **)p);
         }
+        break;
+    }
+
+    // Special case for WEAKs: We want to evacuate all fields as if the key was
+    // alive, because we'll only know about aliveness of the key after the mark
+    // phase, but at that point it's too late to evacuate anything.
+    case WEAK: {
+        scavengeLiveWeak((StgWeak*)p);
         break;
     }
 
