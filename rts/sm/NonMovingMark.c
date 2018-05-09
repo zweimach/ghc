@@ -15,6 +15,7 @@
 #include "Printer.h"
 #include "Weak.h"
 #include "MarkWeak.h"
+#include "Evac.h"
 
 // How many Array# entries to add to the mark queue at once?
 #define MARK_ARRAY_CHUNK_LENGTH 128
@@ -231,48 +232,6 @@ static GNUC_ATTR_HOT void mark_srt (MarkQueue *queue, MarkQueueEnt *ent)
 }
 
 static void
-mark_static_object (MarkQueue *queue, StgClosure *p)
-{
-    const StgInfoTable *info = get_itbl(p);
-
-    switch (info -> type) {
-    case IND_STATIC:
-    {
-        StgInd *ind = (StgInd *)p;
-        mark_queue_push_closure_(queue, ind->indirectee);
-        break;
-    }
-
-    case THUNK_STATIC:
-        mark_queue_push_thunk_srt(queue, info);
-        break;
-
-    case FUN_STATIC:
-        mark_queue_push_fun_srt(queue, info);
-        break;
-
-    case CONSTR:
-    case CONSTR_NOCAF:
-    case CONSTR_1_0:
-    case CONSTR_0_1:
-    case CONSTR_2_0:
-    case CONSTR_1_1:
-    case CONSTR_0_2:
-    {
-        StgClosure **next = p->payload + info->layout.payload.ptrs;
-        // evacuate the pointers
-        for (StgClosure **q = p->payload; q < next; q++) {
-            mark_queue_push_closure_(queue, *q);
-        }
-        break;
-    }
-
-    default:
-        barf("scavenge_static: strange closure %d", (int)(info->type));
-    }
-}
-
-static void
 mark_large_bitmap (MarkQueue *queue,
                    StgClosure **p,
                    StgLargeBitmap *large_bitmap,
@@ -435,32 +394,62 @@ static GNUC_ATTR_HOT void
 mark_closure (MarkQueue *queue, MarkQueueEnt *ent)
 {
     ASSERT(ent->type == MARK_CLOSURE);
-    StgClosure *p = ent->mark_closure.p;
-    p = UNTAG_CLOSURE(p);
+    StgClosure *p = UNTAG_CLOSURE(ent->mark_closure.p);
     ASSERTM(LOOKS_LIKE_CLOSURE_PTR(p), "invalid closure, info=%p", p->header.info);
+
+#   define PUSH_FIELD(obj, field)                                \
+        mark_queue_push_closure(queue,                           \
+                                (StgClosure *) (obj)->field,     \
+                                p,                               \
+                                (StgClosure **) &(obj)->field)
 
     if (!HEAP_ALLOCED_GC(p)) {
         const StgInfoTable *info = get_itbl(p);
-        switch (info->type) {
+        StgHalfWord type = info->type;
+
+        if (type == CONSTR_0_1 || type == CONSTR_0_2 || type == CONSTR_NOCAF) {
+            // no need to put these on the static linked list, they don't need
+            // to be marked.
+            return;
+        }
+
+        if (lookupHashTable(queue->static_objects, (W_)p)) {
+            // already marked
+            return;
+        }
+
+        insertHashTable(queue->static_objects, (W_)p, (P_)1);
+
+        switch (type) {
+
         case THUNK_STATIC:
+            if (info->srt_bitmap != 0) {
+                evacuate_static_object(THUNK_STATIC_LINK((StgClosure *)p), p);
+                mark_queue_push_thunk_srt(queue, info);
+            }
+            return;
+
         case FUN_STATIC:
+            if (info->srt_bitmap != 0) {
+                evacuate_static_object(FUN_STATIC_LINK((StgClosure *)p), p);
+                mark_queue_push_fun_srt(queue, info);
+            }
+            return;
+
         case IND_STATIC:
+            evacuate_static_object(IND_STATIC_LINK((StgClosure *)p), p);
+            StgInd *ind = (StgInd *)p;
+            PUSH_FIELD(ind, indirectee);
+            return;
+
         case CONSTR:
         case CONSTR_1_0:
         case CONSTR_2_0:
         case CONSTR_1_1:
-            if (!lookupHashTable(queue->static_objects, (W_)p)) {
-                insertHashTable(queue->static_objects, (W_)p, (P_)1);
-                mark_static_object(queue, p);
+            evacuate_static_object(STATIC_LINK(info,(StgClosure *)p), p);
+            for (StgHalfWord i = 0; i < info->layout.payload.ptrs; ++i) {
+                PUSH_FIELD(p, payload[i]);
             }
-            return;
-
-        case CONSTR_0_1:
-        case CONSTR_0_2:
-        case CONSTR_NOCAF:
-            /* no need to put these on the static linked list, they don't need
-             * to be marked.
-             */
             return;
 
         default:
@@ -520,12 +509,6 @@ mark_closure (MarkQueue *queue, MarkQueueEnt *ent)
     /////////////////////////////////////////////////////
     // Trace pointers
     /////////////////////////////////////////////////////
-
-#   define PUSH_FIELD(obj, field)                                \
-        mark_queue_push_closure(queue,                           \
-                                (StgClosure *) (obj)->field,   \
-                                p,                               \
-                                (StgClosure **) &(obj)->field)
 
     const StgInfoTable *info = get_itbl(p);
     switch (info->type) {
