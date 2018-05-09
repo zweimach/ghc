@@ -483,7 +483,6 @@ mark_closure (MarkQueue *queue, MarkQueueEnt *ent)
         // This usually means
         // - A large object
         // - A pinned object (which is also a large object)
-        // - A static object like END_TSO_QUEUE
         // - A bug
 
         if (lookupHashTable(queue->static_objects, (W_)p)) {
@@ -492,6 +491,28 @@ mark_closure (MarkQueue *queue, MarkQueueEnt *ent)
         insertHashTable(queue->static_objects, (W_)p, (P_)1);
 
         if (bd->flags & BF_LARGE) {
+            // If the object is in large_objects list, move it to
+            // scavenged_large_objects list. This happens when the large object
+            // is only reachable via some other objects in nonmoving heap.
+            bool in_large_objects = false;
+            for (bdescr *large = oldest_gen->large_objects; large; large = large->link) {
+                if (large == bd) {
+                    // remove from large_object list
+                    if (bd->u.back) {
+                        bd->u.back->link = bd->link;
+                    } else { // first object in the list
+                        oldest_gen->large_objects = bd->link;
+                    }
+                    if (bd->link) {
+                        bd->link->u.back = bd->u.back;
+                    }
+                    // move to scavenged_large_objects
+                    dbl_link_onto(bd, &oldest_gen->scavenged_large_objects);
+                    oldest_gen->n_scavenged_large_blocks += bd->blocks;
+                    break;
+                }
+            }
+
             p = (StgClosure*)bd->start;
         }
     }
