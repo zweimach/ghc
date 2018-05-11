@@ -54,10 +54,9 @@ static struct nonmoving_segment *nonmoving_alloc_segment(uint32_t node)
         nonmoving_heap.free = ret->link;
     } else {
         bdescr *bd = allocAlignedGroupOnNode(node, NONMOVING_SEGMENT_BLOCKS);
-        initBdescr(bd, oldest_gen, oldest_gen);
         for (StgWord32 i = 0; i < bd->blocks; ++i) {
+            initBdescr(&bd[i], oldest_gen, oldest_gen);
             bd[i].flags = BF_NONMOVING;
-            bd[i].gen = oldest_gen;
         }
         ret = (struct nonmoving_segment *)bd->start;
     }
