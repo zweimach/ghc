@@ -1540,10 +1540,18 @@ static void
 scavenge_mutable_list(bdescr *bd, generation *gen)
 {
     StgPtr p, q;
-    uint32_t gen_no;
 
-    gen_no = gen->no;
+    uint32_t gen_no = gen->no;
     gct->evac_gen_no = gen_no;
+
+    // When scavenging non-moving heap's mut list evacuate everything to
+    // non-moving heap unconditionally
+    bool saved_forced_promotion;
+    if (gen == oldest_gen) {
+        saved_forced_promotion = gct->forced_promotion;
+        gct->forced_promotion = true;
+    }
+
     for (; bd != NULL; bd = bd->link) {
         for (q = bd->start; q < bd->free; q++) {
             p = (StgPtr)*q;
@@ -1623,6 +1631,8 @@ scavenge_mutable_list(bdescr *bd, generation *gen)
             }
         }
     }
+
+    gct->forced_promotion = saved_forced_promotion;
 }
 
 void
