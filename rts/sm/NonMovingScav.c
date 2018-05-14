@@ -17,8 +17,6 @@ scavenge_one(StgPtr p)
     ASSERT(LOOKS_LIKE_CLOSURE_PTR(p));
     const StgInfoTable *info = get_itbl((StgClosure*)p);
 
-    gct->eager_promotion = true;
-
     switch (info->type) {
 
     case MVAR_CLEAN:
@@ -324,17 +322,9 @@ scavenge_one(StgPtr p)
              info->type, p);
     }
 
-    /*
-     * We need to record the current object on the mutable list if
-     *  (a) It is actually mutable, or
-     *  (b) It contains pointers to a younger generation.
-     * Case (b) arises if we didn't manage to promote everything that
-     * the current object points to into the current generation.
-     */
     if (gct->failed_to_evac) {
+        // Evacuated a mutable object, add it to the mut_list
         gct->failed_to_evac = false;
-        // generation 0 is always collected so we don't maintain a
-        // mutable list for it
         if (oldest_gen->no > 0) {
             recordMutableGen_GC((StgClosure *)q, oldest_gen->no);
         }
@@ -364,9 +354,15 @@ scavenge_nonmoving_segment(struct nonmoving_segment *seg)
 
 void scavenge_nonmoving_heap(void)
 {
+    // Always evacuate to non-moving heap when scavenging non-moving heap
+    bool saved_forced_promotion = gct->forced_promotion;
+    gct->forced_promotion = true;
+
     while (nonmoving_todos) {
         struct nonmoving_segment* todo = nonmoving_todos;
         nonmoving_todos = todo->todo_link;
         scavenge_nonmoving_segment(todo);
     }
+
+    gct->forced_promotion = saved_forced_promotion;
 }
