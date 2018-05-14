@@ -411,6 +411,8 @@ mark_closure (MarkQueue *queue, MarkQueueEnt *ent)
                                 p,                               \
                                 (StgClosure **) &(obj)->field)
 
+    ASSERT(!IS_FORWARDING_PTR(p->header.info));
+
     if (!HEAP_ALLOCED_GC(p)) {
         const StgInfoTable *info = get_itbl(p);
         StgHalfWord type = info->type;
@@ -491,7 +493,6 @@ mark_closure (MarkQueue *queue, MarkQueueEnt *ent)
             // If the object is in large_objects list, move it to
             // scavenged_large_objects list. This happens when the large object
             // is only reachable via some other objects in nonmoving heap.
-            bool in_large_objects = false;
             for (bdescr *large = oldest_gen->large_objects; large; large = large->link) {
                 if (large == bd) {
                     // remove from large_object list
