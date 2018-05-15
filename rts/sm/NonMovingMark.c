@@ -717,9 +717,12 @@ mark_closure (MarkQueue *queue, MarkQueueEnt *ent)
         break;
     }
 
-    case MUT_PRIM:
-        ASSERT(0); // TODO
+    case MUT_PRIM: {
+        for (StgHalfWord p_idx = 0; p_idx < info->layout.payload.ptrs; ++p_idx) {
+            mark_queue_push_closure(queue, p->payload[p_idx], p, &p->payload[p_idx]);
+        }
         break;
+    }
 
     case TREC_CHUNK: {
         StgTRecChunk *tc = ((StgTRecChunk *) p);
