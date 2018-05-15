@@ -302,6 +302,16 @@ scavenge_one(StgPtr p)
         break;
     }
 
+    case MUT_PRIM:
+    {
+        StgPtr end = (P_)((StgClosure *)p)->payload + info->layout.payload.ptrs;
+        for (p = (P_)((StgClosure *)p)->payload; p < end; p++) {
+            evacuate((StgClosure **)p);
+        }
+        gct->failed_to_evac = true; // mutable
+        break;
+    }
+
     case TREC_CHUNK:
       {
         StgWord i;
