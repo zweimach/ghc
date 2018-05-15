@@ -846,7 +846,7 @@ void nonmoving_mark_threads(struct MarkQueue_ *queue)
 {
     StgTSO *next;
     StgTSO **prev = &oldest_gen->old_threads;
-    for (StgTSO *t = oldest_gen->old_threads; t != END_TSO_QUEUE; t = t->global_link) {
+    for (StgTSO *t = oldest_gen->old_threads; t != END_TSO_QUEUE; t = next) {
 
         next = t->global_link;
 
