@@ -259,14 +259,14 @@ void locate_object(P_ obj)
         struct nonmoving_allocator *alloca = nonmoving_heap.allocators[alloca_idx];
         struct nonmoving_segment *seg = alloca->current[0]; // TODO: only one capability for now
         if (obj >= (P_)seg && obj < (((P_)seg) + NONMOVING_SEGMENT_SIZE_W)) {
-            debugBelch("%p is in current segment of allocator %d\n", obj, alloca_idx);
+            debugBelch("%p is in current segment of allocator %d at %p\n", obj, alloca_idx, (void*)seg);
             return;
         }
         int seg_idx = 0;
         seg = alloca->active;
         while (seg) {
             if (obj >= (P_)seg && obj < (((P_)seg) + NONMOVING_SEGMENT_SIZE_W)) {
-                debugBelch("%p is in active segment %d of allocator %d\n", obj, seg_idx, alloca_idx);
+                debugBelch("%p is in active segment %d of allocator %d at %p\n", obj, seg_idx, alloca_idx, (void*)seg);
                 return;
             }
             seg_idx++;
@@ -277,7 +277,7 @@ void locate_object(P_ obj)
         seg = alloca->filled;
         while (seg) {
             if (obj >= (P_)seg && obj < (((P_)seg) + NONMOVING_SEGMENT_SIZE_W)) {
-                debugBelch("%p is in filled segment %d of allocator %d\n", obj, seg_idx, alloca_idx);
+                debugBelch("%p is in filled segment %d of allocator %d at %p\n", obj, seg_idx, alloca_idx, (void*)seg);
                 return;
             }
             seg_idx++;
@@ -286,11 +286,14 @@ void locate_object(P_ obj)
     }
 
     struct nonmoving_segment *seg = nonmoving_heap.free;
+    int seg_idx = 0;
     while (seg) {
         if (obj >= (P_)seg && obj < (((P_)seg) + NONMOVING_SEGMENT_SIZE_W)) {
-            debugBelch("%p is in free segment\n", obj);
+            debugBelch("%p is in free segment %d at %p\n", obj, seg_idx, (void*)seg);
             return;
         }
+        seg_idx++;
+        seg = seg->link;
     }
 
     // Search nurseries
