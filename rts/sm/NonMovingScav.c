@@ -26,12 +26,8 @@ scavenge_one(StgPtr p)
         evacuate((StgClosure **)&mvar->head);
         evacuate((StgClosure **)&mvar->tail);
         evacuate((StgClosure **)&mvar->value);
-
-        if (gct->failed_to_evac) {
-            mvar->header.info = &stg_MVAR_DIRTY_info;
-        } else {
-            mvar->header.info = &stg_MVAR_CLEAN_info;
-        }
+        ASSERT(!gct->failed_to_evac);
+        mvar->header.info = &stg_MVAR_CLEAN_info;
         break;
     }
 
@@ -40,12 +36,8 @@ scavenge_one(StgPtr p)
         StgTVar *tvar = ((StgTVar *)p);
         evacuate((StgClosure **)&tvar->current_value);
         evacuate((StgClosure **)&tvar->first_watch_queue_entry);
-
-        if (gct->failed_to_evac) {
-            tvar->header.info = &stg_TVAR_DIRTY_info;
-        } else {
-            tvar->header.info = &stg_TVAR_CLEAN_info;
-        }
+        ASSERT(!gct->failed_to_evac);
+        tvar->header.info = &stg_TVAR_CLEAN_info;
         break;
     }
 
@@ -159,12 +151,8 @@ scavenge_one(StgPtr p)
     case MUT_VAR_CLEAN:
     case MUT_VAR_DIRTY:
         evacuate(&((StgMutVar *)p)->var);
-
-        if (gct->failed_to_evac) {
-            ((StgClosure *)q)->header.info = &stg_MUT_VAR_DIRTY_info;
-        } else {
-            ((StgClosure *)q)->header.info = &stg_MUT_VAR_CLEAN_info;
-        }
+        ASSERT(!gct->failed_to_evac);
+        ((StgClosure *)q)->header.info = &stg_MUT_VAR_CLEAN_info;
         break;
 
     case BLOCKING_QUEUE:
@@ -175,12 +163,8 @@ scavenge_one(StgPtr p)
         evacuate((StgClosure**)&bq->owner);
         evacuate((StgClosure**)&bq->queue);
         evacuate((StgClosure**)&bq->link);
-
-        if (gct->failed_to_evac) {
-            bq->header.info = &stg_BLOCKING_QUEUE_DIRTY_info;
-        } else {
-            bq->header.info = &stg_BLOCKING_QUEUE_CLEAN_info;
-        }
+        ASSERT(!gct->failed_to_evac);
+        bq->header.info = &stg_BLOCKING_QUEUE_CLEAN_info;
         break;
     }
 
@@ -217,13 +201,8 @@ scavenge_one(StgPtr p)
     case MUT_ARR_PTRS_DIRTY:
     {
         scavenge_mut_arr_ptrs((StgMutArrPtrs*)p);
-
-        if (gct->failed_to_evac) {
-            ((StgClosure *)q)->header.info = &stg_MUT_ARR_PTRS_DIRTY_info;
-        } else {
-            ((StgClosure *)q)->header.info = &stg_MUT_ARR_PTRS_CLEAN_info;
-        }
-
+        ASSERT(!gct->failed_to_evac);
+        ((StgClosure *)q)->header.info = &stg_MUT_ARR_PTRS_CLEAN_info;
         gct->failed_to_evac = true; // always put it on the mutable list.
         break;
     }
@@ -233,14 +212,8 @@ scavenge_one(StgPtr p)
         // follow everything
     {
         scavenge_mut_arr_ptrs((StgMutArrPtrs*)p);
-
-        // If we're going to put this object on the mutable list, then
-        // set its info ptr to MUT_ARR_PTRS_FROZEN0 to indicate that.
-        if (gct->failed_to_evac) {
-            ((StgClosure *)q)->header.info = &stg_MUT_ARR_PTRS_FROZEN0_info;
-        } else {
-            ((StgClosure *)q)->header.info = &stg_MUT_ARR_PTRS_FROZEN_info;
-        }
+        ASSERT(!gct->failed_to_evac);
+        ((StgClosure *)q)->header.info = &stg_MUT_ARR_PTRS_FROZEN_info;
         break;
     }
 
@@ -255,14 +228,9 @@ scavenge_one(StgPtr p)
         StgPtr next = p + small_mut_arr_ptrs_sizeW((StgSmallMutArrPtrs*)p);
         for (p = (P_)((StgSmallMutArrPtrs *)p)->payload; p < next; p++) {
             evacuate((StgClosure **)p);
+            ASSERT(!gct->failed_to_evac);
         }
-
-        if (gct->failed_to_evac) {
-            ((StgClosure *)q)->header.info = &stg_SMALL_MUT_ARR_PTRS_DIRTY_info;
-        } else {
-            ((StgClosure *)q)->header.info = &stg_SMALL_MUT_ARR_PTRS_CLEAN_info;
-        }
-
+        ((StgClosure *)q)->header.info = &stg_SMALL_MUT_ARR_PTRS_CLEAN_info;
         gct->failed_to_evac = true; // always put it on the mutable list.
         break;
     }
@@ -274,15 +242,9 @@ scavenge_one(StgPtr p)
         StgPtr next = p + small_mut_arr_ptrs_sizeW((StgSmallMutArrPtrs*)p);
         for (p = (P_)((StgSmallMutArrPtrs *)p)->payload; p < next; p++) {
             evacuate((StgClosure **)p);
+            ASSERT(!gct->failed_to_evac);
         }
-
-        // If we're going to put this object on the mutable list, then
-        // set its info ptr to SMALL_MUT_ARR_PTRS_FROZEN0 to indicate that.
-        if (gct->failed_to_evac) {
-            ((StgClosure *)q)->header.info = &stg_SMALL_MUT_ARR_PTRS_FROZEN0_info;
-        } else {
-            ((StgClosure *)q)->header.info = &stg_SMALL_MUT_ARR_PTRS_FROZEN_info;
-        }
+        ((StgClosure *)q)->header.info = &stg_SMALL_MUT_ARR_PTRS_FROZEN_info;
         break;
     }
 
@@ -362,16 +324,39 @@ scavenge_nonmoving_segment(struct nonmoving_segment *seg)
     }
 }
 
-void scavenge_nonmoving_heap(void)
+void scavenge_nonmoving_heap()
 {
     // Always evacuate to non-moving heap when scavenging non-moving heap
     bool saved_forced_promotion = gct->forced_promotion;
     gct->forced_promotion = true;
 
+    bool did_something;
+loop:
+    did_something = false;
+
+    // Scavenge large objects
+    gen_workspace *ws = &gct->gens[oldest_gen->no];
+    for (bdescr *bd = ws->todo_large_objects; bd; bd = ws->todo_large_objects) {
+        ASSERT(bd->flags & BF_NONMOVING);
+        ws->todo_large_objects = bd->link;
+        dbl_link_onto(bd, &ws->gen->scavenged_large_objects);
+        ws->gen->n_scavenged_large_blocks += bd->blocks;
+        scavenge_one(bd->start);
+        did_something = true;
+    }
+
+    // Scavenge segments
     while (nonmoving_todos) {
         struct nonmoving_segment* todo = nonmoving_todos;
         nonmoving_todos = todo->todo_link;
         scavenge_nonmoving_segment(todo);
+        did_something = true;
+    }
+
+    // Perhaps we evacuated a large object while scavenging segments, so loop
+    // again (FIXME ineffcient)
+    if (did_something) {
+        goto loop;
     }
 
     gct->forced_promotion = saved_forced_promotion;
