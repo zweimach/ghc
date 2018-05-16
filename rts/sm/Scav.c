@@ -2035,7 +2035,8 @@ scavenge_find_work (void)
 
 loop:
     did_something = false;
-    for (g = RtsFlags.GcFlags.generations-1; g >= 0; g--) {
+    // Start from generations-2 to not scavenge nonmoving heap here
+    for (g = RtsFlags.GcFlags.generations-2; g >= 0; g--) {
         ws = &gct->gens[g];
 
         gct->scan_bd = NULL;
