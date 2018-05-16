@@ -320,6 +320,9 @@ evacuate_large(StgPtr p)
   new_gen = &generations[new_gen_no];
 
   bd->flags |= BF_EVACUATED;
+  if (new_gen == oldest_gen) {
+      bd->flags |= BF_NONMOVING;
+  }
   initBdescr(bd, new_gen, new_gen->to);
 
   // If this is a block of pinned or compact objects, we don't have to scan
@@ -598,6 +601,9 @@ loop:
       // Pointer to non-moving heap. Non-moving heap is collected using
       // mark-sweep so this object should be marked and then retained in sweep.
       if (bd->flags & BF_NONMOVING) {
+          // NOTE: large objects in nonmoving heap are also marked with
+          // BF_NONMOVING. Those are moved to scavenged_large_objects list in
+          // mark phase.
           return;
       }
 

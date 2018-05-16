@@ -462,29 +462,26 @@ mark_closure (MarkQueue *queue, MarkQueueEnt *ent)
     bdescr *bd = Bdescr((StgPtr) p);
 
     if (bd->flags & BF_NONMOVING) {
-        struct nonmoving_segment *seg = nonmoving_get_segment((StgPtr) p);
-        nonmoving_block_idx block_idx = nonmoving_get_block_idx((StgPtr) p);
-        if (nonmoving_get_mark_bit(seg, block_idx)) {
-            return;
-        }
-        nonmoving_set_mark_bit(seg, block_idx);
-    }
-
-    else {
-        // This usually means
-        // - A large object
-        // - A pinned object (which is also a large object)
-        // - A bug
-
-        if (lookupHashTable(queue->static_objects, (W_)p)) {
-            return;
-        }
-        insertHashTable(queue->static_objects, (W_)p, (P_)1);
 
         if (bd->flags & BF_LARGE) {
-            // If the object is in large_objects list, move it to
-            // scavenged_large_objects list. This happens when the large object
-            // is only reachable via some other objects in nonmoving heap.
+            if (lookupHashTable(queue->static_objects, (W_)p)) {
+                return;
+            }
+            insertHashTable(queue->static_objects, (W_)p, (P_)1);
+
+            // Not seen before, object must be in one of these lists:
+            //
+            // * oldest_gen->large_objects:
+            //     if it's not evacuated in this GC (was evacuated before)
+            // * oldest_gen->scavenged_large_objects:
+            //     if it's evacuated in this GC (must be scavenged by scavenge_nonmoving_heap)
+            //
+            // If it's in large_objects we must move it to scavenged_large_objects,
+            // which will be made large_objects by the end of this GC.
+
+#if defined(DEBUG)
+            bool found_it = false;
+#endif
             for (bdescr *large = oldest_gen->large_objects; large; large = large->link) {
                 if (large == bd) {
                     // remove from large_object list
@@ -499,12 +496,41 @@ mark_closure (MarkQueue *queue, MarkQueueEnt *ent)
                     // move to scavenged_large_objects
                     dbl_link_onto(bd, &oldest_gen->scavenged_large_objects);
                     oldest_gen->n_scavenged_large_blocks += bd->blocks;
+#if defined(DEBUG)
+                    found_it = true;
+#endif
                     break;
                 }
             }
 
+#if defined(DEBUG)
+            if (!found_it) {
+                // Not in large_objects list, must be in scavenged_large_objects
+                for (bdescr *large = oldest_gen->scavenged_large_objects; large; large = large->link) {
+                    if (large == bd) {
+                        found_it = true;
+                        break;
+                    }
+                }
+            }
+
+            ASSERT(found_it);
+#endif
+
+            // Mark contents
             p = (StgClosure*)bd->start;
+        } else {
+            struct nonmoving_segment *seg = nonmoving_get_segment((StgPtr) p);
+            nonmoving_block_idx block_idx = nonmoving_get_block_idx((StgPtr) p);
+            if (nonmoving_get_mark_bit(seg, block_idx)) {
+                return;
+            }
+            nonmoving_set_mark_bit(seg, block_idx);
         }
+    }
+
+    else {
+        barf("NonMovingMark: found object with flag: %" FMT_Word16, bd->flags);
     }
 
     /////////////////////////////////////////////////////
