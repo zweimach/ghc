@@ -12,6 +12,8 @@
 #include "Capability.h"
 #include "Printer.h"
 #include "Storage.h"
+#include "GCThread.h"
+#include "GCTDecl.h"
 
 struct nonmoving_heap nonmoving_heap;
 
@@ -305,7 +307,39 @@ void locate_object(P_ obj)
         }
     }
 
-    // TODO: Search generations
+    // Search generations
+    for (uint32_t g = 0; g < RtsFlags.GcFlags.generations - 1; ++g) {
+        generation *gen = &generations[g];
+        for (bdescr *blk = gen->blocks; blk; blk = blk->link) {
+            if (obj >= blk->start && obj < blk->free) {
+                debugBelch("%p is in generation %" FMT_Word32 " blocks\n", obj, g);
+                return;
+            }
+        }
+        for (bdescr *blk = gen->old_blocks; blk; blk = blk->link) {
+            if (obj >= blk->start && obj < blk->free) {
+                debugBelch("%p is in generation %" FMT_Word32 " old blocks\n", obj, g);
+            }
+            return;
+        }
+    }
+
+    // Search workspaces FIXME only works in non-threaded runtime
+#if !defined(THREADED_RTS)
+    for (uint32_t g = 0; g < RtsFlags.GcFlags.generations - 1; ++ g) {
+        gen_workspace *ws = &gct->gens[g];
+        for (bdescr *blk = ws->todo_bd; blk; blk = blk->link) {
+            if (obj >= blk->start && obj < blk->free) {
+                debugBelch("%p is in generation %" FMT_Word32 " todo bds\n", obj, g);
+            }
+        }
+        for (bdescr *blk = ws->scavd_list; blk; blk = blk->link) {
+            if (obj >= blk->start && obj < blk->free) {
+                debugBelch("%p is in generation %" FMT_Word32 " scavd bds\n", obj, g);
+            }
+        }
+    }
+#endif
 }
 
 void nonmoving_print_sweep_list()
