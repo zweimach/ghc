@@ -79,45 +79,31 @@ static void push_filled_segment(struct nonmoving_segment *seg)
 GNUC_ATTR_HOT static enum sweep_result
 nonmoving_sweep_segment(struct nonmoving_segment *seg)
 {
-    // N.B. this function must be compiled with -funroll-loops to ensure
-    // efficient code is produced for the loops below.
+    bool found_free = false;
+    bool found_live = false;
 
-    // There are three possible cases here:
-    //  a. the bitmap is all clear (a free segment)
-    //  b. the bitmap is all set (a filled segment)
-    //  c. the bitmap is partially set
-    // This check allows us to quickly rule out (a) or (b).
-    if (seg->bitmap[0]) {
-        // We have at least one live object
-        for (uint8_t *b = seg->bitmap;
-             b < &seg->bitmap[nonmoving_segment_block_count(seg)];
-             b++)
-        {
-            if (! *b) {
-                // we found a free block...
-                nonmoving_block_idx blk_idx = b - seg->bitmap;
-                seg->next_free = blk_idx;
-                seg->next_free_snap = blk_idx;
-                return SEGMENT_PARTIAL;
-            }
+    for (nonmoving_block_idx i = 0;
+         i < nonmoving_segment_block_count(seg);
+         ++i)
+    {
+        if (seg->bitmap[i]) {
+            found_live = true;
+        } else if (!found_free) {
+            found_free = true;
+            seg->next_free = i;
+            seg->next_free_snap = i;
         }
-        // We found no dead blocks therefore this segment is filled
+
+        if (found_free && found_live) {
+            return SEGMENT_PARTIAL;
+        }
+    }
+
+    if (found_live) {
         return SEGMENT_FILLED;
-
     } else {
-        // Perhaps the block is completely free...
-        for (uint8_t *b = seg->bitmap;
-             b < &seg->bitmap[nonmoving_segment_block_count(seg)];
-             b++)
-        {
-            if (*b) {
-                // we found a live block...
-                seg->next_free = 0;
-                seg->next_free_snap = 0;
-                return SEGMENT_PARTIAL;
-            }
-        }
-        // We found no live blocks therefore this segment is free
+        ASSERT(seg->next_free == 0);
+        ASSERT(seg->next_free_snap == 0);
         return SEGMENT_FREE;
     }
 }
