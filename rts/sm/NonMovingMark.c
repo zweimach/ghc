@@ -48,6 +48,11 @@ void mark_queue_push_closure (MarkQueue *q,
                               StgClosure *origin_closure,
                               StgClosure **origin_field)
 {
+    assert_in_nonmoving_heap((P_)p);
+    if (origin_closure) {
+        assert_in_nonmoving_heap((P_)origin_closure);
+    }
+
     MarkQueueEnt ent = {
         .type = MARK_CLOSURE,
         .mark_closure = {

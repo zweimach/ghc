@@ -211,6 +211,46 @@ void nonmoving_clear_all_bitmaps()
     }
 }
 
+void assert_in_nonmoving_heap(StgPtr p)
+{
+    if (!HEAP_ALLOCED_GC(p))
+        return;
+
+    if (Bdescr(p)->flags | BF_LARGE)
+        return;
+
+    for (int alloca_idx = 0; alloca_idx < NONMOVING_ALLOCA_CNT; ++alloca_idx) {
+        struct nonmoving_allocator *alloca = nonmoving_heap.allocators[alloca_idx];
+        struct nonmoving_segment *seg = alloca->current[0]; // TODO: only one capability for now
+        if (p >= (P_)seg && p < (((P_)seg) + NONMOVING_SEGMENT_SIZE_W)) {
+            return;
+        }
+        int seg_idx = 0;
+        seg = alloca->active;
+        while (seg) {
+            if (p >= (P_)seg && p < (((P_)seg) + NONMOVING_SEGMENT_SIZE_W)) {
+                return;
+            }
+            seg_idx++;
+            seg = seg->link;
+        }
+
+        seg_idx = 0;
+        seg = alloca->filled;
+        while (seg) {
+            if (p >= (P_)seg && p < (((P_)seg) + NONMOVING_SEGMENT_SIZE_W)) {
+                return;
+            }
+            seg_idx++;
+            seg = seg->link;
+        }
+    }
+
+    // We don't search free segments as they're unused
+
+    barf("%p is not in nonmoving heap\n", (void*)p);
+}
+
 #if defined(DEBUG)
 
 void nonmoving_print_segment(struct nonmoving_segment *seg)
