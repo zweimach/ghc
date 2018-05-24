@@ -322,6 +322,7 @@ void scavenge_nonmoving_heap()
     // Always evacuate to non-moving heap when scavenging non-moving heap
     bool saved_forced_promotion = gct->forced_promotion;
     gct->forced_promotion = true;
+    gct->evac_gen_no = oldest_gen->no; // to properly set failed_to_evac
 
     bool did_something;
 loop:
