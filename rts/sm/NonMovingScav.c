@@ -11,11 +11,11 @@
 #include "MarkWeak.h" // scavengeLiveWeak
 
 static void
-scavenge_one(StgPtr p)
+scavenge_one(StgClosure *q)
 {
-    StgPtr q = p;
-    ASSERT(LOOKS_LIKE_CLOSURE_PTR(p));
-    const StgInfoTable *info = get_itbl((StgClosure*)p);
+    ASSERT(LOOKS_LIKE_CLOSURE_PTR(q));
+    StgPtr p = (StgPtr)q;
+    const StgInfoTable *info = get_itbl(q);
 
     switch (info->type) {
 
@@ -99,7 +99,7 @@ scavenge_one(StgPtr p)
         scavenge_fun_srt(info);
         /* fallthrough */
     case CONSTR_1_1:
-        evacuate(&((StgClosure *)p)->payload[0]);
+        evacuate(&q->payload[0]);
         break;
 
     case FUN:
@@ -195,7 +195,7 @@ scavenge_one(StgPtr p)
     {
         scavenge_mut_arr_ptrs((StgMutArrPtrs*)p);
         ASSERT(!gct->failed_to_evac);
-        ((StgClosure *)q)->header.info = &stg_MUT_ARR_PTRS_CLEAN_info;
+        q->header.info = &stg_MUT_ARR_PTRS_CLEAN_info;
         gct->failed_to_evac = true; // always put it on the mutable list.
         break;
     }
@@ -206,7 +206,7 @@ scavenge_one(StgPtr p)
     {
         scavenge_mut_arr_ptrs((StgMutArrPtrs*)p);
         ASSERT(!gct->failed_to_evac);
-        ((StgClosure *)q)->header.info = &stg_MUT_ARR_PTRS_FROZEN_info;
+        q->header.info = &stg_MUT_ARR_PTRS_FROZEN_info;
         break;
     }
 
@@ -223,7 +223,7 @@ scavenge_one(StgPtr p)
             evacuate((StgClosure **)p);
             ASSERT(!gct->failed_to_evac);
         }
-        ((StgClosure *)q)->header.info = &stg_SMALL_MUT_ARR_PTRS_CLEAN_info;
+        q->header.info = &stg_SMALL_MUT_ARR_PTRS_CLEAN_info;
         gct->failed_to_evac = true; // always put it on the mutable list.
         break;
     }
@@ -237,7 +237,7 @@ scavenge_one(StgPtr p)
             evacuate((StgClosure **)p);
             ASSERT(!gct->failed_to_evac);
         }
-        ((StgClosure *)q)->header.info = &stg_SMALL_MUT_ARR_PTRS_FROZEN_info;
+        q->header.info = &stg_SMALL_MUT_ARR_PTRS_FROZEN_info;
         break;
     }
 
@@ -291,7 +291,7 @@ scavenge_one(StgPtr p)
         // Evacuated a mutable object, add it to the mut_list
         gct->failed_to_evac = false;
         if (oldest_gen->no > 0) {
-            recordMutableGen_GC((StgClosure *)q, oldest_gen->no);
+            recordMutableGen_GC(q, oldest_gen->no);
         }
     }
 }
@@ -309,7 +309,7 @@ scavenge_nonmoving_segment(struct nonmoving_segment *seg)
         // bit set = was allocated in the previous GC
         // bit not set = new allocation, so scavenge
         if (!(nonmoving_get_mark_bit(seg, p_idx))) {
-            scavenge_one((StgPtr)p);
+            scavenge_one(p);
         }
 
         p_idx++;
@@ -335,7 +335,7 @@ loop:
         ws->todo_large_objects = bd->link;
         dbl_link_onto(bd, &ws->gen->scavenged_large_objects);
         ws->gen->n_scavenged_large_blocks += bd->blocks;
-        scavenge_one(bd->start);
+        scavenge_one((StgClosure*)bd->start);
         did_something = true;
     }
 
