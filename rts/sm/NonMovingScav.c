@@ -26,8 +26,11 @@ scavenge_one(StgClosure *q)
         evacuate((StgClosure **)&mvar->head);
         evacuate((StgClosure **)&mvar->tail);
         evacuate((StgClosure **)&mvar->value);
-        ASSERT(!gct->failed_to_evac);
-        mvar->header.info = &stg_MVAR_CLEAN_info;
+        if (gct->failed_to_evac) {
+            mvar->header.info = &stg_MVAR_DIRTY_info;
+        } else {
+            mvar->header.info = &stg_MVAR_CLEAN_info;
+        }
         break;
     }
 
@@ -36,8 +39,11 @@ scavenge_one(StgClosure *q)
         StgTVar *tvar = ((StgTVar *)p);
         evacuate((StgClosure **)&tvar->current_value);
         evacuate((StgClosure **)&tvar->first_watch_queue_entry);
-        ASSERT(!gct->failed_to_evac);
-        tvar->header.info = &stg_TVAR_CLEAN_info;
+        if (gct->failed_to_evac) {
+            tvar->header.info = &stg_TVAR_DIRTY_info;
+        } else {
+            tvar->header.info = &stg_TVAR_CLEAN_info;
+        }
         break;
     }
 
@@ -113,6 +119,7 @@ scavenge_one(StgClosure *q)
         for (p = (P_)((StgThunk *)p)->payload; p < end; p++) {
             evacuate((StgClosure **)p);
         }
+        goto gen_obj;
         break;
     }
 
@@ -144,8 +151,11 @@ scavenge_one(StgClosure *q)
     case MUT_VAR_CLEAN:
     case MUT_VAR_DIRTY:
         evacuate(&((StgMutVar *)p)->var);
-        ASSERT(!gct->failed_to_evac);
-        ((StgClosure *)q)->header.info = &stg_MUT_VAR_CLEAN_info;
+        if (gct->failed_to_evac) {
+            ((StgClosure *)q)->header.info = &stg_MUT_VAR_DIRTY_info;
+        } else {
+            ((StgClosure *)q)->header.info = &stg_MUT_VAR_CLEAN_info;
+        }
         break;
 
     case BLOCKING_QUEUE:
@@ -156,8 +166,12 @@ scavenge_one(StgClosure *q)
         evacuate((StgClosure**)&bq->owner);
         evacuate((StgClosure**)&bq->queue);
         evacuate((StgClosure**)&bq->link);
-        ASSERT(!gct->failed_to_evac);
-        bq->header.info = &stg_BLOCKING_QUEUE_CLEAN_info;
+
+        if (gct->failed_to_evac) {
+            bq->header.info = &stg_BLOCKING_QUEUE_DIRTY_info;
+        } else {
+            bq->header.info = &stg_BLOCKING_QUEUE_CLEAN_info;
+        }
         break;
     }
 
@@ -194,8 +208,11 @@ scavenge_one(StgClosure *q)
     case MUT_ARR_PTRS_DIRTY:
     {
         scavenge_mut_arr_ptrs((StgMutArrPtrs*)p);
-        ASSERT(!gct->failed_to_evac);
-        q->header.info = &stg_MUT_ARR_PTRS_CLEAN_info;
+        if (gct->failed_to_evac) {
+            ((StgClosure *)q)->header.info = &stg_MUT_ARR_PTRS_DIRTY_info;
+        } else {
+            ((StgClosure *)q)->header.info = &stg_MUT_ARR_PTRS_CLEAN_info;
+        }
         gct->failed_to_evac = true; // always put it on the mutable list.
         break;
     }
@@ -205,8 +222,11 @@ scavenge_one(StgClosure *q)
         // follow everything
     {
         scavenge_mut_arr_ptrs((StgMutArrPtrs*)p);
-        ASSERT(!gct->failed_to_evac);
-        q->header.info = &stg_MUT_ARR_PTRS_FROZEN_info;
+        if (gct->failed_to_evac) {
+            ((StgClosure *)q)->header.info = &stg_MUT_ARR_PTRS_FROZEN0_info;
+        } else {
+            ((StgClosure *)q)->header.info = &stg_MUT_ARR_PTRS_FROZEN_info;
+        }
         break;
     }
 
@@ -214,16 +234,15 @@ scavenge_one(StgClosure *q)
     case SMALL_MUT_ARR_PTRS_DIRTY:
         // follow everything
     {
-        // We don't eagerly promote objects pointed to by a mutable
-        // array, but if we find the array only points to objects in
-        // the same or an older generation, we mark it "clean" and
-        // avoid traversing it during minor GCs.
         StgPtr next = p + small_mut_arr_ptrs_sizeW((StgSmallMutArrPtrs*)p);
         for (p = (P_)((StgSmallMutArrPtrs *)p)->payload; p < next; p++) {
             evacuate((StgClosure **)p);
-            ASSERT(!gct->failed_to_evac);
         }
-        q->header.info = &stg_SMALL_MUT_ARR_PTRS_CLEAN_info;
+        if (gct->failed_to_evac) {
+            ((StgClosure *)q)->header.info = &stg_SMALL_MUT_ARR_PTRS_DIRTY_info;
+        } else {
+            ((StgClosure *)q)->header.info = &stg_SMALL_MUT_ARR_PTRS_CLEAN_info;
+        }
         gct->failed_to_evac = true; // always put it on the mutable list.
         break;
     }
@@ -235,9 +254,12 @@ scavenge_one(StgClosure *q)
         StgPtr next = p + small_mut_arr_ptrs_sizeW((StgSmallMutArrPtrs*)p);
         for (p = (P_)((StgSmallMutArrPtrs *)p)->payload; p < next; p++) {
             evacuate((StgClosure **)p);
-            ASSERT(!gct->failed_to_evac);
         }
-        q->header.info = &stg_SMALL_MUT_ARR_PTRS_FROZEN_info;
+        if (gct->failed_to_evac) {
+            ((StgClosure *)q)->header.info = &stg_SMALL_MUT_ARR_PTRS_FROZEN0_info;
+        } else {
+            ((StgClosure *)q)->header.info = &stg_SMALL_MUT_ARR_PTRS_FROZEN_info;
+        }
         break;
     }
 
@@ -253,6 +275,9 @@ scavenge_one(StgClosure *q)
 
         scavenge_stack(stack->sp, stack->stack + stack->stack_size);
         stack->dirty = gct->failed_to_evac;
+        // TODO (osa): There may be something special about stacks that we're
+        // missing. All other mut objects are marked by using a different info
+        // table except stacks.
 
         break;
     }
@@ -288,7 +313,7 @@ scavenge_one(StgClosure *q)
     }
 
     if (gct->failed_to_evac) {
-        // Evacuated a mutable object, add it to the mut_list
+        // Mutable object or points to a younger object, add to the mut_list
         gct->failed_to_evac = false;
         if (oldest_gen->no > 0) {
             recordMutableGen_GC(q, oldest_gen->no);
@@ -309,6 +334,11 @@ scavenge_nonmoving_segment(struct nonmoving_segment *seg)
         // bit set = was allocated in the previous GC
         // bit not set = new allocation, so scavenge
         if (!(nonmoving_get_mark_bit(seg, p_idx))) {
+            // Set the mark bit to avoid scavenging this object in the next
+            // minor GC. We only need to scavenge it again if it points to a
+            // younger generation, but in that case it should be in the
+            // mut_list, which is scavenged always.
+            nonmoving_set_mark_bit(seg, p_idx);
             scavenge_one(p);
         }
 

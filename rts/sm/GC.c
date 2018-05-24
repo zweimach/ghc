@@ -426,32 +426,7 @@ GarbageCollect (uint32_t collect_gen,
 
   for (;;)
   {
-      // It's important that we scavenge non-moving heap (oldest generation)
-      // before others. Here's a scenario that leads to a non-moving-to-moving
-      // pointer if we do this in wrong order:
-      //
-      // * We're doing a minor collection
-      //
-      // * We have two generations: gen 0 and gen 1 (aka. non-moving heap,
-      //   oldest gen)
-      //
-      // * We have these objects:
-      //
-      //     P: In nursery, is a root, points to T
-      //     Q: In gen 0, is a root, points to T
-      //     T: In nursery
-      //
-      // Now during root marking phase we evacuate P to gen 0 and Q to gen 1,
-      // and at this point both point to nursery.
-      //
-      // At this point if we scavenge moving heap first we end up evacuating T
-      // to gen 0 and making it a forwarding pointer. Then, when scavenging
-      // non-moving heap, we see the forwarding pointer (when scavenging Q) and
-      // follow it, ending up introducing a non-moving to moving pointer.
-      //
-      // Solution: scavenge non-moving heap first. This way we promote T to
-      // non-moving heap, and when scavenging P later we follow the indirection
-      // and introduce a moving-to-non-moving pointer.
+      // Scavenge older generation (non-moving heap) first as optimisation
       scavenge_nonmoving_heap();
       scavenge_until_all_done();
 
