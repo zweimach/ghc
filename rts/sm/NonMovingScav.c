@@ -119,7 +119,6 @@ scavenge_one(StgClosure *q)
         for (p = (P_)((StgThunk *)p)->payload; p < end; p++) {
             evacuate((StgClosure **)p);
         }
-        goto gen_obj;
         break;
     }
 
