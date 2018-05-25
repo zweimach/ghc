@@ -31,6 +31,7 @@
 #include "Hash.h"
 
 #include "sm/MarkWeak.h"
+#include "sm/NonMoving.h" // for nonmoving_set_closure_mark_bit
 
 static void scavenge_large_bitmap (StgPtr p,
                                    StgLargeBitmap *large_bitmap,
@@ -1633,6 +1634,10 @@ scavenge_mutable_list(bdescr *bd, generation *gen)
         for (q = bd->start; q < bd->free; q++) {
             p = (StgPtr)*q;
             ASSERT(LOOKS_LIKE_CLOSURE_PTR(p));
+
+            if (gen == oldest_gen && HEAP_ALLOCED_GC(p) && !(Bdescr(p)->flags | BF_LARGE)) {
+                nonmoving_set_closure_mark_bit(p);
+            }
 
 #if defined(DEBUG)
             switch (get_itbl((StgClosure *)p)->type) {

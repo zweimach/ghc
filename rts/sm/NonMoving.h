@@ -31,7 +31,7 @@ typedef uint16_t nonmoving_block_idx;
 // A non-moving heap segment
 struct nonmoving_segment {
     struct nonmoving_segment *link;     // for linking together segments into lists
-    struct nonmoving_segment *todo_link;
+    struct nonmoving_segment *todo_link; // NULL when not in todo list
     nonmoving_block_idx next_free;      // index of the next unallocated block
     nonmoving_block_idx next_free_snap; // snapshot of next_free
     uint8_t block_size;                 // log2 of block size in bytes
@@ -83,8 +83,7 @@ void assert_in_nonmoving_heap(StgPtr p);
 // The block size of a given segment in bytes.
 INLINE_HEADER unsigned int nonmoving_segment_block_size(struct nonmoving_segment *seg)
 {
-  ASSERT(seg->block_size != 0);
-  return 1 << seg->block_size;
+    return 1 << seg->block_size;
 }
 
 // How many blocks does the given segment contain? Also the size of the bitmap.
@@ -142,6 +141,11 @@ INLINE_HEADER void nonmoving_set_mark_bit(struct nonmoving_segment *seg, nonmovi
 INLINE_HEADER bool nonmoving_get_mark_bit(struct nonmoving_segment *seg, nonmoving_block_idx i)
 {
     return seg->bitmap[i];
+}
+
+INLINE_HEADER void nonmoving_set_closure_mark_bit(StgPtr p)
+{
+    nonmoving_set_mark_bit(nonmoving_get_segment(p), nonmoving_get_block_idx(p));
 }
 
 INLINE_HEADER bool nonmoving_get_closure_mark_bit(StgPtr p)

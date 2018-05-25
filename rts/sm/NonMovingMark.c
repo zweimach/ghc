@@ -20,8 +20,6 @@
 // How many Array# entries to add to the mark queue at once?
 #define MARK_ARRAY_CHUNK_LENGTH 128
 
-static void mark_closure (MarkQueue *queue, MarkQueueEnt *ent);
-
 void mark_queue_add_root(MarkQueue* q, StgClosure** root)
 {
     mark_queue_push_closure(q, *root, NULL, NULL);
@@ -396,10 +394,9 @@ mark_stack (MarkQueue *queue, StgPtr sp, StgPtr spBottom)
 }
 
 static GNUC_ATTR_HOT void
-mark_closure (MarkQueue *queue, MarkQueueEnt *ent)
+mark_closure (MarkQueue *queue, StgClosure *p)
 {
-    ASSERT(ent->type == MARK_CLOSURE);
-    StgClosure *p = UNTAG_CLOSURE(ent->mark_closure.p);
+    p = UNTAG_CLOSURE(p);
     ASSERTM(LOOKS_LIKE_CLOSURE_PTR(p), "invalid closure, info=%p", p->header.info);
 
 #   define PUSH_FIELD(obj, field)                                \
@@ -782,7 +779,7 @@ GNUC_ATTR_HOT void nonmoving_mark(MarkQueue *queue)
 
         switch (ent.type) {
         case MARK_CLOSURE:
-            mark_closure(queue, &ent);
+            mark_closure(queue, ent.mark_closure.p);
             break;
         case MARK_SRT:
             mark_srt(queue, &ent);
