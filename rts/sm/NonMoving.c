@@ -23,12 +23,10 @@ struct nonmoving_segment* nonmoving_todos = NULL;
 // We should probably mark block of the segment as "NONMOVING_IN_TODOS"
 static void add_todo_segment(struct nonmoving_segment* seg)
 {
-    for (struct nonmoving_segment* todo = nonmoving_todos; todo != NULL; todo = todo->todo_link) {
-        if (todo == seg)
-            return;
+    if (!seg->todo_link) {
+        seg->todo_link = nonmoving_todos;
+        nonmoving_todos = seg;
     }
-    seg->todo_link = nonmoving_todos;
-    nonmoving_todos = seg;
 }
 
 static void nonmoving_init_segment(struct nonmoving_segment *seg, uint8_t block_size)
@@ -39,6 +37,7 @@ static void nonmoving_init_segment(struct nonmoving_segment *seg, uint8_t block_
     seg->next_free_snap = 0;
     seg->block_size = block_size;
     nonmoving_clear_bitmap(seg);
+    Bdescr((P_)seg)->u.scan = nonmoving_segment_get_block(seg, 0);
 }
 
 /*
@@ -111,12 +110,12 @@ void *nonmoving_allocate(Capability *cap, StgWord sz)
         ASSERT(current);
         void *ret = nonmoving_allocate_block_from_segment(current);
         if (ret) {
-            add_todo_segment(current);
             ASSERT(GET_CLOSURE_TAG(ret) == 0); // check alignment
+            add_todo_segment(current);
             return ret;
         }
 
-        // current segment filled, link if to filled
+        // current segment filled, link it to filled
         current->link = alloca->filled;
         alloca->filled = current;
 
@@ -257,11 +256,12 @@ void nonmoving_print_segment(struct nonmoving_segment *seg)
 {
     int num_blocks = nonmoving_segment_block_count(seg);
 
-    debugBelch("Segment with %d blocks of size 2^%d (%d bytes, %lu words)\n",
+    debugBelch("Segment with %d blocks of size 2^%d (%d bytes, %lu words, scan: %p)\n",
                num_blocks,
                seg->block_size,
                1 << seg->block_size,
-               ROUNDUP_BYTES_TO_WDS(1 << seg->block_size));
+               ROUNDUP_BYTES_TO_WDS(1 << seg->block_size),
+               (void*)Bdescr((P_)seg)->u.scan);
 
     for (nonmoving_block_idx p_idx = 0; p_idx < seg->next_free; ++p_idx) {
         StgClosure *p = (StgClosure*)nonmoving_segment_get_block(seg, p_idx);
