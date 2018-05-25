@@ -323,26 +323,26 @@ scavenge_one(StgClosure *q)
 static void
 scavenge_nonmoving_segment(struct nonmoving_segment *seg)
 {
-    // scavenge objects whose bitmap bits are 0
-    nonmoving_block_idx p_idx = 0;
-    // in this context block = closure
-    StgClosure *p = (StgClosure*)nonmoving_segment_get_block(seg, 0);
+    // scavenge objects between scan and free_ptr whose bitmap bits are 0
+    bdescr *seg_block = Bdescr((P_)seg);
 
-    while (p_idx < seg->next_free) {
-        ASSERT(LOOKS_LIKE_CLOSURE_PTR(p));
+    ASSERT(seg_block->u.scan >= (P_)nonmoving_segment_get_block(seg, 0));
+
+    while (seg_block->u.scan < (P_)nonmoving_segment_get_block(seg, seg->next_free)) {
+        StgClosure *p = (StgClosure*)seg_block->u.scan;
+        nonmoving_block_idx p_idx = nonmoving_get_block_idx((StgPtr)p);
         // bit set = was allocated in the previous GC
         // bit not set = new allocation, so scavenge
         if (!(nonmoving_get_mark_bit(seg, p_idx))) {
-            // Set the mark bit to avoid scavenging this object in the next
-            // minor GC. We only need to scavenge it again if it points to a
-            // younger generation, but in that case it should be in the
-            // mut_list, which is scavenged always.
+            // Set the mark bit to avoid scavenging this object in the next GC.
+            // We only need to scavenge it again if it points to a younger
+            // generation, but in that case it should be in the mut_list, which
+            // is scavenged always.
             nonmoving_set_mark_bit(seg, p_idx);
             scavenge_one(p);
         }
 
-        p_idx++;
-        p = (StgClosure*)(((uint8_t*)p) + nonmoving_segment_block_size(seg));
+        seg_block->u.scan = (P_)(((uint8_t*)seg_block->u.scan) + nonmoving_segment_block_size(seg));
     }
 }
 
@@ -372,6 +372,7 @@ loop:
     while (nonmoving_todos) {
         struct nonmoving_segment* todo = nonmoving_todos;
         nonmoving_todos = todo->todo_link;
+        todo->todo_link = NULL;
         scavenge_nonmoving_segment(todo);
         did_something = true;
     }

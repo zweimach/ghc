@@ -92,6 +92,7 @@ nonmoving_sweep_segment(struct nonmoving_segment *seg)
             found_free = true;
             seg->next_free = i;
             seg->next_free_snap = i;
+            Bdescr((P_)seg)->u.scan = (P_)nonmoving_segment_get_block(seg, i);
         }
 
         if (found_free && found_live) {
