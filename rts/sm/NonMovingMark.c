@@ -627,7 +627,7 @@ mark_closure (MarkQueue *queue, StgClosure *p)
 
     case FUN:
         mark_queue_push_fun_srt(queue, info);
-        break;
+        goto gen_obj;
 
     case THUNK: {
         mark_queue_push_thunk_srt(queue, info);
@@ -638,6 +638,7 @@ mark_closure (MarkQueue *queue, StgClosure *p)
         break;
     }
 
+    gen_obj:
     case CONSTR:
     case CONSTR_NOCAF:
     case WEAK:
