@@ -468,7 +468,7 @@ getStablePtr(StgPtr p)
         }                                                               \
     } while(0)
 
-STATIC_INLINE void
+void
 markStablePtrTable(evac_fn evac, void *user)
 {
     FOR_EACH_STABLE_PTR(p, evac(user, (StgClosure **)&p->addr););

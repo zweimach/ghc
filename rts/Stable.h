@@ -35,6 +35,7 @@ StgWord lookupStableName      ( StgPtr p );
  * Consider splitting it.
  */
 void    markStableTables      ( evac_fn evac, void *user );
+void    markStablePtrTable    ( evac_fn evac, void *user );
 
 void    threadStableTables    ( evac_fn evac, void *user );
 void    gcStableTables        ( void );
