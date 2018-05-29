@@ -490,7 +490,7 @@ GarbageCollect (uint32_t collect_gen,
           markCapability((evac_fn)mark_queue_add_root, &mark_queue, cap, true/*don't mark sparks*/);
       }
       markScheduler((evac_fn)mark_queue_add_root, &mark_queue);
-      markStableTables((evac_fn)mark_queue_add_root, &mark_queue);
+      markStablePtrTable((evac_fn)mark_queue_add_root, &mark_queue);
 
       // Roots marked, mark threads and weak pointers
 
