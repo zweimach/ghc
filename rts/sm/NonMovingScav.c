@@ -327,6 +327,7 @@ scavenge_nonmoving_segment(struct nonmoving_segment *seg)
     bdescr *seg_block = Bdescr((P_)seg);
 
     ASSERT(seg_block->u.scan >= (P_)nonmoving_segment_get_block(seg, 0));
+    ASSERT(seg_block->u.scan <= (P_)nonmoving_segment_get_block(seg, seg->next_free));
 
     while (seg_block->u.scan < (P_)nonmoving_segment_get_block(seg, seg->next_free)) {
         StgClosure *p = (StgClosure*)seg_block->u.scan;

@@ -426,7 +426,8 @@ GarbageCollect (uint32_t collect_gen,
 
   for (;;)
   {
-      // Scavenge older generation (non-moving heap) first as optimisation
+      // As usual scavenge older generations first to reduce the likelihood of
+      // spurious old->new pointers.
       scavenge_nonmoving_heap();
       scavenge_until_all_done();
 

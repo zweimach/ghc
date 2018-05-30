@@ -175,8 +175,10 @@ typedef struct gc_thread_ {
                                    // instead of the to-space
                                    // corresponding to the object
 
-    bool forced_promotion;         // forces promotion to the oldest gen
-                                   // instead of to-space or evac gen
+    bool forced_promotion;         // Forces promotion to the oldest gen
+                                   // instead of to-space or evac gen. Used when
+                                   // scavenging the non-moving generation and
+                                   // its mut_list.
 
     W_ thunk_selector_depth;       // used to avoid unbounded recursion in
                                    // evacuate() for THUNK_SELECTOR
