@@ -13,7 +13,6 @@
 #include "GCThread.h" // for GCUtils.h
 #include "GCUtils.h"
 
-/* Prepare to enter the mark phase. Must be done in stop-the-world. */
 static void prepare_sweep(void)
 {
     ASSERT(nonmoving_heap.sweep_list == NULL);

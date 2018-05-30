@@ -64,7 +64,8 @@ struct nonmoving_heap {
     // records the current length of the nonmoving_allocator.current arrays
     unsigned int n_caps;
 
-    // The set of segments being sweeped this GC.
+    // The set of segments being swept in this GC. Filled during mark phase and
+    // consumed during sweep phase. NULL before mark and after sweep.
     struct nonmoving_segment *sweep_list;
 };
 
@@ -77,7 +78,13 @@ void nonmoving_init(void);
 void *nonmoving_allocate(Capability *cap, StgWord sz);
 void nonmoving_add_capabilities(uint32_t new_n_caps);
 
-// Assert that the pointer is in a segment
+// Assert that the pointer can be traced by the non-moving collector (e.g. in
+// mark phase). This means one of the following:
+//
+// - A static object
+// - A large object
+// - An object in the non-moving heap (e.g. in one of the segments)
+//
 void assert_in_nonmoving_heap(StgPtr p);
 
 // The block size of a given segment in bytes.
