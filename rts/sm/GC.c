@@ -531,6 +531,8 @@ GarbageCollect (uint32_t collect_gen,
 
       nonmoving_sweep();
       ASSERT(nonmoving_heap.sweep_list == NULL);
+
+      nonmoving_sweep_mut_lists();
   }
 
   copied = 0;

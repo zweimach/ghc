@@ -11,3 +11,6 @@
 #include "NonMoving.h"
 
 GNUC_ATTR_HOT void nonmoving_sweep(void);
+
+// Remove unmarked entries in oldest generation mut_lists
+void nonmoving_sweep_mut_lists(void);
