@@ -9,6 +9,9 @@
 #include "Rts.h"
 #include "NonMovingSweep.h"
 #include "NonMoving.h"
+#include "Capability.h"
+#include "GCThread.h" // for GCUtils.h
+#include "GCUtils.h"
 
 /* Prepare to enter the mark phase. Must be done in stop-the-world. */
 static void prepare_sweep(void)
@@ -161,4 +164,22 @@ GNUC_ATTR_HOT void nonmoving_sweep(void)
             barf("nonmoving_sweep: weird sweep return: %d\n", ret);
         }
     }
+}
+
+void nonmoving_sweep_mut_lists()
+{
+      for (uint32_t n = 0; n < n_capabilities; n++) {
+          Capability *cap = capabilities[n];
+          bdescr *old_mut_list = cap->mut_lists[oldest_gen->no];
+          cap->mut_lists[oldest_gen->no] = allocBlockOnNode_sync(cap->node);
+          for (bdescr *bd = old_mut_list; bd; bd = bd->link) {
+              for (StgPtr p = bd->start; p < bd->free; p++) {
+                  StgClosure **q = (StgClosure**)p;
+                  if (nonmoving_get_closure_mark_bit((P_)(*q))) {
+                      recordMutableGen_GC(*q, oldest_gen->no);
+                  }
+              }
+          }
+          freeChain_sync(old_mut_list);
+      }
 }
