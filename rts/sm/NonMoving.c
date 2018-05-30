@@ -19,8 +19,7 @@ struct nonmoving_heap nonmoving_heap;
 
 struct nonmoving_segment* nonmoving_todos = NULL;
 
-// Add a todo segment if it's not already in the list. Slow. FIXME
-// We should probably mark block of the segment as "NONMOVING_IN_TODOS"
+// Add a todo segment if it's not already in the list
 static void add_todo_segment(struct nonmoving_segment* seg)
 {
     if (!seg->todo_link) {
