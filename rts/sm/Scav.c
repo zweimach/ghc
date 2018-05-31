@@ -31,6 +31,7 @@
 
 #include "sm/MarkWeak.h"
 #include "sm/NonMoving.h" // for nonmoving_set_closure_mark_bit
+#include "sm/NonMovingScav.h"
 
 static void scavenge_large_bitmap (StgPtr p,
                                    StgLargeBitmap *large_bitmap,
@@ -1629,7 +1630,10 @@ scavenge_mutable_list(bdescr *bd, generation *gen)
                 ;
             }
 
-            if (scavenge_one(p)) {
+            if (major_gc && gen == oldest_gen) { 
+                // We can't use scavenge_one here as we need to scavenge SRTs
+                nonmoving_scavenge_one((StgClosure *)p);
+            } else if (scavenge_one(p)) {
                 // didn't manage to promote everything, so put the
                 // object back on the list.
                 recordMutableGen_GC((StgClosure *)p,gen_no);

@@ -10,8 +10,8 @@
 #include "Printer.h"
 #include "MarkWeak.h" // scavengeLiveWeak
 
-static void
-scavenge_one(StgClosure *q)
+void
+nonmoving_scavenge_one(StgClosure *q)
 {
     ASSERT(LOOKS_LIKE_CLOSURE_PTR(q));
     StgPtr p = (StgPtr)q;
@@ -142,10 +142,6 @@ scavenge_one(StgClosure *q)
         evacuate((StgClosure **)&bco->ptrs);
         break;
     }
-
-    case BLACKHOLE:
-        evacuate(&((StgInd *)p)->indirectee);
-        break;
 
     case MUT_VAR_CLEAN:
     case MUT_VAR_DIRTY:
@@ -320,6 +316,12 @@ scavenge_one(StgClosure *q)
         break;
       }
 
+    case IND:
+    case BLACKHOLE:
+    case IND_STATIC:
+        evacuate(&((StgInd *)p)->indirectee);
+        break;
+
     default:
         barf("nonmoving scavenge: unimplemented/strange closure type %d @ %p",
              info->type, p);
@@ -354,7 +356,7 @@ scavenge_nonmoving_segment(struct nonmoving_segment *seg)
             // generation, but in that case it should be in the mut_list, which
             // is scavenged always.
             nonmoving_set_mark_bit(seg, p_idx);
-            scavenge_one(p);
+            nonmoving_scavenge_one(p);
         }
 
         seg_block->u.scan = (P_)(((uint8_t*)seg_block->u.scan) + nonmoving_segment_block_size(seg));
@@ -379,7 +381,7 @@ loop:
         ws->todo_large_objects = bd->link;
         dbl_link_onto(bd, &ws->gen->scavenged_large_objects);
         ws->gen->n_scavenged_large_blocks += bd->blocks;
-        scavenge_one((StgClosure*)bd->start);
+        nonmoving_scavenge_one((StgClosure*)bd->start);
         did_something = true;
     }
 
