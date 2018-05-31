@@ -834,6 +834,11 @@ GNUC_ATTR_HOT void nonmoving_mark(MarkQueue *queue)
 
 static bool nonmoving_is_alive(struct MarkQueue_ *queue, StgClosure *p)
 {
+    // Ignore static closures. See comments in `isAlive`.
+    if (!HEAP_ALLOCED_GC(p)) {
+        return true;
+    }
+
     bdescr *bd = Bdescr((P_)p);
     if (bd->flags & BF_NONMOVING) {
         return nonmoving_get_closure_mark_bit((P_)p);
