@@ -539,6 +539,22 @@ mark_closure (MarkQueue *queue, StgClosure *p)
         }
     }
 
+    // A pinned object that is still attached to a capability (because it's not
+    // filled yet). No need to trace it pinned objects can't contain poiners.
+    else if (bd->flags & BF_PINNED) {
+#if defined(DEBUG)
+        bool found_it = false;
+        for (uint32_t i = 0; i < n_capabilities; ++i) {
+            if (capabilities[i]->pinned_object_block == bd) {
+                found_it = true;
+                break;
+            }
+        }
+        ASSERT(found_it);
+#endif
+        return;
+    }
+
     else {
         barf("NonMovingMark: found object with flag: %" FMT_Word16, bd->flags);
     }
