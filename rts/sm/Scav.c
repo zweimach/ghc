@@ -1668,7 +1668,9 @@ scavenge_mutable_list(bdescr *bd, generation *gen)
         }
     }
 
-    gct->forced_promotion = saved_forced_promotion;
+    if (gen == oldest_gen) {
+        gct->forced_promotion = saved_forced_promotion;
+    }
 }
 
 void

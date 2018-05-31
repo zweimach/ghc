@@ -206,6 +206,10 @@ scavenge_one(StgClosure *q)
     case MUT_ARR_PTRS_CLEAN:
     case MUT_ARR_PTRS_DIRTY:
     {
+        // We don't eagerly promote objects pointed to by a mutable
+        // array, but if we find the array only points to objects in
+        // the same or an older generation, we mark it "clean" and
+        // avoid traversing it during minor GCs.
         scavenge_mut_arr_ptrs((StgMutArrPtrs*)p);
         if (gct->failed_to_evac) {
             ((StgClosure *)q)->header.info = &stg_MUT_ARR_PTRS_DIRTY_info;
@@ -221,6 +225,9 @@ scavenge_one(StgClosure *q)
         // follow everything
     {
         scavenge_mut_arr_ptrs((StgMutArrPtrs*)p);
+
+        // If we're going to put this object on the mutable list, then
+        // set its info ptr to MUT_ARR_PTRS_FROZEN0 to indicate that.
         if (gct->failed_to_evac) {
             ((StgClosure *)q)->header.info = &stg_MUT_ARR_PTRS_FROZEN0_info;
         } else {
@@ -233,6 +240,10 @@ scavenge_one(StgClosure *q)
     case SMALL_MUT_ARR_PTRS_DIRTY:
         // follow everything
     {
+        // We don't eagerly promote objects pointed to by a mutable
+        // array, but if we find the array only points to objects in
+        // the same or an older generation, we mark it "clean" and
+        // avoid traversing it during minor GCs.
         StgPtr next = p + small_mut_arr_ptrs_sizeW((StgSmallMutArrPtrs*)p);
         for (p = (P_)((StgSmallMutArrPtrs *)p)->payload; p < next; p++) {
             evacuate((StgClosure **)p);
@@ -254,6 +265,9 @@ scavenge_one(StgClosure *q)
         for (p = (P_)((StgSmallMutArrPtrs *)p)->payload; p < next; p++) {
             evacuate((StgClosure **)p);
         }
+
+        // If we're going to put this object on the mutable list, then
+        // set its info ptr to SMALL_MUT_ARR_PTRS_FROZEN0 to indicate that.
         if (gct->failed_to_evac) {
             ((StgClosure *)q)->header.info = &stg_SMALL_MUT_ARR_PTRS_FROZEN0_info;
         } else {
