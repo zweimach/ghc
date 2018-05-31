@@ -51,7 +51,6 @@
 #include "CNF.h"
 #include "RtsFlags.h"
 #include "NonMovingScav.h"
-#include "NonMovingSweep.h"
 #include "NonMoving.h"
 
 #if defined(PROFILING)
@@ -474,63 +473,7 @@ GarbageCollect (uint32_t collect_gen,
   // NO MORE EVACUATION AFTER THIS POINT!
 
   // Mark and sweep the oldest generation
-  // Generate mark queue with roots
-  if (major_gc) {
-      nonmoving_clear_all_bitmaps();
-
-      MarkQueue mark_queue;
-      init_mark_queue(&mark_queue);
-
-      // Mark roots
-      markCAFs((evac_fn)mark_queue_add_root, &mark_queue);
-      for (unsigned int n = 0; n < n_capabilities; ++n) {
-          markCapability((evac_fn)mark_queue_add_root, &mark_queue, cap, true/*don't mark sparks*/);
-      }
-      markScheduler((evac_fn)mark_queue_add_root, &mark_queue);
-      markStablePtrTable((evac_fn)mark_queue_add_root, &mark_queue);
-
-      // Roots marked, mark threads and weak pointers
-
-      // At this point all threads are moved to threads list (from old_threads)
-      // and all weaks are moved to weak_ptr_list (from old_weak_ptr_list) by
-      // the previous scavenge step, so we need to move them to "old" lists
-      // again.
-      oldest_gen->old_threads = oldest_gen->threads;
-      oldest_gen->threads = END_TSO_QUEUE;
-      oldest_gen->old_weak_ptr_list = oldest_gen->weak_ptr_list;
-      oldest_gen->weak_ptr_list = NULL;
-
-      for (;;)
-      {
-          // Propagate marks
-          nonmoving_mark(&mark_queue);
-
-          // Mark threads and weaks
-          nonmoving_mark_threads(&mark_queue);
-          if (nonmoving_mark_weaks(&mark_queue)) {
-              continue;
-          }
-
-          if (nonmoving_resurrect_threads(&mark_queue)) {
-              continue;
-          }
-
-          nonmoving_mark_dead_weaks(&mark_queue);
-
-          nonmoving_mark(&mark_queue);
-          break;
-      }
-
-      ASSERT(mark_queue.top->head == 0);
-      ASSERT(mark_queue.blocks->link == NULL);
-
-      free_mark_queue(&mark_queue);
-
-      nonmoving_sweep();
-      ASSERT(nonmoving_heap.sweep_list == NULL);
-
-      nonmoving_sweep_mut_lists();
-  }
+  nonmoving_collect();
 
   copied = 0;
   par_max_copied = 0;

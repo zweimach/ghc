@@ -75,6 +75,7 @@ extern struct nonmoving_heap nonmoving_heap;
 extern struct nonmoving_segment* nonmoving_todos;
 
 void nonmoving_init(void);
+void nonmoving_collect(void);
 void *nonmoving_allocate(Capability *cap, StgWord sz);
 void nonmoving_add_capabilities(uint32_t new_n_caps);
 
