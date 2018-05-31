@@ -8,12 +8,17 @@
 
 #include "Rts.h"
 #include "RtsUtils.h"
-#include "NonMoving.h"
 #include "Capability.h"
 #include "Printer.h"
 #include "Storage.h"
 #include "GCThread.h"
 #include "GCTDecl.h"
+
+#include "NonMoving.h"
+#include "NonMovingMark.h"
+#include "NonMovingSweep.h"
+#include "Stable.h" // markStablePtrTable
+#include "Schedule.h" // markScheduler
 
 struct nonmoving_heap nonmoving_heap;
 
@@ -207,6 +212,67 @@ void nonmoving_clear_all_bitmaps()
             nonmoving_clear_segment_bitmaps(alloca->current[cap_n]);
         }
     }
+}
+
+void nonmoving_collect()
+{
+    if (!major_gc) return;
+
+    nonmoving_clear_all_bitmaps();
+
+    MarkQueue mark_queue;
+    init_mark_queue(&mark_queue);
+
+    // Mark roots
+    markCAFs((evac_fn)mark_queue_add_root, &mark_queue);
+    for (unsigned int n = 0; n < n_capabilities; ++n) {
+        markCapability((evac_fn)mark_queue_add_root, &mark_queue,
+                capabilities[n], true/*don't mark sparks*/);
+    }
+    markScheduler((evac_fn)mark_queue_add_root, &mark_queue);
+    markStablePtrTable((evac_fn)mark_queue_add_root, &mark_queue);
+
+    // Roots marked, mark threads and weak pointers
+
+    // At this point all threads are moved to threads list (from old_threads)
+    // and all weaks are moved to weak_ptr_list (from old_weak_ptr_list) by
+    // the previous scavenge step, so we need to move them to "old" lists
+    // again.
+    oldest_gen->old_threads = oldest_gen->threads;
+    oldest_gen->threads = END_TSO_QUEUE;
+    oldest_gen->old_weak_ptr_list = oldest_gen->weak_ptr_list;
+    oldest_gen->weak_ptr_list = NULL;
+
+    for (;;)
+    {
+        // Propagate marks
+        nonmoving_mark(&mark_queue);
+
+        // Mark threads and weaks
+        nonmoving_mark_threads(&mark_queue);
+        if (nonmoving_mark_weaks(&mark_queue)) {
+            continue;
+        }
+
+        if (nonmoving_resurrect_threads(&mark_queue)) {
+            continue;
+        }
+
+        nonmoving_mark_dead_weaks(&mark_queue);
+
+        nonmoving_mark(&mark_queue);
+        break;
+    }
+
+    ASSERT(mark_queue.top->head == 0);
+    ASSERT(mark_queue.blocks->link == NULL);
+
+    free_mark_queue(&mark_queue);
+
+    nonmoving_sweep();
+    ASSERT(nonmoving_heap.sweep_list == NULL);
+
+    nonmoving_sweep_mut_lists();
 }
 
 void assert_in_nonmoving_heap(StgPtr p)
