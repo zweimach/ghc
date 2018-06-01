@@ -535,11 +535,12 @@ mapType mapper@(TyCoMapper { tcm_smart = smart, tcm_tyvar = tyvar
 
 {-# INLINABLE mapCoercion #-}  -- See Note [Specialising mappers]
 mapCoercion :: Monad m
-            => TyCoMapper env m -> env -> Coercion -> m Coercion
-mapCoercion mapper@(TyCoMapper { tcm_smart = smart, tcm_covar = covar
+            => DynFlags -> TyCoMapper env m -> env -> Coercion -> m Coercion
+mapCoercion dflags
+            mapper@(TyCoMapper { tcm_smart = smart, tcm_covar = covar
                                , tcm_hole = cohole, tcm_tybinder = tybinder })
             env co
-  = go co
+  = zapCoercion dflags (go co)
   where
     go (Refl r ty) = Refl r <$> mapType mapper env ty
     go (TyConAppCo r tc args)

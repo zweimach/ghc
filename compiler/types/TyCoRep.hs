@@ -35,6 +35,7 @@ module TyCoRep (
         CoercionHole(..), coHoleCoVar, setCoHoleCoVar,
         CoercionN, CoercionR, CoercionP, KindCoercion,
         MCoercion(..), MCoercionR,
+        zapCoercion, zapCoercionWithFVs,
 
         -- * Functions over types
         mkTyConTy, mkTyVarTy, mkTyVarTys,
@@ -936,6 +937,11 @@ data Coercion
 
   | HoleCo CoercionHole              -- ^ See Note [Coercion holes]
                                      -- Only present during typechecking
+
+  | ZappedCo Role Type Type FV
+    -- ^ A coercions which we have elided; includes it's role, kind and free
+    -- variables.
+
   deriving Data.Data
 
 type CoercionN = Coercion       -- always nominal
@@ -1466,7 +1472,30 @@ Here,
     co5 :: (a1 ~ Bool) ~ (a2 ~ Bool)
     co5 = TyConAppCo Nominal (~) [<*>, <*>, co4, <Bool>]
 
+-}
 
+{-
+%************************************************************************
+%*                                                                      *
+                 Zapping coercions into oblivion
+%*                                                                      *
+%************************************************************************
+-}
+
+-- | Replace a coercion with a 'ZappedCoercion' unless coercions are needed.
+zapCoercion :: DynFlags -> Coercion -> Coercion
+zapCoercion dflags co = zapCoercionWithFVs dflags (coVarsOfCo co) co
+
+-- | Replace a coercion with a 'ZappedCoercion' unless coercions are needed,
+-- using the provided free-variable set.
+zapCoercionWithFVs :: DynFlags -> FV -> Coercion -> Coercion
+zapCoercionWithFVs dflags fvs co
+  | shouldBuildCoercions dflags = co
+  | otherwise = ZappedCo role t1 t2 fvs
+  where
+    ~(Pair t1 t2, role) = coercionKindRole co
+
+{-
 %************************************************************************
 %*                                                                      *
                  Free variables of types and coercions
@@ -1613,6 +1642,7 @@ tyCoFVsOfCo (CoherenceCo c1 c2) fv_cand in_scope acc = (tyCoFVsOfCo c1 `unionFV`
 tyCoFVsOfCo (KindCo co)         fv_cand in_scope acc = tyCoFVsOfCo co fv_cand in_scope acc
 tyCoFVsOfCo (SubCo co)          fv_cand in_scope acc = tyCoFVsOfCo co fv_cand in_scope acc
 tyCoFVsOfCo (AxiomRuleCo _ cs)  fv_cand in_scope acc = tyCoFVsOfCos cs fv_cand in_scope acc
+tyCoFVsOfCo (ZappedCo _ _ _ vs)  fv_cand in_scope acc = mapUnionFV' (substBndr subst)
 
 tyCoFVsOfCoVar :: CoVar -> FV
 tyCoFVsOfCoVar v fv_cand in_scope acc
@@ -1676,6 +1706,7 @@ coVarsOfCo (CoherenceCo c1 c2)  = coVarsOfCos [c1, c2]
 coVarsOfCo (KindCo co)          = coVarsOfCo co
 coVarsOfCo (SubCo co)           = coVarsOfCo co
 coVarsOfCo (AxiomRuleCo _ cs)   = coVarsOfCos cs
+coVarsOfCo (ZappedCo _ _ _ _)   = emptyFV -- TODO: Is this right?
 
 coVarsOfCoVar :: CoVar -> CoVarSet
 coVarsOfCoVar v = unitVarSet v `unionVarSet` coVarsOfType (varType v)
@@ -1783,6 +1814,7 @@ noFreeVarsOfCo (CoherenceCo co1 co2)  = noFreeVarsOfCo co1 && noFreeVarsOfCo co2
 noFreeVarsOfCo (KindCo co)            = noFreeVarsOfCo co
 noFreeVarsOfCo (SubCo co)             = noFreeVarsOfCo co
 noFreeVarsOfCo (AxiomRuleCo _ cs)     = all noFreeVarsOfCo cs
+noFreeVarsOfCo (ZappedCo _ _ _ vs)    = isEmptyVarSet vs
 
 -- | Returns True if this UnivCoProv has no free variables. Should be the same as
 -- isEmptyVarSet . tyCoVarsOfProv, but faster in the non-forall case.
@@ -2465,6 +2497,7 @@ subst_co subst co
     go (SubCo co)            = mkSubCo $! (go co)
     go (AxiomRuleCo c cs)    = let cs1 = map go cs
                                 in cs1 `seqList` AxiomRuleCo c cs1
+    go (ZappedCo r t1 t2 fvs) = ZappedCo r (substTy subst t1) (substTy subst t2) (subst_co subst fvs)
     go (HoleCo h)            = HoleCo h
       -- NB: this last case is a little suspicious, but we need it. Originally,
       -- there was a panic here, but it triggered from deeplySkolemise. Because

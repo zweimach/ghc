@@ -1713,7 +1713,9 @@ zonkTcTypeToTypes :: ZonkEnv -> [TcType] -> TcM [Type]
 zonkTcTypeToTypes env tys = mapM (zonkTcTypeToType env) tys
 
 zonkCoToCo :: ZonkEnv -> Coercion -> TcM Coercion
-zonkCoToCo = mapCoercion zonk_tycomapper
+zonkCoToCo env co = do
+    dflags <- getDynFlags
+    zapCoercion dflags <$> mapCoercion dflags zonk_tycomapper
 
 zonkSigType :: TcType -> TcM Type
 -- Zonk the type obtained from a user type signature

@@ -87,9 +87,9 @@ optCoercion :: TCvSubst -> Coercion -> NormalCo
 -- ^ optCoercion applies a substitution to a coercion,
 --   *and* optimises it to reduce its size
 optCoercion env co
-  | hasNoOptCoercion unsafeGlobalDynFlags = substCo env co
+  | hasNoOptCoercion dflags = substCo env co
   | debugIsOn
-  = let out_co = opt_co1 lc False co
+  = let out_co = zapCoercion dflags $ opt_co1 lc False co
         (Pair in_ty1  in_ty2,  in_role)  = coercionKindRole co
         (Pair out_ty1 out_ty2, out_role) = coercionKindRole out_co
     in
@@ -108,6 +108,8 @@ optCoercion env co
 
   | otherwise         = opt_co1 lc False co
   where
+    -- TODO: Don't use unsafeGlobalDynFlags
+    dflags = unsafeGlobalDynFlags
     lc = mkSubstLiftingContext env
 
 type NormalCo    = Coercion

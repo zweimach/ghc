@@ -2688,7 +2688,7 @@ zonkPromoteTyCoVarBndr tv
   = zonkPromoteTyCoVarKind tv
 
 zonkPromoteCoercion :: Coercion -> TcM Coercion
-zonkPromoteCoercion = mapCoercion zonkPromoteMapper ()
+zonkPromoteCoercion = mapCoercion dflags zonkPromoteMapper ()
 
 zonkPromoteTypeInKnot :: TcType -> TcM TcType
 zonkPromoteTypeInKnot = mapType (zonkPromoteMapper { tcm_smart = False }) ()

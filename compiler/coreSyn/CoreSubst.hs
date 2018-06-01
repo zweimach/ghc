@@ -497,6 +497,9 @@ substIdBndr _doc rec_subst subst@(Subst in_scope env tvs cvs) old_id
         -- See Note [Extending the Subst]
         -- it's /not/ necessary to check mb_new_info and no_type_change
 
+substFV :: Subst -> FV -> (Subst, FV)
+substFV subst fv = undefined -- TODO
+
 {-
 Now a variant that unconditionally allocates a new unique.
 It also unconditionally zaps the OccInfo.

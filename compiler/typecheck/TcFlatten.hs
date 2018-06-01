@@ -1688,6 +1688,7 @@ flatten_exact_fam_app_fully tc tys
                   -> FlatM (Maybe (Xi, Coercion))
     try_to_reduce tc tys kind_co update_co
       = do { checkStackDepth (mkTyConApp tc tys)
+           ; let fvs = tyCoVarsOfTypes tys -- See Note [Zapping coercions]
            ; mb_match <- liftTcS $ matchFam tc tys
            ; case mb_match of
                  -- NB: norm_co will always be homogeneous. All type families
@@ -1708,7 +1709,9 @@ flatten_exact_fam_app_fully tc tys
                          liftTcS $
                          extendFlatCache tc tys ( co, xi, flavour )
                        ; let xi' = xi `mkCastTy` kind_co
-                             co' = update_co $ mkSymCo co
+                             -- See Note [Zapping coercions]
+                             co' = zapCoercionsWithFVs dflags fvs
+                                   $ update_co $ mkSymCo co
                                                 `mkTcCoherenceLeftCo` kind_co
                        ; return $ Just (xi', co') }
                Nothing -> pure Nothing }
@@ -1736,8 +1739,10 @@ flatten_exact_fam_app_fully tc tys
                        ; let co  = maybeSubCo eq_rel norm_co
                                     `mkTransCo` mkSymCo final_co
                              xi' = xi `mkCastTy` kind_co
-                             co' = update_co $ mkSymCo co
-                                                `mkTcCoherenceLeftCo` kind_co
+                             -- See Note [Zapping coercions]
+                             co' = zapCoercionsWithFVs dflags fvs
+                                   $ update_co $ mkSymCo co
+                                                 `mkTcCoherenceLeftCo` kind_co
                        ; return $ Just (xi', co') }
                Nothing -> pure Nothing }
 

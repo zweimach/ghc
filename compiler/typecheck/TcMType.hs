@@ -1552,7 +1552,9 @@ zonkTcType = mapType zonkTcTypeMapper ()
 
 -- | "Zonk" a coercion -- really, just zonk any types in the coercion
 zonkCo :: Coercion -> TcM Coercion
-zonkCo = mapCoercion zonkTcTypeMapper ()
+zonkCo = do
+    dflags <- getDynFlags
+    mapCoercion dflags zonkTcTypeMapper ()
 
 zonkTcTyCoVarBndr :: TcTyCoVar -> TcM TcTyCoVar
 -- A tyvar binder is never a unification variable (TauTv),

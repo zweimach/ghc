@@ -188,6 +188,12 @@ mapUnionFV f (a:as) fv_cand in_scope acc =
   mapUnionFV f as fv_cand in_scope $! f a fv_cand in_scope $! acc
 {-# INLINABLE mapUnionFV #-}
 
+-- | Map a free variable computation over the variables of an FV and union the
+-- results.
+mapUnionFV' :: (Var -> FV) -> FV -> FV
+mapUnionFV' f fv cand in_scope acc =
+  mapUnionFV f $ fvVarList (fv cand in_scope acc)
+
 -- | Union many free variable computations.
 unionsFV :: [FV] -> FV
 unionsFV fvs fv_cand in_scope acc = mapUnionFV id fvs fv_cand in_scope acc
