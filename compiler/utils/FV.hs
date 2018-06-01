@@ -26,6 +26,7 @@ module FV (
         mapUnionFV,
     ) where
 
+import Data.Data
 import GhcPrelude
 
 import Var
@@ -46,16 +47,24 @@ type InterestingVarFun = Var -> Bool
 -- Merging costs O(n+m) for UniqFM and for UniqDFM there's an additional log
 -- factor. It's cheaper to incrementally add to a list and use a set to check
 -- for duplicates.
-type FV = InterestingVarFun
-             -- Used for filtering sets as we build them
-          -> VarSet
-             -- Locally bound variables
-          -> ([Var], VarSet)
-             -- List to preserve ordering and set to check for membership,
-             -- so that the list doesn't have duplicates
-             -- For explanation of why using `VarSet` is not deterministic see
-             -- Note [Deterministic UniqFM] in UniqDFM.
-          -> ([Var], VarSet)
+newtype FV = FV
+     { runFV :: InterestingVarFun
+                -- Used for filtering sets as we build them
+             -> VarSet
+                -- Locally bound variables
+             -> ([Var], VarSet)
+                -- List to preserve ordering and set to check for membership,
+                -- so that the list doesn't have duplicates
+                -- For explanation of why using `VarSet` is not deterministic see
+                -- Note [Deterministic UniqFM] in UniqDFM.
+             -> ([Var], VarSet)
+     }
+
+-- | This instance doesn't traverse anything.
+instance Data FV where
+  toConstr _   = error "toConstr(FV)"
+  gunfold _ _  = error "gunfold(FV)"
+  dataTypeOf _ = mkNoRepType "FV.FV"
 
 -- Note [FV naming conventions]
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -84,8 +93,8 @@ type FV = InterestingVarFun
 -- | Run a free variable computation, returning a list of distinct free
 -- variables in deterministic order and a non-deterministic set containing
 -- those variables.
-fvVarListVarSet :: FV ->  ([Var], VarSet)
-fvVarListVarSet fv = fv (const True) emptyVarSet ([], emptyVarSet)
+fvVarListVarSet :: FV -> ([Var], VarSet)
+fvVarListVarSet fv = runFV fv (const True) emptyVarSet ([], emptyVarSet)
 
 -- | Run a free variable computation, returning a list of distinct free
 -- variables in deterministic order.
@@ -145,63 +154,63 @@ fvVarSet = snd . fvVarListVarSet
 -- | Add a variable - when free, to the returned free variables.
 -- Ignores duplicates and respects the filtering function.
 unitFV :: Id -> FV
-unitFV var fv_cand in_scope acc@(have, haveSet)
-  | var `elemVarSet` in_scope = acc
-  | var `elemVarSet` haveSet = acc
-  | fv_cand var = (var:have, extendVarSet haveSet var)
-  | otherwise = acc
+unitFV var = FV f
+  where
+    f fv_cand in_scope acc@(have, haveSet)
+      | var `elemVarSet` in_scope = acc
+      | var `elemVarSet` haveSet = acc
+      | fv_cand var = (var:have, extendVarSet haveSet var)
+      | otherwise = acc
 {-# INLINE unitFV #-}
 
 -- | Return no free variables.
 emptyFV :: FV
-emptyFV _ _ acc = acc
+emptyFV = FV $ \_ _ acc -> acc
 {-# INLINE emptyFV #-}
 
 -- | Union two free variable computations.
 unionFV :: FV -> FV -> FV
-unionFV fv1 fv2 fv_cand in_scope acc =
-  fv1 fv_cand in_scope $! fv2 fv_cand in_scope $! acc
+unionFV fv1 fv2 = FV $ \fv_cand in_scope acc ->
+  runFV fv1 fv_cand in_scope $! runFV fv2 fv_cand in_scope $! acc
 {-# INLINE unionFV #-}
 
 -- | Mark the variable as not free by putting it in scope.
 delFV :: Var -> FV -> FV
-delFV var fv fv_cand !in_scope acc =
-  fv fv_cand (extendVarSet in_scope var) acc
+delFV var fv = FV $ \fv_cand !in_scope acc ->
+  runFV fv fv_cand (extendVarSet in_scope var) acc
 {-# INLINE delFV #-}
 
 -- | Mark many free variables as not free.
 delFVs :: VarSet -> FV -> FV
-delFVs vars fv fv_cand !in_scope acc =
-  fv fv_cand (in_scope `unionVarSet` vars) acc
+delFVs vars fv = FV $ \fv_cand !in_scope acc ->
+  runFV fv fv_cand (in_scope `unionVarSet` vars) acc
 {-# INLINE delFVs #-}
 
 -- | Filter a free variable computation.
 filterFV :: InterestingVarFun -> FV -> FV
-filterFV fv_cand2 fv fv_cand1 in_scope acc =
-  fv (\v -> fv_cand1 v && fv_cand2 v) in_scope acc
+filterFV fv_cand2 fv = FV $ \fv_cand1 in_scope acc ->
+  runFV fv (\v -> fv_cand1 v && fv_cand2 v) in_scope acc
 {-# INLINE filterFV #-}
 
 -- | Map a free variable computation over a list and union the results.
 mapUnionFV :: (a -> FV) -> [a] -> FV
-mapUnionFV _f [] _fv_cand _in_scope acc = acc
-mapUnionFV f (a:as) fv_cand in_scope acc =
-  mapUnionFV f as fv_cand in_scope $! f a fv_cand in_scope $! acc
+mapUnionFV _f [] = FV $ \_fv_cand _in_scope acc -> acc
+mapUnionFV f (a:as) = FV $ \fv_cand in_scope acc ->
+  runFV (mapUnionFV f as) fv_cand in_scope $! runFV (f a) fv_cand in_scope $! acc
 {-# INLINABLE mapUnionFV #-}
 
 -- | Map a free variable computation over the variables of an FV and union the
 -- results.
 mapUnionFV' :: (Var -> FV) -> FV -> FV
-mapUnionFV' f fv cand in_scope acc =
-  mapUnionFV f $ fvVarList (fv cand in_scope acc)
+mapUnionFV' f fv = mapUnionFV f $ fvVarList fv
 
 -- | Union many free variable computations.
 unionsFV :: [FV] -> FV
-unionsFV fvs fv_cand in_scope acc = mapUnionFV id fvs fv_cand in_scope acc
+unionsFV fvs = mapUnionFV id fvs
 {-# INLINE unionsFV #-}
 
 -- | Add multiple variables - when free, to the returned free variables.
 -- Ignores duplicates and respects the filtering function.
 mkFVs :: [Var] -> FV
-mkFVs vars fv_cand in_scope acc =
-  mapUnionFV unitFV vars fv_cand in_scope acc
+mkFVs vars = mapUnionFV unitFV vars
 {-# INLINE mkFVs #-}
