@@ -1573,7 +1573,7 @@ tyCoFVsOfTypes []       fv_cand in_scope acc = emptyFV fv_cand in_scope acc
 
 tyCoVarsOfCo :: Coercion -> TyCoVarSet
 -- See Note [Free variables of types]
-tyCoVarsOfCo co = ndfvVarSet $ tyCoNDFVsOfCo co
+tyCoVarsOfCo co = fvVarSet $ tyCoFVsOfCo co
 
 -- | Get a deterministic set of the vars free in a coercion
 tyCoVarsOfCoDSet :: Coercion -> DTyCoVarSet
@@ -1583,49 +1583,6 @@ tyCoVarsOfCoDSet co = fvDVarSet $ tyCoFVsOfCo co
 tyCoVarsOfCoList :: Coercion -> [TyCoVar]
 -- See Note [Free variables of types]
 tyCoVarsOfCoList co = fvVarList $ tyCoFVsOfCo co
-
-tyCoNDFVsOfCo :: Coercion -> 
--- Extracts type and coercion variables from a coercion
--- See Note [Free variables of t ypes]
-tyCoNDFVsOfCo (Refl _ ty)          in_scope acc = tyCoNDFVsOfType ty in_scope acc
-tyCoNDFVsOfCo (TyConAppCo _ _ cos) in_scope acc = tyCoNDFVsOfCos cos in_scope acc
-tyCoNDFVsOfCo (AppCo co arg) in_scope acc
-  = (tyCoNDFVsOfCo co `unionNDFV` tyCoNDFVsOfCo arg) in_scope acc
-tyCoNDFVsOfCo (ForAllCo tv kind_co co) in_scope acc
-  = (delNDFV tv (tyCoNDFVsOfCo co) `unionNDFV` tyCoNDFVsOfCo kind_co) in_scope acc
-tyCoNDFVsOfCo (FunCo _ co1 co2)    in_scope acc
-  = (tyCoNDFVsOfCo co1 `unionNDFV` tyCoNDFVsOfCo co2) in_scope acc
-tyCoNDFVsOfCo (CoVarCo v) in_scope acc
-  = tyCoNDFVsOfCoVar v in_scope acc
-tyCoNDFVsOfCo (HoleCo h) in_scope acc
-  = tyCoNDFVsOfCoVar (coHoleCoVar h) in_scope acc
-    -- See Note [CoercionHoles and coercion free variables]
-tyCoNDFVsOfCo (AxiomInstCo _ _ cos) in_scope acc = tyCoNDFVsOfCos cos in_scope acc
-tyCoNDFVsOfCo (UnivCo p _ t1 t2) in_scope acc
-  = (tyCoNDFVsOfProv p `unionNDFV` tyCoNDFVsOfType t1
-                     `unionNDFV` tyCoNDFVsOfType t2) in_scope acc
-tyCoNDFVsOfCo (SymCo co)          in_scope acc = tyCoNDFVsOfCo co in_scope acc
-tyCoNDFVsOfCo (TransCo co1 co2)   in_scope acc = (tyCoNDFVsOfCo co1 `unionNDFV` tyCoNDFVsOfCo co2) in_scope acc
-tyCoNDFVsOfCo (NthCo _ _ co)      in_scope acc = tyCoNDFVsOfCo co in_scope acc
-tyCoNDFVsOfCo (LRCo _ co)         in_scope acc = tyCoNDFVsOfCo co in_scope acc
-tyCoNDFVsOfCo (InstCo co arg)     in_scope acc = (tyCoNDFVsOfCo co `unionNDFV` tyCoNDFVsOfCo arg) in_scope acc
-tyCoNDFVsOfCo (CoherenceCo c1 c2) in_scope acc = (tyCoNDFVsOfCo c1 `unionNDFV` tyCoNDFVsOfCo c2) in_scope acc
-tyCoNDFVsOfCo (KindCo co)         in_scope acc = tyCoNDFVsOfCo co in_scope acc
-tyCoNDFVsOfCo (SubCo co)          in_scope acc = tyCoNDFVsOfCo co in_scope acc
-tyCoNDFVsOfCo (AxiomRuleCo _ cs)  in_scope acc = tyCoNDFVsOfCos cs in_scope acc
-
-tyCoNDFVsOfCoVar :: CoVar -> NonDetFV
-tyCoNDFVsOfCoVar v in_scope acc
-  = (unitNDFV v `unionNDFV` tyCoNDFVsOfType (varType v)) in_scope acc
-
-tyCoVarsOfProv :: UnivCoProvenance -> TyCoVarSet
-tyCoVarsOfProv prov = fvVarSet $ tyCoNDFVsOfProv prov
-
-tyCoNDNDFVsOfProv :: UnivCoProvenance -> NonDetFV
-tyCoNDNDFVsOfProv UnsafeCoerceProv    in_scope acc = emptyFV in_scope acc
-tyCoNDNDFVsOfProv (PhantomProv co)    in_scope acc = tyCoNDFVsOfCo co in_scope acc
-tyCoNDNDFVsOfProv (ProofIrrelProv co) in_scope acc = tyCoNDFVsOfCo co in_scope acc
-tyCoNDNDFVsOfProv (PluginProv _)      in_scope acc = emptyFV in_scope acc
 
 tyCoFVsOfCo :: Coercion -> FV
 -- Extracts type and coercion variables from a coercion
