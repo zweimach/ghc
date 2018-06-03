@@ -214,6 +214,20 @@ void nonmoving_clear_all_bitmaps()
     }
 }
 
+// Mark weak pointers in the non-moving heap. They'll either end up in
+// dead_weak_ptr_list or stay in weak_ptr_list. Either way they need to be kept
+// during sweep. See `MarkWeak.c:markWeakPtrList` for the moving heap variant
+// of this.
+static void nonmoving_mark_weak_ptr_list(MarkQueue *mark_queue)
+{
+    StgWeak **last_w = &oldest_gen->weak_ptr_list;
+    for (StgWeak *w = oldest_gen->weak_ptr_list; w != NULL; w = w->link) {
+        mark_queue_add_root(mark_queue, (StgClosure**)last_w);
+        w = *last_w;
+        last_w = &(w->link);
+    }
+}
+
 void nonmoving_collect()
 {
     if (!major_gc) return;
@@ -230,6 +244,7 @@ void nonmoving_collect()
                 capabilities[n], true/*don't mark sparks*/);
     }
     markScheduler((evac_fn)mark_queue_add_root, &mark_queue);
+    nonmoving_mark_weak_ptr_list(&mark_queue);
     markStablePtrTable((evac_fn)mark_queue_add_root, &mark_queue);
 
     // Roots marked, mark threads and weak pointers
@@ -243,25 +258,35 @@ void nonmoving_collect()
     oldest_gen->old_weak_ptr_list = oldest_gen->weak_ptr_list;
     oldest_gen->weak_ptr_list = NULL;
 
-    for (;;)
     {
+threads:
         // Propagate marks
         nonmoving_mark(&mark_queue);
 
         // Mark threads and weaks
         nonmoving_mark_threads(&mark_queue);
+
         if (nonmoving_mark_weaks(&mark_queue)) {
-            continue;
+            goto threads;
         }
 
         if (nonmoving_resurrect_threads(&mark_queue)) {
-            continue;
+            goto threads;
+        }
+
+        // No more resurrecting threads after this point
+weaks:
+        // Propagate marks
+        nonmoving_mark(&mark_queue);
+
+        if (nonmoving_mark_weaks(&mark_queue)) {
+            goto weaks;
         }
 
         nonmoving_mark_dead_weaks(&mark_queue);
 
+        // Propagate marks
         nonmoving_mark(&mark_queue);
-        break;
     }
 
     ASSERT(mark_queue.top->head == 0);
