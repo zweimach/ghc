@@ -89,6 +89,9 @@ optCoercion :: DynFlags -> TCvSubst -> Coercion -> NormalCo
 optCoercion dflags env co
   | hasNoOptCoercion dflags = substCo env co
 
+  | not $ shouldBuildCoercions dflags
+  = zapCoercion dflags $ substCo env co
+
   | debugIsOn
   = let out_co = zapCoercion dflags $ opt_co1 dflags lc False co
         (Pair in_ty1  in_ty2,  in_role)  = coercionKindRole co
