@@ -443,7 +443,7 @@ expandTypeSynonyms ty
     go_co subst (ZappedCo r t1 t2 fvs)
       = let t1' = go subst t1
             t2' = go subst t2
-            fvs' = fvs `unionDVarSet` tyCoVarsOfTypeDSet t1' `unionDVarSet` tyCoVarsOfTypeDSet t2'
+            fvs' = substFreeDVarSet subst fvs
         in ZappedCo r t1' t2' fvs'
     go_co _ (HoleCo h)
       = pprPanic "expandTypeSynonyms hit a hole" (ppr h)
