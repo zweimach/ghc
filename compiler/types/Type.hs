@@ -235,7 +235,8 @@ import Util
 import Outputable
 import FastString
 import Pair
-import DynFlags  ( DynFlags, gopt_set, GeneralFlag(Opt_PrintExplicitRuntimeReps) )
+import DynFlags  ( HasDynFlags(..)
+                 , gopt_set, GeneralFlag(Opt_PrintExplicitRuntimeReps) )
 import ListSetOps
 import Digraph
 import Unique ( nonDetCmpUnique )
@@ -514,9 +515,9 @@ data TyCoMapper env m
       }
 
 {-# INLINABLE mapType #-}  -- See Note [Specialising mappers]
-mapType :: Monad m => DynFlags -> TyCoMapper env m -> env -> Type -> m Type
-mapType dflags
-        mapper@(TyCoMapper { tcm_smart = smart, tcm_tyvar = tyvar
+mapType :: (Monad m, HasDynFlags m)
+        => TyCoMapper env m -> env -> Type -> m Type
+mapType mapper@(TyCoMapper { tcm_smart = smart, tcm_tyvar = tyvar
                            , tcm_tybinder = tybinder })
         env ty
   = go ty
@@ -529,34 +530,34 @@ mapType dflags
     go (FunTy arg res)   = FunTy <$> go arg <*> go res
     go (ForAllTy (TvBndr tv vis) inner)
       = do { (env', tv') <- tybinder env tv vis
-           ; inner' <- mapType dflags mapper env' inner
+           ; inner' <- mapType mapper env' inner
            ; return $ ForAllTy (TvBndr tv' vis) inner' }
     go ty@(LitTy {})   = return ty
-    go (CastTy ty co)  = mkcastty <$> go ty <*> mapCoercion dflags mapper env co
-    go (CoercionTy co) = CoercionTy <$> mapCoercion dflags mapper env co
+    go (CastTy ty co)  = mkcastty <$> go ty <*> mapCoercion mapper env co
+    go (CoercionTy co) = CoercionTy <$> mapCoercion mapper env co
 
     (mktyconapp, mkappty, mkcastty)
       | smart     = (mkTyConApp, mkAppTy, mkCastTy)
       | otherwise = (TyConApp,   AppTy,   CastTy)
 
 {-# INLINABLE mapCoercion #-}  -- See Note [Specialising mappers]
-mapCoercion :: Monad m
-            => DynFlags -> TyCoMapper env m -> env -> Coercion -> m Coercion
-mapCoercion dflags
-            mapper@(TyCoMapper { tcm_smart = smart, tcm_covar = covar
+mapCoercion :: (Monad m, HasDynFlags m)
+            => TyCoMapper env m -> env -> Coercion -> m Coercion
+mapCoercion mapper@(TyCoMapper { tcm_smart = smart, tcm_covar = covar
                                , tcm_tyvar = tyvar, tcm_hole = cohole
                                , tcm_tybinder = tybinder })
             env co
-  = zapCoercion dflags <$> go co
+  = do dflags <- getDynFlags
+       zapCoercion dflags <$> go co
   where
-    go (Refl r ty) = Refl r <$> mapType dflags mapper env ty
+    go (Refl r ty) = Refl r <$> mapType mapper env ty
     go (TyConAppCo r tc args)
       = mktyconappco r tc <$> mapM go args
     go (AppCo c1 c2) = mkappco <$> go c1 <*> go c2
     go (ForAllCo tv kind_co co)
       = do { kind_co' <- go kind_co
            ; (env', tv') <- tybinder env tv Inferred
-           ; co' <- mapCoercion dflags mapper env' co
+           ; co' <- mapCoercion mapper env' co
            ; return $ mkforallco tv' kind_co' co' }
         -- See Note [Efficiency for mapCoercion ForAllCo case]
     go (FunCo r c1 c2) = mkFunCo r <$> go c1 <*> go c2
@@ -566,8 +567,8 @@ mapCoercion dflags
     go (HoleCo hole) = cohole env hole
     go (UnivCo p r t1 t2)
       = mkunivco <$> go_prov p <*> pure r
-                 <*> mapType dflags mapper env t1
-                 <*> mapType dflags mapper env t2
+                 <*> mapType mapper env t1
+                 <*> mapType mapper env t2
     go (SymCo co) = mksymco <$> go co
     go (TransCo c1 c2) = mktransco <$> go c1 <*> go c2
     go (AxiomRuleCo r cos) = AxiomRuleCo r <$> mapM go cos
@@ -577,8 +578,8 @@ mapCoercion dflags
     go (CoherenceCo c1 c2) = mkcoherenceco <$> go c1 <*> go c2
     go (KindCo co)         = mkkindco <$> go co
     go (SubCo co)          = mksubco <$> go co
-    go (ZappedCo r t1 t2 fvs) = do t1' <- mapType dflags mapper env t1
-                                   t2' <- mapType dflags mapper env t2
+    go (ZappedCo r t1 t2 fvs) = do t1' <- mapType mapper env t1
+                                   t2' <- mapType mapper env t2
                                    let bndrFVs v
                                          | isTyVar v = tyCoVarsOfTypeDSet <$> tyvar env v
                                          | otherwise = tyCoVarsOfCoDSet <$> covar env v

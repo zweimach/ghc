@@ -90,7 +90,6 @@ import TysWiredIn
 import BasicTypes
 import SrcLoc
 import Constants ( mAX_CTUPLE_SIZE )
-import DynFlags( getDynFlags )
 import ErrUtils( MsgDoc )
 import Unique
 import Util
@@ -2641,9 +2640,7 @@ unifyKinds rn_tys act_kinds
 -- in tcExplicitTKBndrs, for example.) This function both zonks *and*
 -- promotes.
 zonkPromoteType :: TcType -> TcM TcType
-zonkPromoteType ty = do
-    dflags <- getDynFlags
-    mapType dflags zonkPromoteMapper () ty
+zonkPromoteType = mapType zonkPromoteMapper ()
 
 -- cf. TcMType.zonkTcTypeMapper
 zonkPromoteMapper :: TyCoMapper () TcM
@@ -2705,14 +2702,10 @@ zonkPromoteTyCoVarBndr tv
   = zonkPromoteTyCoVarKind tv
 
 zonkPromoteCoercion :: Coercion -> TcM Coercion
-zonkPromoteCoercion co = do
-    dflags <- getDynFlags
-    mapCoercion dflags zonkPromoteMapper () co
+zonkPromoteCoercion = mapCoercion zonkPromoteMapper ()
 
 zonkPromoteTypeInKnot :: TcType -> TcM TcType
-zonkPromoteTypeInKnot ty = do
-    dflags <- getDynFlags
-    mapType dflags (zonkPromoteMapper { tcm_smart = False }) () ty
+zonkPromoteTypeInKnot = mapType (zonkPromoteMapper { tcm_smart = False }) ()
   -- NB: Just changing smart to False will still use the smart zonker (not suitable
   -- for in-the-knot) for kinds. But that's OK, because kinds aren't knot-tied.
 
