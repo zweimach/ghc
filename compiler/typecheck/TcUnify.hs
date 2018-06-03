@@ -2292,7 +2292,8 @@ occCheckExpand tv ty
                                              ; return (mkAxiomRuleCo ax cs') }
     go_co env (ZappedCo r ty1 ty2 fvs)  = do { ty1' <- go env ty1
                                              ; ty2' <- go env ty2
-                                             ; return (ZappedCo r ty1' ty2' fvs)
+                                             ; fvs' <- mkDVarSet <$> mapM (go_var env) (dVarSetElems fvs)
+                                             ; return (ZappedCo r ty1' ty2' fvs')
                                              }
 
     ------------------
