@@ -260,8 +260,7 @@ toIfaceCoercionX fr co
                           where
                             (tvs, cvs) = partitionWith f $ dVarSetElems fvs
                             f v | isTyVar v = Left v
-                                | isCoVar v = Right v
-                                | otherwise = panic "asdfaf"
+                                | otherwise = Right v
 
     go_prov :: UnivCoProvenance -> IfaceUnivCoProv
     go_prov UnsafeCoerceProv    = IfaceUnsafeCoerceProv

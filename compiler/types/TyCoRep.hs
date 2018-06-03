@@ -941,7 +941,7 @@ data Coercion
 
   | ZappedCo Role Type Type DVarSet
     -- ^ A coercions which we have elided; includes it's role, kind and free
-    -- variables.
+    -- variables. See Note [Zapping coercions].
 
   deriving Data.Data
 
@@ -1494,16 +1494,40 @@ users who aren't linting with the cost of maintaining these structures, we
 replace coercions with placeholders ("zap" them) them unless -dcore-lint is
 enabled.
 
-This zapping is done by zapCoercion. Moreover, naively reducing recursive type families
-will often require that we carry out a quadratic amount of work (performing a
-full traversal of the coercion after each reduction step). To avoid this, we
-special-case type family reduction (namely in
+This zapping is done by zapCoercion. Moreover, naively reducing recursive type
+families will often require that we carry out a quadratic amount of work
+(performing a full traversal of the coercion after each reduction step). To
+avoid this, we special-case type family reduction (namely in
 TcFlatten.flatten_exact_fam_app_fully), computing the free variables of the
 unreduced type and using this as the free variable set of each of the zapped
 coercions. This is a conservative approximation, bringing more variables into
 the free variable set than strictly necessary. However, it allows us to get away
 with doing only linear work.
 
+Alas, sometimes zapped coercions will behave slightly differently from their
+unzapped counterparts. Specifically, we are a bit lax in tracking external names
+that are present in the unzapped coercion but not its kind. This manifests in a
+few places (these are labelled in the source with the [ZappedCoDifference]
+keyword):
+
+ * IfaceSyn.freeNamesIfCoercion will fail to report top-level names present in
+   the unzapped proof but not its kind.
+
+ * TcTyDecls.synonymTyConsOfType will fail to report type synonyms present in
+   in the unzapped proof but not its kind.
+
+ * The result of TcValidity.fvCo will contain each free variable of a ZappedCo
+   only once, even if it would have reported multiple occurrences in the
+   unzapped coercion.
+
+ * Type.tyConsOfType doesn't report TyCons which appear only in the unzapped
+   proof and not its kind.
+
+ * Zapped coercions are represented in interface files as IfaceZappedCo. This
+   representation only includes local free variables, since these are sufficient
+   to avoid unsound floating. This means that the free variable lists of zapped
+   coercions loaded from interface files will lack top-level things (e.g. type
+   constructors) that appear only in the unzapped proof.
 -}
 
 -- | Replace a coercion with a 'ZappedCoercion' unless coercions are needed.
@@ -2540,8 +2564,7 @@ substFreeDVarSet :: TCvSubst -> DVarSet -> DVarSet
 substFreeDVarSet subst =
     let f v
           | isTyVar v = tyCoVarsOfTypeDSet $ substTyVar subst v
-          | isCoVar v = tyCoVarsOfCoDSet $ substCoVar subst v
-          | otherwise = pprPanic "subst_co(ZappedCo)" (ppr v)
+          | otherwise = tyCoVarsOfCoDSet $ substCoVar subst v
     in mapUnionDVarSet f . dVarSetElems
 
 substForAllCoBndr :: TCvSubst -> TyVar -> Coercion -> (TCvSubst, TyVar, Coercion)

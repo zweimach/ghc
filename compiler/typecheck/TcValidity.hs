@@ -1964,6 +1964,9 @@ fvCo (SubCo co)             = fvCo co
 fvCo (AxiomRuleCo _ cs)     = concatMap fvCo cs
 fvCo (HoleCo h)             = pprPanic "fvCo falls into a hole" (ppr h)
 fvCo (ZappedCo _ _ _ fvs)   = dVarSetElems fvs
+                              -- [ZappedCoDifference] This doesn't handle
+                              -- repeated occurrences correctly.
+                              -- See Note [Zapping coercions]
 
 fvProv :: UnivCoProvenance -> [TyCoVar]
 fvProv UnsafeCoerceProv    = []

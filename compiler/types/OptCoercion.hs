@@ -388,7 +388,7 @@ opt_co4 dflags env sym rep r (AxiomRuleCo co cs)
     wrapSym sym $
     AxiomRuleCo co (zipWith (opt_co2 dflags env False) (coaxrAsmpRoles co) cs)
 
-opt_co4 _ env sym rep r (ZappedCo _ ty1 ty2 fvs)
+opt_co4 _dflags env sym rep r (ZappedCo _ ty1 ty2 fvs)
   = ZappedCo r' a b fvs'
   where ty1' = substTy (lcSubstLeft env) ty1
         ty2' = substTy (lcSubstRight env) ty2

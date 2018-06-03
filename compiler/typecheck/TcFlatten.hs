@@ -1734,7 +1734,6 @@ flatten_exact_fam_app_fully tc tys
                           -> FlatM (Maybe (Xi, Coercion))
     try_to_reduce_nocache tc tys kind_co update_co
       = do { checkStackDepth (mkTyConApp tc tys)
-             -- TODO: is zapping needed here?
            ; let fvs = tyCoFVsOfTypes tys -- See Note [Zapping coercions]
            ; dflags <- getDynFlags
            ; mb_match <- liftTcS $ matchFam tc tys

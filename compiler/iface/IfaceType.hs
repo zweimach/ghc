@@ -304,7 +304,8 @@ data IfaceCoercion
   | IfaceFreeCoVar    CoVar    -- See Note [Free tyvars in IfaceType]
   | IfaceHoleCo       CoVar    -- ^ See Note [Holes in IfaceCoercion]
   | IfaceZappedCo     Role IfaceType IfaceType [IfLclName] [IfLclName]
-                               -- ^ ty1, ty2, free tvs, free cvs
+                               -- ^ See Note [Zapping Coercions].
+                               -- @ty1, ty2, free tvs, free cvs@
 
 data IfaceUnivCoProv
   = IfaceUnsafeCoerceProv
@@ -1232,8 +1233,11 @@ ppr_co ctxt_prec (IfaceCoherenceCo co1 co2)
   = ppr_special_co ctxt_prec (text "Coh") [co1,co2]
 ppr_co ctxt_prec (IfaceKindCo co)
   = ppr_special_co ctxt_prec (text "Kind") [co]
-ppr_co ctxt_prec (IfaceZappedCo r ty1 ty2 _ _)
-  = ppr_special_co ctxt_prec (text "Zapped" <> brackets (ppr r $$ ppr ty1 $$ ppr ty2)) []
+ppr_co ctxt_prec (IfaceZappedCo r ty1 ty2 tvs cvs)
+  = ppr_special_co ctxt_prec
+    (text "Zapped" <> brackets (ppr r $$ ppr ty1 $$ ppr ty2
+                                $$ whenPprDebug (ppr tvs)
+                                $$ whenPprDebug (ppr cvs))) []
 
 ppr_special_co :: PprPrec -> SDoc -> [IfaceCoercion] -> SDoc
 ppr_special_co ctxt_prec doc cos

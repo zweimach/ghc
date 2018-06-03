@@ -1463,6 +1463,8 @@ freeNamesIfCoercion (IfaceAxiomRuleCo _ax cos)
   = fnList freeNamesIfCoercion cos
 freeNamesIfCoercion (IfaceZappedCo _ t1 t2 _ _)
   = freeNamesIfType t1 `unionNameSet` freeNamesIfType t2
+  -- [ZappedCoDifference]: This won't report top-level names present in the
+  -- unzapped proof but not its kind.
 
 freeNamesIfProv :: IfaceUnivCoProv -> NameSet
 freeNamesIfProv IfaceUnsafeCoerceProv    = emptyNameSet
