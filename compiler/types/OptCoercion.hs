@@ -90,7 +90,7 @@ optCoercion dflags env co
   | hasNoOptCoercion dflags = substCo env co
 
   | debugIsOn
-  = let out_co = opt_co1 dflags lc False co
+  = let out_co = zapCoercion dflags $ opt_co1 dflags lc False co
         (Pair in_ty1  in_ty2,  in_role)  = coercionKindRole co
         (Pair out_ty1 out_ty2, out_role) = coercionKindRole out_co
     in
