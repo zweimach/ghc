@@ -1275,8 +1275,8 @@ promoteCoercion co = case co of
     SubCo g
       -> promoteCoercion g
 
-    ZappedCo r t1 t2 fvs
-      -> ZappedCo r (typeKind t1) (typeKind t2) fvs -- TODO are these fvs sufficient?
+    ZappedCo _ t1 t2 fvs
+      -> ZappedCo Nominal (typeKind t1) (typeKind t2) fvs -- TODO are these fvs sufficient?
 
   where
     Pair ty1 ty2 = coercionKind co
