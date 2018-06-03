@@ -385,6 +385,15 @@ opt_co4 env sym rep r (AxiomRuleCo co cs)
     wrapSym sym $
     AxiomRuleCo co (zipWith (opt_co2 env False) (coaxrAsmpRoles co) cs)
 
+opt_co4 env sym rep r (ZappedCo _ ty1 ty2 fvs)
+  = ZappedCo r' a b fvs'
+  where ty1' = substTy (lcSubstLeft env) ty1
+        ty2' = substTy (lcSubstRight env) ty2
+        (a, b) | sym       = (ty2', ty1')
+               | otherwise = (ty1', ty2')
+        fvs' = substFreeDVarSet (lcTCvSubst env) fvs
+        r' = chooseRole rep r
+
 {- Note [Optimise CoVarCo to Refl]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 If we have (c :: t~t) we can optimise it to Refl. That increases the

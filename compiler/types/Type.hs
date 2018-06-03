@@ -581,8 +581,7 @@ mapCoercion dflags
                                    t2' <- mapType dflags mapper env t2
                                    let bndrFVs v
                                          | isTyVar v = tyCoVarsOfTypeDSet <$> tyvar env v
-                                         | isCoVar v = tyCoVarsOfCoDSet <$> covar env v
-                                         | otherwise = pprPanic "mapCoercion(ZappedCo)" (ppr v)
+                                         | otherwise = tyCoVarsOfCoDSet <$> covar env v
                                    fvs' <- unionDVarSets <$> mapM bndrFVs (dVarSetElems fvs)
                                    let fvs'' = fvs' `unionDVarSet` tyCoVarsOfTypeDSet t1'
                                                     `unionDVarSet` tyCoVarsOfTypeDSet t2'
@@ -2433,6 +2432,8 @@ tyConsOfType ty
      go_co (SubCo co)              = go_co co
      go_co (AxiomRuleCo _ cs)      = go_cos cs
      go_co (ZappedCo _ t1 t2 _)    = go t1 `unionUniqSets` go t2
+        -- [ZappedCoDifference] that this will not report TyCons present in the
+        -- unzapped proof but not its kind. See Note [Zapping coercions].
 
      go_prov UnsafeCoerceProv    = emptyUniqSet
      go_prov (PhantomProv co)    = go_co co
