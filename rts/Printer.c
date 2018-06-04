@@ -318,6 +318,10 @@ printClosure( const StgClosure *obj )
         debugBelch("MUT_ARR_PTRS_FROZEN_CLEAN(size=%" FMT_Word ")\n", (W_)((StgMutArrPtrs *)obj)->ptrs);
         break;
 
+    case MUT_ARR_PTRS_FROZEN0:
+        debugBelch("MUT_ARR_PTRS_FROZEN0(size=%" FMT_Word ")\n", (W_)((StgMutArrPtrs *)obj)->ptrs);
+        break;
+
     case SMALL_MUT_ARR_PTRS_CLEAN:
         debugBelch("SMALL_MUT_ARR_PTRS_CLEAN(size=%" FMT_Word ")\n",
                    (W_)((StgSmallMutArrPtrs *)obj)->ptrs);
@@ -330,6 +334,11 @@ printClosure( const StgClosure *obj )
 
     case SMALL_MUT_ARR_PTRS_FROZEN_CLEAN:
         debugBelch("SMALL_MUT_ARR_PTRS_FROZEN_CLEAN(size=%" FMT_Word ")\n",
+                   (W_)((StgSmallMutArrPtrs *)obj)->ptrs);
+        break;
+
+    case SMALL_MUT_ARR_PTRS_FROZEN0:
+        debugBelch("SMALL_MUT_ARR_PTRS_FROZEN0(size=%" FMT_Word ")\n",
                    (W_)((StgSmallMutArrPtrs *)obj)->ptrs);
         break;
 
@@ -699,7 +708,8 @@ void printLargeAndPinnedObjects()
 
         debugBelch("Current pinned object block: %p\n", (void*)cap->pinned_object_block);
         // just to check if my understanding is correct
-        ASSERT(cap->pinned_object_block == NULL || cap->pinned_object_block->link == NULL);
+        // 4/6/2018: assertion fails
+        // ASSERT(cap->pinned_object_block == NULL || cap->pinned_object_block->link == NULL);
 
         for (bdescr *bd = cap->pinned_object_blocks; bd; bd = bd->link) {
             debugBelch("%p\n", (void*)bd);
@@ -707,16 +717,18 @@ void printLargeAndPinnedObjects()
     }
 
     debugBelch("====== LARGE OBJECTS =======\n");
-    for (uint32_t gen_idx = 0; gen_idx < oldest_gen->no; ++gen_idx) {
+    for (uint32_t gen_idx = 0; gen_idx <= oldest_gen->no; ++gen_idx) {
         generation *gen = &generations[gen_idx];
         debugBelch("Generation %d current large objects:\n", gen_idx);
         for (bdescr *bd = gen->large_objects; bd; bd = bd->link) {
-            debugBelch("%p\n", (void*)bd);
+            debugBelch("%p: ", (void*)bd);
+            printClosure((StgClosure*)bd->start);
         }
 
         debugBelch("Generation %d scavenged large objects:\n", gen_idx);
         for (bdescr *bd = gen->scavenged_large_objects; bd; bd = bd->link) {
-            debugBelch("%p\n", (void*)bd);
+            debugBelch("%p: ", (void*)bd);
+            printClosure((StgClosure*)bd->start);
         }
     }
 

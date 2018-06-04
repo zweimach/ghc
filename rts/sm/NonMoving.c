@@ -449,10 +449,22 @@ void locate_object(P_ obj)
         for (bdescr *blk = gen->old_blocks; blk; blk = blk->link) {
             if (obj >= blk->start && obj < blk->free) {
                 debugBelch("%p is in generation %" FMT_Word32 " old blocks\n", obj, g);
+                return;
             }
-            return;
         }
     }
+
+    // Search large objects
+    for (uint32_t g = 0; g < RtsFlags.GcFlags.generations - 1; ++g) {
+        generation *gen = &generations[g];
+        for (bdescr *large_block = gen->large_objects; large_block; large_block = large_block->link) {
+            if ((P_)large_block->start == obj) {
+                debugBelch("%p is in large blocks of generation %d\n", obj, g);
+                return;
+            }
+        }
+    }
+
 
     // Search workspaces FIXME only works in non-threaded runtime
 #if !defined(THREADED_RTS)
@@ -461,11 +473,13 @@ void locate_object(P_ obj)
         for (bdescr *blk = ws->todo_bd; blk; blk = blk->link) {
             if (obj >= blk->start && obj < blk->free) {
                 debugBelch("%p is in generation %" FMT_Word32 " todo bds\n", obj, g);
+                return;
             }
         }
         for (bdescr *blk = ws->scavd_list; blk; blk = blk->link) {
             if (obj >= blk->start && obj < blk->free) {
                 debugBelch("%p is in generation %" FMT_Word32 " scavd bds\n", obj, g);
+                return;
             }
         }
     }
