@@ -1225,13 +1225,6 @@ tcIfaceCo = go
     go (IfaceSubCo c)            = SubCo    <$> go c
     go (IfaceAxiomRuleCo ax cos) = AxiomRuleCo <$> tcIfaceCoAxiomRule ax
                                                <*> mapM go cos
-    go (IfaceZappedCo r t1 t2 tyFvs coFvs _ _)
-                                 = do { tyFvs' <- mkDVarSet <$> mapM tcIfaceTyVar tyFvs
-                                      ; coFvs' <- mkDVarSet <$> mapM tcIfaceLclId coFvs
-                                      ; ZappedCo r <$> tcIfaceType t1
-                                                   <*> tcIfaceType t2
-                                                   <*> pure (tyFvs' `unionDVarSet` coFvs')
-                                      }
     go (IfaceFreeCoVar c)        = pprPanic "tcIfaceCo:IfaceFreeCoVar" (ppr c)
     go (IfaceHoleCo c)           = pprPanic "tcIfaceCo:IfaceHoleCo"    (ppr c)
 
@@ -1243,6 +1236,7 @@ tcIfaceUnivCoProv IfaceUnsafeCoerceProv     = return UnsafeCoerceProv
 tcIfaceUnivCoProv (IfacePhantomProv kco)    = PhantomProv <$> tcIfaceCo kco
 tcIfaceUnivCoProv (IfaceProofIrrelProv kco) = ProofIrrelProv <$> tcIfaceCo kco
 tcIfaceUnivCoProv (IfacePluginProv str)     = return $ PluginProv str
+tcIfaceUnivCoProv (IfaceZappedProv coFvs _) = ZappedProv . mkDVarSet <$> mapM tcIfaceLclId coFvs
 
 {-
 ************************************************************************

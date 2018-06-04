@@ -1993,16 +1993,16 @@ fvCo (KindCo co)            = fvCo co
 fvCo (SubCo co)             = fvCo co
 fvCo (AxiomRuleCo _ cs)     = concatMap fvCo cs
 fvCo (HoleCo h)             = pprPanic "fvCo falls into a hole" (ppr h)
-fvCo (ZappedCo _ _ _ fvs)   = dVarSetElems fvs
-                              -- [ZappedCoDifference] This doesn't handle
-                              -- repeated occurrences correctly.
-                              -- See Note [Zapping coercions]
 
 fvProv :: UnivCoProvenance -> [TyCoVar]
 fvProv UnsafeCoerceProv    = []
 fvProv (PhantomProv co)    = fvCo co
 fvProv (ProofIrrelProv co) = fvCo co
 fvProv (PluginProv _)      = []
+fvProv (ZappedProv fvs)    = dVarSetElems fvs
+                              -- [ZappedCoDifference] This doesn't handle
+                              -- repeated occurrences correctly.
+                              -- See Note [Zapping coercions]
 
 sizeType :: Type -> Int
 -- Size of a type: the number of variables and constructors

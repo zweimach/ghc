@@ -1729,6 +1729,13 @@ lintCoercion co@(UnivCo prov r ty1 ty2)
                                     ; check_kinds kco k1 k2 }
 
            PluginProv _     -> return ()  -- no extra checks
+           ZappedProv fvs   -> do
+               { let tysFvs = tyCoVarsOfTypeDSet ty1 `unionDVarSet` tyCoVarsOfTypeDSet ty2
+               ; when (not $ tysFvs `subDVarSet` fvs)
+                    $ failWithL $ hang (text "Zapped coercion fv list missing free variables of kind:") 2
+                    $ vcat [ text "Kind FVs:" <+> ppr tysFvs
+                            , text "Coercion FVs:" <+> ppr fvs]
+               }
 
        ; when (r /= Phantom && classifiesTypeWithValues k1
                             && classifiesTypeWithValues k2)
@@ -1940,16 +1947,6 @@ lintCoercion this@(AxiomRuleCo co cs)
 lintCoercion (HoleCo h)
   = do { addErrL $ text "Unfilled coercion hole:" <+> ppr h
        ; lintCoercion (CoVarCo (coHoleCoVar h)) }
-
-lintCoercion (ZappedCo r ty1 ty2 fvs)
-  = do { let tysFvs = tyCoVarsOfTypeDSet ty1 `unionDVarSet` tyCoVarsOfTypeDSet ty2
-       ; when (not $ tysFvs `subDVarSet` fvs)
-           $ failWithL $ hang (text "Zapped coercion fv list missing free variables of kind:") 2
-           $ vcat [ text "Kind FVs:" <+> ppr tysFvs
-                  , text "Coercion FVs:" <+> ppr fvs]
-       ; k1 <- lintType ty1
-       ; k2 <- lintType ty2
-       ; return (k1, k2, ty1, ty2, r) }
 
 ----------
 lintUnliftedCoVar :: CoVar -> LintM ()

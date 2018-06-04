@@ -1020,6 +1020,7 @@ mkKindCo :: Coercion -> Coercion
 mkKindCo (Refl _ ty) = Refl Nominal (typeKind ty)
 mkKindCo (UnivCo (PhantomProv h) _ _ _)    = h
 mkKindCo (UnivCo (ProofIrrelProv h) _ _ _) = h
+mkKindCo (UnivCo (ZappedProv fvs) _ ty1 ty2) = UnivCo (ZappedProv fvs) Nominal (typeKind ty1) (typeKind ty2)
 mkKindCo co
   | Pair ty1 ty2 <- coercionKind co
        -- generally, calling coercionKind during coercion creation is a bad idea,
@@ -1142,6 +1143,7 @@ setNominalRole_maybe r co
                      PhantomProv _    -> False  -- should always be phantom
                      ProofIrrelProv _ -> True   -- it's always safe
                      PluginProv _     -> False  -- who knows? This choice is conservative.
+                     ZappedProv _     -> False  -- conservatively say no
       = Just $ UnivCo prov Nominal co1 co2
     setNominalRole_maybe_helper _ = Nothing
 
@@ -1234,6 +1236,7 @@ promoteCoercion co = case co of
     UnivCo (PhantomProv kco) _ _ _    -> kco
     UnivCo (ProofIrrelProv kco) _ _ _ -> kco
     UnivCo (PluginProv _) _ _ _       -> mkKindCo co
+    UnivCo (ZappedProv fvs) _ t1 t2   -> UnivCo (ZappedProv fvs) Nominal (typeKind t1) (typeKind t2)
 
     SymCo g
       -> mkSymCo (promoteCoercion g)
@@ -1274,9 +1277,6 @@ promoteCoercion co = case co of
 
     SubCo g
       -> promoteCoercion g
-
-    ZappedCo _ t1 t2 fvs
-      -> ZappedCo Nominal (typeKind t1) (typeKind t2) fvs -- TODO are these fvs sufficient?
 
   where
     Pair ty1 ty2 = coercionKind co
@@ -1803,13 +1803,13 @@ seqCo (CoherenceCo co1 co2)     = seqCo co1 `seq` seqCo co2
 seqCo (KindCo co)               = seqCo co
 seqCo (SubCo co)                = seqCo co
 seqCo (AxiomRuleCo _ cs)        = seqCos cs
-seqCo (ZappedCo r t1 t2 fvs)    = r `seq` seqType t1 `seq` seqType t2 `seq` fvs `seq` ()
 
 seqProv :: UnivCoProvenance -> ()
 seqProv UnsafeCoerceProv    = ()
 seqProv (PhantomProv co)    = seqCo co
 seqProv (ProofIrrelProv co) = seqCo co
 seqProv (PluginProv _)      = ()
+seqProv (ZappedProv fvs)    = fvs `seq` ()
 
 seqCos :: [Coercion] -> ()
 seqCos []       = ()
@@ -1903,7 +1903,6 @@ coercionKind co =
     go (SubCo co)           = go co
     go (AxiomRuleCo ax cos) = expectJust "coercionKind" $
                               coaxrProves ax (map go cos)
-    go (ZappedCo _ ty1 ty2 _) = Pair ty1 ty2
 
     go_app :: Coercion -> [Coercion] -> Pair Type
     -- Collect up all the arguments and apply all at once
@@ -1971,7 +1970,6 @@ coercionRole = go
     go (KindCo {}) = Nominal
     go (SubCo _) = Representational
     go (AxiomRuleCo ax _) = coaxrRole ax
-    go (ZappedCo r _ _ _) = r
 
 {-
 Note [Nested InstCos]

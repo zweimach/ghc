@@ -1692,7 +1692,7 @@ flatten_exact_fam_app_fully tc tys
                   -> FlatM (Maybe (Xi, Coercion))
     try_to_reduce tc tys kind_co update_co
       = do { checkStackDepth (mkTyConApp tc tys)
-           ; let fvs = tyCoFVsOfTypes tys -- See Note [Zapping coercions]
+           ; let fvs = filterDVarSet isCoVar $ tyCoVarsOfTypesDSet tys -- See Note [Zapping coercions]
            ; dflags <- getDynFlags
            ; mb_match <- liftTcS $ matchFam tc tys
            ; case mb_match of
@@ -1734,7 +1734,7 @@ flatten_exact_fam_app_fully tc tys
                           -> FlatM (Maybe (Xi, Coercion))
     try_to_reduce_nocache tc tys kind_co update_co
       = do { checkStackDepth (mkTyConApp tc tys)
-           ; let fvs = tyCoFVsOfTypes tys -- See Note [Zapping coercions]
+           ; let fvs = filterDVarSet isCoVar $ tyCoVarsOfTypesDSet tys -- See Note [Zapping coercions]
            ; dflags <- getDynFlags
            ; mb_match <- liftTcS $ matchFam tc tys
            ; case mb_match of

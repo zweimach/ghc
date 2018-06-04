@@ -253,28 +253,19 @@ toIfaceCoercionX fr co
                                           (toIfaceCoercionX fr' co)
                           where
                             fr' = fr `delVarSet` tv
-    go (ZappedCo r ty1 ty2 fvs) = IfaceZappedCo r
-                                    (toIfaceTypeX fr ty1)
-                                    (toIfaceTypeX fr ty2)
-                                    (map toIfaceTyVar tvs)
-                                    (map toIfaceCoVar cvs)
-                                    fTvs fCvs
-                          where
-                            (tvs, cvs) = partitionWith f
-                                         $ filter (not . isFree)
-                                         $ dVarSetElems fvs
-                            (fTvs, fCvs) = partitionWith f
-                                           $ filter isFree
-                                           $ dVarSetElems fvs
-                            isFree = (`elemVarSet` fr)
-                            f v | isTyVar v = Left v
-                                | otherwise = Right v
 
     go_prov :: UnivCoProvenance -> IfaceUnivCoProv
     go_prov UnsafeCoerceProv    = IfaceUnsafeCoerceProv
     go_prov (PhantomProv co)    = IfacePhantomProv (go co)
     go_prov (ProofIrrelProv co) = IfaceProofIrrelProv (go co)
     go_prov (PluginProv str)    = IfacePluginProv str
+    go_prov (ZappedProv fvs)    = IfaceZappedProv cvs fCvs
+                          where
+                            (fCvs, cvs) = partitionWith f $ dVarSetElems fvs
+                            isFree = (`elemVarSet` fr)
+                            f v | ASSERT(isCoVar v)
+                                  isFree v  = Left v
+                                | otherwise = Right $ toIfaceCoVar v
 
 toIfaceTcArgs :: TyCon -> [Type] -> IfaceTcArgs
 toIfaceTcArgs = toIfaceTcArgsX emptyVarSet

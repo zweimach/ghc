@@ -440,11 +440,6 @@ expandTypeSynonyms ty
       = mkSubCo (go_co subst co)
     go_co subst (AxiomRuleCo ax cs)
       = AxiomRuleCo ax (map (go_co subst) cs)
-    go_co subst (ZappedCo r t1 t2 fvs)
-      = let t1' = go subst t1
-            t2' = go subst t2
-            fvs' = substFreeDVarSet subst fvs
-        in ZappedCo r t1' t2' fvs'
     go_co _ (HoleCo h)
       = pprPanic "expandTypeSynonyms hit a hole" (ppr h)
 
@@ -452,6 +447,8 @@ expandTypeSynonyms ty
     go_prov subst (PhantomProv co)    = PhantomProv (go_co subst co)
     go_prov subst (ProofIrrelProv co) = ProofIrrelProv (go_co subst co)
     go_prov _     p@(PluginProv _)    = p
+    go_prov subst (ZappedProv fvs)
+      = ZappedProv $ substFreeDVarSet subst fvs
 
       -- the "False" and "const" are to accommodate the type of
       -- substForAllCoBndrCallback, which is general enough to
@@ -578,20 +575,15 @@ mapCoercion mapper@(TyCoMapper { tcm_smart = smart, tcm_covar = covar
     go (CoherenceCo c1 c2) = mkcoherenceco <$> go c1 <*> go c2
     go (KindCo co)         = mkkindco <$> go co
     go (SubCo co)          = mksubco <$> go co
-    go (ZappedCo r t1 t2 fvs) = do t1' <- mapType mapper env t1
-                                   t2' <- mapType mapper env t2
-                                   let bndrFVs v
-                                         | isTyVar v = tyCoVarsOfTypeDSet <$> tyvar env v
-                                         | otherwise = tyCoVarsOfCoDSet <$> covar env v
-                                   fvs' <- unionDVarSets <$> mapM bndrFVs (dVarSetElems fvs)
-                                   let fvs'' = fvs' `unionDVarSet` tyCoVarsOfTypeDSet t1'
-                                                    `unionDVarSet` tyCoVarsOfTypeDSet t2'
-                                   return $ ZappedCo r t1' t2' fvs''
 
     go_prov UnsafeCoerceProv    = return UnsafeCoerceProv
     go_prov (PhantomProv co)    = PhantomProv <$> go co
     go_prov (ProofIrrelProv co) = ProofIrrelProv <$> go co
     go_prov p@(PluginProv _)    = return p
+    go_prov (ZappedProv fvs)    = do let bndrFVs v
+                                           | isTyVar v = tyCoVarsOfTypeDSet <$> tyvar env v
+                                           | otherwise = tyCoVarsOfCoDSet <$> covar env v
+                                     ZappedProv . unionDVarSets <$> mapM bndrFVs (dVarSetElems fvs)
 
     ( mktyconappco, mkappco, mkaxiominstco, mkunivco
       , mksymco, mktransco, mknthco, mklrco, mkinstco, mkcoherenceco
@@ -2432,9 +2424,6 @@ tyConsOfType ty
      go_co (KindCo co)             = go_co co
      go_co (SubCo co)              = go_co co
      go_co (AxiomRuleCo _ cs)      = go_cos cs
-     go_co (ZappedCo _ t1 t2 _)    = go t1 `unionUniqSets` go t2
-        -- [ZappedCoDifference] that this will not report TyCons present in the
-        -- unzapped proof but not its kind. See Note [Zapping coercions].
 
      go_prov UnsafeCoerceProv    = emptyUniqSet
      go_prov (PhantomProv co)    = go_co co
@@ -2442,6 +2431,9 @@ tyConsOfType ty
      go_prov (PluginProv _)      = emptyUniqSet
         -- this last case can happen from the tyConsOfType used from
         -- checkTauTvUpdate
+     go_prov (ZappedProv _)      = emptyUniqSet
+        -- [ZappedCoDifference] that this will not report TyCons present in the
+        -- unzapped proof but not its kind. See Note [Zapping coercions].
 
      go_s tys     = foldr (unionUniqSets . go)     emptyUniqSet tys
      go_cos cos   = foldr (unionUniqSets . go_co)  emptyUniqSet cos

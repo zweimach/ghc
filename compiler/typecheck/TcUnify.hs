@@ -2290,17 +2290,14 @@ occCheckExpand tv ty
                                              ; return (mkSubCo co') }
     go_co env (AxiomRuleCo ax cs)       = do { cs' <- mapM (go_co env) cs
                                              ; return (mkAxiomRuleCo ax cs') }
-    go_co env (ZappedCo r ty1 ty2 fvs)  = do { ty1' <- go env ty1
-                                             ; ty2' <- go env ty2
-                                             ; fvs' <- mkDVarSet <$> mapM (go_var env) (dVarSetElems fvs)
-                                             ; return (ZappedCo r ty1' ty2' fvs')
-                                             }
-
     ------------------
     go_prov _   UnsafeCoerceProv    = return UnsafeCoerceProv
     go_prov env (PhantomProv co)    = PhantomProv <$> go_co env co
     go_prov env (ProofIrrelProv co) = ProofIrrelProv <$> go_co env co
     go_prov _   p@(PluginProv _)    = return p
+    go_prov env (ZappedProv fvs)    = ZappedProv . mkDVarSet . filter isCoVar
+                                      <$> mapM (go_var env) (dVarSetElems fvs)
+
 
 canUnifyWithPolyType :: DynFlags -> TcTyVarDetails -> Bool
 canUnifyWithPolyType dflags details

@@ -385,15 +385,6 @@ opt_co4 env sym rep r (AxiomRuleCo co cs)
     wrapSym sym $
     AxiomRuleCo co (zipWith (opt_co2 env False) (coaxrAsmpRoles co) cs)
 
-opt_co4 env sym rep r (ZappedCo _ ty1 ty2 fvs)
-  = ZappedCo r' a b fvs'
-  where ty1' = substTy (lcSubstLeft env) ty1
-        ty2' = substTy (lcSubstRight env) ty2
-        (a, b) | sym       = (ty2', ty1')
-               | otherwise = (ty1', ty2')
-        fvs' = substFreeDVarSet (lcTCvSubst env) fvs
-        r' = chooseRole rep r
-
 {- Note [Optimise CoVarCo to Refl]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 If we have (c :: t~t) we can optimise it to Refl. That increases the
@@ -435,6 +426,14 @@ opt_univ env sym (PhantomProv h) _r ty1 ty2
     h' = opt_co4 env sym False Nominal h
     ty1' = substTy (lcSubstLeft  env) ty1
     ty2' = substTy (lcSubstRight env) ty2
+
+opt_univ env sym (ZappedProv fvs) role ty1 ty2
+  | sym       = UnivCo (ZappedProv fvs') role ty2' ty1'
+  | otherwise = UnivCo (ZappedProv fvs') role ty1' ty2'
+  where
+    ty1' = substTy (lcSubstLeft env) ty1
+    ty2' = substTy (lcSubstRight env) ty2
+    fvs' = substFreeDVarSet (lcTCvSubst env) fvs
 
 opt_univ env sym prov role oty1 oty2
   | Just (tc1, tys1) <- splitTyConApp_maybe oty1
@@ -478,6 +477,7 @@ opt_univ env sym prov role oty1 oty2
       PhantomProv kco    -> PhantomProv $ opt_co4_wrap env sym False Nominal kco
       ProofIrrelProv kco -> ProofIrrelProv $ opt_co4_wrap env sym False Nominal kco
       PluginProv _       -> prov
+      ZappedProv fvs     -> ZappedProv $ substFreeDVarSet (lcTCvSubst env) fvs
 
 -------------
 opt_transList :: InScopeSet -> [NormalCo] -> [NormalCo] -> [NormalCo]
@@ -553,6 +553,7 @@ opt_trans_rule is in_co1@(UnivCo p1 r1 tyl1 _tyr1)
     opt_trans_prov (ProofIrrelProv kco1) (ProofIrrelProv kco2)
       = Just $ ProofIrrelProv $ opt_trans is kco1 kco2
     opt_trans_prov (PluginProv str1)     (PluginProv str2)     | str1 == str2 = Just p1
+    opt_trans_prov (ZappedProv fvs1)     (ZappedProv fvs2)     = Just $ ZappedProv $ fvs1 `unionDVarSet` fvs2
     opt_trans_prov _ _ = Nothing
 
 -- Push transitivity down through matching top-level constructors.

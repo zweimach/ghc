@@ -953,7 +953,6 @@ exactTyCoVarsOfType ty
     goCo (KindCo co)         = goCo co
     goCo (SubCo co)          = goCo co
     goCo (AxiomRuleCo _ c)   = goCos c
-    goCo (ZappedCo _ t1 t2 _) = go t1 `unionVarSet` go t2
 
     goCos cos = foldr (unionVarSet . goCo) emptyVarSet cos
 
@@ -961,6 +960,7 @@ exactTyCoVarsOfType ty
     goProv (PhantomProv kco)    = goCo kco
     goProv (ProofIrrelProv kco) = goCo kco
     goProv (PluginProv _)       = emptyVarSet
+    goProv (ZappedProv _)       = emptyVarSet -- TODO
 
     goVar v = unitVarSet v `unionVarSet` go (varType v)
 

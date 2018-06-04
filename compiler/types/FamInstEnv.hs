@@ -1642,7 +1642,6 @@ allTyVarsInTy = go
     go_co (KindCo co)           = go_co co
     go_co (SubCo co)            = go_co co
     go_co (AxiomRuleCo _ cs)    = go_cos cs
-    go_co (ZappedCo _ _ _ fvs)  = filterVarSet isTyVar (dVarSetToVarSet fvs)
 
     go_cos = foldr (unionVarSet . go_co) emptyVarSet
 
@@ -1650,6 +1649,7 @@ allTyVarsInTy = go
     go_prov (PhantomProv co)    = go_co co
     go_prov (ProofIrrelProv co) = go_co co
     go_prov (PluginProv _)      = emptyVarSet
+    go_prov (ZappedProv fvs)    = filterVarSet isTyVar (dVarSetToVarSet fvs)
 
 mkFlattenFreshTyName :: Uniquable a => a -> Name
 mkFlattenFreshTyName unq
