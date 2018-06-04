@@ -20,6 +20,7 @@ import WwLib            ( findTypeShape, deepSplitProductType_maybe )
 import Demand   -- All of it
 import CoreSyn
 import CoreSeq          ( seqBinds )
+import CoreFVs          ( exprFreeVarsList )
 import Outputable
 import VarEnv
 import BasicTypes
@@ -145,6 +146,39 @@ dmdAnalStar env dmd e
   | (defer_and_use, cd) <- toCleanDmd dmd (exprType e)
   , (dmd_ty, e')        <- dmdAnal env cd e
   = (postProcessDmdType defer_and_use dmd_ty, e')
+
+{-
+Note [Demand analysing unfoldings of let-bound binders]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Say we have a program like,
+
+    let x = ...
+
+        f :: Int -> Int
+        [Unf = { Src=InlineStable, \y -> x + y }]
+        f n = expr
+    in ...
+
+Where `expr` doesn't mention `x`. If we demand analyse this without taking into
+account the unfolding, we will mistakenly conclude that `x` is absent. However,
+if `f` is later inlined, `x` will suddenly come alive again, resulting
+in #11126 (which sadly we don't have a test for as this is quite hard to
+tickle).
+
+To avoid this, we need to consider the free variables of unfoldings when
+computing usage information. This is done by dmdAnalUnfolding, which returns
+a lazy demand for each free variable.
+-}
+
+-- | Analyse an 'Unfolding'. See Note [Demand analysing unfoldings of let-bound
+-- binders].
+dmdAnalUnfolding :: Unfolding -> DmdEnv
+dmdAnalUnfolding unf
+  | Just tmpl <- maybeUnfoldingTemplate unf
+  = mkVarEnv [ (v, topDmd) | v <- exprFreeVarsList tmpl ]
+  | otherwise
+  = emptyDmdEnv
 
 -- Main Demand Analsysis machinery
 dmdAnal, dmdAnal' :: AnalEnv
@@ -303,18 +337,23 @@ dmdAnal' env dmd (Let (NonRec id rhs) body)
     (body_ty, body')   = dmdAnal env dmd body
     (body_ty', id_dmd) = findBndrDmd env notArgOfDfun body_ty id
     id'                = setIdDemandInfo id id_dmd
+    -- See Note [Demand analysing unfoldings of let-bound binders]
+    unf_dmd            = dmdAnalUnfolding (idUnfolding id)
 
     (rhs_ty, rhs')     = dmdAnalStar env (dmdTransformThunkDmd rhs id_dmd) rhs
-    final_ty           = body_ty' `bothDmdType` rhs_ty
+    final_ty           = body_ty' `bothDmdType` rhs_ty `bothDmdType` mkBothDmdArg unf_dmd
 
 dmdAnal' env dmd (Let (NonRec id rhs) body)
-  = (body_ty2, Let (NonRec id2 rhs') body')
+  = (final_ty, Let (NonRec id2 rhs') body')
   where
     (lazy_fv, id1, rhs') = dmdAnalRhsLetDown NotTopLevel Nothing env dmd id rhs
     env1                 = extendAnalEnv NotTopLevel env id1 (idStrictness id1)
     (body_ty, body')     = dmdAnal env1 dmd body
     (body_ty1, id2)      = annotateBndr env body_ty id1
-    body_ty2             = addLazyFVs body_ty1 lazy_fv -- see Note [Lazy and unleashable free variables]
+    body_ty2             = addLazyFVs body_ty1 lazy_fv -- see Note [Lazy and unleasheable free variables]
+    -- See Note [Demand analysing unfoldings of let-bound binders]
+    unf_dmd              = dmdAnalUnfolding (idUnfolding id)
+    final_ty             = body_ty2 `bothDmdType` mkBothDmdArg unf_dmd
 
         -- If the actual demand is better than the vanilla call
         -- demand, you might think that we might do better to re-analyse
@@ -565,7 +604,10 @@ dmdFix top_lvl env let_dmd orig_pairs
           = ((env', lazy_fv'), (id', rhs'))
           where
             (lazy_fv1, id', rhs') = dmdAnalRhsLetDown top_lvl (Just bndrs) env let_dmd id rhs
-            lazy_fv'              = plusVarEnv_C bothDmd lazy_fv lazy_fv1
+            -- See Note [Demand analysing unfoldings of let-bound binders]
+            unf_dmd               = dmdAnalUnfolding (idUnfolding id)
+            lazy_fv'              = lazy_fv `plus` lazy_fv1 `plus` unf_dmd
+            plus                  = plusVarEnv_C bothDmd
             env'                  = extendAnalEnv top_lvl env id (idStrictness id')
 
 
