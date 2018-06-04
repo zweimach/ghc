@@ -253,12 +253,20 @@ toIfaceCoercionX fr co
                                           (toIfaceCoercionX fr' co)
                           where
                             fr' = fr `delVarSet` tv
-    go (ZappedCo r ty1 ty2 fvs) = IfaceZappedCo r (toIfaceTypeX fr ty1)
-                                                  (toIfaceTypeX fr ty2)
-                                                  (map toIfaceTyVar tvs)
-                                                  (map toIfaceCoVar cvs)
+    go (ZappedCo r ty1 ty2 fvs) = IfaceZappedCo r
+                                    (toIfaceTypeX fr ty1)
+                                    (toIfaceTypeX fr ty2)
+                                    (map toIfaceTyVar tvs)
+                                    (map toIfaceCoVar cvs)
+                                    fTvs fCvs
                           where
-                            (tvs, cvs) = partitionWith f $ dVarSetElems fvs
+                            (tvs, cvs) = partitionWith f
+                                         $ filter (not . isFree)
+                                         $ dVarSetElems fvs
+                            (fTvs, fCvs) = partitionWith f
+                                           $ filter isFree
+                                           $ dVarSetElems fvs
+                            isFree = (`elemVarSet` fr)
                             f v | isTyVar v = Left v
                                 | otherwise = Right v
 

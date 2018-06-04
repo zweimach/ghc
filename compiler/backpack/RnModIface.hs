@@ -669,8 +669,9 @@ rnIfaceCo (IfaceLRCo lr c) = IfaceLRCo lr <$> rnIfaceCo c
 rnIfaceCo (IfaceSubCo c) = IfaceSubCo <$> rnIfaceCo c
 rnIfaceCo (IfaceAxiomRuleCo ax cos)
     = IfaceAxiomRuleCo ax <$> mapM rnIfaceCo cos
-rnIfaceCo (IfaceZappedCo r t1 t2 tvs cvs)
-    = IfaceZappedCo r <$> rnIfaceType t1 <*> rnIfaceType t2 <*> pure tvs <*> pure cvs
+rnIfaceCo (IfaceZappedCo r t1 t2 tvs cvs fTvs fCvs)
+    = IfaceZappedCo r <$> rnIfaceType t1 <*> rnIfaceType t2
+                      <*> pure tvs <*> pure cvs <*> pure [] <*> pure []
 rnIfaceCo (IfaceKindCo c) = IfaceKindCo <$> rnIfaceCo c
 rnIfaceCo (IfaceCoherenceCo c1 c2) = IfaceCoherenceCo <$> rnIfaceCo c1 <*> rnIfaceCo c2
 
