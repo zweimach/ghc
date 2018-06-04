@@ -1225,7 +1225,7 @@ tcIfaceCo = go
     go (IfaceSubCo c)            = SubCo    <$> go c
     go (IfaceAxiomRuleCo ax cos) = AxiomRuleCo <$> tcIfaceCoAxiomRule ax
                                                <*> mapM go cos
-    go (IfaceZappedCo r t1 t2 tyFvs coFvs)
+    go (IfaceZappedCo r t1 t2 tyFvs coFvs _ _)
                                  = do { tyFvs' <- mkDVarSet <$> mapM tcIfaceTyVar tyFvs
                                       ; coFvs' <- mkDVarSet <$> mapM tcIfaceLclId coFvs
                                       ; ZappedCo r <$> tcIfaceType t1

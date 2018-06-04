@@ -304,8 +304,13 @@ data IfaceCoercion
   | IfaceFreeCoVar    CoVar    -- See Note [Free tyvars in IfaceType]
   | IfaceHoleCo       CoVar    -- ^ See Note [Holes in IfaceCoercion]
   | IfaceZappedCo     Role IfaceType IfaceType [IfLclName] [IfLclName]
-                               -- ^ See Note [Zapping Coercions].
-                               -- @ty1, ty2, free tvs, free cvs@
+                           [TyVar] [CoVar]
+                           -- ^ @ty1, ty2, closed free tvs, closed free cvs, open free tvs, open free cvs@
+                           -- Closed free variables are those bound in
+                           -- this type; Open free variables are used only
+                           -- when printing open types;
+                           -- see Note [Free tyvars in IfaceType].
+                           -- See Note [Zapping Coercions].
 
 data IfaceUnivCoProv
   = IfaceUnsafeCoerceProv
@@ -427,6 +432,9 @@ ifTypeIsVarFree ty = go ty
     go_args (ITC_Vis   arg args) = go arg && go_args args
     go_args (ITC_Invis arg args) = go arg && go_args args
 
+ifTypeFreeVars :: IfaceType -> [IfLclName]
+ifTypeFreeVars = undefined
+
 {- Note [Substitution on IfaceType]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Substitutions on IfaceType are done only during pretty-printing to
@@ -479,12 +487,11 @@ substIfaceType env ty
     go_co (IfaceKindCo co)           = IfaceKindCo (go_co co)
     go_co (IfaceSubCo co)            = IfaceSubCo (go_co co)
     go_co (IfaceAxiomRuleCo n cos)   = IfaceAxiomRuleCo n (go_cos cos)
-    go_co (IfaceZappedCo r t1 t2 _ _)= IfaceZappedCo r t1 t2
-                                         (panic "substIfaceType(IfaceZappedCo): Invalid FVs")
-                                         (panic "substIfaceType(IfaceZappedCo): Invalid FVs")
-                                         -- N.B. free variables aren't handled
-                                         -- but this shouldn't matter since this
-                                         -- is just for pretty-printing.
+    go_co (IfaceZappedCo r t1 t2 tvs cvs fTvs fCvs)
+                                     = IfaceZappedCo r t1 t2
+                                         tvs cvs
+                                         --(concatMap (ifTypeFreeVars . substIfaceTyVar env) fTvs)
+                                         fTvs fCvs
 
     go_cos = map go_co
 
@@ -1264,11 +1271,15 @@ ppr_co ctxt_prec (IfaceCoherenceCo co1 co2)
   = ppr_special_co ctxt_prec (text "Coh") [co1,co2]
 ppr_co ctxt_prec (IfaceKindCo co)
   = ppr_special_co ctxt_prec (text "Kind") [co]
-ppr_co ctxt_prec (IfaceZappedCo r ty1 ty2 tvs cvs)
+ppr_co ctxt_prec (IfaceZappedCo r ty1 ty2 tvs cvs fTvs fCvs)
   = ppr_special_co ctxt_prec
-    (text "Zapped" <> brackets (ppr r $$ ppr ty1 $$ ppr ty2
-                                $$ whenPprDebug (ppr tvs)
-                                $$ whenPprDebug (ppr cvs))) []
+    (text "Zapped" <> brackets (ppr r $$ ppr ty1 $$ ppr ty2 $$ whenPprDebug fvsDoc)) []
+  where
+    fvsDoc =
+           text "free tyvars:" <+> ppr tvs
+        $$ text "open free tyvars:" <+> ppr fTvs
+        $$ text "free covars:" <+> ppr cvs
+        $$ text "open free covars:" <+> ppr fCvs
 
 ppr_special_co :: PprPrec -> SDoc -> [IfaceCoercion] -> SDoc
 ppr_special_co ctxt_prec doc cos
@@ -1568,13 +1579,15 @@ instance Binary IfaceCoercion where
           putByte bh 17
           put_ bh a
           put_ bh b
-  put_ bh (IfaceZappedCo r t1 t2 tyFvs coFvs) = do
+  put_ bh (IfaceZappedCo r t1 t2 tyFvs coFvs _ _) = do
           putByte bh 18
           put_ bh r
           put_ bh t1
           put_ bh t2
           put_ bh tyFvs
           put_ bh coFvs
+          -- N.B. Free variables aren't serialised; see Note [Free tyvars in
+          -- IfaceType].
   put_ _ (IfaceFreeCoVar cv)
        = pprPanic "Can't serialise IfaceFreeCoVar" (ppr cv)
   put_ _  (IfaceHoleCo cv)
@@ -1642,7 +1655,9 @@ instance Binary IfaceCoercion where
                    c <- get bh
                    d <- get bh
                    e <- get bh
-                   return $ IfaceZappedCo a b c d e
+                   -- N.B. Free variables aren't serialised; see Note [Free
+                   -- tyvars in IfaceType].
+                   return $ IfaceZappedCo a b c d e [] []
            _ -> panic ("get IfaceCoercion " ++ show tag)
 
 instance Binary IfaceUnivCoProv where
