@@ -69,8 +69,9 @@ typedef struct MarkQueue_ {
     // Cached value of blocks->start.
     MarkQueueBlock *top;
 
-    // Marked static objects
-    HashTable *static_objects;
+    // Marked objects outside of nonmoving heap, namely large and static
+    // objects.
+    HashTable *marked_objects;
 
 #if MARK_PREFETCH_QUEUE_DEPTH > 0
     // Prefetch queue ring buffer
@@ -92,6 +93,7 @@ bool nonmoving_mark_weaks(struct MarkQueue_ *queue);
 void nonmoving_mark_threads(struct MarkQueue_ *queue);
 void nonmoving_mark_dead_weaks(struct MarkQueue_ *queue);
 bool nonmoving_resurrect_threads(struct MarkQueue_ *queue);
+bool nonmoving_is_alive(HashTable *marked_objects, StgClosure *p);
 
 void mark_queue_push(MarkQueue *q, const MarkQueueEnt *ent);
 void mark_queue_push_closure(MarkQueue *q,
