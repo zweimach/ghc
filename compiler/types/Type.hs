@@ -545,7 +545,7 @@ mapCoercion mapper@(TyCoMapper { tcm_smart = smart, tcm_covar = covar
                                , tcm_tybinder = tybinder })
             env co
   = do dflags <- getDynFlags
-       zapCoercion dflags <$> go co
+       go $ zapCoercion dflags co
   where
     go (Refl r ty) = Refl r <$> mapType mapper env ty
     go (TyConAppCo r tc args)
