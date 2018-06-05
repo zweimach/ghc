@@ -850,6 +850,7 @@ mkSymCo :: Coercion -> Coercion
 mkSymCo co@(Refl {})              = co
 mkSymCo    (SymCo co)             = co
 mkSymCo    (SubCo (SymCo co))     = SubCo co
+mkSymCo (UnivCo (ZappedProv fvs) r t1 t2) = UnivCo (ZappedProv fvs) r t2 t1
 mkSymCo co                        = SymCo co
 
 -- | Create a new 'Coercion' by composing the two given 'Coercion's transitively.
