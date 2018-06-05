@@ -1021,7 +1021,7 @@ mkKindCo :: Coercion -> Coercion
 mkKindCo (Refl _ ty) = Refl Nominal (typeKind ty)
 mkKindCo (UnivCo (PhantomProv h) _ _ _)    = h
 mkKindCo (UnivCo (ProofIrrelProv h) _ _ _) = h
-mkKindCo (UnivCo (ZappedProv fvs) _ ty1 ty2) = UnivCo (ZappedProv fvs) Nominal (typeKind ty1) (typeKind ty2)
+mkKindCo (UnivCo (ZappedProv fvs) _ ty1 ty2) = mkUnivCo (ZappedProv fvs) Nominal (typeKind ty1) (typeKind ty2)
 mkKindCo co
   | Pair ty1 ty2 <- coercionKind co
        -- generally, calling coercionKind during coercion creation is a bad idea,
@@ -1237,7 +1237,7 @@ promoteCoercion co = case co of
     UnivCo (PhantomProv kco) _ _ _    -> kco
     UnivCo (ProofIrrelProv kco) _ _ _ -> kco
     UnivCo (PluginProv _) _ _ _       -> mkKindCo co
-    UnivCo (ZappedProv fvs) _ t1 t2   -> UnivCo (ZappedProv fvs) Nominal (typeKind t1) (typeKind t2)
+    UnivCo (ZappedProv fvs) _ t1 t2   -> mkUnivCo (ZappedProv fvs) Nominal (typeKind t1) (typeKind t2)
 
     SymCo g
       -> mkSymCo (promoteCoercion g)

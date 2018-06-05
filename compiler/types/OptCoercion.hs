@@ -428,8 +428,8 @@ opt_univ env sym (PhantomProv h) _r ty1 ty2
     ty2' = substTy (lcSubstRight env) ty2
 
 opt_univ env sym (ZappedProv fvs) role ty1 ty2
-  | sym       = UnivCo (ZappedProv fvs') role ty2' ty1'
-  | otherwise = UnivCo (ZappedProv fvs') role ty1' ty2'
+  | sym       = mkUnivCo (ZappedProv fvs') role ty2' ty1'
+  | otherwise = mkUnivCo (ZappedProv fvs') role ty1' ty2'
   where
     ty1' = substTy (lcSubstLeft env) ty1
     ty2' = substTy (lcSubstRight env) ty2

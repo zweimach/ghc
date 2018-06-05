@@ -1553,7 +1553,7 @@ zapCoercionWithFVs dflags fvs co
   | shouldBuildCoercions dflags = co
   | otherwise =
         let (Pair t1 t2, role) = coercionKindRole co
-        in UnivCo (ZappedProv fvs) role t1 t2
+        in mkUnivCo (ZappedProv fvs) role t1 t2
 
 {-
 %************************************************************************
