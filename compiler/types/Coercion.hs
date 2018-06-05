@@ -994,6 +994,10 @@ nthCoRole n co
 
 mkLRCo :: LeftOrRight -> Coercion -> Coercion
 mkLRCo lr (Refl eq ty) = Refl eq (pickLR lr (splitAppTy ty))
+mkLRCo lr (UnivCo (ZappedProv fvs) r t1 t2)
+                       = UnivCo (ZappedProv fvs) r
+                                (pickLR lr (splitAppTy t1))
+                                (pickLR lr (splitAppTy t2))
 mkLRCo lr co           = LRCo lr co
 
 -- | Instantiates a 'Coercion'.
