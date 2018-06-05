@@ -292,12 +292,15 @@ weaks:
     ASSERT(mark_queue.top->head == 0);
     ASSERT(mark_queue.blocks->link == NULL);
 
+    // Because we can't mark large object blocks (no room for mark bit) we
+    // collect them in a map in mark_queue and we pass it here to sweep large
+    // objects
+    nonmoving_sweep_large_objects(mark_queue.marked_objects);
+    nonmoving_sweep_mut_lists(mark_queue.marked_objects);
     free_mark_queue(&mark_queue);
 
     nonmoving_sweep();
     ASSERT(nonmoving_heap.sweep_list == NULL);
-
-    nonmoving_sweep_mut_lists();
 }
 
 void assert_in_nonmoving_heap(StgPtr p)
@@ -494,6 +497,31 @@ void nonmoving_print_sweep_list()
         debugBelch("%d: %p\n", i++, (void*)seg);
     }
     debugBelch("= END OF SWEEP LIST =\n");
+}
+
+void check_in_mut_list(StgClosure *p)
+{
+    for (uint32_t cap_n = 0; cap_n < n_capabilities; ++cap_n) {
+        for (bdescr *bd = capabilities[cap_n]->mut_lists[oldest_gen->no]; bd; bd = bd->link) {
+            for (StgPtr q = bd->start; q < bd->free; ++q) {
+                if (*((StgPtr**)q) == (StgPtr*)p) {
+                    debugBelch("Object is in mut list of cap %d: %p\n", cap_n, capabilities[cap_n]->mut_lists[oldest_gen->no]);
+                    return;
+                }
+            }
+        }
+    }
+
+    debugBelch("Object is not in a mut list\n");
+}
+
+void print_block_list(bdescr* bd)
+{
+    while (bd) {
+        debugBelch("%p, ", (void*)bd);
+        bd = bd->link;
+    }
+    debugBelch("\n");
 }
 
 #endif

@@ -9,8 +9,12 @@
 #pragma once
 
 #include "NonMoving.h"
+#include "Hash.h"
 
 GNUC_ATTR_HOT void nonmoving_sweep(void);
 
 // Remove unmarked entries in oldest generation mut_lists
-void nonmoving_sweep_mut_lists(void);
+void nonmoving_sweep_mut_lists(HashTable *marked_objects);
+
+// Remove unmarked entries in oldest generation scavenged_large_objects list
+void nonmoving_sweep_large_objects(HashTable *marked_objects);

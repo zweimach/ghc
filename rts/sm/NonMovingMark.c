@@ -160,7 +160,7 @@ void init_mark_queue(MarkQueue *queue)
     queue->blocks = bd;
     queue->top = (MarkQueueBlock *) bd->start;
     queue->top->head = 0;
-    queue->static_objects = allocHashTable();
+    queue->marked_objects = allocHashTable();
 
 #if MARK_PREFETCH_QUEUE_DEPTH > 0
     queue->prefetch_head = 0;
@@ -178,7 +178,7 @@ void free_mark_queue(MarkQueue *queue)
         freeGroup(b);
         b = b_;
     }
-    freeHashTable(queue->static_objects, NULL);
+    freeHashTable(queue->marked_objects, NULL);
 }
 
 static void mark_tso (MarkQueue *queue, StgTSO *tso)
@@ -425,12 +425,12 @@ mark_closure (MarkQueue *queue, StgClosure *p)
             return;
         }
 
-        if (lookupHashTable(queue->static_objects, (W_)p)) {
+        if (lookupHashTable(queue->marked_objects, (W_)p)) {
             // already marked
             return;
         }
 
-        insertHashTable(queue->static_objects, (W_)p, (P_)1);
+        insertHashTable(queue->marked_objects, (W_)p, (P_)1);
 
         switch (type) {
 
@@ -474,10 +474,10 @@ mark_closure (MarkQueue *queue, StgClosure *p)
     if (bd->flags & BF_NONMOVING) {
 
         if (bd->flags & BF_LARGE) {
-            if (lookupHashTable(queue->static_objects, (W_)p)) {
+            if (lookupHashTable(queue->marked_objects, (W_)p)) {
                 return;
             }
-            insertHashTable(queue->static_objects, (W_)p, (P_)1);
+            insertHashTable(queue->marked_objects, (W_)p, (P_)1);
 
             // Not seen before, object must be in one of these lists:
             //
@@ -822,7 +822,7 @@ GNUC_ATTR_HOT void nonmoving_mark(MarkQueue *queue)
                 end = arr->ptrs;
             }
             for (StgWord i = start; i < end; i++) {
-                mark_queue_push_closure_(queue, arr->payload[i]);
+                mark_closure(queue, arr->payload[i]);
             }
             break;
         }
@@ -832,7 +832,7 @@ GNUC_ATTR_HOT void nonmoving_mark(MarkQueue *queue)
     }
 }
 
-static bool nonmoving_is_alive(struct MarkQueue_ *queue, StgClosure *p)
+bool nonmoving_is_alive(HashTable *marked_objects, StgClosure *p)
 {
     // Ignore static closures. See comments in `isAlive`.
     if (!HEAP_ALLOCED_GC(p)) {
@@ -840,10 +840,11 @@ static bool nonmoving_is_alive(struct MarkQueue_ *queue, StgClosure *p)
     }
 
     bdescr *bd = Bdescr((P_)p);
-    if (bd->flags & BF_NONMOVING) {
-        return nonmoving_get_closure_mark_bit((P_)p);
+    if (bd->flags & BF_LARGE) {
+        return lookupHashTable(marked_objects, (W_)p);
     } else {
-        return lookupHashTable(queue->static_objects, (W_)p);
+        ASSERT(bd->flags & BF_NONMOVING);
+        return nonmoving_get_closure_mark_bit((P_)p);
     }
 }
 
@@ -861,7 +862,7 @@ bool nonmoving_mark_weaks(struct MarkQueue_ *queue)
             continue;
         }
 
-        if (nonmoving_is_alive(queue, w->key)) {
+        if (nonmoving_is_alive(queue->marked_objects, w->key)) {
             // The whole weak (including the value and finalizers) has already
             // been scavenged to the current generation, just mark them.
             // Note that we can't just push the weak itself, because key, value
@@ -911,7 +912,7 @@ void nonmoving_mark_threads(struct MarkQueue_ *queue)
 
         next = t->global_link;
 
-        if (nonmoving_is_alive(queue, (StgClosure*)t)) {
+        if (nonmoving_is_alive(queue->marked_objects, (StgClosure*)t)) {
             // alive
             *prev = next;
 

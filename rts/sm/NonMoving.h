@@ -167,6 +167,9 @@ void nonmoving_print_segment(struct nonmoving_segment *seg);
 void nonmoving_print_allocator(struct nonmoving_allocator *alloc);
 void locate_object(P_ obj);
 void nonmoving_print_sweep_list(void);
+// Check if the object is in one of non-moving heap mut_lists
+void check_in_mut_list(StgClosure *p);
+void print_block_list(bdescr *bd);
 
 #endif
 
