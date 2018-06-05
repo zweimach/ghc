@@ -1776,7 +1776,8 @@ coVarsOfProv UnsafeCoerceProv    = emptyVarSet
 coVarsOfProv (PhantomProv co)    = coVarsOfCo co
 coVarsOfProv (ProofIrrelProv co) = coVarsOfCo co
 coVarsOfProv (PluginProv _)      = emptyVarSet
-coVarsOfProv (ZappedProv fvs)    = dVarSetToVarSet $ filterDVarSet isCoVar fvs
+coVarsOfProv (ZappedProv fvs)    = dVarSetToVarSet fvs
+                                   -- N.B. fvs only contains covars
 
 coVarsOfCos :: [Coercion] -> CoVarSet
 coVarsOfCos cos = mapUnionVarSet coVarsOfCo cos
