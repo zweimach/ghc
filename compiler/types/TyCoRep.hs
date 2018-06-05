@@ -1549,6 +1549,7 @@ zapCoercion dflags co = zapCoercionWithFVs dflags (filterDVarSet isCoVar $ tyCoV
 -- | Replace a coercion with a zapped coercion unless coercions are needed,
 -- using the provided free-variable set.
 zapCoercionWithFVs :: DynFlags -> DVarSet -> Coercion -> Coercion
+zapCoercionWithFVs _ _ co@(UnivCo (ZappedProv _) _ _ _) = co
 zapCoercionWithFVs dflags fvs co
   | shouldBuildCoercions dflags = co
   | otherwise =
