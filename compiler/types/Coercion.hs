@@ -881,15 +881,6 @@ mkNthCo r n co
         mkReflCo r (tyConAppArgN n ty)
       where tc = tyConAppTyCon ty
 
-            ok_tc_app :: Type -> Int -> Bool
-            ok_tc_app ty n
-              | Just (_, tys) <- splitTyConApp_maybe ty
-              = tys `lengthExceeds` n
-              | isForAllTy ty  -- nth:0 pulls out a kind coercion from a hetero forall
-              = n == 0
-              | otherwise
-              = False
-
     go r 0 (ForAllCo _ kind_co _)
       = ASSERT( r == Nominal )
         kind_co
@@ -921,8 +912,28 @@ mkNthCo r n co
                                                             , ppr r ]) )
                                              arg_cos `getNth` n
 
+    go r 0 (UnivCo (ZappedProv fvs) _ _ _)
+      | Just (tv1, _) <- splitForAllTy_maybe ty1
+      , Just (tv2, _) <- splitForAllTy_maybe ty2
+      = ASSERT( r == Nominal )
+        mkUnivCo (ZappedProv fvs) r (tyVarKind tv1) (tyVarKind tv2)
+    go r n (UnivCo (ZappedProv fvs) _ _ _)
+      = ASSERT2(ok_tc_app ty1 n, ppr n $$ ppr ty1)
+        ASSERT2(ok_tc_app ty2 n, ppr n $$ ppr ty2)
+        mkUnivCo (ZappedProv fvs) r (tyConAppArgN n ty1) (tyConAppArgN n ty2)
+
+
     go r n co =
       NthCo r n co
+
+    ok_tc_app :: Type -> Int -> Bool
+    ok_tc_app ty n
+      | Just (_, tys) <- splitTyConApp_maybe ty
+      = tys `lengthExceeds` n
+      | isForAllTy ty  -- nth:0 pulls out a kind coercion from a hetero forall
+      = n == 0
+      | otherwise
+      = False
 
     -- Assertion checking
     bad_call_msg = vcat [ text "Coercion =" <+> ppr co
