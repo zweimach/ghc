@@ -553,7 +553,8 @@ opt_trans_rule is in_co1@(UnivCo p1 r1 tyl1 _tyr1)
     opt_trans_prov (ProofIrrelProv kco1) (ProofIrrelProv kco2)
       = Just $ ProofIrrelProv $ opt_trans is kco1 kco2
     opt_trans_prov (PluginProv str1)     (PluginProv str2)     | str1 == str2 = Just p1
-    opt_trans_prov (ZappedProv fvs1)     (ZappedProv fvs2)     = Just $ ZappedProv $ fvs1 `unionDVarSet` fvs2
+    opt_trans_prov (ZappedProv fvs1)     (ZappedProv fvs2)
+      = Just $ ZappedProv $ fvs1 `unionDVarSet` fvs2
     opt_trans_prov _ _ = Nothing
 
 -- Push transitivity down through matching top-level constructors.
