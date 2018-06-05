@@ -1197,7 +1197,12 @@ tcIfaceTyLit (IfaceStrTyLit n) = return (StrTyLit n)
 -}
 
 tcIfaceCo :: IfaceCoercion -> IfL Coercion
-tcIfaceCo = go
+tcIfaceCo = \co0 -> do
+    dflags <- getDynFlags
+    co <- go co0
+    if shouldBuildCoercions dflags
+      then return co
+      else do return $ zapCoercion dflags co
   where
     go (IfaceReflCo r t)         = Refl r <$> tcIfaceType t
     go (IfaceFunCo r c1 c2)      = mkFunCo r <$> go c1 <*> go c2
