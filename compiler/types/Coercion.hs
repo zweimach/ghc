@@ -1253,7 +1253,7 @@ promoteCoercion co = case co of
     UnivCo (PhantomProv kco) _ _ _    -> kco
     UnivCo (ProofIrrelProv kco) _ _ _ -> kco
     UnivCo (PluginProv _) _ _ _       -> mkKindCo co
-    UnivCo (ZappedProv fvs) _ t1 t2   -> mkUnivCo (ZappedProv fvs) Nominal (typeKind t1) (typeKind t2)
+    UnivCo (ZappedProv fvs) _ t1 t2   -> mkKindCo co
 
     SymCo g
       -> mkSymCo (promoteCoercion g)
