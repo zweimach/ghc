@@ -1059,6 +1059,7 @@ mkSubCo (FunCo Nominal arg res)
   = FunCo Representational
           (downgradeRole Representational Nominal arg)
           (downgradeRole Representational Nominal res)
+mkSubCo (UnivCo (ZappedProv fvs) Nominal t1 t2) = UnivCo (ZappedProv fvs) Representational t1 t2
 mkSubCo co = ASSERT2( coercionRole co == Nominal, ppr co <+> ppr (coercionRole co) )
              SubCo co
 
