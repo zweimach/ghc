@@ -393,6 +393,8 @@ orphNamesOfProv (PhantomProv co)    = orphNamesOfCo co
 orphNamesOfProv (ProofIrrelProv co) = orphNamesOfCo co
 orphNamesOfProv (PluginProv _)      = emptyNameSet
 orphNamesOfProv (ZappedProv _)      = emptyNameSet
+    -- [ZappedCoDifference] Zapped coercions refer to no orphan names, even if the
+    -- original contained such names.
 
 orphNamesOfCos :: [Coercion] -> NameSet
 orphNamesOfCos = orphNamesOfThings orphNamesOfCo
