@@ -64,8 +64,7 @@ void mark_queue_push_closure (MarkQueue *q,
 }
 
 /* Push a closure to the mark queue without origin information */
-static void mark_queue_push_closure_ (MarkQueue *q,
-                                      StgClosure *p)
+void mark_queue_push_closure_ (MarkQueue *q, StgClosure *p)
 {
     mark_queue_push_closure(q, p, NULL, NULL);
 }
@@ -863,15 +862,7 @@ bool nonmoving_mark_weaks(struct MarkQueue_ *queue)
         }
 
         if (nonmoving_is_alive(queue->marked_objects, w->key)) {
-            // The whole weak (including the value and finalizers) has already
-            // been scavenged to the current generation, just mark them.
-            // Note that we can't just push the weak itself, because key, value
-            // and finalizers are not pointer fields so they won't be marked by
-            // mark_closure
-            mark_queue_push_closure_(queue, (StgClosure*)w);
-            mark_queue_push_closure_(queue, w->value);
-            mark_queue_push_closure_(queue, w->finalizer);
-            mark_queue_push_closure_(queue, w->cfinalizers);
+            nonmoving_mark_live_weak(queue, w);
             did_work = true;
 
             // remove this weak ptr from old_weak_ptr list
@@ -890,14 +881,27 @@ bool nonmoving_mark_weaks(struct MarkQueue_ *queue)
     return did_work;
 }
 
+void nonmoving_mark_dead_weak(struct MarkQueue_ *queue, StgWeak *w)
+{
+    if (w->cfinalizers != &stg_NO_FINALIZER_closure) {
+        mark_queue_push_closure_(queue, w->value);
+    }
+    mark_queue_push_closure_(queue, w->finalizer);
+}
+
+void nonmoving_mark_live_weak(struct MarkQueue_ *queue, StgWeak *w)
+{
+    ASSERT(nonmoving_get_closure_mark_bit((P_)w));
+    mark_queue_push_closure_(queue, w->value);
+    mark_queue_push_closure_(queue, w->finalizer);
+    mark_queue_push_closure_(queue, w->cfinalizers);
+}
+
 void nonmoving_mark_dead_weaks(struct MarkQueue_ *queue)
 {
     StgWeak *next_w;
     for (StgWeak *w = oldest_gen->old_weak_ptr_list; w; w = next_w) {
-        if (w->cfinalizers != &stg_NO_FINALIZER_closure) {
-            mark_queue_push_closure_(queue, w->value);
-        }
-        mark_queue_push_closure_(queue, w->finalizer);
+        nonmoving_mark_dead_weak(queue, w);
         next_w = w ->link;
         w->link = dead_weak_ptr_list;
         dead_weak_ptr_list = w;

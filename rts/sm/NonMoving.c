@@ -19,6 +19,7 @@
 #include "NonMovingSweep.h"
 #include "Stable.h" // markStablePtrTable
 #include "Schedule.h" // markScheduler
+#include "MarkWeak.h" // dead_weak_ptr_list
 
 struct nonmoving_heap nonmoving_heap;
 
@@ -220,11 +221,28 @@ void nonmoving_clear_all_bitmaps()
 // of this.
 static void nonmoving_mark_weak_ptr_list(MarkQueue *mark_queue)
 {
-    StgWeak **last_w = &oldest_gen->weak_ptr_list;
-    for (StgWeak *w = oldest_gen->weak_ptr_list; w != NULL; w = w->link) {
-        mark_queue_add_root(mark_queue, (StgClosure**)last_w);
-        w = *last_w;
-        last_w = &(w->link);
+    for (StgWeak *w = oldest_gen->weak_ptr_list; w; w = w->link) {
+        mark_queue_push_closure_(mark_queue, (StgClosure*)w);
+        // Do not mark finalizers and values here, those fields will be marked
+        // in `nonmoving_mark_dead_weaks` (for dead weaks) or
+        // `nonmoving_mark_weaks` (for live weaks)
+    }
+
+    // We need to mark dead_weak_ptr_list too. This is subtle:
+    //
+    // - By the beginning of this GC we evacuated all weaks to the non-moving
+    //   heap (in `markWeakPtrList`)
+    //
+    // - During the scavenging of the moving heap we discovered that some of
+    //   those weaks are dead and moved them to `dead_weak_ptr_list`. Note that
+    //   because of the fact above _all weaks_ are in the non-moving heap at
+    //   this point.
+    //
+    // - So, to be able to traverse `dead_weak_ptr_list` and run finalizers we
+    //   need to mark it.
+    for (StgWeak *w = dead_weak_ptr_list; w; w = w->link) {
+        mark_queue_push_closure_(mark_queue, (StgClosure*)w);
+        nonmoving_mark_dead_weak(mark_queue, w);
     }
 }
 
