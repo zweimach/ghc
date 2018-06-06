@@ -35,7 +35,7 @@ module TyCoRep (
         CoercionHole(..), coHoleCoVar, setCoHoleCoVar,
         CoercionN, CoercionR, CoercionP, KindCoercion,
         MCoercion(..), MCoercionR,
-        zapCoercion, zapCoercionWithFVs,
+        zapCoercion,
 
         -- * Functions over types
         mkTyConTy, mkTyVarTy, mkTyVarTys,
@@ -1544,16 +1544,12 @@ keyword):
 
 -- | Replace a coercion with a zapped coercion unless coercions are needed.
 zapCoercion :: DynFlags -> Coercion -> Coercion
-zapCoercion dflags co = zapCoercionWithFVs dflags (filterDVarSet isCoVar $ tyCoVarsOfCoDSet co) co
-
--- | Replace a coercion with a zapped coercion unless coercions are needed,
--- using the provided free-variable set.
-zapCoercionWithFVs :: DynFlags -> DVarSet -> Coercion -> Coercion
-zapCoercionWithFVs _ _ co@(UnivCo (ZappedProv _) _ _ _) = co
-zapCoercionWithFVs dflags fvs co
+zapCoercion _ co@(UnivCo (ZappedProv _) _ _ _) = co
+zapCoercion dflags co
   | shouldBuildCoercions dflags = co
   | otherwise =
         let (Pair t1 t2, role) = coercionKindRole co
+            fvs = filterDVarSet isCoVar $ tyCoVarsOfCoDSet co
         in mkUnivCo (ZappedProv fvs) role t1 t2
 
 {-

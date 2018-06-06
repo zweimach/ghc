@@ -95,8 +95,8 @@ module Coercion (
         -- ** Forcing evaluation of coercions
         seqCo,
 
-        -- ** Eliminating coercions
-        zapCoercion, zapCoercionWithFVs,
+        -- ** Eliding coercions
+        zapCoercion,
 
         -- * Pretty-printing
         pprCo, pprParendCo,
