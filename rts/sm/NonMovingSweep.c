@@ -186,7 +186,7 @@ void nonmoving_sweep_mut_lists(HashTable *marked_objects)
 
 void nonmoving_sweep_large_objects(HashTable *marked_objects)
 {
-    bdescr *free_blocks; // Blocks to be freed
+    bdescr *free_blocks = NULL; // Blocks to be freed
 
     bdescr *next_large;
     for (bdescr *large = oldest_gen->scavenged_large_objects; large; large = next_large) {
