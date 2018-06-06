@@ -494,14 +494,7 @@ mark_closure (MarkQueue *queue, StgClosure *p)
             for (bdescr *large = oldest_gen->large_objects; large; large = large->link) {
                 if (large == bd) {
                     // remove from large_object list
-                    if (bd->u.back) {
-                        bd->u.back->link = bd->link;
-                    } else { // first object in the list
-                        oldest_gen->large_objects = bd->link;
-                    }
-                    if (bd->link) {
-                        bd->link->u.back = bd->u.back;
-                    }
+                    dbl_link_remove(bd, &oldest_gen->large_objects);
                     // move to scavenged_large_objects
                     dbl_link_onto(bd, &oldest_gen->scavenged_large_objects);
                     oldest_gen->n_scavenged_large_blocks += bd->blocks;
