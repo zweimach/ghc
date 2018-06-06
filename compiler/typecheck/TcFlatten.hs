@@ -1691,8 +1691,9 @@ flatten_exact_fam_app_fully tc tys
                       -> Coercion )   -- what to return from outer function
                   -> FlatM (Maybe (Xi, Coercion))
     try_to_reduce tc tys kind_co update_co
-      = do { checkStackDepth (mkTyConApp tc tys)
-           ; let fvs = filterDVarSet isCoVar $ tyCoVarsOfTypesDSet tys -- See Note [Zapping coercions]
+      = do { let fvs = filterDVarSet isCoVar $ tyCoVarsOfTypesDSet tys -- See Note [Zapping coercions]
+                 fam_ty = mkTyConApp tc tys
+           ; checkStackDepth fam_ty
            ; dflags <- getDynFlags
            ; mb_match <- liftTcS $ matchFam tc tys
            ; case mb_match of
@@ -1715,9 +1716,10 @@ flatten_exact_fam_app_fully tc tys
                          extendFlatCache tc tys ( co, xi, flavour )
                        ; let xi' = xi `mkCastTy` kind_co
                              -- See Note [Zapping coercions]
-                             co' = zapCoercionWithFVs dflags fvs
-                                   $ update_co $ mkSymCo co
-                                                `mkTcCoherenceLeftCo` kind_co
+                             co' | shouldBuildCoercions dflags
+                                 = update_co $ mkSymCo co `mkTcCoherenceLeftCo` kind_co
+                                 | otherwise
+                                 = UnivCo (ZappedProv fvs) Nominal fam_ty xi'
                        ; return $ Just (xi', co') }
                Nothing -> pure Nothing }
 
@@ -1733,8 +1735,9 @@ flatten_exact_fam_app_fully tc tys
                                               -- function
                           -> FlatM (Maybe (Xi, Coercion))
     try_to_reduce_nocache tc tys kind_co update_co
-      = do { checkStackDepth (mkTyConApp tc tys)
-           ; let fvs = filterDVarSet isCoVar $ tyCoVarsOfTypesDSet tys -- See Note [Zapping coercions]
+      = do { let fvs = filterDVarSet isCoVar $ tyCoVarsOfTypesDSet tys -- See Note [Zapping coercions]
+                 fam_ty = mkTyConApp tc tys
+           ; checkStackDepth fam_ty
            ; dflags <- getDynFlags
            ; mb_match <- liftTcS $ matchFam tc tys
            ; case mb_match of
@@ -1747,9 +1750,10 @@ flatten_exact_fam_app_fully tc tys
                                     `mkTransCo` mkSymCo final_co
                              xi' = xi `mkCastTy` kind_co
                              -- See Note [Zapping coercions]
-                             co' = zapCoercionWithFVs dflags fvs
-                                   $ update_co $ mkSymCo co
-                                                 `mkTcCoherenceLeftCo` kind_co
+                             co' | shouldBuildCoercions dflags
+                                 = update_co $ mkSymCo co `mkTcCoherenceLeftCo` kind_co
+                                 | otherwise
+                                 = UnivCo (ZappedProv fvs) Nominal fam_ty xi'
                        ; return $ Just (xi', co') }
                Nothing -> pure Nothing }
 
