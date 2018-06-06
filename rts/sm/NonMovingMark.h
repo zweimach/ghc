@@ -94,12 +94,15 @@ void nonmoving_mark_threads(struct MarkQueue_ *queue);
 void nonmoving_mark_dead_weaks(struct MarkQueue_ *queue);
 bool nonmoving_resurrect_threads(struct MarkQueue_ *queue);
 bool nonmoving_is_alive(HashTable *marked_objects, StgClosure *p);
+void nonmoving_mark_dead_weak(struct MarkQueue_ *queue, StgWeak *w);
+void nonmoving_mark_live_weak(struct MarkQueue_ *queue, StgWeak *w);
 
 void mark_queue_push(MarkQueue *q, const MarkQueueEnt *ent);
 void mark_queue_push_closure(MarkQueue *q,
                              StgClosure *p,
                              StgClosure *origin_closure,
                              StgClosure **origin_field);
+void mark_queue_push_closure_(MarkQueue *q, StgClosure *p);
 void mark_queue_push_srt(MarkQueue *q, const StgSRT *srt, uint32_t srt_bitmap);
 void mark_queue_push_thunk_srt(MarkQueue *q, const StgInfoTable *info);
 void mark_queue_push_fun_srt(MarkQueue *q, const StgInfoTable *info);
