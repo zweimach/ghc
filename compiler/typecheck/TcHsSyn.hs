@@ -1679,11 +1679,13 @@ zonk_tycomapper = TyCoMapper
   , tcm_tyvar = zonkTyVarOcc
   , tcm_covar = zonkCoVarOcc
   , tcm_hole  = zonkCoHole
-  , tcm_tybinder = \env tv _vis -> zonkTyBndrX env tv }
+  , tcm_tybinder = \env tv _vis -> zonkTyBndrX env tv
+  , tcm_zap_coercions = False
+  }
 
 -- Confused by zonking? See Note [What is zonking?] in TcMType.
 zonkTcTypeToType :: ZonkEnv -> TcType -> TcM Type
-zonkTcTypeToType = mapType zonk_tycomapper
+zonkTcTypeToType = mapType (zonk_tycomapper {tcm_zap_coercions = True})
 
 zonkTcTypeToTypes :: ZonkEnv -> [TcType] -> TcM [Type]
 zonkTcTypeToTypes env tys = mapM (zonkTcTypeToType env) tys

@@ -1533,7 +1533,9 @@ zonkTcTypeMapper = TyCoMapper
   , tcm_tyvar = const zonkTcTyVar
   , tcm_covar = const (\cv -> mkCoVarCo <$> zonkTyCoVarKind cv)
   , tcm_hole  = hole
-  , tcm_tybinder = \_env tv _vis -> ((), ) <$> zonkTcTyCoVarBndr tv }
+  , tcm_tybinder = \_env tv _vis -> ((), ) <$> zonkTcTyCoVarBndr tv
+  , tcm_zap_coercions = False
+  }
   where
     hole :: () -> CoercionHole -> TcM Coercion
     hole _ hole@(CoercionHole { ch_ref = ref, ch_co_var = cv })

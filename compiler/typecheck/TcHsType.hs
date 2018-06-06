@@ -2648,7 +2648,9 @@ zonkPromoteMapper = TyCoMapper { tcm_smart    = True
                                , tcm_tyvar    = const zonkPromoteTcTyVar
                                , tcm_covar    = const covar
                                , tcm_hole     = const hole
-                               , tcm_tybinder = const tybinder }
+                               , tcm_tybinder = const tybinder
+                               , tcm_zap_coercions = False
+                               }
   where
     covar cv
       = mkCoVarCo <$> zonkPromoteTyCoVarKind cv
