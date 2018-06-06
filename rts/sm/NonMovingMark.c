@@ -473,10 +473,10 @@ mark_closure (MarkQueue *queue, StgClosure *p)
     if (bd->flags & BF_NONMOVING) {
 
         if (bd->flags & BF_LARGE) {
-            if (lookupHashTable(queue->marked_objects, (W_)p)) {
+            if (lookupHashTable(queue->marked_objects, (W_)bd)) {
                 return;
             }
-            insertHashTable(queue->marked_objects, (W_)p, (P_)1);
+            insertHashTable(queue->marked_objects, (W_)bd, (P_)1);
 
             // Not seen before, object must be in one of these lists:
             //
@@ -833,7 +833,7 @@ bool nonmoving_is_alive(HashTable *marked_objects, StgClosure *p)
 
     bdescr *bd = Bdescr((P_)p);
     if (bd->flags & BF_LARGE) {
-        return lookupHashTable(marked_objects, (W_)p);
+        return lookupHashTable(marked_objects, (W_)bd);
     } else {
         ASSERT(bd->flags & BF_NONMOVING);
         return nonmoving_get_closure_mark_bit((P_)p);

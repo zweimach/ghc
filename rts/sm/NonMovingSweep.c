@@ -191,7 +191,7 @@ void nonmoving_sweep_large_objects(HashTable *marked_objects)
     bdescr *next_large;
     for (bdescr *large = oldest_gen->scavenged_large_objects; large; large = next_large) {
         next_large = large->link;
-        if (!lookupHashTable(marked_objects, (W_)large->start)) {
+        if (!lookupHashTable(marked_objects, (W_)large)) {
             dbl_link_remove(large, &oldest_gen->scavenged_large_objects);
             // update n_large_blocks again. this is slightly annoying, we
             // scavenge this object before mark phase and update the counter,
