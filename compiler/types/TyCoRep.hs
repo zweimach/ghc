@@ -1540,11 +1540,13 @@ keyword):
    to avoid unsound floating. This means that the free variable lists of zapped
    coercions loaded from interface files will lack top-level things (e.g. type
    constructors) that appear only in the unzapped proof.
+
 -}
 
 -- | Replace a coercion with a zapped coercion unless coercions are needed.
 zapCoercion :: DynFlags -> Coercion -> Coercion
-zapCoercion _ co@(UnivCo (ZappedProv _) _ _ _) = co
+zapCoercion _ co@(UnivCo (ZappedProv _) _ _ _) = co  -- already zapped
+zapCoercion _ co@(Refl _ _) = co  -- Refl is smaller than zapped coercions
 zapCoercion dflags co
   | shouldBuildCoercions dflags = co
   | otherwise =
