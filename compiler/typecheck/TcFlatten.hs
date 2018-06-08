@@ -1719,7 +1719,7 @@ flatten_exact_fam_app_fully tc tys
                              co' | shouldBuildCoercions dflags
                                  = update_co $ mkSymCo co `mkTcCoherenceLeftCo` kind_co
                                  | otherwise
-                                 = UnivCo (ZappedProv fvs) Nominal fam_ty xi'
+                                 = UnivCo (ZappedProv fvs) Nominal xi' fam_ty
                        ; return $ Just (xi', co') }
                Nothing -> pure Nothing }
 
@@ -1753,7 +1753,7 @@ flatten_exact_fam_app_fully tc tys
                              co' | shouldBuildCoercions dflags
                                  = update_co $ mkSymCo co `mkTcCoherenceLeftCo` kind_co
                                  | otherwise
-                                 = UnivCo (ZappedProv fvs) Nominal fam_ty xi'
+                                 = UnivCo (ZappedProv fvs) Nominal xi' fam_ty
                        ; return $ Just (xi', co') }
                Nothing -> pure Nothing }
 
