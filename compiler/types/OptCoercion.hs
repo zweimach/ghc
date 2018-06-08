@@ -88,7 +88,7 @@ optCoercion :: DynFlags -> TCvSubst -> Coercion -> NormalCo
 --   *and* optimises it to reduce its size
 optCoercion dflags env co
   | hasNoOptCoercion dflags           = substCo env co
-  | not $ shouldBuildCoercions dflags = substCo env $ zapCoercion dflags co
+  -- | not $ shouldBuildCoercions dflags = substCo env $ zapCoercion dflags co
   | otherwise                         = optCoercion' env co
 
 optCoercion' :: TCvSubst -> Coercion -> NormalCo

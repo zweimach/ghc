@@ -1685,7 +1685,7 @@ zonk_tycomapper = TyCoMapper
 
 -- Confused by zonking? See Note [What is zonking?] in TcMType.
 zonkTcTypeToType :: ZonkEnv -> TcType -> TcM Type
-zonkTcTypeToType = mapType (zonk_tycomapper {tcm_zap_coercions = True})
+zonkTcTypeToType = mapType (zonk_tycomapper {tcm_zap_coercions = False})
 
 zonkTcTypeToTypes :: ZonkEnv -> [TcType] -> TcM [Type]
 zonkTcTypeToTypes env tys = mapM (zonkTcTypeToType env) tys
