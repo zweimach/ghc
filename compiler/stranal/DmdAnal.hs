@@ -341,7 +341,7 @@ dmdAnal' env dmd (Let (NonRec id rhs) body)
     unf_dmd            = dmdAnalUnfolding (idUnfolding id)
 
     (rhs_ty, rhs')     = dmdAnalStar env (dmdTransformThunkDmd rhs id_dmd) rhs
-    final_ty           = body_ty' `bothDmdType` rhs_ty `bothDmdType` mkBothDmdArg unf_dmd
+    final_ty           = body_ty' `bothDmdType` rhs_ty `withUnfoldingDmdType` mkBothDmdArg unf_dmd
 
 dmdAnal' env dmd (Let (NonRec id rhs) body)
   = (final_ty, Let (NonRec id2 rhs') body')
@@ -353,7 +353,7 @@ dmdAnal' env dmd (Let (NonRec id rhs) body)
     body_ty2             = addLazyFVs body_ty1 lazy_fv -- see Note [Lazy and unleasheable free variables]
     -- See Note [Demand analysing unfoldings of let-bound binders]
     unf_dmd              = dmdAnalUnfolding (idUnfolding id)
-    final_ty             = body_ty2 `bothDmdType` mkBothDmdArg unf_dmd
+    final_ty             = body_ty2 `withUnfoldingDmdType` mkBothDmdArg unf_dmd
 
         -- If the actual demand is better than the vanilla call
         -- demand, you might think that we might do better to re-analyse
@@ -606,8 +606,9 @@ dmdFix top_lvl env let_dmd orig_pairs
             (lazy_fv1, id', rhs') = dmdAnalRhsLetDown top_lvl (Just bndrs) env let_dmd id rhs
             -- See Note [Demand analysing unfoldings of let-bound binders]
             unf_dmd               = dmdAnalUnfolding (idUnfolding id)
-            lazy_fv'              = lazy_fv `plus` lazy_fv1 `plus` unf_dmd
+            lazy_fv'              = lazy_fv `plus` lazy_fv1 `plusUnf` unf_dmd
             plus                  = plusVarEnv_C bothDmd
+            plusUnf               = plusVarEnv_C withUnfoldingDmd
             env'                  = extendAnalEnv top_lvl env id (idStrictness id')
 
 

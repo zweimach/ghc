@@ -22,6 +22,7 @@ module Demand (
         addCaseBndrDmd,
 
         DmdType(..), dmdTypeDepth, lubDmdType, bothDmdType,
+        withUnfoldingDmd, withUnfoldingDmdType,
         nopDmdType, botDmdType, mkDmdType,
         addDemand, removeDmdTyArgs,
         BothDmdArg, mkBothDmdArg, toBothDmdArg,
@@ -755,6 +756,11 @@ bothDmd (JD {sd = s1, ud = a1}) (JD {sd = s2, ud = a2})
  = JD { sd = s1 `bothArgStr` s2
       , ud = a1 `bothArgUse` a2 }
 
+withUnfoldingDmd :: Demand -> Demand -> Demand
+withUnfoldingDmd (JD {sd = s1, ud = a1}) (JD {sd = s2, ud = a2})
+ = JD { sd = s1 `bothArgStr` s2
+      , ud = a1 `lubArgUse` a2 }
+
 lazyApply1Dmd, lazyApply2Dmd, strictApply1Dmd, catchArgDmd :: Demand
 
 strictApply1Dmd = JD { sd = Str VanStr (SCall HeadStr)
@@ -1300,6 +1306,15 @@ bothDmdType (DmdType fv1 ds1 r1) (fv2, t2)
     -- 'both' takes the argument/result info from its *first* arg,
     -- using its second arg just for its free-var info.
   = DmdType (plusVarEnv_CD bothDmd fv1 (defaultDmd r1) fv2 (defaultDmd t2))
+            ds1
+            (r1 `bothDmdResult` t2)
+
+withUnfoldingDmdType :: DmdType -> BothDmdArg -> DmdType
+withUnfoldingDmdType (DmdType fv1 ds1 r1) (fv2, t2)
+    -- See Note [Asymmetry of 'both' for DmdType and DmdResult]
+    -- 'both' takes the argument/result info from its *first* arg,
+    -- using its second arg just for its free-var info.
+  = DmdType (plusVarEnv_CD withUnfoldingDmd fv1 (defaultDmd r1) fv2 (defaultDmd t2))
             ds1
             (r1 `bothDmdResult` t2)
 
