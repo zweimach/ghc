@@ -989,8 +989,7 @@ pushCoTyArg co ty
        -- tyL = forall (a1 :: k1). ty1
        -- tyR = forall (a2 :: k2). ty2
 
-    --zap = zapCoercion unsafeGlobalDynFlags
-    zap = id
+    zap = zapCoercion unsafeGlobalDynFlags
 
     co1 = zap $ mkNthCo Nominal 0 co
        -- co1 :: k1 ~N k2
