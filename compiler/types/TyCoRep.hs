@@ -1489,24 +1489,134 @@ Here,
 {- Note [Zapping coercions]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Coercions for even small programs can grow to be quite large (e.g. #8095). For
-instance, the case of addition of inductive naturals can build coercions
-quadratic in size of the addends. Moreover, coercions are really only useful
-to validate core transformations (i.e. by the Core Linter). To avoid burdening
-users who aren't linting with the cost of maintaining these structures, we
-replace coercions with placeholders ("zap" them) them unless -dcore-lint is
-enabled. These placeholders are represented by UnivCo with ZappedProv
-provenance. To ensure that zapped coercions aren't floated too far, we
-track their free coercion variable set.
+Coercions for even small programs can grow to be quite large (e.g. #8095),
+especially when type families are involved. For instance, the case of addition
+of inductive naturals can build coercions quadratic in size of the summands.
+For instance, consider the type-level addition operation defined on Peano naturals,
 
-This zapping is done by zapCoercion. Moreover, naively reducing recursive type
-families will often require that we carry out a quadratic amount of work
-(performing a full traversal of the coercion after each reduction step). To
-avoid this, we special-case type family reduction (namely in
-TcFlatten.flatten_exact_fam_app_fully), computing the free variables of the
-unreduced type and using this as the free variable set of each of the zapped
-coercions. This allows us to get away with doing only linear work:
-TODO: example
+    data Nat = Z | Succ Nat
+
+    type family (+) (a :: Nat) (b :: Nat)
+    type instance (+) Z a = a                       -- CoAx1
+    type instance (+) (Succ a) b = Succ (a + b)     -- CoAx2
+
+Now consider what is necessary to reduce (S (S (S Z)) + S Z). This
+reduction will produce two results: the reduced (i.e. flattened) type, and a
+coercion witnessing the reduction. The reduction will proceed as follows:
+
+       S (S (S Z)) + S Z       |>              Refl
+    ~> S (S (S Z) + S Z)       |>              CoAx2 Refl
+    ~> S (S (S Z + S Z))       |>              CoAx2 (CoAx2 Refl)
+    ~> S (S (S (Z + S Z)))     |>              CoAx2 (CoAx2 (CoAx2 Refl))
+    ~> S (S (S (S (S Z))))     |>              CoAx1 (CoAx2 (CoAx2 (CoAx2 Refl)))
+
+Note that when we are building coercions [TODO]
+
+Moreover, coercions are really only useful when validating core transformations
+(i.e. by the Core Linter). To avoid burdening users who aren't linting with the
+cost of maintaining these structures, we replace coercions with placeholders
+("zap" them) them unless -dcore-lint is enabled. These placeholders are
+represented by UnivCo with ZappedProv provenance. To ensure that such coercions
+aren't floated out of the scope of proofs they require, the ZappedProv
+constructor includes the coercion's set of free coercion variables (as a
+DVarSet, since these sets are included in interface files).
+
+
+Zapping during type family reduction
+------------------------------------
+
+To avoid the quadratic blow-up in coercion size during type family reduction
+described above, we zap on every type family reduction step taken by
+TcFlatten.flatten_exact_fam_app_fully. When zapping we take care to avoid
+looking at the constructed coercion and instead build up a zapped coercion
+directly from type being reduced, its free variables, and the result of the
+reduction. This allows us to reduce recursive type families in time linear to
+the size of the type at the expense of Core Lint's ability to validate the
+reduction.
+
+Note that the free variable set of the zapped coercion is taken to be the free
+variable set of the unreduced family application, which is computed once at the
+beginning of reduction. This is an important optimisation as it allows us to
+avoid recomputing the free variable set (which requires linear work in the size
+of the coercion) with every reduction step. Moreover, this gives us the same
+result as naively computing the free variables of every reduction:
+
+  * The FV set of the unreduced type cannot be smaller than that of the reduced type
+    because there is nowhere for extra FVs to come from. Type family equations
+    are essentially function reduction, which can never introduce new fvs.
+
+  * The FV set of the unreducecd type cannot be larger than that of the reduced
+    type because the zapped coercion's kind must mention the types these fvs come
+    from, so the FVs of the zapped coercion must be at least those in the
+    starting types.
+
+Thus, the two sets are subsets of each other and are equal.
+
+
+Other places where we zap
+-------------------------
+
+Besides during type family reduction, we also zap coercions in a number of other
+places (again, only when DynFlags.shouldBuildCoercions is False). This zapping
+occurs in zapCoercion, which maps a coercion to its zapped form. However, there
+are a few optimisations which we implement:
+
+  * We don't zap coercions which are already zapping; this avoids an unnecessary
+    free variable computation.
+
+  * We don't zap Refl coercions. This is because Refls are actually far more
+    compact than zapped coercions: the coercion (Refl T) holds only one
+    reference to T, whereas its zapped equivalent would hold two. While this
+    makes little difference directly after construction due to sharing, this
+    sharing will be lost when we substitute or otherwise manipulate the zapped
+    coercion, resulting in a doubling of the coercions representation size.
+
+zapCoercion is called in a few places:
+
+  * CoreOpt.pushCoTyArg zaps the coercions it produces to avoid pile-up during
+    simplification [TODO]
+
+  * TcIface.tcIfaceCo
+
+  * Type.mapCoercion (which is used by zonking) can optionally zap coercions,
+    although this is currently disabled since it causes compiler allocations to
+    regress in a few cases.
+
+  * We considered zapping as well in optCoercion, although this too caused
+    significant allocation regressions.
+
+The importance of tracking free coercion variables
+--------------------------------------------------
+
+It is quite important that zapped coercions track their free coercion variables.
+To see why, consider this program:
+
+    data T a where
+      T1 :: Bool -> T Bool
+      T2 :: T Int
+
+    f :: T a -> a -> Bool
+    f = /\a (x:T a) (y:a).
+        case x of
+              T1 (c : a~Bool) (z : Bool) -> not (y |> c)
+              T2 -> True
+
+Now imagine that we zap the coercion `c`, replacing it with a generic UnivCo
+between `a` and Bool. If we didn't record the fact that this coercion was
+previously free in `c`, we may incorrectly float the expression `not (y |> c)`
+out of the case alternative which brings proof of `c` into scope. If this
+happened then `f T2 (I# 5)` would try to interpret `y` as a Bool, at
+which point we aren't far from a segmentation fault or much worse.
+
+Note that we don't need to track the coercion's free *type* variables. This
+means that we may float past type variables which the original proof had as free
+variables. While surprising, this doesn't jeopardise the validity of the
+coercion, which only depends upon the scoping relative to the free coercion
+variables.
+
+
+Differences between zapped and unzapped coercions
+-------------------------------------------------
 
 Alas, sometimes zapped coercions will behave slightly differently from their
 unzapped counterparts. Specifically, we are a bit lax in tracking external names
@@ -1515,12 +1625,8 @@ few places (these are labelled in the source with the [ZappedCoDifference]
 keyword):
 
  * Since we only track a zapped coercion's free *coercion* variables, the
-   simplifier may float such coercions farther than it would if the proof
-   were present. For instance, imagine
-
-       let \ @t ->
-          let co :: a ~ b
-              co = U
+   simplifier may float such coercions farther than it would have if the proof
+   were present.
 
  * IfaceSyn.freeNamesIfCoercion will fail to report top-level names present in
    the unzapped proof but not its kind.
