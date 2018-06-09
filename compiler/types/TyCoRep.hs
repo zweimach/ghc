@@ -1497,8 +1497,8 @@ For instance, consider the type-level addition operation defined on Peano natura
     data Nat = Z | Succ Nat
 
     type family (+) (a :: Nat) (b :: Nat)
-    type instance (+) Z a = a                       -- CoAx1
-    type instance (+) (Succ a) b = Succ (a + b)     -- CoAx2
+    type instance (+) Z        a   = a                -- CoAx1
+    type instance (+) (Succ a) b   = Succ (a + b)     -- CoAx2
 
 Now consider what is necessary to reduce (S (S (S Z)) + S Z). This
 reduction will produce two results: the reduced (i.e. flattened) type, and a
@@ -1645,7 +1645,7 @@ keyword):
    only once, even if it would have reported multiple occurrences in the
    unzapped coercion.
 
- * Type.tyConsOfType doesn't report TyCons which appear only in the unzapped
+ * Type.tyConsOfType does not report TyCons which appear only in the unzapped
    proof and not its kind.
 
  * Zapped coercions are represented in interface files as IfaceZappedProv. This
