@@ -1516,10 +1516,17 @@ Moreover, coercions are really only useful when validating core transformations
 (i.e. by the Core Linter). To avoid burdening users who aren't linting with the
 cost of maintaining these structures, we replace coercions with placeholders
 ("zap" them) them unless -dcore-lint is enabled. These placeholders are
-represented by UnivCo with ZappedProv provenance. To ensure that such coercions
-aren't floated out of the scope of proofs they require, the ZappedProv
-constructor includes the coercion's set of free coercion variables (as a
-DVarSet, since these sets are included in interface files).
+represented by UnivCo with ZappedProv provenance. Concretely, a coercion
+
+    co :: t1 ~r t2
+
+is replaced by
+
+    UnivCo (ZappedProv fvs) r t1 t2
+
+To ensure that such coercions aren't floated out of the scope of proofs they
+require, the ZappedProv constructor includes the coercion's set of free coercion
+variables (as a DVarSet, since these sets are included in interface files).
 
 
 Zapping during type family reduction
