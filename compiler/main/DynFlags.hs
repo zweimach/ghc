@@ -421,6 +421,7 @@ data GeneralFlag
    | Opt_D_faststring_stats
    | Opt_D_dump_minimal_imports
    | Opt_DoCoreLinting
+   | Opt_DropCoercions
    | Opt_DoStgLinting
    | Opt_DoCmmLinting
    | Opt_DoAsmLinting
@@ -1514,7 +1515,7 @@ shouldUseHexWordLiterals dflags =
 -- See Note [Zapping coercions] for details.
 shouldBuildCoercions :: DynFlags -> Bool
 shouldBuildCoercions dflags =
-    gopt Opt_DoCoreLinting dflags
+    gopt Opt_DoCoreLinting dflags && not (gopt Opt_DropCoercions dflags)
     -- TODO: Add flag to explicitly enable coercion generation without linting?
 
 -- | Are we building with @-fPIE@ or @-fPIC@ enabled?
@@ -3235,6 +3236,8 @@ dynamic_flags_deps = [
         (setDumpFlag Opt_D_dump_rtti)
   , make_ord_flag defGhcFlag "dcore-lint"
         (NoArg (setGeneralFlag Opt_DoCoreLinting))
+  , make_ord_flag defGhcFlag "ddrop-coercions"
+        (NoArg (setGeneralFlag Opt_DropCoercions))
   , make_ord_flag defGhcFlag "dstg-lint"
         (NoArg (setGeneralFlag Opt_DoStgLinting))
   , make_ord_flag defGhcFlag "dcmm-lint"
