@@ -501,7 +501,6 @@ data TyCoMapper env m
   = TyCoMapper
       { tcm_smart :: Bool -- ^ Should the new type be created with smart
                          -- constructors?
-      , tcm_zap_coercions :: Bool
       , tcm_tyvar :: env -> TyVar -> m Type
       , tcm_covar :: env -> CoVar -> m Coercion
       , tcm_hole  :: env -> CoercionHole -> m Coercion
@@ -517,8 +516,8 @@ mapType :: (Monad m, HasDynFlags m)
         => TyCoMapper env m -> env -> Type -> m Type
 mapType mapper@(TyCoMapper { tcm_smart = smart, tcm_tyvar = tyvar
                            , tcm_tybinder = tybinder })
-        env ty
-  = go ty
+        env
+  = go
   where
     go (TyVarTy tv) = tyvar env tv
     go (AppTy t1 t2) = mkappty <$> go t1 <*> go t2
@@ -543,13 +542,9 @@ mapCoercion :: (Monad m, HasDynFlags m)
             => TyCoMapper env m -> env -> Coercion -> m Coercion
 mapCoercion mapper@(TyCoMapper { tcm_smart = smart, tcm_covar = covar
                                , tcm_tyvar = tyvar, tcm_hole = cohole
-                               , tcm_tybinder = tybinder
-                               , tcm_zap_coercions = zap_cos })
-            env co
-  = do dflags <- getDynFlags
-       let zap | zap_cos   = zapCoercion dflags
-               | otherwise = id
-       go $ zap co
+                               , tcm_tybinder = tybinder })
+            env
+  = go
   where
     go (Refl r ty) = Refl r <$> mapType mapper env ty
     go (TyConAppCo r tc args)
