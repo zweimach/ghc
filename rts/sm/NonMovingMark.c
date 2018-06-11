@@ -894,6 +894,7 @@ void nonmoving_mark_dead_weaks(struct MarkQueue_ *queue)
 {
     StgWeak *next_w;
     for (StgWeak *w = oldest_gen->old_weak_ptr_list; w; w = next_w) {
+        ASSERT(!nonmoving_get_closure_mark_bit((P_)(w->key)));
         nonmoving_mark_dead_weak(queue, w);
         next_w = w ->link;
         w->link = dead_weak_ptr_list;
