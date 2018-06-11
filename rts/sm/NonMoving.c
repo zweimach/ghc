@@ -265,6 +265,11 @@ void nonmoving_collect()
     nonmoving_mark_weak_ptr_list(&mark_queue);
     markStablePtrTable((evac_fn)mark_queue_add_root, &mark_queue);
 
+    // Mark threads resurrected during moving heap scavenging
+    for (StgTSO *tso = resurrected_threads; tso != END_TSO_QUEUE; tso = tso->global_link) {
+        mark_queue_push_closure_(&mark_queue, (StgClosure*)tso);
+    }
+
     // Roots marked, mark threads and weak pointers
 
     // At this point all threads are moved to threads list (from old_threads)
