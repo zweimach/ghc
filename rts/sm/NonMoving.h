@@ -153,11 +153,13 @@ INLINE_HEADER bool nonmoving_get_mark_bit(struct nonmoving_segment *seg, nonmovi
 
 INLINE_HEADER void nonmoving_set_closure_mark_bit(StgPtr p)
 {
+    ASSERT(Bdescr(p)->flags | BF_NONMOVING);
     nonmoving_set_mark_bit(nonmoving_get_segment(p), nonmoving_get_block_idx(p));
 }
 
 INLINE_HEADER bool nonmoving_get_closure_mark_bit(StgPtr p)
 {
+    ASSERT(Bdescr(p)->flags | BF_NONMOVING);
     return nonmoving_get_mark_bit(nonmoving_get_segment(p), nonmoving_get_block_idx(p));
 }
 
