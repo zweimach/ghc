@@ -1598,7 +1598,7 @@ flatten_exact_fam_app_fully tc tys
      -- the following typeKind should never be evaluated, as it's just used in
      -- casting, and casts by refl are dropped
   = do { let reduce_co = mkNomReflCo (typeKind (mkTyConApp tc tys))
-       ; mOut <- try_to_reduce_nocache tc tys reduce_co id
+       ; mOut <- try_to_reduce_nocache tc tys reduce_co emptyDVarSet id
        ; case mOut of
            Just out -> pure out
            Nothing -> do
@@ -1642,6 +1642,7 @@ flatten_exact_fam_app_fully tc tys
                    _ -> do { mOut <- try_to_reduce tc
                                                    xis
                                                    kind_co
+                                                   (tyCoVarsOfCoDSet ret_co)
                                                    (`mkTransCo` ret_co)
                            ; case mOut of
                                Just out -> pure out
@@ -1687,11 +1688,14 @@ flatten_exact_fam_app_fully tc tys
                                -- where
                                -- orig_args is what was passed to the outer
                                -- function
+                  -> DTyCoVarSet  -- free variables of ret_co
                   -> (   Coercion     -- :: (xi |> kind_co) ~ F args
                       -> Coercion )   -- what to return from outer function
                   -> FlatM (Maybe (Xi, Coercion))
-    try_to_reduce tc tys kind_co update_co
+    try_to_reduce tc tys kind_co ret_co_fvs update_co
       = do { let fvs = filterDVarSet isCoVar $ tyCoVarsOfTypesDSet tys
+                       `unionDVarSet` tyCoVarsOfCoDSet kind_co
+                       `unionDVarSet` ret_co_fvs
                      -- See Note [Zapping coercions] in TyCoRep
                  fam_ty = mkTyConApp tc tys
            ; checkStackDepth fam_ty
@@ -1717,12 +1721,9 @@ flatten_exact_fam_app_fully tc tys
                          extendFlatCache tc tys ( co, xi, flavour )
                        ; let xi' = xi `mkCastTy` kind_co
                              -- See Note [Zapping coercions]
-                             co' = update_co
-                                 $ mkZappedCoercion
-                                     dflags
-                                     (update_co $ mkSymCo co `mkTcCoherenceLeftCo` kind_co)
-                                     (Pair xi' fam_ty) Nominal fvs
-                       ; return $ Just (xi', co') }
+                             co' = mkZappedCoercion dflags (mkSymCo co) (Pair xi' fam_ty) Nominal fvs
+                             co'' = update_co $ co' `mkTcCoherenceLeftCo` kind_co
+                       ; return $ Just (xi', co'') }
                Nothing -> pure Nothing }
 
     try_to_reduce_nocache :: TyCon   -- F, family tycon
@@ -1732,12 +1733,15 @@ flatten_exact_fam_app_fully tc tys
                                        -- where
                                        -- orig_args is what was passed to the
                                        -- outer function
+                          -> DTyCoVarSet -- free variables of ret_co
                           -> (   Coercion     -- :: (xi |> kind_co) ~ F args
                               -> Coercion )   -- what to return from outer
                                               -- function
                           -> FlatM (Maybe (Xi, Coercion))
-    try_to_reduce_nocache tc tys kind_co update_co
+    try_to_reduce_nocache tc tys kind_co fvs_ret_co update_co
       = do { let fvs = filterDVarSet isCoVar $ tyCoVarsOfTypesDSet tys
+                       `unionDVarSet` tyCoVarsOfCoDSet kind_co
+                       `unionDVarSet` fvs_ret_co
                      -- See Note [Zapping coercions] in TyCoRep
                  fam_ty = mkTyConApp tc tys
            ; checkStackDepth fam_ty
@@ -1753,11 +1757,9 @@ flatten_exact_fam_app_fully tc tys
                                     `mkTransCo` mkSymCo final_co
                              xi' = xi `mkCastTy` kind_co
                              -- See Note [Zapping coercions]
-                             co' = mkZappedCoercion
-                                     dflags
-                                     (update_co $ mkSymCo co `mkTcCoherenceLeftCo` kind_co)
-                                     (Pair xi' fam_ty) Nominal fvs
-                       ; return $ Just (xi', co') }
+                             co' = mkZappedCoercion dflags (mkSymCo co) (Pair xi' fam_ty) Nominal fvs
+                             co'' = update_co $ co' `mkTcCoherenceLeftCo` kind_co
+                       ; return $ Just (xi', co'') }
                Nothing -> pure Nothing }
 
 {- Note [Reduce type family applications eagerly]

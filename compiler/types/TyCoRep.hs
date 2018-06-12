@@ -1688,7 +1688,9 @@ mkZappedCoercion dflags co (Pair ty1 ty2) role fCvs
            real_role == role
         && real_ty1 `eqType` ty1
         && real_ty2 `eqType` ty2
-        && dVarSetToVarSet fCvs == real_fCvs
+        -- It's not generally possible to compute the actual free variable set
+        -- since we may encounter flattening skolems during reduction.
+        -- && dVarSetToVarSet fCvs == real_fCvs
 
 -- | Replace a coercion with a zapped coercion unless coercions are needed.
 zapCoercion :: DynFlags -> Coercion -> Coercion
