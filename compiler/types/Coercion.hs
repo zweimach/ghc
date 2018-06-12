@@ -1826,7 +1826,7 @@ seqProv UnsafeCoerceProv    = ()
 seqProv (PhantomProv co)    = seqCo co
 seqProv (ProofIrrelProv co) = seqCo co
 seqProv (PluginProv _)      = ()
-seqProv (ZappedProv fvs)    = fvs `seq` ()
+seqProv (ZappedProv fvs)    = seqDVarSet fvs
 
 seqCos :: [Coercion] -> ()
 seqCos []       = ()
