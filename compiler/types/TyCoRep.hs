@@ -35,7 +35,7 @@ module TyCoRep (
         CoercionHole(..), coHoleCoVar, setCoHoleCoVar,
         CoercionN, CoercionR, CoercionP, KindCoercion,
         MCoercion(..), MCoercionR,
-        zapCoercion,
+        mkZappedCoercion, zapCoercion,
 
         -- * Functions over types
         mkTyConTy, mkTyVarTy, mkTyVarTys,
@@ -145,7 +145,8 @@ import GhcPrelude
 import {-# SOURCE #-} DataCon( dataConFullSig
                              , dataConUserTyVarBinders
                              , DataCon )
-import {-# SOURCE #-} Type( isPredTy, isCoercionTy, mkAppTy, mkCastTy
+import {-# SOURCE #-} Type( isPredTy, isCoercionTy, eqType
+                          , mkAppTy, mkCastTy
                           , tyCoVarsOfTypeWellScoped
                           , tyCoVarsOfTypesWellScoped
                           , toposortTyVars
@@ -1656,16 +1657,48 @@ keyword):
 
 -}
 
+-- | Make a zapped coercion if building of coercions is disabled, otherwise
+-- return the given un-zapped coercion.
+mkZappedCoercion :: HasDebugCallStack
+                 => DynFlags
+                 -> Coercion  -- ^ the un-zapped coercion
+                 -> Pair Type -- ^ the kind of the coercion
+                 -> Role      -- ^ the role of the coercion
+                 -> DCoVarSet -- ^ the free coercion variables of the coercion
+                 -> Coercion
+mkZappedCoercion dflags co (Pair ty1 ty2) role fCvs
+  | debugIsOn && not is_ok =
+    pprPanic "mkZappedCoercion" $ vcat
+    [ text "real role:" <+> ppr real_role
+    , text "given role:" <+> ppr role
+    , text "real ty1:" <+> ppr real_ty1
+    , text "given ty1:" <+> ppr ty1
+    , text "real ty2:" <+> ppr real_ty2
+    , text "given ty2:" <+> ppr ty2
+    , text "real free co vars:" <+> ppr real_fCvs
+    , text "given free co vars:" <+> ppr fCvs
+    ]
+  | shouldBuildCoercions dflags = co
+  | otherwise =
+    mkUnivCo (ZappedProv fCvs) role ty1 ty2
+  where
+    (Pair real_ty1 real_ty2, real_role) = coercionKindRole co
+    real_fCvs = filterVarSet isCoVar (coVarsOfCo co)
+    is_ok =
+           real_role == role
+        && real_ty1 `eqType` ty1
+        && real_ty2 `eqType` ty2
+        && dVarSetToVarSet fCvs == real_fCvs
+
 -- | Replace a coercion with a zapped coercion unless coercions are needed.
 zapCoercion :: DynFlags -> Coercion -> Coercion
 zapCoercion _ co@(UnivCo (ZappedProv _) _ _ _) = co  -- already zapped
 zapCoercion _ co@(Refl _ _) = co  -- Refl is smaller than zapped coercions
-zapCoercion dflags co
-  | shouldBuildCoercions dflags = co
-  | otherwise =
-        let (Pair t1 t2, role) = coercionKindRole co
-            fvs = filterDVarSet isCoVar $ tyCoVarsOfCoDSet co
-        in mkUnivCo (ZappedProv fvs) role t1 t2
+zapCoercion dflags co =
+    mkZappedCoercion dflags co (Pair t1 t2) role fvs
+  where
+    (Pair t1 t2, role) = coercionKindRole co
+    fvs = filterDVarSet isCoVar $ tyCoVarsOfCoDSet co
 
 {-
 %************************************************************************

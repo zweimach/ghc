@@ -1716,10 +1716,11 @@ flatten_exact_fam_app_fully tc tys
                          extendFlatCache tc tys ( co, xi, flavour )
                        ; let xi' = xi `mkCastTy` kind_co
                              -- See Note [Zapping coercions]
-                             co' | shouldBuildCoercions dflags
-                                 = update_co $ mkSymCo co `mkTcCoherenceLeftCo` kind_co
-                                 | otherwise
-                                 = UnivCo (ZappedProv fvs) Nominal xi' fam_ty
+                             co' = update_co
+                                 $ mkZappedCoercion
+                                     dflags
+                                     (update_co $ mkSymCo co `mkTcCoherenceLeftCo` kind_co)
+                                     (Pair xi' fam_ty) Nominal fvs
                        ; return $ Just (xi', co') }
                Nothing -> pure Nothing }
 
@@ -1750,10 +1751,10 @@ flatten_exact_fam_app_fully tc tys
                                     `mkTransCo` mkSymCo final_co
                              xi' = xi `mkCastTy` kind_co
                              -- See Note [Zapping coercions]
-                             co' | shouldBuildCoercions dflags
-                                 = update_co $ mkSymCo co `mkTcCoherenceLeftCo` kind_co
-                                 | otherwise
-                                 = UnivCo (ZappedProv fvs) Nominal xi' fam_ty
+                             co' = mkZappedCoercion
+                                     dflags
+                                     (update_co $ mkSymCo co `mkTcCoherenceLeftCo` kind_co)
+                                     (Pair xi' fam_ty) Nominal fvs
                        ; return $ Just (xi', co') }
                Nothing -> pure Nothing }
 
