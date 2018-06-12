@@ -92,7 +92,7 @@ void nonmoving_mark(struct MarkQueue_ *restrict queue);
 bool nonmoving_mark_weaks(struct MarkQueue_ *queue);
 void nonmoving_mark_threads(struct MarkQueue_ *queue);
 void nonmoving_mark_dead_weaks(struct MarkQueue_ *queue);
-bool nonmoving_resurrect_threads(struct MarkQueue_ *queue);
+void nonmoving_resurrect_threads(struct MarkQueue_ *queue);
 bool nonmoving_is_alive(HashTable *marked_objects, StgClosure *p);
 void nonmoving_mark_dead_weak(struct MarkQueue_ *queue, StgWeak *w);
 void nonmoving_mark_live_weak(struct MarkQueue_ *queue, StgWeak *w);

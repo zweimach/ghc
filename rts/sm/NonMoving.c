@@ -276,8 +276,16 @@ void nonmoving_collect()
     // and all weaks are moved to weak_ptr_list (from old_weak_ptr_list) by
     // the previous scavenge step, so we need to move them to "old" lists
     // again.
+
+    // Fine to override old_threads because any live or resurrected threads are
+    // moved to threads or resurrected_threads lists.
     oldest_gen->old_threads = oldest_gen->threads;
     oldest_gen->threads = END_TSO_QUEUE;
+
+    // Make sure we don't lose any weak ptrs here. Weaks in old_weak_ptr_list
+    // will either be moved to `dead_weak_ptr_list` (if dead) or `weak_ptr_list`
+    // (if alive).
+    ASSERT(oldest_gen->old_weak_ptr_list == NULL);
     oldest_gen->old_weak_ptr_list = oldest_gen->weak_ptr_list;
     oldest_gen->weak_ptr_list = NULL;
 
@@ -293,9 +301,7 @@ threads:
             goto threads;
         }
 
-        if (nonmoving_resurrect_threads(&mark_queue)) {
-            goto threads;
-        }
+        nonmoving_resurrect_threads(&mark_queue);
 
         // No more resurrecting threads after this point
 weaks:
@@ -545,6 +551,14 @@ void print_block_list(bdescr* bd)
         bd = bd->link;
     }
     debugBelch("\n");
+}
+
+void print_thread_list(StgTSO* tso)
+{
+    while (tso != END_TSO_QUEUE) {
+        printClosure((StgClosure*)tso);
+        tso = tso->global_link;
+    }
 }
 
 #endif
