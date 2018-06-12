@@ -1321,7 +1321,7 @@ data UnivCoProvenance
                        --   is sound. The string is for the use of the plugin.
 
   | ZappedProv DVarSet
-    -- ^ See Note [Zapping Coercions].
+    -- ^ See Note [Zapping coercions].
     -- Free coercion variables must be tracked in 'DVarSet' since
     -- they appear in interface files.
 
