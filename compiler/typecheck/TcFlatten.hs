@@ -1691,7 +1691,8 @@ flatten_exact_fam_app_fully tc tys
                       -> Coercion )   -- what to return from outer function
                   -> FlatM (Maybe (Xi, Coercion))
     try_to_reduce tc tys kind_co update_co
-      = do { let fvs = filterDVarSet isCoVar $ tyCoVarsOfTypesDSet tys -- See Note [Zapping coercions]
+      = do { let fvs = filterDVarSet isCoVar $ tyCoVarsOfTypesDSet tys
+                     -- See Note [Zapping coercions] in TyCoRep
                  fam_ty = mkTyConApp tc tys
            ; checkStackDepth fam_ty
            ; dflags <- getDynFlags
@@ -1736,7 +1737,8 @@ flatten_exact_fam_app_fully tc tys
                                               -- function
                           -> FlatM (Maybe (Xi, Coercion))
     try_to_reduce_nocache tc tys kind_co update_co
-      = do { let fvs = filterDVarSet isCoVar $ tyCoVarsOfTypesDSet tys -- See Note [Zapping coercions]
+      = do { let fvs = filterDVarSet isCoVar $ tyCoVarsOfTypesDSet tys
+                     -- See Note [Zapping coercions] in TyCoRep
                  fam_ty = mkTyConApp tc tys
            ; checkStackDepth fam_ty
            ; dflags <- getDynFlags

@@ -310,12 +310,12 @@ data IfaceUnivCoProv
   | IfaceProofIrrelProv IfaceCoercion
   | IfacePluginProv String
   | IfaceZappedProv [IfLclName] [CoVar]
-    -- ^ @closed free cvs, open free cvs@
-    -- Closed free variables are those bound in
-    -- this type; Open free variables are used only
-    -- when printing open types;
-    -- see Note [Free tyvars in IfaceType].
-    -- See Note [Zapping Coercions].
+    -- ^ @local cvs, free cvs@
+    --
+    -- Local variables are those bound in the current IfaceType; free variables
+    -- are used only when printing open types and are not serialised; see Note
+    -- [Free tyvars in IfaceType].
+    -- See Note [Zapping coercions] in TyCoRep.
 
 {- Note [Holes in IfaceCoercion]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
