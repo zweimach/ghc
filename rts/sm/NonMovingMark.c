@@ -676,6 +676,7 @@ mark_closure (MarkQueue *queue, StgClosure *p)
     }
 
 
+    case IND:
     case BLACKHOLE:
         PUSH_FIELD((StgInd *) p, indirectee);
         break;
