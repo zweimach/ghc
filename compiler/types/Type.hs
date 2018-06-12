@@ -2433,7 +2433,8 @@ tyConsOfType ty
         -- checkTauTvUpdate
      go_prov (ZappedProv _)      = emptyUniqSet
         -- [ZappedCoDifference] that this will not report TyCons present in the
-        -- unzapped proof but not its kind. See Note [Zapping coercions].
+        -- unzapped proof but not its kind. See Note [Zapping coercions] in
+        -- TyCoRep.
 
      go_s tys     = foldr (unionUniqSets . go)     emptyUniqSet tys
      go_cos cos   = foldr (unionUniqSets . go_co)  emptyUniqSet cos
