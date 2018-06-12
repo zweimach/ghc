@@ -579,10 +579,11 @@ mapCoercion mapper@(TyCoMapper { tcm_smart = smart, tcm_covar = covar
     go_prov (PhantomProv co)    = PhantomProv <$> go co
     go_prov (ProofIrrelProv co) = ProofIrrelProv <$> go co
     go_prov p@(PluginProv _)    = return p
-    go_prov (ZappedProv fvs)    = do let bndrFVs v
-                                           | isTyVar v = tyCoVarsOfTypeDSet <$> tyvar env v
-                                           | otherwise = tyCoVarsOfCoDSet <$> covar env v
-                                     ZappedProv . unionDVarSets <$> mapM bndrFVs (dVarSetElems fvs)
+    go_prov (ZappedProv fvs)
+      = let bndrFVs v =
+              ASSERT(isCoVar v)
+              tyCoVarsOfCoDSet <$> covar env v
+        in ZappedProv . unionDVarSets <$> mapM bndrFVs (dVarSetElems fvs)
 
     ( mktyconappco, mkappco, mkaxiominstco, mkunivco
       , mksymco, mktransco, mknthco, mklrco, mkinstco, mkcoherenceco
