@@ -172,6 +172,7 @@ void nonmoving_print_sweep_list(void);
 // Check if the object is in one of non-moving heap mut_lists
 void check_in_mut_list(StgClosure *p);
 void print_block_list(bdescr *bd);
+void print_thread_list(StgTSO* tso);
 
 #endif
 

@@ -924,10 +924,8 @@ void nonmoving_mark_threads(struct MarkQueue_ *queue)
     }
 }
 
-bool nonmoving_resurrect_threads(struct MarkQueue_ *queue)
+void nonmoving_resurrect_threads(struct MarkQueue_ *queue)
 {
-    bool did_work = false;
-
     StgTSO *next;
     for (StgTSO *t = oldest_gen->old_threads; t != END_TSO_QUEUE; t = next) {
         next = t->global_link;
@@ -940,11 +938,8 @@ bool nonmoving_resurrect_threads(struct MarkQueue_ *queue)
             mark_queue_push_closure_(queue, (StgClosure*)t);
             t->global_link = resurrected_threads;
             resurrected_threads = t;
-            did_work = true;
         }
     }
-
-    return did_work;
 }
 
 #ifdef DEBUG
