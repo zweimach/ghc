@@ -541,8 +541,7 @@ mapType mapper@(TyCoMapper { tcm_smart = smart, tcm_tyvar = tyvar
 mapCoercion :: (Monad m, HasDynFlags m)
             => TyCoMapper env m -> env -> Coercion -> m Coercion
 mapCoercion mapper@(TyCoMapper { tcm_smart = smart, tcm_covar = covar
-                               , tcm_tyvar = tyvar, tcm_hole = cohole
-                               , tcm_tybinder = tybinder })
+                               , tcm_hole = cohole, tcm_tybinder = tybinder })
             env
   = go
   where
