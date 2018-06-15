@@ -462,10 +462,11 @@ void locate_object(P_ obj)
 
     // Search nurseries
     for (uint32_t nursery_idx = 0; nursery_idx < n_nurseries; ++nursery_idx) {
-        bdescr *nursery_blocks = nurseries[nursery_idx].blocks;
-        if (obj >= nursery_blocks->start && obj <= nursery_blocks->start + nursery_blocks->blocks*BLOCK_SIZE_W) {
-            debugBelch("%p is in nursery %d\n", obj, nursery_idx);
-            return;
+        for (bdescr* nursery_block = nurseries[nursery_idx].blocks; nursery_block; nursery_block = nursery_block->link) {
+            if (obj >= nursery_block->start && obj <= nursery_block->start + nursery_block->blocks*BLOCK_SIZE_W) {
+                debugBelch("%p is in nursery %d\n", obj, nursery_idx);
+                return;
+            }
         }
     }
 
