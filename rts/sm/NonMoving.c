@@ -23,16 +23,7 @@
 
 struct nonmoving_heap nonmoving_heap;
 
-struct nonmoving_segment* nonmoving_todos = NULL;
-
-// Add a todo segment if it's not already in the list
-static void add_todo_segment(struct nonmoving_segment* seg)
-{
-    if (!seg->todo_link) {
-        seg->todo_link = nonmoving_todos;
-        nonmoving_todos = seg;
-    }
-}
+struct nonmoving_segment *END_NONMOVING_TODO_LIST = (struct nonmoving_segment*)1;
 
 static void nonmoving_init_segment(struct nonmoving_segment *seg, uint8_t block_size)
 {
@@ -116,7 +107,11 @@ void *nonmoving_allocate(Capability *cap, StgWord sz)
         void *ret = nonmoving_allocate_block_from_segment(current);
         if (ret) {
             ASSERT(GET_CLOSURE_TAG(ret) == 0); // check alignment
-            add_todo_segment(current);
+            if (!current->todo_link) {
+                gen_workspace *ws = &gct->gens[oldest_gen->no];
+                current->todo_link = ws->todo_seg;
+                ws->todo_seg = current;
+            }
             return ret;
         }
 
