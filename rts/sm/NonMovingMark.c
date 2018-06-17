@@ -134,7 +134,7 @@ again:
             bdescr *old_block = q->blocks;
             q->blocks = old_block->link;
             q->top = (MarkQueueBlock*)q->blocks->start;
-            freeGroup_lock(old_block); // TODO: hold on to a block to avoid repeated allocation/deallocation?
+            freeGroup(old_block); // TODO: hold on to a block to avoid repeated allocation/deallocation?
             goto again;
         }
     }
