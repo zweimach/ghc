@@ -428,9 +428,6 @@ GarbageCollect (uint32_t collect_gen,
 
   for (;;)
   {
-      // As usual scavenge older generations first to reduce the likelihood of
-      // spurious old->new pointers.
-      scavenge_nonmoving_heap();
       scavenge_until_all_done();
 
       // The other threads are now stopped.  We might recurse back to
@@ -948,6 +945,7 @@ new_gc_thread (uint32_t n, gc_thread *t)
         ws->todo_overflow = NULL;
         ws->n_todo_overflow = 0;
         ws->todo_large_objects = NULL;
+        ws->todo_seg = END_NONMOVING_TODO_LIST;
 
         ws->part_list = NULL;
         ws->n_part_blocks = 0;
@@ -1583,7 +1581,6 @@ init_gc_thread (gc_thread *t)
     t->evac_gen_no = 0;
     t->failed_to_evac = false;
     t->eager_promotion = true;
-    t->forced_promotion = major_gc;
     t->thunk_selector_depth = 0;
     t->copied = 0;
     t->scanned = 0;

@@ -58,7 +58,7 @@ alloc_for_copy (uint32_t size, uint32_t gen_no)
 {
     ASSERT(gen_no < RtsFlags.GcFlags.generations);
 
-    if (gct->forced_promotion) {
+    if (major_gc) {
         // unconditionally promote to non-moving heap in major gc
         return nonmoving_allocate(gct->cap, size);
     }
@@ -299,7 +299,7 @@ evacuate_large(StgPtr p)
    */
   new_gen_no = bd->dest_no;
 
-  if (gct->forced_promotion) {
+  if (major_gc) {
       new_gen_no = oldest_gen->no;
   } else if (new_gen_no < gct->evac_gen_no) {
       if (gct->eager_promotion) {
