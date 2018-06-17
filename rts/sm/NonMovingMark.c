@@ -30,7 +30,7 @@ void mark_queue_push (MarkQueue *q, const MarkQueueEnt *ent)
     // Are we at the end of the block?
     if (q->top->head == MARK_QUEUE_BLOCK_ENTRIES) {
         // Yes, allocate a fresh block.
-        bdescr *bd = allocGroup_lock(1);
+        bdescr *bd = allocGroup(1);
         bd->link = q->blocks;
         q->blocks = bd;
         q->top = (MarkQueueBlock *) bd->start;
