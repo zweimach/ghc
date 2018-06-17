@@ -1546,14 +1546,6 @@ scavenge_mutable_list(bdescr *bd, generation *gen)
     uint32_t gen_no = gen->no;
     gct->evac_gen_no = gen_no;
 
-    // When scavenging non-moving heap's mut list evacuate everything to
-    // non-moving heap unconditionally
-    bool saved_forced_promotion;
-    if (gen == oldest_gen) {
-        saved_forced_promotion = gct->forced_promotion;
-        gct->forced_promotion = true;
-    }
-
     for (; bd != NULL; bd = bd->link) {
         for (q = bd->start; q < bd->free; q++) {
             p = (StgPtr)*q;
@@ -1630,7 +1622,7 @@ scavenge_mutable_list(bdescr *bd, generation *gen)
                 ;
             }
 
-            if (major_gc && gen == oldest_gen) { 
+            if (major_gc && gen == oldest_gen) {
                 // We can't use scavenge_one here as we need to scavenge SRTs
                 nonmoving_scavenge_one((StgClosure *)p);
             } else if (scavenge_one(p)) {
@@ -1639,10 +1631,6 @@ scavenge_mutable_list(bdescr *bd, generation *gen)
                 recordMutableGen_GC((StgClosure *)p,gen_no);
             }
         }
-    }
-
-    if (gen == oldest_gen) {
-        gct->forced_promotion = saved_forced_promotion;
     }
 }
 
@@ -2046,9 +2034,18 @@ scavenge_find_work (void)
 
 loop:
     did_something = false;
-    // Start from generations-2 to not scavenge nonmoving heap here
-    for (g = RtsFlags.GcFlags.generations-2; g >= 0; g--) {
+    for (g = RtsFlags.GcFlags.generations-1; g >= 0; g--) {
         ws = &gct->gens[g];
+
+        if (ws->todo_seg != END_NONMOVING_TODO_LIST) {
+            struct nonmoving_segment *seg = ws->todo_seg;
+            ASSERT(seg->todo_link);
+            ws->todo_seg = seg->todo_link;
+            seg->todo_link = NULL;
+            scavenge_nonmoving_segment(seg);
+            did_something = true;
+            break;
+        }
 
         gct->scan_bd = NULL;
 

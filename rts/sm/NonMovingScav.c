@@ -336,9 +336,12 @@ nonmoving_scavenge_one(StgClosure *q)
     }
 }
 
-static void
+void
 scavenge_nonmoving_segment(struct nonmoving_segment *seg)
 {
+    gct->evac_gen_no = oldest_gen->no;
+    gct->failed_to_evac = false;
+
     // scavenge objects between scan and free_ptr whose bitmap bits are 0
     bdescr *seg_block = Bdescr((P_)seg);
 
@@ -361,44 +364,4 @@ scavenge_nonmoving_segment(struct nonmoving_segment *seg)
 
         seg_block->u.scan = (P_)(((uint8_t*)seg_block->u.scan) + nonmoving_segment_block_size(seg));
     }
-}
-
-void scavenge_nonmoving_heap()
-{
-    // Always evacuate to non-moving heap when scavenging non-moving heap
-    bool saved_forced_promotion = gct->forced_promotion;
-    gct->forced_promotion = true;
-    gct->evac_gen_no = oldest_gen->no; // to properly set failed_to_evac
-
-    bool did_something;
-loop:
-    did_something = false;
-
-    // Scavenge large objects
-    gen_workspace *ws = &gct->gens[oldest_gen->no];
-    for (bdescr *bd = ws->todo_large_objects; bd; bd = ws->todo_large_objects) {
-        ASSERT(bd->flags & BF_NONMOVING);
-        ws->todo_large_objects = bd->link;
-        dbl_link_onto(bd, &ws->gen->scavenged_large_objects);
-        ws->gen->n_scavenged_large_blocks += bd->blocks;
-        nonmoving_scavenge_one((StgClosure*)bd->start);
-        did_something = true;
-    }
-
-    // Scavenge segments
-    while (nonmoving_todos) {
-        struct nonmoving_segment* todo = nonmoving_todos;
-        nonmoving_todos = todo->todo_link;
-        todo->todo_link = NULL;
-        scavenge_nonmoving_segment(todo);
-        did_something = true;
-    }
-
-    // Perhaps we evacuated a large object while scavenging segments, so loop
-    // again (FIXME ineffcient)
-    if (did_something) {
-        goto loop;
-    }
-
-    gct->forced_promotion = saved_forced_promotion;
 }

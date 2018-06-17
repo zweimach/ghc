@@ -41,6 +41,10 @@ struct nonmoving_segment {
     // since GHC assumes that all object pointers are so-aligned.
 };
 
+// This is how we mark end of todo lists. Not NULL because todo_link == NULL
+// means segment is not in list.
+extern struct nonmoving_segment *END_NONMOVING_TODO_LIST;
+
 // A non-moving allocator for a particular block size
 struct nonmoving_allocator {
     struct nonmoving_segment *filled;
@@ -70,9 +74,6 @@ struct nonmoving_heap {
 };
 
 extern struct nonmoving_heap nonmoving_heap;
-
-// Segments to scavenge
-extern struct nonmoving_segment* nonmoving_todos;
 
 void nonmoving_init(void);
 void nonmoving_collect(void);
