@@ -1,5 +1,6 @@
 # Test +RTS -G1 here (it isn't tested anywhere else)
-setTestOpts(unless(fast(), extra_ways(['g1'])))
+# TODO(osa): disabled for now, see #41, #22
+# setTestOpts(unless(fast(), extra_ways(['g1'])))
 
 test('cgrun001', normal, compile_and_run, [''])
 test('cgrun002', normal, compile_and_run, [''])
