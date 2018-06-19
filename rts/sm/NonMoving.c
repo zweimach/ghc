@@ -50,7 +50,13 @@ static struct nonmoving_segment *nonmoving_alloc_segment(uint32_t node)
         ret = nonmoving_heap.free;
         nonmoving_heap.free = ret->link;
     } else {
+#if defined(THREADED_RTS)
+        ACQUIRE_SPIN_LOCK(&gc_alloc_block_sync);
+#endif
         bdescr *bd = allocAlignedGroupOnNode(node, NONMOVING_SEGMENT_BLOCKS);
+#if defined(THREADED_RTS)
+        RELEASE_SPIN_LOCK(&gc_alloc_block_sync);
+#endif
         for (StgWord32 i = 0; i < bd->blocks; ++i) {
             initBdescr(&bd[i], oldest_gen, oldest_gen);
             bd[i].flags = BF_NONMOVING;
