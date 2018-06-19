@@ -13,6 +13,7 @@
 #include "Capability.h"
 #include "GCThread.h" // for GCUtils.h
 #include "GCUtils.h"
+#include "Stable.h"
 
 static void prepare_sweep(void)
 {
@@ -203,4 +204,47 @@ void nonmoving_sweep_large_objects(HashTable *marked_objects)
     }
 
     freeChain(free_blocks);
+}
+
+// Essentially nonmoving_is_alive, but works when the object died in moving
+// heap, see nonmoving_sweep_stable_name_table
+static bool is_alive(HashTable *marked_objects, StgClosure *p)
+{
+    if (!HEAP_ALLOCED_GC(p)) {
+        return true;
+    }
+
+    bdescr *bd = Bdescr((P_)p);
+    if (bd->flags & BF_NONMOVING) {
+        return nonmoving_is_alive(marked_objects, p);
+    } else {
+        return isAlive(p);
+    }
+}
+
+void nonmoving_sweep_stable_name_table(HashTable *marked_objects)
+{
+    // See comments in gcStableTables
+
+    // FIXME: We can't use nonmoving_is_alive here without first using isAlive:
+    // a stable name can die during moving heap collection and we can't use
+    // nonmoving_is_alive on those objects. Inefficient.
+
+    // TODO: This won't work in concurrent implementation because (1) because
+    // the old heap may be reused by the time we reach here (2) concurrent table
+    // modifications
+
+    FOR_EACH_STABLE_NAME(
+        p, {
+            if (p->sn_obj != NULL) {
+                if (!is_alive(marked_objects, (StgClosure*)p->sn_obj)) {
+                    p->sn_obj = NULL; // Just to make an assertion happy
+                    freeSnEntry(p);
+                } else if (p->addr != NULL) {
+                    if (!is_alive(marked_objects, (StgClosure*)p->addr)) {
+                        p->addr = NULL;
+                    }
+                }
+            }
+        });
 }
