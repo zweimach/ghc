@@ -181,7 +181,7 @@ void nonmoving_sweep_mut_lists(HashTable *marked_objects)
                   }
               }
           }
-          freeChain_sync(old_mut_list);
+          freeChain(old_mut_list);
       }
 }
 

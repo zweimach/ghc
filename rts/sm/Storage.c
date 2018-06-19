@@ -173,6 +173,13 @@ initStorage (void)
 
   // Nonmoving heap uses oldest_gen so initialize it after initializing oldest_gen
   nonmoving_init();
+
+#if defined(THREADED_RTS)
+  // nonmoving_add_capabilities allocates segments, which requires taking the gc
+  // sync lock, so initialize it before nonmoving_add_capabilities
+  initSpinLock(&gc_alloc_block_sync);
+#endif
+
   nonmoving_add_capabilities(n_capabilities);
 
   /* The oldest generation has one step. */
@@ -200,9 +207,6 @@ initStorage (void)
 
   exec_block = NULL;
 
-#if defined(THREADED_RTS)
-  initSpinLock(&gc_alloc_block_sync);
-#endif
   N = 0;
 
   for (n = 0; n < n_numa_nodes; n++) {
