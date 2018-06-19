@@ -321,6 +321,7 @@ weaks:
     // objects
     nonmoving_sweep_large_objects(mark_queue.marked_objects);
     nonmoving_sweep_mut_lists(mark_queue.marked_objects);
+    nonmoving_sweep_stable_name_table(mark_queue.marked_objects);
     free_mark_queue(&mark_queue);
 
     nonmoving_sweep();
