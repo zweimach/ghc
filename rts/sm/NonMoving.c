@@ -19,11 +19,12 @@
 #include "NonMovingSweep.h"
 #include "Stable.h" // markStablePtrTable
 #include "Schedule.h" // markScheduler
-#include "MarkWeak.h" // dead_weak_ptr_list
+#include "MarkWeak.h" // resurrected_threads
+#include "Weak.h" // dead_weak_ptr_list
 
 struct nonmoving_heap nonmoving_heap;
 
-struct nonmoving_segment *END_NONMOVING_TODO_LIST = (struct nonmoving_segment*)1;
+struct nonmoving_segment * const END_NONMOVING_TODO_LIST = (struct nonmoving_segment*)1;
 
 static void nonmoving_init_segment(struct nonmoving_segment *seg, uint8_t block_size)
 {
@@ -50,13 +51,9 @@ static struct nonmoving_segment *nonmoving_alloc_segment(uint32_t node)
         ret = nonmoving_heap.free;
         nonmoving_heap.free = ret->link;
     } else {
-#if defined(THREADED_RTS)
         ACQUIRE_SPIN_LOCK(&gc_alloc_block_sync);
-#endif
         bdescr *bd = allocAlignedGroupOnNode(node, NONMOVING_SEGMENT_BLOCKS);
-#if defined(THREADED_RTS)
         RELEASE_SPIN_LOCK(&gc_alloc_block_sync);
-#endif
         for (StgWord32 i = 0; i < bd->blocks; ++i) {
             initBdescr(&bd[i], oldest_gen, oldest_gen);
             bd[i].flags = BF_NONMOVING;
@@ -113,6 +110,8 @@ void *nonmoving_allocate(Capability *cap, StgWord sz)
         void *ret = nonmoving_allocate_block_from_segment(current);
         if (ret) {
             ASSERT(GET_CLOSURE_TAG(ret) == 0); // check alignment
+            // Add segment to the todo list unless it's already there
+            // current->todo_link == NULL means not in todo list
             if (!current->todo_link) {
                 gen_workspace *ws = &gct->gens[oldest_gen->no];
                 current->todo_link = ws->todo_seg;

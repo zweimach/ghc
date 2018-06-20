@@ -18,7 +18,6 @@
 extern StgWeak *old_weak_ptr_list;
 extern StgTSO *resurrected_threads;
 extern StgTSO *exception_threads;
-extern StgWeak *dead_weak_ptr_list; // need to mark this list in non-moving mark
 
 void    collectFreshWeakPtrs   ( void );
 void    initWeakForGC          ( void );
