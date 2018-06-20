@@ -23,7 +23,6 @@ void    updateStableNameTable ( bool full );
 void    stableNameLock            ( void );
 void    stableNameUnlock          ( void );
 
-extern snEntry *stable_name_table;
 extern unsigned int SNT_size;
 
 #define FOR_EACH_STABLE_NAME(p, CODE)                                   \
