@@ -516,6 +516,12 @@ void locate_object(P_ obj)
                 return;
             }
         }
+        for (bdescr *blk = ws->todo_large_objects; blk; blk = blk->link) {
+            if (obj >= blk->start && obj < blk->free) {
+                debugBelch("%p is in generation %" FMT_Word32 " todo large bds\n", obj, g);
+                return;
+            }
+        }
     }
 #endif
 }
