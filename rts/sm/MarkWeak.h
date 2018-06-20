@@ -16,7 +16,6 @@
 #include "BeginPrivate.h"
 
 extern StgTSO *resurrected_threads;
-extern StgWeak *dead_weak_ptr_list; // need to mark this list in non-moving mark
 
 void    collectFreshWeakPtrs   ( void );
 void    initWeakForGC          ( void );
