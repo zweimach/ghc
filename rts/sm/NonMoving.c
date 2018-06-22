@@ -41,16 +41,17 @@ static void nonmoving_init_segment(struct nonmoving_segment *seg, uint8_t block_
  * Request a fresh segment from the free segment list or allocate one of the
  * given node.
  *
- * Must hold sm_mutex.
+ * Must hold `nonmoving_heap.mutex`.
  */
 static struct nonmoving_segment *nonmoving_alloc_segment(uint32_t node)
 {
     struct nonmoving_segment *ret;
-    ACQUIRE_LOCK(&nonmoving_heap.mutex);
     if (nonmoving_heap.free) {
         ret = nonmoving_heap.free;
         nonmoving_heap.free = ret->link;
     } else {
+        // Take gc spinlock: another thread may be scavenging a moving
+        // generation and call `todo_block_full`
         ACQUIRE_SPIN_LOCK(&gc_alloc_block_sync);
         bdescr *bd = allocAlignedGroupOnNode(node, NONMOVING_SEGMENT_BLOCKS);
         RELEASE_SPIN_LOCK(&gc_alloc_block_sync);
@@ -60,7 +61,6 @@ static struct nonmoving_segment *nonmoving_alloc_segment(uint32_t node)
         }
         ret = (struct nonmoving_segment *)bd->start;
     }
-    RELEASE_LOCK(&nonmoving_heap.mutex);
     // Check alignment
     ASSERT(((uintptr_t)ret % NONMOVING_SEGMENT_SIZE) == 0);
     return ret;
@@ -94,19 +94,16 @@ void *nonmoving_allocate(Capability *cap, StgWord sz)
 {
     int allocator_idx = log2_ceil(sz * sizeof(StgWord)) - NONMOVING_ALLOCA0;
 
-    if (allocator_idx < 0) {
-        allocator_idx = 0;
-    } else if (allocator_idx > NONMOVING_ALLOCA_CNT) {
-        // TODO: Allocate large object? Perhaps this should be handled elsewhere
-        ASSERT(false);
-    }
+    // The max we ever allocate is 3276 bytes (anything larger is a large
+    // object and not moved) which is covered by allocator 9.
+    ASSERT(allocator_idx < NONMOVING_ALLOCA_CNT);
 
     struct nonmoving_allocator *alloca = nonmoving_heap.allocators[allocator_idx];
 
     while (true) {
         // First try allocating into current segment
         struct nonmoving_segment *current = alloca->current[cap->no];
-        ASSERT(current);
+        ASSERT(current); // current is never NULL
         void *ret = nonmoving_allocate_block_from_segment(current);
         if (ret) {
             ASSERT(GET_CLOSURE_TAG(ret) == 0); // check alignment
@@ -120,7 +117,12 @@ void *nonmoving_allocate(Capability *cap, StgWord sz)
             return ret;
         }
 
-        // current segment filled, link it to filled
+        // Current segment is full, link it to filled, take an active segment
+        // if it exists, otherwise allocate a new segment. Need to take the
+        // non-moving heap lock as allocators can be manipulated by scavenge
+        // threads concurrently, and in the case where we need to allocate a
+        // segment we'll need to modify the free segment list.
+        ACQUIRE_LOCK(&nonmoving_heap.mutex);
         current->link = alloca->filled;
         alloca->filled = current;
 
@@ -129,6 +131,7 @@ void *nonmoving_allocate(Capability *cap, StgWord sz)
             // remove an active, make it current
             struct nonmoving_segment *new_current = alloca->active;
             alloca->active = new_current->link;
+            RELEASE_LOCK(&nonmoving_heap.mutex);
             new_current->link = NULL;
             alloca->current[cap->no] = new_current;
         }
@@ -136,6 +139,7 @@ void *nonmoving_allocate(Capability *cap, StgWord sz)
         // there are no active segments, allocate new segment
         else {
             struct nonmoving_segment *new_current = nonmoving_alloc_segment(cap->node);
+            RELEASE_LOCK(&nonmoving_heap.mutex);
             nonmoving_init_segment(new_current, NONMOVING_ALLOCA0 + allocator_idx);
             alloca->current[cap->no] = new_current;
         }
