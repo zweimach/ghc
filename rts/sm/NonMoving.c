@@ -333,6 +333,9 @@ weaks:
     ASSERT(nonmoving_heap.sweep_list == NULL);
 }
 
+// Use this with caution: this doesn't work correctly during scavenge phase
+// when we're doing parallel scavenging. Use it in mark phase or later (where
+// we don't allocate more anymore).
 void assert_in_nonmoving_heap(StgPtr p)
 {
     if (!HEAP_ALLOCED_GC(p))
@@ -343,28 +346,30 @@ void assert_in_nonmoving_heap(StgPtr p)
 
     for (int alloca_idx = 0; alloca_idx < NONMOVING_ALLOCA_CNT; ++alloca_idx) {
         struct nonmoving_allocator *alloca = nonmoving_heap.allocators[alloca_idx];
-        struct nonmoving_segment *seg = alloca->current[0]; // TODO: only one capability for now
-        if (p >= (P_)seg && p < (((P_)seg) + NONMOVING_SEGMENT_SIZE_W)) {
-            return;
-        }
-        int seg_idx = 0;
-        seg = alloca->active;
-        while (seg) {
+        for (uint32_t cap_idx = 0; cap_idx < n_capabilities; ++cap_idx) {
+            struct nonmoving_segment *seg = alloca->current[0]; // TODO: only one capability for now
             if (p >= (P_)seg && p < (((P_)seg) + NONMOVING_SEGMENT_SIZE_W)) {
                 return;
             }
-            seg_idx++;
-            seg = seg->link;
-        }
+            int seg_idx = 0;
+            seg = alloca->active;
+            while (seg) {
+                if (p >= (P_)seg && p < (((P_)seg) + NONMOVING_SEGMENT_SIZE_W)) {
+                    return;
+                }
+                seg_idx++;
+                seg = seg->link;
+            }
 
-        seg_idx = 0;
-        seg = alloca->filled;
-        while (seg) {
-            if (p >= (P_)seg && p < (((P_)seg) + NONMOVING_SEGMENT_SIZE_W)) {
-                return;
+            seg_idx = 0;
+            seg = alloca->filled;
+            while (seg) {
+                if (p >= (P_)seg && p < (((P_)seg) + NONMOVING_SEGMENT_SIZE_W)) {
+                    return;
+                }
+                seg_idx++;
+                seg = seg->link;
             }
-            seg_idx++;
-            seg = seg->link;
         }
     }
 
