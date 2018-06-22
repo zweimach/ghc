@@ -9,7 +9,9 @@
 #pragma once
 
 #include "BeginPrivate.h"
+
 #include <string.h>
+#include "HeapAlloc.h"
 
 // Segments
 #define NONMOVING_SEGMENT_BITS 15   // 2^15 = 32kByte
@@ -119,14 +121,14 @@ INLINE_HEADER void *nonmoving_segment_get_block(struct nonmoving_segment *seg, n
 // non-moving heap.
 INLINE_HEADER struct nonmoving_segment *nonmoving_get_segment(StgPtr p)
 {
-    ASSERT(Bdescr(p)->flags & BF_NONMOVING);
+    ASSERT(HEAP_ALLOCED_GC(p) && (Bdescr(p)->flags & BF_NONMOVING));
     const uintptr_t mask = ~NONMOVING_SEGMENT_MASK;
     return (struct nonmoving_segment *) (((uintptr_t) p) & mask);
 }
 
 INLINE_HEADER nonmoving_block_idx nonmoving_get_block_idx(StgPtr p)
 {
-    ASSERT(Bdescr(p)->flags & BF_NONMOVING);
+    ASSERT(HEAP_ALLOCED_GC(p) && (Bdescr(p)->flags & BF_NONMOVING));
     struct nonmoving_segment *seg = nonmoving_get_segment(p);
     ptrdiff_t blk0 = (ptrdiff_t)nonmoving_segment_get_block(seg, 0);
     unsigned int blk_size = nonmoving_segment_block_size(seg);
@@ -154,13 +156,11 @@ INLINE_HEADER bool nonmoving_get_mark_bit(struct nonmoving_segment *seg, nonmovi
 
 INLINE_HEADER void nonmoving_set_closure_mark_bit(StgPtr p)
 {
-    ASSERT(Bdescr(p)->flags | BF_NONMOVING);
     nonmoving_set_mark_bit(nonmoving_get_segment(p), nonmoving_get_block_idx(p));
 }
 
 INLINE_HEADER bool nonmoving_get_closure_mark_bit(StgPtr p)
 {
-    ASSERT(Bdescr(p)->flags | BF_NONMOVING);
     return nonmoving_get_mark_bit(nonmoving_get_segment(p), nonmoving_get_block_idx(p));
 }
 
