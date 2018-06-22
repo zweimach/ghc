@@ -169,20 +169,20 @@ GNUC_ATTR_HOT void nonmoving_sweep(void)
 
 void nonmoving_sweep_mut_lists(HashTable *marked_objects)
 {
-      for (uint32_t n = 0; n < n_capabilities; n++) {
-          Capability *cap = capabilities[n];
-          bdescr *old_mut_list = cap->mut_lists[oldest_gen->no];
-          cap->mut_lists[oldest_gen->no] = allocBlockOnNode_sync(cap->node);
-          for (bdescr *bd = old_mut_list; bd; bd = bd->link) {
-              for (StgPtr p = bd->start; p < bd->free; p++) {
-                  StgClosure **q = (StgClosure**)p;
-                  if (nonmoving_is_alive(marked_objects, *q)) {
-                      recordMutableGen_GC(*q, oldest_gen->no);
-                  }
-              }
-          }
-          freeChain(old_mut_list);
-      }
+    for (uint32_t n = 0; n < n_capabilities; n++) {
+        Capability *cap = capabilities[n];
+        bdescr *old_mut_list = cap->mut_lists[oldest_gen->no];
+        cap->mut_lists[oldest_gen->no] = allocBlockOnNode_sync(cap->node);
+        for (bdescr *bd = old_mut_list; bd; bd = bd->link) {
+            for (StgPtr p = bd->start; p < bd->free; p++) {
+                StgClosure **q = (StgClosure**)p;
+                if (nonmoving_is_alive(marked_objects, *q)) {
+                    recordMutableGen_GC(*q, oldest_gen->no);
+                }
+            }
+        }
+        freeChain(old_mut_list);
+    }
 }
 
 void nonmoving_sweep_large_objects(HashTable *marked_objects)
