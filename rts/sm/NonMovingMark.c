@@ -825,6 +825,12 @@ GNUC_ATTR_HOT void nonmoving_mark(MarkQueue *queue)
     }
 }
 
+// A variant of `isAlive` that works for non-moving heap. Used for:
+//
+// - Collecting weak pointers; checking key of a weak pointer.
+// - Resurrecting threads; checking if a thread is dead.
+// - Sweeping object lists: large_objects, mut_list, stable_name_table.
+//
 bool nonmoving_is_alive(HashTable *marked_objects, StgClosure *p)
 {
     // Ignore static closures. See comments in `isAlive`.
@@ -841,6 +847,7 @@ bool nonmoving_is_alive(HashTable *marked_objects, StgClosure *p)
     }
 }
 
+// Non-moving heap variant of `tidyWeakList`
 bool nonmoving_mark_weaks(struct MarkQueue_ *queue)
 {
     bool did_work = false;
@@ -854,6 +861,9 @@ bool nonmoving_mark_weaks(struct MarkQueue_ *queue)
             *last_w = next_w;
             continue;
         }
+
+        // Otherwise it's a live weak
+        ASSERT(w->header.info == &stg_WEAK_info);
 
         if (nonmoving_is_alive(queue->marked_objects, w->key)) {
             nonmoving_mark_live_weak(queue, w);
