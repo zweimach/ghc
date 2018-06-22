@@ -279,6 +279,7 @@ void nonmoving_collect()
 
     // Fine to override old_threads because any live or resurrected threads are
     // moved to threads or resurrected_threads lists.
+    ASSERT(oldest_gen->old_threads == END_TSO_QUEUE);
     oldest_gen->old_threads = oldest_gen->threads;
     oldest_gen->threads = END_TSO_QUEUE;
 
@@ -301,6 +302,8 @@ threads:
             goto threads;
         }
 
+        // NOTE: This should be called only once otherwise it corrupts lists
+        // (hard to debug)
         nonmoving_resurrect_threads(&mark_queue);
 
         // No more resurrecting threads after this point
