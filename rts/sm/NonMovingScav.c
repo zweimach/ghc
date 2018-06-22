@@ -350,6 +350,8 @@ scavenge_nonmoving_segment(struct nonmoving_segment *seg)
 
     while (seg_block->u.scan < (P_)nonmoving_segment_get_block(seg, seg->next_free)) {
         StgClosure *p = (StgClosure*)seg_block->u.scan;
+        // TODO: No need to calculate block index of each object; calculate
+        // block index of `scan`, then increment by one after each iteration.
         nonmoving_block_idx p_idx = nonmoving_get_block_idx((StgPtr)p);
         // bit set = was allocated in the previous GC
         // bit not set = new allocation, so scavenge
