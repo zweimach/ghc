@@ -363,7 +363,7 @@ mark_stack (MarkQueue *queue, StgPtr sp, StgPtr spBottom)
 
         case RET_BCO: {
             sp++;
-            mark_queue_push_closure_(queue, (StgClosure *) sp);
+            mark_queue_push_closure_(queue, *(StgClosure**)sp);
             StgBCO *bco = (StgBCO *)*sp;
             sp++;
             StgWord size = BCO_BITMAP_SIZE(bco);
