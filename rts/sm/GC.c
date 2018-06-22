@@ -1316,7 +1316,8 @@ releaseGCThreads (Capability *cap USED_IF_THREADS, bool idle_cap[])
 #endif
 
 /* ----------------------------------------------------------------------------
-   Save the mutable lists in saved_mut_lists
+   Save the mutable lists in saved_mut_lists where it will be scavenged
+   during GC
    ------------------------------------------------------------------------- */
 
 static void
