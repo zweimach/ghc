@@ -817,7 +817,7 @@ GNUC_ATTR_HOT void nonmoving_mark(MarkQueue *queue)
                 end = arr->ptrs;
             }
             for (StgWord i = start; i < end; i++) {
-                mark_closure(queue, arr->payload[i]);
+                mark_queue_push_closure_(queue, arr->payload[i]);
             }
             break;
         }
