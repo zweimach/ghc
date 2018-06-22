@@ -333,6 +333,8 @@ weaks:
     ASSERT(nonmoving_heap.sweep_list == NULL);
 }
 
+#if defined(DEBUG)
+
 // Use this with caution: this doesn't work correctly during scavenge phase
 // when we're doing parallel scavenging. Use it in mark phase or later (where
 // we don't allocate more anymore).
@@ -377,8 +379,6 @@ void assert_in_nonmoving_heap(StgPtr p)
 
     barf("%p is not in nonmoving heap\n", (void*)p);
 }
-
-#if defined(DEBUG)
 
 void nonmoving_print_segment(struct nonmoving_segment *seg)
 {
