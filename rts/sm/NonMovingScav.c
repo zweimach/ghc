@@ -216,18 +216,16 @@ nonmoving_scavenge_one(StgClosure *q)
         break;
     }
 
-    case MUT_ARR_PTRS_FROZEN:
-    case MUT_ARR_PTRS_FROZEN0:
+    case MUT_ARR_PTRS_FROZEN_CLEAN:
+    case MUT_ARR_PTRS_FROZEN_DIRTY:
         // follow everything
     {
         scavenge_mut_arr_ptrs((StgMutArrPtrs*)p);
 
-        // If we're going to put this object on the mutable list, then
-        // set its info ptr to MUT_ARR_PTRS_FROZEN0 to indicate that.
         if (gct->failed_to_evac) {
-            ((StgClosure *)q)->header.info = &stg_MUT_ARR_PTRS_FROZEN0_info;
+            ((StgClosure *)q)->header.info = &stg_MUT_ARR_PTRS_FROZEN_DIRTY_info;
         } else {
-            ((StgClosure *)q)->header.info = &stg_MUT_ARR_PTRS_FROZEN_info;
+            ((StgClosure *)q)->header.info = &stg_MUT_ARR_PTRS_FROZEN_CLEAN_info;
         }
         break;
     }
@@ -253,8 +251,8 @@ nonmoving_scavenge_one(StgClosure *q)
         break;
     }
 
-    case SMALL_MUT_ARR_PTRS_FROZEN:
-    case SMALL_MUT_ARR_PTRS_FROZEN0:
+    case SMALL_MUT_ARR_PTRS_FROZEN_CLEAN:
+    case SMALL_MUT_ARR_PTRS_FROZEN_DIRTY:
         // follow everything
     {
         StgPtr next = p + small_mut_arr_ptrs_sizeW((StgSmallMutArrPtrs*)p);
@@ -262,12 +260,10 @@ nonmoving_scavenge_one(StgClosure *q)
             evacuate((StgClosure **)p);
         }
 
-        // If we're going to put this object on the mutable list, then
-        // set its info ptr to SMALL_MUT_ARR_PTRS_FROZEN0 to indicate that.
         if (gct->failed_to_evac) {
-            ((StgClosure *)q)->header.info = &stg_SMALL_MUT_ARR_PTRS_FROZEN0_info;
+            ((StgClosure *)q)->header.info = &stg_SMALL_MUT_ARR_PTRS_FROZEN_DIRTY_info;
         } else {
-            ((StgClosure *)q)->header.info = &stg_SMALL_MUT_ARR_PTRS_FROZEN_info;
+            ((StgClosure *)q)->header.info = &stg_SMALL_MUT_ARR_PTRS_FROZEN_CLEAN_info;
         }
         break;
     }
