@@ -15,7 +15,6 @@
 enum EntryType {
     NULL_ENTRY = 0,
     MARK_CLOSURE,
-    MARK_SRT,
     MARK_FROM_SEL,
     MARK_ARRAY
 };
@@ -29,10 +28,6 @@ typedef struct {
             StgClosure **origin_field; // pointer to field where the reference was found
             StgClosure *origin_value;
         } mark_closure;
-        struct {
-            const StgSRT *srt;
-            uint32_t srt_bitmap;
-        } mark_srt;
         struct {
             StgClosure *p;
             StgWord origin_field;    // index of the referencing field
@@ -103,7 +98,6 @@ void mark_queue_push_closure(MarkQueue *q,
                              StgClosure *origin_closure,
                              StgClosure **origin_field);
 void mark_queue_push_closure_(MarkQueue *q, StgClosure *p);
-void mark_queue_push_srt(MarkQueue *q, const StgSRT *srt, uint32_t srt_bitmap);
 void mark_queue_push_thunk_srt(MarkQueue *q, const StgInfoTable *info);
 void mark_queue_push_fun_srt(MarkQueue *q, const StgInfoTable *info);
 void mark_queue_push_array(MarkQueue *q, const StgMutArrPtrs *array, StgWord start_index);

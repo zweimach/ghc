@@ -71,36 +71,22 @@ void mark_queue_push_closure_ (MarkQueue *q, StgClosure *p)
     mark_queue_push_closure(q, p, NULL, NULL);
 }
 
-void mark_queue_push_srt (MarkQueue *q,
-                          const StgSRT *srt,
-                          uint32_t srt_bitmap)
+
+void mark_queue_push_thunk_srt (MarkQueue *q, const StgInfoTable *info)
 {
-    if (srt_bitmap) {
-        MarkQueueEnt ent = {
-            .type = MARK_SRT,
-            .mark_srt = {
-                .srt = srt,
-                .srt_bitmap = srt_bitmap
-            }
-        };
-        mark_queue_push(q, &ent);
+    const StgThunkInfoTable *thunk_info = itbl_to_thunk_itbl(info);
+    if (thunk_info->i.srt) {
+        mark_queue_push_closure_(q, (StgClosure*)GET_SRT(thunk_info));
     }
 }
 
-void mark_queue_push_thunk_srt (MarkQueue *q,
-                                const StgInfoTable *info)
-{
-    const StgThunkInfoTable *thunk_info = itbl_to_thunk_itbl(info);
-    mark_queue_push_srt(q, GET_SRT(thunk_info), thunk_info->i.srt_bitmap);
-}
-
-void mark_queue_push_fun_srt (MarkQueue *q,
-                              const StgInfoTable *info)
+void mark_queue_push_fun_srt (MarkQueue *q, const StgInfoTable *info)
 {
     const StgFunInfoTable *fun_info = itbl_to_fun_itbl(info);
-    mark_queue_push_srt(q, GET_FUN_SRT(fun_info), fun_info->i.srt_bitmap);
+    if (fun_info->i.srt) {
+        mark_queue_push_closure_(q, (StgClosure*)GET_FUN_SRT(fun_info));
+    }
 }
-
 
 void mark_queue_push_array (MarkQueue *q,
                             const StgMutArrPtrs *array,
@@ -203,28 +189,12 @@ static void mark_tso (MarkQueue *queue, StgTSO *tso)
     }
 }
 
-static void mark_large_srt_bitmap (MarkQueue *queue, StgLargeSRT *large_srt)
+static void
+do_push_closure(StgClosure **p, void *user)
 {
-    // TODO
-}
-
-static GNUC_ATTR_HOT void mark_srt (MarkQueue *queue, MarkQueueEnt *ent)
-{
-    uint32_t bitmap = ent->mark_srt.srt_bitmap;
-    if (bitmap == (StgHalfWord)(-1)) {
-        mark_large_srt_bitmap(queue, (StgLargeSRT *) ent->mark_srt.srt);
-        return;
-    }
-
-    StgClosure **p = (StgClosure **) ent->mark_srt.srt;
-    while (bitmap != 0) {
-        if ((bitmap & 1) != 0) {
-            // TODO: COMPILING_WINDOWS_DLL hack
-            mark_queue_push_closure_(queue, *p);
-        }
-        p++;
-        bitmap = bitmap >> 1;
-    }
+    MarkQueue *queue = (MarkQueue *) user;
+    // TODO: Origin? need reference to containing closure
+    mark_queue_push_closure_(queue, *p);
 }
 
 static void
@@ -233,23 +203,7 @@ mark_large_bitmap (MarkQueue *queue,
                    StgLargeBitmap *large_bitmap,
                    StgWord size)
 {
-    uint32_t i, j, b;
-    StgWord bitmap;
-
-    b = 0;
-
-    for (i = 0; i < size; b++) {
-        bitmap = large_bitmap->bitmap[b];
-        j = stg_min(size-i, BITS_IN(W_));
-        i += j;
-        for (; j > 0; j--, p++) {
-            if ((bitmap & 1) == 0) {
-                // TODO: Origin? need reference to containing closure
-                mark_queue_push_closure(queue, *p, NULL, NULL);
-            }
-            bitmap = bitmap >> 1;
-        }
-    }
+    walk_large_bitmap(do_push_closure, p, large_bitmap, size, queue);
 }
 
 static void
@@ -358,7 +312,9 @@ mark_stack (MarkQueue *queue, StgPtr sp, StgPtr spBottom)
             sp += size;
         }
         follow_srt:
-            mark_queue_push_srt(queue, GET_SRT(info), info->i.srt_bitmap);
+            if (info->i.srt) {
+                mark_queue_push_closure_(queue, (StgClosure*)GET_SRT(info));
+            }
             continue;
 
         case RET_BCO: {
@@ -436,16 +392,24 @@ mark_closure (MarkQueue *queue, StgClosure *p)
         switch (type) {
 
         case THUNK_STATIC:
-            if (info->srt_bitmap != 0) {
+            if (info->srt != 0) {
                 evacuate_static_object(THUNK_STATIC_LINK((StgClosure *)p), p);
-                mark_queue_push_thunk_srt(queue, info);
+                mark_queue_push_thunk_srt(queue, info); // TODO this function repeats the check above
             }
             return;
 
         case FUN_STATIC:
-            if (info->srt_bitmap != 0) {
-                evacuate_static_object(FUN_STATIC_LINK((StgClosure *)p), p);
-                mark_queue_push_fun_srt(queue, info);
+            if (info->srt != 0 || info->layout.payload.ptrs != 0) {
+                evacuate_static_object(STATIC_LINK(info, p), p);
+                mark_queue_push_fun_srt(queue, info); // TODO this function repeats the check above
+
+                // a FUN_STATIC can also be an SRT, so it may have pointer
+                // fields.  See Note [SRTs] in CmmBuildInfoTables, specifically
+                // the [FUN] optimisation.
+                // TODO (osa) I don't understand this comment
+                for (StgHalfWord i = 0; i < info->layout.payload.ptrs; ++i) {
+                    PUSH_FIELD(p, payload[i]);
+                }
             }
             return;
 
@@ -729,16 +693,16 @@ mark_closure (MarkQueue *queue, StgClosure *p)
 
     case MUT_ARR_PTRS_CLEAN:
     case MUT_ARR_PTRS_DIRTY:
-    case MUT_ARR_PTRS_FROZEN:
-    case MUT_ARR_PTRS_FROZEN0:
+    case MUT_ARR_PTRS_FROZEN_CLEAN:
+    case MUT_ARR_PTRS_FROZEN_DIRTY:
         // TODO: Check this against Scav.c
         mark_queue_push_array(queue, (StgMutArrPtrs *) p, 0);
         break;
 
     case SMALL_MUT_ARR_PTRS_CLEAN:
     case SMALL_MUT_ARR_PTRS_DIRTY:
-    case SMALL_MUT_ARR_PTRS_FROZEN:
-    case SMALL_MUT_ARR_PTRS_FROZEN0: {
+    case SMALL_MUT_ARR_PTRS_FROZEN_CLEAN:
+    case SMALL_MUT_ARR_PTRS_FROZEN_DIRTY: {
         StgSmallMutArrPtrs *arr = (StgSmallMutArrPtrs *) p;
         StgClosure **end = arr->payload + arr->ptrs;
         for (StgClosure **i = arr->payload; i < end; i++) {
@@ -800,9 +764,6 @@ GNUC_ATTR_HOT void nonmoving_mark(MarkQueue *queue)
         switch (ent.type) {
         case MARK_CLOSURE:
             mark_closure(queue, ent.mark_closure.p);
-            break;
-        case MARK_SRT:
-            mark_srt(queue, &ent);
             break;
         case MARK_FROM_SEL:
             ASSERT(0); // TODO
@@ -962,8 +923,6 @@ void print_queue_ent(MarkQueueEnt *ent)
     if (ent->type == MARK_CLOSURE) {
         debugBelch("Closure: ");
         printClosure(ent->mark_closure.p);
-    } else if (ent->type == MARK_SRT) {
-        debugBelch("SRT: %p\n", (void*)ent->mark_srt.srt);
     } else if (ent->type == MARK_FROM_SEL) {
         debugBelch("Selector\n");
     } else if (ent->type == MARK_ARRAY) {

@@ -27,6 +27,7 @@
 #include "Sanity.h"
 #include "Capability.h"
 #include "LdvProfile.h"
+#include "HeapUtils.h"
 #include "Hash.h"
 
 #include "sm/MarkWeak.h"
@@ -54,6 +55,11 @@ static void scavenge_large_bitmap (StgPtr p,
 # define scavenge_PAP(pap) scavenge_PAP1(pap)
 # define scavenge_AP(ap) scavenge_AP1(ap)
 #endif
+
+static void do_evacuate(StgClosure **p, void *user STG_UNUSED)
+{
+    evacuate(p);
+}
 
 /* -----------------------------------------------------------------------------
    Scavenge a TSO.
@@ -1769,22 +1775,7 @@ scavenge_static(void)
 static void
 scavenge_large_bitmap( StgPtr p, StgLargeBitmap *large_bitmap, StgWord size )
 {
-    uint32_t i, j, b;
-    StgWord bitmap;
-
-    b = 0;
-
-    for (i = 0; i < size; b++) {
-        bitmap = large_bitmap->bitmap[b];
-        j = stg_min(size-i, BITS_IN(W_));
-        i += j;
-        for (; j > 0; j--, p++) {
-            if ((bitmap & 1) == 0) {
-                evacuate((StgClosure **)p);
-            }
-            bitmap = bitmap >> 1;
-        }
-    }
+    walk_large_bitmap(do_evacuate, (StgClosure **) p, large_bitmap, size, NULL);
 }
 
 
