@@ -8,10 +8,12 @@
 
 #pragma once
 
-#include "BeginPrivate.h"
+#if !defined(CMINUSMINUS)
 
 #include <string.h>
 #include "HeapAlloc.h"
+
+#include "BeginPrivate.h"
 
 // Segments
 #define NONMOVING_SEGMENT_BITS 15   // 2^15 = 32kByte
@@ -178,3 +180,5 @@ void print_thread_list(StgTSO* tso);
 #endif
 
 #include "EndPrivate.h"
+
+#endif // CMINUSMINUS
