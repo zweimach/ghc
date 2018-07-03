@@ -637,10 +637,12 @@ stg_atomicModifyMutVarzh ( gcptr mv, gcptr f )
 #endif
 
     // Add old value to upd_rem_set
-    ccall upd_rem_set_push_closure_(BaseReg "ptr",
-                                    h "ptr",
-                                    mv "ptr",
-                                    BYTES_TO_WDS(OFFSET_StgMutVar_var));
+    if (nonmoving_write_barrier_enabled != 0) {
+        ccall upd_rem_set_push_closure_(BaseReg "ptr",
+                                        h "ptr",
+                                        mv "ptr",
+                                        BYTES_TO_WDS(OFFSET_StgMutVar_var));
+    }
 
     if (GET_INFO(mv) == stg_MUT_VAR_CLEAN_info) {
         ccall dirty_MUT_VAR(BaseReg "ptr", mv "ptr");
@@ -1490,10 +1492,12 @@ stg_takeMVarzh ( P_ mvar /* :: MVar a */ )
     val = StgMVar_value(mvar);
 
     // Add val to upd_rem_set
-    ccall upd_rem_set_push_closure_(BaseReg "ptr",
-                                    val "ptr",
-                                    mvar "ptr",
-                                    BYTES_TO_WDS(OFFSET_StgMVar_value));
+    if (nonmoving_write_barrier_enabled != 0) {
+        ccall upd_rem_set_push_closure_(BaseReg "ptr",
+                                        val "ptr",
+                                        mvar "ptr",
+                                        BYTES_TO_WDS(OFFSET_StgMVar_value));
+    }
 
     q = StgMVar_head(mvar);
 loop:
@@ -1563,10 +1567,12 @@ stg_tryTakeMVarzh ( P_ mvar /* :: MVar a */ )
     val = StgMVar_value(mvar);
 
     // Add val to upd_rem_set
-    ccall upd_rem_set_push_closure_(BaseReg "ptr",
-                                    val "ptr",
-                                    mvar "ptr",
-                                    BYTES_TO_WDS(OFFSET_StgMVar_value));
+    if (nonmoving_write_barrier_enabled != 0) {
+        ccall upd_rem_set_push_closure_(BaseReg "ptr",
+                                        val "ptr",
+                                        mvar "ptr",
+                                        BYTES_TO_WDS(OFFSET_StgMVar_value));
+    }
 
     q = StgMVar_head(mvar);
 loop:

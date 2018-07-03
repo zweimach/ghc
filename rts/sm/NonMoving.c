@@ -164,6 +164,7 @@ void nonmoving_init(void)
     for (unsigned int i = 0; i < NONMOVING_ALLOCA_CNT; i++) {
         nonmoving_heap.allocators[i] = alloc_nonmoving_allocator(n_capabilities);
     }
+    nonmoving_mark_init_upd_rem_set();
 }
 
 /*

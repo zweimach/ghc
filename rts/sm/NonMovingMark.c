@@ -16,6 +16,7 @@
 #include "Weak.h"
 #include "MarkWeak.h"
 #include "Evac.h"
+#include "sm/Storage.h"
 
 
 /* Note [Large objects in the non-moving collector]
@@ -48,40 +49,104 @@ bdescr *nonmoving_marked_large_objects = NULL;
 memcount n_nonmoving_large_blocks = 0;
 memcount n_nonmoving_marked_large_blocks = 0;
 
+/* Note [Update remembered set]
+ * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ * The concurrent non-moving collector uses a remembered set to ensure
+ * that its marking is consistent with the snapshot invariant defined in
+ * the design. This remembered set, known as the update remembered set,
+ * records all pointers that have been overwritten since the beginning
+ * of the concurrent mark. It is maintained via a write barrier that
+ * is enabled whenever a concurrent mark is active.
+ *
+ * The representation of the update remembered set is the same as that of
+ * the mark queue. For efficiency, each capability maintains its own local
+ * accumulator of remembered set entries. When a capability fills its
+ * accumulator it is linked in to the global remembered set
+ * (upd_rem_set_block_list), where it is consumed by the mark phase.
+ *
+ * The mark phase is responsible for freeing update remembered set block
+ * allocations.
+ *
+ */
+static Mutex upd_rem_set_lock;
+bdescr *upd_rem_set_block_list = NULL;
+/* Indicates to mutators that the write barrier must be respected. Set while
+ * concurrent mark is running.
+ */
+bool nonmoving_write_barrier_enabled = false;
+
+/* Initialise update remembered set data structures */
+void nonmoving_mark_init_upd_rem_set() {
+    initMutex(&upd_rem_set_lock);
+}
+
+/* Transfers the given capability's update-remembered set to the global
+ * remembered set.
+ */
+static void nonmoving_add_upd_rem_set_blocks(MarkQueue *rset)
+{
+    if (mark_queue_is_empty(rset)) return;
+
+    // find the tail of the queue
+    bdescr *start = rset->blocks;
+    bdescr *end = start;
+    while (end->link != NULL)
+        end = end->link;
+
+    // add the blocks to the global remembered set
+    ACQUIRE_LOCK(&upd_rem_set_lock);
+    end->link = upd_rem_set_block_list;
+    upd_rem_set_block_list = start;
+    RELEASE_LOCK(&upd_rem_set_lock);
+
+    // Reset remembered set
+    ACQUIRE_SM_LOCK;
+    init_mark_queue(rset);
+    RELEASE_SM_LOCK;
+}
+
 // How many Array# entries to add to the mark queue at once?
 #define MARK_ARRAY_CHUNK_LENGTH 128
 
-void mark_queue_add_root(MarkQueue* q, StgClosure** root)
-{
-    mark_queue_push_closure(q, *root, NULL, 0);
-}
 
-void mark_queue_push (MarkQueue *q, const MarkQueueEnt *ent)
+/*********************************************************
+ * Pushing to either the mark queue or remembered set
+ *********************************************************/
+
+STATIC_INLINE void push (MarkQueue *q, const MarkQueueEnt *ent)
 {
     // Are we at the end of the block?
     if (q->top->head == MARK_QUEUE_BLOCK_ENTRIES) {
-        // Yes, allocate a fresh block.
-        bdescr *bd = allocGroup(1);
-        bd->link = q->blocks;
-        q->blocks = bd;
-        q->top = (MarkQueueBlock *) bd->start;
-        q->top->head = 0;
+        // Yes, this block is full.
+        if (q->is_upd_rem_set) {
+            nonmoving_add_upd_rem_set_blocks(q);
+        } else {
+            // allocate a fresh block.
+            bdescr *bd = allocGroup(1);
+            bd->link = q->blocks;
+            q->blocks = bd;
+            q->top = (MarkQueueBlock *) bd->start;
+            q->top->head = 0;
+        }
     }
 
     q->top->entries[q->top->head] = *ent;
     q->top->head++;
 }
 
-void mark_queue_push_closure (MarkQueue *q,
-                              StgClosure *p,
-                              StgClosure *origin_closure,
-                              StgWord origin_field)
+STATIC_INLINE
+void push_closure (MarkQueue *q,
+                   StgClosure *p,
+                   StgClosure *origin_closure,
+                   StgWord origin_field)
 {
     // TODO: Push this into callers where they already have the Bdescr
     if (HEAP_ALLOCED_GC(p) && (Bdescr((StgPtr) p)->gen != oldest_gen))
         return;
 
 #if defined(DEBUG)
+    LOOKS_LIKE_CLOSURE_PTR(p);
+    LOOKS_LIKE_CLOSURE_PTR(origin_closure);
     assert_in_nonmoving_heap((P_)p);
     if (origin_closure) {
         assert_in_nonmoving_heap((P_)origin_closure);
@@ -97,35 +162,13 @@ void mark_queue_push_closure (MarkQueue *q,
             .origin_value = UNTAG_CLOSURE(p)
         }
     };
-    mark_queue_push(q, &ent);
+    push(q, &ent);
 }
 
-/* Push a closure to the mark queue without origin information */
-void mark_queue_push_closure_ (MarkQueue *q, StgClosure *p)
-{
-    mark_queue_push_closure(q, p, NULL, 0);
-}
-
-
-void mark_queue_push_thunk_srt (MarkQueue *q, const StgInfoTable *info)
-{
-    const StgThunkInfoTable *thunk_info = itbl_to_thunk_itbl(info);
-    if (thunk_info->i.srt) {
-        mark_queue_push_closure_(q, (StgClosure*)GET_SRT(thunk_info));
-    }
-}
-
-void mark_queue_push_fun_srt (MarkQueue *q, const StgInfoTable *info)
-{
-    const StgFunInfoTable *fun_info = itbl_to_fun_itbl(info);
-    if (fun_info->i.srt) {
-        mark_queue_push_closure_(q, (StgClosure*)GET_FUN_SRT(fun_info));
-    }
-}
-
-void mark_queue_push_array (MarkQueue *q,
-                            const StgMutArrPtrs *array,
-                            StgWord start_index)
+STATIC_INLINE
+void push_array (MarkQueue *q,
+                 const StgMutArrPtrs *array,
+                 StgWord start_index)
 {
     MarkQueueEnt ent = {
         .type = MARK_ARRAY,
@@ -134,8 +177,156 @@ void mark_queue_push_array (MarkQueue *q,
             .start_index = start_index
         }
     };
-    mark_queue_push(q, &ent);
+    push(q, &ent);
 }
+
+STATIC_INLINE
+void push_thunk_srt (MarkQueue *q, const StgInfoTable *info)
+{
+    const StgThunkInfoTable *thunk_info = itbl_to_thunk_itbl(info);
+    if (thunk_info->i.srt) {
+        push_closure(q, (StgClosure*)GET_SRT(thunk_info), NULL, 0);
+    }
+}
+
+STATIC_INLINE
+void push_fun_srt (MarkQueue *q, const StgInfoTable *info)
+{
+    const StgFunInfoTable *fun_info = itbl_to_fun_itbl(info);
+    if (fun_info->i.srt) {
+        push_closure(q, (StgClosure*)GET_FUN_SRT(fun_info), NULL, 0);
+    }
+}
+
+/*********************************************************
+ * Pushing to the update remembered set
+ *********************************************************/
+
+/* Push the free variables of a (now-evaluated) thunk to the
+ * update remembered set.
+ */
+void upd_rem_set_push_thunk(Capability *cap, StgThunk *origin)
+{
+    // TODO: Eliminate this conditional once it's folded into codegen
+    if (!nonmoving_write_barrier_enabled) return;
+    const StgInfoTable *info = get_itbl((StgClosure*)origin);
+    switch (info->type) {
+    case THUNK:
+    case THUNK_1_0:
+    case THUNK_0_1:
+    case THUNK_2_0:
+    case THUNK_1_1:
+    case THUNK_0_2:
+    {
+        MarkQueue *queue = &cap->upd_rem_set.queue;
+        push_thunk_srt(queue, info);
+        for (StgWord i = 0; i < info->layout.payload.ptrs; i++) {
+            push_closure(queue,
+                         origin->payload[i],
+                         (StgClosure*)origin,
+                         i);
+        }
+        break;
+    }
+    case THUNK_SELECTOR:
+    case BLACKHOLE:
+        // TODO: This is right, right?
+        break;
+    default:
+        barf("upd_rem_set_push_thunk: invalid thunk pushed: p=%p, type=%d", origin, info->type);
+    }
+
+}
+
+void upd_rem_set_push_thunk_(StgRegTable *reg, StgThunk *origin)
+{
+    // TODO: Eliminate this conditional once it's folded into codegen
+    if (!nonmoving_write_barrier_enabled) return;
+    upd_rem_set_push_thunk(regTableToCapability(reg), origin);
+}
+
+void upd_rem_set_push_closure_(StgRegTable *reg,
+                               StgClosure *p,
+                               StgClosure *origin_closure,
+                               StgWord origin_field)
+{
+    // TODO: Eliminate this conditional once it's folded into codegen
+    if (!nonmoving_write_barrier_enabled) return;
+    MarkQueue *queue = &regTableToCapability(reg)->upd_rem_set.queue;
+    push_closure(queue, p, origin_closure, origin_field);
+}
+
+void upd_rem_set_push_tso(Capability *cap, StgTSO *tso)
+{
+    // TODO: Eliminate this conditional once it's folded into codegen
+    if (!nonmoving_write_barrier_enabled) return;
+    if (Bdescr((StgPtr) tso)->gen != oldest_gen) return;
+    if (nonmoving_get_closure_mark_bit((StgPtr) tso)) return;
+    mark_tso(&cap->upd_rem_set.queue, tso);
+}
+
+void upd_rem_set_push_stack(Capability *cap, StgStack *stack)
+{
+    // TODO: Eliminate this conditional once it's folded into codegen
+    if (!nonmoving_write_barrier_enabled) return;
+    if (Bdescr((StgPtr) stack)->gen != oldest_gen) return;
+    if (nonmoving_get_closure_mark_bit((StgPtr) stack)) return;
+    mark_stack(&cap->upd_rem_set.queue, stack);
+}
+
+int count_global_upd_rem_set_blocks()
+{
+    return countBlocks(upd_rem_set_block_list);
+}
+/*********************************************************
+ * Pushing to the mark queue
+ *********************************************************/
+
+void mark_queue_push (MarkQueue *q, const MarkQueueEnt *ent)
+{
+    push(q, ent);
+}
+
+void mark_queue_push_closure (MarkQueue *q,
+                              StgClosure *p,
+                              StgClosure *origin_closure,
+                              StgWord origin_field)
+{
+    push_closure(q, p, origin_closure, origin_field);
+}
+
+/* TODO: Do we really never want to specify the origin here? */
+void mark_queue_add_root(MarkQueue* q, StgClosure** root)
+{
+    mark_queue_push_closure(q, *root, NULL, 0);
+}
+
+/* Push a closure to the mark queue without origin information */
+void mark_queue_push_closure_ (MarkQueue *q, StgClosure *p)
+{
+    mark_queue_push_closure(q, p, NULL, 0);
+}
+
+void mark_queue_push_fun_srt (MarkQueue *q, const StgInfoTable *info)
+{
+    push_fun_srt(q, info);
+}
+
+void mark_queue_push_thunk_srt (MarkQueue *q, const StgInfoTable *info)
+{
+    push_thunk_srt(q, info);
+}
+
+void mark_queue_push_array (MarkQueue *q,
+                            const StgMutArrPtrs *array,
+                            StgWord start_index)
+{
+    push_array(q, array, start_index);
+}
+
+/*********************************************************
+ * Popping from the mark queue
+ *********************************************************/
 
 // Returns invalid MarkQueueEnt if queue is empty.
 static MarkQueueEnt mark_queue_pop(MarkQueue *q)
@@ -175,6 +366,10 @@ again:
     return ent;
 }
 
+/*********************************************************
+ * Creating and destroying MarkQueues and UpdRemSets
+ *********************************************************/
+
 /* Must hold sm_mutex. */
 void init_mark_queue(MarkQueue *queue)
 {
@@ -182,6 +377,7 @@ void init_mark_queue(MarkQueue *queue)
     queue->blocks = bd;
     queue->top = (MarkQueueBlock *) bd->start;
     queue->top->head = 0;
+    queue->is_upd_rem_set = false;
     queue->marked_objects = allocHashTable();
 
 #if MARK_PREFETCH_QUEUE_DEPTH > 0
@@ -189,6 +385,13 @@ void init_mark_queue(MarkQueue *queue)
     memset(queue->prefetch_queue, 0,
            MARK_PREFETCH_QUEUE_DEPTH * sizeof(MarkQueueEnt));
 #endif
+}
+
+/* Must hold sm_mutex. */
+void init_upd_rem_set(UpdRemSet *rset)
+{
+    init_mark_queue(&rset->queue);
+    rset->queue.is_upd_rem_set = true;
 }
 
 void free_mark_queue(MarkQueue *queue)
@@ -202,6 +405,10 @@ void free_mark_queue(MarkQueue *queue)
     }
     freeHashTable(queue->marked_objects, NULL);
 }
+
+/*********************************************************
+ * Marking
+ *********************************************************/
 
 static void mark_tso (MarkQueue *queue, StgTSO *tso)
 {
