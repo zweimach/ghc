@@ -285,7 +285,7 @@ void storageAddCapabilities (uint32_t from, uint32_t to)
     // Initialize UpdRemSets
     if (RtsFlags.GcFlags.useNonmoving) {
         for (i = 0; i < to; ++i) {
-            init_mark_queue(&capabilities[i]->upd_rem_set);
+            init_upd_rem_set(&capabilities[i]->upd_rem_set);
         }
     }
 
