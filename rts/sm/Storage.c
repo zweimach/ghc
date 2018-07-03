@@ -172,7 +172,8 @@ initStorage (void)
   oldest_gen->to = oldest_gen;
 
   // Nonmoving heap uses oldest_gen so initialize it after initializing oldest_gen
-  nonmoving_init();
+  if (RtsFlags.GcFlags.useNonmoving)
+      nonmoving_init();
 
 #if defined(THREADED_RTS)
   // nonmoving_add_capabilities allocates segments, which requires taking the gc
@@ -180,7 +181,8 @@ initStorage (void)
   initSpinLock(&gc_alloc_block_sync);
 #endif
 
-  nonmoving_add_capabilities(n_capabilities);
+  if (RtsFlags.GcFlags.useNonmoving)
+      nonmoving_add_capabilities(n_capabilities);
 
   /* The oldest generation has one step. */
   if (RtsFlags.GcFlags.compact || RtsFlags.GcFlags.sweep) {
@@ -281,8 +283,10 @@ void storageAddCapabilities (uint32_t from, uint32_t to)
     }
 
     // Initialize UpdRemSets
-    for (i = 0; i < to; ++i) {
-        init_mark_queue(&capabilities[i]->upd_rem_set);
+    if (RtsFlags.GcFlags.useNonmoving) {
+        for (i = 0; i < to; ++i) {
+            init_mark_queue(&capabilities[i]->upd_rem_set);
+        }
     }
 
 #if defined(THREADED_RTS) && defined(llvm_CC_FLAVOR) && (CC_SUPPORTS_TLS == 0)
