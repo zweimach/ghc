@@ -30,6 +30,7 @@
 #include "RetainerProfile.h"
 #include "CNF.h"
 #include "sm/NonMoving.h"
+#include "sm/NonMovingMark.h"
 
 /* -----------------------------------------------------------------------------
    Forward decls.
@@ -833,10 +834,12 @@ findMemoryLeak (void)
     for (i = 0; i < n_capabilities; i++) {
         markBlocks(gc_threads[i]->free_blocks);
         markBlocks(capabilities[i]->pinned_object_block);
-        markBlocks(capabilities[i]->upd_rem_set.blocks);
+        markBlocks(capabilities[i]->upd_rem_set.queue.blocks);
     }
+    markBlocks(upd_rem_set_block_list);
 
     if (RtsFlags.GcFlags.useNonmoving) {
+        markBlocks(upd_rem_set_block_list);
         markBlocks(nonmoving_large_objects);
         markBlocks(nonmoving_marked_large_objects);
         for (i = 0; i < NONMOVING_ALLOCA_CNT; i++) {
@@ -994,8 +997,9 @@ memInventory (bool show)
 
   // count UpdRemSet blocks
   for (i = 0; i < n_capabilities; ++i) {
-      upd_rem_set_blocks += countBlocks(capabilities[i]->upd_rem_set.blocks);
+      upd_rem_set_blocks += countBlocks(capabilities[i]->upd_rem_set.queue.blocks);
   }
+  upd_rem_set_blocks += count_global_upd_rem_set_blocks();
 
   // count nonmoving blocks
   if (RtsFlags.GcFlags.useNonmoving) {

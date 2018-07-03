@@ -109,8 +109,6 @@
 uint32_t N;
 bool major_gc;
 
-bool upd_rem_set = true;
-
 /* Data used for allocation area sizing.
  */
 static W_ g0_pcnt_kept = 30; // percentage of g0 live at last minor GC
