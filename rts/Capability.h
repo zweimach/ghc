@@ -27,12 +27,6 @@
 
 #include "BeginPrivate.h"
 
-void upd_rem_set_push_thunk(Capability *cap, StgThunk *origin);
-
-void upd_rem_set_push_thunk_(StgRegTable *reg, StgThunk *origin);
-// Debug only -- count number of entries in UpdRemSet
-int count_upd_rem_set(Capability* cap);
-
 struct Capability_ {
     // State required by the STG virtual machine when running Haskell
     // code.  During STG execution, the BaseReg register always points
@@ -91,7 +85,8 @@ struct Capability_ {
     bdescr **mut_lists;
     bdescr **saved_mut_lists; // tmp use during GC
 
-    MarkQueue upd_rem_set;
+    // The update remembered set for the non-moving collector
+    UpdRemSet upd_rem_set;
 
     // block for allocating pinned objects into
     bdescr *pinned_object_block;
