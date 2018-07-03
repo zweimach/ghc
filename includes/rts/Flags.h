@@ -52,6 +52,7 @@ typedef struct _GC_FLAGS {
     double  oldGenFactor;
     double  pcFreeHeap;
 
+    bool         useNonmoving;
     uint32_t     generations;
     bool squeezeUpdFrames;
 

@@ -470,7 +470,8 @@ GarbageCollect (uint32_t collect_gen,
   // NO MORE EVACUATION AFTER THIS POINT!
 
   // Mark and sweep the oldest generation
-  nonmoving_collect();
+  if (RtsFlags.GcFlags.useNonmoving)
+      nonmoving_collect();
 
   copied = 0;
   par_max_copied = 0;
@@ -1340,7 +1341,7 @@ prepare_collected_gen (generation *gen)
 
     g = gen->no;
 
-    if (g == oldest_gen->no) {
+    if (RtsFlags.GcFlags.useNonmoving && g == oldest_gen->no) {
         // Nonmoving heap's mutable list is always a root.
         for (i = 0; i < n_capabilities; i++) {
             stash_mut_list(capabilities[i], g);

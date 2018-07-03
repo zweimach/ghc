@@ -832,15 +832,17 @@ findMemoryLeak (void)
         markBlocks(capabilities[i]->upd_rem_set.blocks);
     }
 
-    for (i = 0; i < NONMOVING_ALLOCA_CNT; i++) {
-        struct nonmoving_allocator *alloc = nonmoving_heap.allocators[i];
-        markNonMovingSegments(alloc->filled);
-        markNonMovingSegments(alloc->active);
-        for (j = 0; j < n_capabilities; j++) {
-            markNonMovingSegments(alloc->current[j]);
+    if (RtsFlags.GcFlags.useNonmoving) {
+        for (i = 0; i < NONMOVING_ALLOCA_CNT; i++) {
+            struct nonmoving_allocator *alloc = nonmoving_heap.allocators[i];
+            markNonMovingSegments(alloc->filled);
+            markNonMovingSegments(alloc->active);
+            for (j = 0; j < n_capabilities; j++) {
+                markNonMovingSegments(alloc->current[j]);
+            }
         }
+        markNonMovingSegments(nonmoving_heap.free);
     }
-    markNonMovingSegments(nonmoving_heap.free);
 
 #if defined(PROFILING)
   // TODO:
@@ -990,10 +992,12 @@ memInventory (bool show)
   }
 
   // count nonmoving blocks
-  for (int alloc_idx = 0; alloc_idx < NONMOVING_ALLOCA_CNT; alloc_idx++) {
-      nonmoving_blocks += countNonMovingAllocator(nonmoving_heap.allocators[alloc_idx]);
+  if (RtsFlags.GcFlags.useNonmoving) {
+      for (int alloc_idx = 0; alloc_idx < NONMOVING_ALLOCA_CNT; alloc_idx++) {
+          nonmoving_blocks += countNonMovingAllocator(nonmoving_heap.allocators[alloc_idx]);
+      }
+      nonmoving_blocks += countNonMovingSegments(nonmoving_heap.free);
   }
-  nonmoving_blocks += countNonMovingSegments(nonmoving_heap.free);
 
   live_blocks = 0;
   for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
