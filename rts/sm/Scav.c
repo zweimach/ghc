@@ -1557,7 +1557,10 @@ scavenge_mutable_list(bdescr *bd, generation *gen)
             p = (StgPtr)*q;
             ASSERT(LOOKS_LIKE_CLOSURE_PTR(p));
 
-            if (gen == oldest_gen && HEAP_ALLOCED_GC(p) && !(Bdescr(p)->flags | BF_LARGE)) {
+            if (RtsFlags.GcFlags.useNonmoving
+                && gen == oldest_gen
+                && HEAP_ALLOCED_GC(p)
+                && !(Bdescr(p)->flags | BF_LARGE)) {
                 nonmoving_set_closure_mark_bit(p);
             }
 
@@ -1628,7 +1631,7 @@ scavenge_mutable_list(bdescr *bd, generation *gen)
                 ;
             }
 
-            if (major_gc && gen == oldest_gen) {
+            if (RtsFlags.GcFlags.useNonmoving && major_gc && gen == oldest_gen) {
                 // We can't use scavenge_one here as we need to scavenge SRTs
                 nonmoving_scavenge_one((StgClosure *)p);
             } else if (scavenge_one(p)) {

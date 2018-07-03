@@ -299,7 +299,7 @@ evacuate_large(StgPtr p)
    */
   new_gen_no = bd->dest_no;
 
-  if (major_gc) {
+  if (RtsFlags.GcFlags.useNonmoving && major_gc) {
       new_gen_no = oldest_gen->no;
   } else if (new_gen_no < gct->evac_gen_no) {
       if (gct->eager_promotion) {
@@ -313,7 +313,7 @@ evacuate_large(StgPtr p)
   new_gen = &generations[new_gen_no];
 
   bd->flags |= BF_EVACUATED;
-  if (new_gen == oldest_gen) {
+  if (RtsFlags.GcFlags.useNonmoving && new_gen == oldest_gen) {
       bd->flags |= BF_NONMOVING;
   }
   initBdescr(bd, new_gen, new_gen->to);

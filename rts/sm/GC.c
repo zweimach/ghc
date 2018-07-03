@@ -1340,7 +1340,7 @@ prepare_collected_gen (generation *gen)
 
     g = gen->no;
 
-    if (g == oldest_gen->no) {
+    if (RtsFlags.GcFlags.useNonmoving && g == oldest_gen->no) {
         // Nonmoving heap's mutable list is always a root.
         for (i = 0; i < n_capabilities; i++) {
             stash_mut_list(capabilities[i], g);

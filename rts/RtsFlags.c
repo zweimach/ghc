@@ -153,6 +153,7 @@ void initRtsFlagsDefaults(void)
     RtsFlags.GcFlags.heapSizeSuggestionAuto = false;
     RtsFlags.GcFlags.pcFreeHeap         = 3;    /* 3% */
     RtsFlags.GcFlags.oldGenFactor       = 2;
+    RtsFlags.GcFlags.useNonmoving       = false;
     RtsFlags.GcFlags.generations        = 2;
     RtsFlags.GcFlags.squeezeUpdFrames   = true;
     RtsFlags.GcFlags.compact            = false;
@@ -290,6 +291,7 @@ usage_text[] = {
 "  -xb<addr> Sets the address from which a suitable start for the heap memory",
 "            will be searched from. This is useful if the default address",
 "            clashes with some third-party library.",
+"  -xn       Use the non-moving collector for the old generation.",
 "  -m<n>     Minimum % of heap which must be available (default 3%)",
 "  -G<n>     Number of generations (default: 2)",
 "  -c<n>     Use in-place compaction instead of copying in the oldest generation",
@@ -1489,6 +1491,10 @@ error = true;
                     }
                     break;
 #endif
+
+                case 'n':
+                    RtsFlags.GcFlags.useNonmoving = true;
+                    break;
 
                 case 'c': /* Debugging tool: show current cost centre on
                            an exception */
