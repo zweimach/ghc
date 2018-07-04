@@ -765,9 +765,6 @@ GNUC_ATTR_HOT void nonmoving_mark(MarkQueue *queue)
         case MARK_CLOSURE:
             mark_closure(queue, ent.mark_closure.p);
             break;
-        case MARK_FROM_SEL:
-            ASSERT(0); // TODO
-            break;
         case MARK_ARRAY: {
             const StgMutArrPtrs *arr = ent.mark_array.array;
             StgWord start = ent.mark_array.start_index;
@@ -923,8 +920,6 @@ void print_queue_ent(MarkQueueEnt *ent)
     if (ent->type == MARK_CLOSURE) {
         debugBelch("Closure: ");
         printClosure(ent->mark_closure.p);
-    } else if (ent->type == MARK_FROM_SEL) {
-        debugBelch("Selector\n");
     } else if (ent->type == MARK_ARRAY) {
         debugBelch("Array\n");
     } else {
