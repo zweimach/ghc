@@ -43,6 +43,7 @@
 #include "Messages.h"
 #include "Stable.h"
 #include "TopHandler.h"
+#include "sm/NonMoving.h"
 
 #if defined(HAVE_SYS_TYPES_H)
 #include <sys/types.h>
@@ -129,7 +130,6 @@ static void scheduleYield (Capability **pcap, Task *task);
 static bool requestSync (Capability **pcap, Task *task,
                          PendingSync *sync_type, SyncType *prev_sync_type);
 static void acquireAllCapabilities(Capability *cap, Task *task);
-static void releaseAllCapabilities(uint32_t n, Capability *cap, Task *task);
 static void startWorkerTasks (uint32_t from USED_IF_THREADS,
                               uint32_t to USED_IF_THREADS);
 #endif
@@ -1365,13 +1365,18 @@ scheduleNeedHeapProfile( bool ready_to_gc )
  * -------------------------------------------------------------------------- */
 
 #if defined(THREADED_RTS)
-static void stopAllCapabilities (Capability **pCap, Task *task)
+void stopAllCapabilities (Capability **pCap, Task *task)
+{
+    stopAllCapabilitiesWith(pCap, task, SYNC_OTHER);
+}
+
+void stopAllCapabilitiesWith (Capability **pCap, Task *task, SyncType sync_type)
 {
     bool was_syncing;
     SyncType prev_sync_type;
 
     PendingSync sync = {
-        .type = SYNC_OTHER,
+        .type = sync_type,
         .idle = NULL,
         .task = task
     };
@@ -1482,7 +1487,7 @@ static void acquireAllCapabilities(Capability *cap, Task *task)
  * -------------------------------------------------------------------------- */
 
 #if defined(THREADED_RTS)
-static void releaseAllCapabilities(uint32_t n, Capability *cap, Task *task)
+void releaseAllCapabilities(uint32_t n, Capability *cap, Task *task)
 {
     uint32_t i;
 
@@ -1529,6 +1534,11 @@ scheduleDoGC (Capability **pcap, Task *task USED_IF_THREADS,
     }
 
     heap_census = scheduleNeedHeapProfile(true);
+
+    // Request that the non-moving mark suspend, if one is running.
+    if (RtsFlags.GcFlags.useNonmoving) {
+        nonmoving_suspend_mark();
+    }
 
     // Figure out which generation we are collecting, so that we can
     // decide whether this is a parallel GC or not.
@@ -1924,6 +1934,10 @@ delete_threads_and_gc:
         releaseAllCapabilities(n_capabilities, cap, task);
     }
 #endif
+
+    if (RtsFlags.GcFlags.useNonmoving) {
+        nonmoving_resume_mark();
+    }
 
     return;
 }

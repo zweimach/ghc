@@ -293,9 +293,9 @@ initCapability (Capability *cap, uint32_t i)
                                           "initCapability");
 
 
-    // At this point storage manager not initialized yet, so this is
+    // At this point storage manager is not initialized yet, so this will be
     // initialized in initStorage().
-    cap->upd_rem_set.blocks = NULL;
+    cap->upd_rem_set.queue.blocks = NULL;
 
     for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
         cap->mut_lists[g] = NULL;
@@ -647,7 +647,7 @@ enqueueWorker (Capability* cap USED_IF_THREADS)
 
 #if defined(THREADED_RTS)
 
-static Capability * waitForWorkerCapability (Task *task)
+Capability * waitForWorkerCapability (Task *task)
 {
     Capability *cap;
 
@@ -846,6 +846,9 @@ void waitForCapability (Capability **pCap, Task *task)
  *      SYNC_GC_PAR), either to do a sequential GC, forkProcess, or
  *      setNumCapabilities.  We should give up the Capability temporarily.
  *
+ * When yieldCapability returns *pCap will have been updated to the new
+ * capability held by the caller.
+ *
  * ------------------------------------------------------------------------- */
 
 #if defined (THREADED_RTS)
@@ -861,16 +864,27 @@ yieldCapability (Capability** pCap, Task *task, bool gcAllowed)
     {
         PendingSync *sync = pending_sync;
 
-        if (sync && sync->type == SYNC_GC_PAR) {
-            if (! sync->idle[cap->no]) {
-                traceEventGcStart(cap);
-                gcWorkerThread(cap);
-                traceEventGcEnd(cap);
-                traceSparkCounters(cap);
-                // See Note [migrated bound threads 2]
-                if (task->cap == cap) {
-                    return true;
+        if (sync) {
+            switch (sync->type) {
+            case SYNC_GC_PAR:
+                if (! sync->idle[cap->no]) {
+                    traceEventGcStart(cap);
+                    gcWorkerThread(cap);
+                    traceEventGcEnd(cap);
+                    traceSparkCounters(cap);
+                    // See Note [migrated bound threads 2]
+                    if (task->cap == cap) {
+                        return true;
+                    }
                 }
+                break;
+
+            case SYNC_FLUSH_UPD_REM_SET:
+                nonmoving_flush_cap_upd_rem_set_blocks(cap);
+                break;
+
+            default:
+                break;
             }
         }
     }
@@ -1246,34 +1260,3 @@ setIOManagerControlFd(uint32_t cap_no USED_IF_THREADS, int fd USED_IF_THREADS) {
 #endif
 }
 #endif
-
-void upd_rem_set_push_thunk(Capability *cap, StgThunk *origin)
-{
-    const StgInfoTable *info = get_itbl((StgClosure*)origin);
-    mark_queue_push_thunk_srt(&cap->upd_rem_set, info);
-    mark_queue_push_closure(&cap->upd_rem_set,
-                            origin->payload[0],
-                            (StgClosure*)origin,
-                            &origin->payload[0]);
-}
-
-void upd_rem_set_push_thunk_(StgRegTable *reg, StgThunk *origin)
-{
-    upd_rem_set_push_thunk(regTableToCapability(reg), origin);
-}
-
-void upd_rem_set_push_closure_(StgRegTable *reg,
-                               StgClosure *p,
-                               StgClosure *origin_closure,
-                               StgWord origin_field)
-{
-    MarkQueue *upd_rem_set = &regTableToCapability(reg)->upd_rem_set;
-    mark_queue_push_closure(upd_rem_set, p, origin_closure, origin_field);
-}
-
-int count_upd_rem_set(Capability *cap)
-{
-    MarkQueue *upd_rem_set = &cap->upd_rem_set;
-    return countBlocks(upd_rem_set->blocks->link) * MARK_QUEUE_BLOCK_ENTRIES
-        + upd_rem_set->top->head;
-}

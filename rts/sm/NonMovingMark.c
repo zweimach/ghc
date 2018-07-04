@@ -9,10 +9,12 @@
 #include "Rts.h"
 #include "NonMovingMark.h"
 #include "NonMoving.h"
+#include "BlockAlloc.h"
 #include "HeapAlloc.h"
 #include "Task.h"
 #include "HeapUtils.h"
 #include "Printer.h"
+#include "Schedule.h"
 #include "Weak.h"
 #include "MarkWeak.h"
 #include "Evac.h"
@@ -20,31 +22,156 @@
 // How many Array# entries to add to the mark queue at once?
 #define MARK_ARRAY_CHUNK_LENGTH 128
 
-void mark_queue_add_root(MarkQueue* q, StgClosure** root)
-{
-    mark_queue_push_closure(q, *root, NULL, 0);
+static Mutex upd_rem_set_lock;
+bdescr *upd_rem_set_blocks = NULL;
+/* Used during the mark/sweep phase transition to track how many capabilities
+ * have pushed their update remembered sets. Protected by upd_rem_set_lock.
+ */
+static StgWord upd_rem_set_flush_count = 0;
+
+/* Signaled by each capability when it has flushed its update remembered set */
+static Condition upd_rem_set_flushed_cond;
+/* Signaled when all capabilities have flushed their update remembered sets;
+ * waited upon by capabilities synchronizing with the non-moving collector.
+ */
+static Condition upd_rem_set_flush_done_cond;
+
+/* Indicates to mutators that the write barrier must be respected. Set while
+ * concurrent mark is running.
+ */
+bool nonmoving_write_barrier_enabled = false;
+
+/* Used to provide the current mark queue to the young generation
+ * collector for scavenging.
+ */
+MarkQueue *current_mark_queue = NULL;
+
+/* Initialise update remembered set data structures */
+void nonmoving_mark_init_upd_rem_set() {
+    initMutex(&upd_rem_set_lock);
+    initCondition(&upd_rem_set_flushed_cond);
+    initCondition(&upd_rem_set_flush_done_cond);
 }
 
-void mark_queue_push (MarkQueue *q, const MarkQueueEnt *ent)
+/* Note [Update remembered set]
+ * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ * The concurrent non-moving collector uses a remembered set to ensure
+ * that its marking is consistent with the snapshot invariant defined in
+ * the design. This remembered set, known as the update remembered set,
+ * records all pointers that have been overwritten since the beginning
+ * of the concurrent mark. It is maintained via a write barrier that
+ * is enabled whenever a concurrent mark is active.
+ *
+ * The representation of the update remembered set is the same as that of
+ * the mark queue. For efficiency, each capability maintains its own local
+ * accumulator of remembered set entries. When a capability fills its
+ * accumulator it is linked in to the global remembered set
+ * (upd_rem_set_blocks), where it is consumed by the mark phase.
+ *
+ * The mark phase is responsible for freeing update remembered set block
+ * allocations.
+ *
+ */
+
+enum push_type { PUSH_MARK_QUEUE, PUSH_UPD_REM_SET };
+
+/* Transfers the given Must hold sm_mutex. */
+static void nonmoving_add_upd_rem_set_blocks(MarkQueue *rset)
+{
+    // find the tail of the queue
+    bdescr *start = rset->blocks;
+    bdescr *end = start;
+    while (end->link != NULL)
+        end = end->link;
+
+    // add the blocks to the global remembered set
+    ACQUIRE_LOCK(&upd_rem_set_lock);
+    end->link = upd_rem_set_blocks;
+    upd_rem_set_blocks = start;
+    RELEASE_LOCK(&upd_rem_set_lock);
+    init_mark_queue(rset);
+}
+
+#if defined(CONCURRENT_MARK)
+/* Called by capabilities to flush their update remembered sets when
+ * synchronising with the non-moving collector as it transitions from mark to
+ * sweep phase.
+ */
+void nonmoving_flush_cap_upd_rem_set_blocks(Capability *cap)
+{
+    nonmoving_add_upd_rem_set_blocks(&cap->upd_rem_set.queue);
+    atomic_inc(&upd_rem_set_flush_count, 1);
+    signalCondition(&upd_rem_set_flushed_cond);
+
+    // Wait until all threads have synchronised
+    ACQUIRE_LOCK(&upd_rem_set_lock);
+    waitCondition(&upd_rem_set_flush_done_cond, &upd_rem_set_lock);
+    RELEASE_LOCK(&upd_rem_set_lock);
+}
+
+/* Request that all capabilities flush their update remembered sets and suspend
+ * execution until the further notice.
+ */
+void nonmoving_begin_flush(Capability **cap, Task *task)
+{
+    upd_rem_set_flush_count = 0;
+    stopAllCapabilitiesWith(cap, task, SYNC_FLUSH_UPD_REM_SET);
+}
+
+/* Wait until a capability has flushed its update remembered set. Returns true
+ * if all capabilities have flushed.
+ */
+bool nonmoving_wait_for_flush()
+{
+    bool finished;
+    ACQUIRE_LOCK(&upd_rem_set_lock);
+    waitCondition(&upd_rem_set_flushed_cond, &upd_rem_set_lock);
+    finished = upd_rem_set_flush_count == n_capabilities;
+    RELEASE_LOCK(&upd_rem_set_lock);
+    return finished;
+}
+
+/* Notify capabilities that the synchronisation is finished; they may resume
+ * execution.
+ */
+void nonmoving_finish_flush(const Capability *cap, Task *task)
+{
+    broadcastCondition(&upd_rem_set_flush_done_cond);
+    releaseAllCapabilities(n_capabilities, cap, task);
+}
+#endif
+
+/*********************************************************
+ * Pushing to either the mark queue or remembered set
+ *********************************************************/
+
+STATIC_INLINE void push (MarkQueue *q, const MarkQueueEnt *ent, enum push_type push_type)
 {
     // Are we at the end of the block?
     if (q->top->head == MARK_QUEUE_BLOCK_ENTRIES) {
-        // Yes, allocate a fresh block.
-        bdescr *bd = allocGroup(1);
-        bd->link = q->blocks;
-        q->blocks = bd;
-        q->top = (MarkQueueBlock *) bd->start;
-        q->top->head = 0;
+        // Yes, this block is full.
+        if (push_type == PUSH_UPD_REM_SET) {
+            nonmoving_add_upd_rem_set_blocks(q);
+        } else {
+            // allocate a fresh block.
+            bdescr *bd = allocGroup(1);
+            bd->link = q->blocks;
+            q->blocks = bd;
+            q->top = (MarkQueueBlock *) bd->start;
+            q->top->head = 0;
+        }
     }
 
     q->top->entries[q->top->head] = *ent;
     q->top->head++;
 }
 
-void mark_queue_push_closure (MarkQueue *q,
-                              StgClosure *p,
-                              StgClosure *origin_closure,
-                              StgWord origin_field)
+STATIC_INLINE
+void push_closure (MarkQueue *q,
+                   StgClosure *p,
+                   StgClosure *origin_closure,
+                   StgWord origin_field,
+                   enum push_type push_type)
 {
 #if defined(DEBUG)
     assert_in_nonmoving_heap((P_)p);
@@ -62,35 +189,14 @@ void mark_queue_push_closure (MarkQueue *q,
             .origin_value = p
         }
     };
-    mark_queue_push(q, &ent);
+    push(q, &ent, push_type);
 }
 
-/* Push a closure to the mark queue without origin information */
-void mark_queue_push_closure_ (MarkQueue *q, StgClosure *p)
-{
-    mark_queue_push_closure(q, p, NULL, 0);
-}
-
-
-void mark_queue_push_thunk_srt (MarkQueue *q, const StgInfoTable *info)
-{
-    const StgThunkInfoTable *thunk_info = itbl_to_thunk_itbl(info);
-    if (thunk_info->i.srt) {
-        mark_queue_push_closure_(q, (StgClosure*)GET_SRT(thunk_info));
-    }
-}
-
-void mark_queue_push_fun_srt (MarkQueue *q, const StgInfoTable *info)
-{
-    const StgFunInfoTable *fun_info = itbl_to_fun_itbl(info);
-    if (fun_info->i.srt) {
-        mark_queue_push_closure_(q, (StgClosure*)GET_FUN_SRT(fun_info));
-    }
-}
-
-void mark_queue_push_array (MarkQueue *q,
-                            const StgMutArrPtrs *array,
-                            StgWord start_index)
+STATIC_INLINE
+void push_array (MarkQueue *q,
+                 const StgMutArrPtrs *array,
+                 StgWord start_index,
+                 enum push_type push_type)
 {
     MarkQueueEnt ent = {
         .type = MARK_ARRAY,
@@ -99,8 +205,119 @@ void mark_queue_push_array (MarkQueue *q,
             .start_index = start_index
         }
     };
-    mark_queue_push(q, &ent);
+    push(q, &ent, push_type);
 }
+
+STATIC_INLINE
+void push_thunk_srt (MarkQueue *q, const StgInfoTable *info, enum push_type push_type)
+{
+    const StgThunkInfoTable *thunk_info = itbl_to_thunk_itbl(info);
+    if (thunk_info->i.srt) {
+        push_closure(q, (StgClosure*)GET_SRT(thunk_info), NULL, 0, push_type);
+    }
+}
+
+STATIC_INLINE
+void push_fun_srt (MarkQueue *q, const StgInfoTable *info, enum push_type push_type)
+{
+    const StgFunInfoTable *fun_info = itbl_to_fun_itbl(info);
+    if (fun_info->i.srt) {
+        push_closure(q, (StgClosure*)GET_FUN_SRT(fun_info), NULL, 0, push_type);
+    }
+}
+
+/*********************************************************
+ * Pushing to the update remembered set
+ *********************************************************/
+
+void upd_rem_set_push_thunk(Capability *cap, StgThunk *origin)
+{
+    // TODO: Eliminate this conditional once it's folded into codegen
+    if (!nonmoving_write_barrier_enabled) return;
+    const StgInfoTable *info = get_itbl((StgClosure*)origin);
+    MarkQueue *queue = &cap->upd_rem_set.queue;
+    push_thunk_srt(queue, info, PUSH_UPD_REM_SET);
+    push_closure(queue,
+                 origin->payload[0],
+                 (StgClosure*)origin,
+                 0,
+                 PUSH_UPD_REM_SET);
+}
+
+void upd_rem_set_push_thunk_(StgRegTable *reg, StgThunk *origin)
+{
+    // TODO: Eliminate this conditional once it's folded into codegen
+    if (!nonmoving_write_barrier_enabled) return;
+    upd_rem_set_push_thunk(regTableToCapability(reg), origin);
+}
+
+void upd_rem_set_push_closure_(StgRegTable *reg,
+                               StgClosure *p,
+                               StgClosure *origin_closure,
+                               StgWord origin_field)
+{
+    // TODO: Eliminate this conditional once it's folded into codegen
+    if (!nonmoving_write_barrier_enabled) return;
+    MarkQueue *queue = &regTableToCapability(reg)->upd_rem_set.queue;
+    push_closure(queue, p, origin_closure, origin_field, PUSH_UPD_REM_SET);
+}
+
+int count_upd_rem_set(Capability *cap)
+{
+    MarkQueue *upd_rem_set = &cap->upd_rem_set.queue;
+    return countBlocks(upd_rem_set->blocks->link) * MARK_QUEUE_BLOCK_ENTRIES
+        + upd_rem_set->top->head;
+}
+
+/*********************************************************
+ * Pushing to the mark queue
+ *********************************************************/
+
+void mark_queue_push (MarkQueue *q, const MarkQueueEnt *ent)
+{
+    push(q, ent, PUSH_MARK_QUEUE);
+}
+
+void mark_queue_push_closure (MarkQueue *q,
+                              StgClosure *p,
+                              StgClosure *origin_closure,
+                              StgWord origin_field)
+{
+    push_closure(q, p, origin_closure, origin_field, PUSH_MARK_QUEUE);
+}
+
+/* TODO: Do we really never want to specify the origin here? */
+void mark_queue_add_root(MarkQueue* q, StgClosure** root)
+{
+    mark_queue_push_closure(q, *root, NULL, 0);
+}
+
+/* Push a closure to the mark queue without origin information */
+void mark_queue_push_closure_ (MarkQueue *q, StgClosure *p)
+{
+    mark_queue_push_closure(q, p, NULL, 0);
+}
+
+void mark_queue_push_fun_srt (MarkQueue *q, const StgInfoTable *info)
+{
+    push_fun_srt(q, info, PUSH_MARK_QUEUE);
+}
+
+void mark_queue_push_thunk_srt (MarkQueue *q, const StgInfoTable *info)
+{
+    push_thunk_srt(q, info, PUSH_MARK_QUEUE);
+}
+
+void mark_queue_push_array (MarkQueue *q,
+                            const StgMutArrPtrs *array,
+                            StgWord start_index)
+{
+    push_array(q, array, start_index, PUSH_MARK_QUEUE);
+}
+
+/*********************************************************
+ * Popping from the mark queue
+ *********************************************************/
 
 // Returns invalid MarkQueueEnt if queue is empty.
 static MarkQueueEnt mark_queue_pop(MarkQueue *q)
@@ -140,6 +357,10 @@ again:
     return ent;
 }
 
+/*********************************************************
+ * Creating and destroying MarkQueues and UpdRemSets
+ *********************************************************/
+
 /* Must hold sm_mutex. */
 void init_mark_queue(MarkQueue *queue)
 {
@@ -156,6 +377,12 @@ void init_mark_queue(MarkQueue *queue)
 #endif
 }
 
+/* Must hold sm_mutex. */
+void init_upd_rem_set(UpdRemSet *rset)
+{
+    init_mark_queue(&rset->queue);
+}
+
 void free_mark_queue(MarkQueue *queue)
 {
     bdescr* b = queue->blocks;
@@ -167,6 +394,10 @@ void free_mark_queue(MarkQueue *queue)
     }
     freeHashTable(queue->marked_objects, NULL);
 }
+
+/*********************************************************
+ * Marking
+ *********************************************************/
 
 static void mark_tso (MarkQueue *queue, StgTSO *tso)
 {
@@ -759,6 +990,9 @@ mark_closure (MarkQueue *queue, StgClosure *p)
 GNUC_ATTR_HOT void nonmoving_mark(MarkQueue *queue)
 {
     while (true) {
+        // suspend marking if moving collection needs to run
+        nonmoving_yield_mark(queue);
+
         MarkQueueEnt ent = mark_queue_pop(queue);
 
         switch (ent.type) {

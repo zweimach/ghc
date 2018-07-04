@@ -8,9 +8,11 @@
 
 #pragma once
 
-#include "BeginPrivate.h"
-
 #include "Hash.h"
+#include "Task.h"
+#include "NonMoving.h"
+
+#include "BeginPrivate.h"
 
 enum EntryType {
     NULL_ENTRY = 0,
@@ -69,8 +71,34 @@ typedef struct MarkQueue_ {
 #endif
 } MarkQueue;
 
+/* While it shares its representation with MarkQueue, UpdRemSet differs in
+ * behavior when pushing; namely full chunks are immediately pushed to the
+ * global update remembered set, not accumulated into a chain. We make this
+ * distinction apparent in the types.
+ */
+typedef struct {
+    MarkQueue queue;
+} UpdRemSet;
+
 // The length of MarkQueueBlock.entries
 #define MARK_QUEUE_BLOCK_ENTRIES ((BLOCK_SIZE - sizeof(MarkQueueBlock)) / sizeof(MarkQueueEnt))
+
+extern bool nonmoving_write_barrier_enabled;
+
+void nonmoving_mark_init_upd_rem_set(void);
+
+void init_upd_rem_set(UpdRemSet *rset);
+void upd_rem_set_push_thunk(Capability *cap, StgThunk *origin);
+void upd_rem_set_push_thunk_(StgRegTable *reg, StgThunk *origin);
+// Debug only -- count number of entries in UpdRemSet
+int count_upd_rem_set(Capability* cap);
+
+#if defined(CONCURRENT_MARK)
+void nonmoving_flush_cap_upd_rem_set_blocks(Capability *cap);
+void nonmoving_begin_flush(Capability **cap, Task *task);
+bool nonmoving_wait_for_flush(void);
+void nonmoving_finish_flush(const Capability *cap, Task *task);
+#endif
 
 void mark_queue_add_root(MarkQueue* q, StgClosure** root);
 

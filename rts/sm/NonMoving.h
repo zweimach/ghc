@@ -12,8 +12,13 @@
 
 #include <string.h>
 #include "HeapAlloc.h"
+#include "NonMovingMark.h"
 
 #include "BeginPrivate.h"
+
+#if defined(THREADED_RTS)
+#define CONCURRENT_MARK
+#endif
 
 // Segments
 #define NONMOVING_SEGMENT_BITS 15   // 2^15 = 32kByte
@@ -165,6 +170,45 @@ INLINE_HEADER bool nonmoving_get_closure_mark_bit(StgPtr p)
 {
     return nonmoving_get_mark_bit(nonmoving_get_segment(p), nonmoving_get_block_idx(p));
 }
+
+struct MarkQueue_;
+
+#if defined(CONCURRENT_MARK)
+extern Mutex gc_mutex;
+extern bool pause_nonmoving_mark;
+extern struct MarkQueue_ *current_mark_queue;
+
+/* Called by mark to possibly yield to a young generation collection */
+INLINE_HEADER void nonmoving_yield_mark(struct MarkQueue_ *mark_queue)
+{
+    if (pause_nonmoving_mark) {
+        current_mark_queue = mark_queue;
+        RELEASE_LOCK(&gc_mutex);
+        while (pause_nonmoving_mark) {}
+        // young generation collection runs here
+        ACQUIRE_LOCK(&gc_mutex);
+        current_mark_queue = NULL;
+    }
+}
+
+/* Called by the young generation GC to pause an on-going non-moving mark */
+INLINE_HEADER void nonmoving_suspend_mark(void)
+{
+    pause_nonmoving_mark = true;
+    ACQUIRE_LOCK(&gc_mutex);
+    pause_nonmoving_mark = false;
+}
+
+/* Called by the young generation GC to resume an non-moving mark */
+INLINE_HEADER void nonmoving_resume_mark(void)
+{
+    RELEASE_LOCK(&gc_mutex);
+}
+#else
+INLINE_HEADER void nonmoving_yield_mark(struct MarkQueue_ *mark_queue STG_UNUSED) {}
+INLINE_HEADER void nonmoving_suspend_mark(void) {}
+INLINE_HEADER void nonmoving_resume_mark(void) {}
+#endif
 
 #if defined(DEBUG)
 

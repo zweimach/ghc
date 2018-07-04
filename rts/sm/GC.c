@@ -109,8 +109,6 @@
 uint32_t N;
 bool major_gc;
 
-bool upd_rem_set = true;
-
 /* Data used for allocation area sizing.
  */
 static W_ g0_pcnt_kept = 30; // percentage of g0 live at last minor GC
@@ -853,6 +851,11 @@ GarbageCollect (uint32_t collect_gen,
 #if defined(DEBUG)
   // check for memory leaks if DEBUG is on
   memInventory(DEBUG_gc);
+#endif
+
+#if defined(CONCURRENT_MARK)
+  if (RtsFlags.GcFlags.useNonmoving)
+      scavenge_upd_rem_set();
 #endif
 
   // ok, GC over: tell the stats department what happened.

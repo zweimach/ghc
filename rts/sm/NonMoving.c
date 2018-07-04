@@ -13,6 +13,7 @@
 #include "Storage.h"
 #include "GCThread.h"
 #include "GCTDecl.h"
+#include "Schedule.h"
 
 #include "NonMoving.h"
 #include "NonMovingMark.h"
@@ -25,6 +26,62 @@
 struct nonmoving_heap nonmoving_heap;
 
 struct nonmoving_segment * const END_NONMOVING_TODO_LIST = (struct nonmoving_segment*)1;
+
+#if defined(THREADED_RTS)
+/*
+ * This mutex ensures that only one non-moving collection is active at a time.
+ */
+Mutex nonmoving_collection_mutex;
+
+/*
+ * This mutex ensures mutual exclusion between the concurrent non-moving mark
+ * phase and the younger-generation moving collections. The mark phase holds this
+ * most of duration it is running but yields it to the younger generation if
+ * requested (see nonmoving_yield_mark).
+ */
+Mutex gc_mutex;
+#endif
+
+/*
+ * This is used to signal to an on-going mark that it should suspend itself so
+ * a younger-generation collection can run.
+ */
+bool pause_nonmoving_mark = false;
+
+#if defined(CONCURRENT_MARK)
+OSThreadId mark_thread;
+bool concurrent_coll_running = false;
+Condition concurrent_coll_finished;
+Mutex concurrent_coll_finished_lock;
+#endif
+
+/* Note [Concurrent non-moving collection]
+ * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ * Concurrency-control of non-moving garbage collection is a bit tricky. There
+ * are a few things to keep in mind:
+ *
+ *  - Only one non-moving collection may be active at a time. This is enforced by the
+ *    concurrent_coll_running flag, which is set when a collection is on-going. If
+ *    we attempt to initiate a new collection while this is set we wait on the
+ *    concurrent_coll_finished condition variable, which signals when the
+ *    active collection finishes.
+ *
+ *  - The non-moving collector must yield to younger generation collections. This
+ *    is enforced by the gc_mutex, which is held by either the young generation
+ *    collector or non-moving collector. The pause_nonmoving_mark flag is used by the
+ *    young generation to signal to the non-moving collector that it should yield.
+ *
+ *  - In between the mark and sweep phases the non-moving collector must synchronize
+ *    with mutator threads to collect and mark their final update remembered
+ *    sets. This is accomplished using stopAllCapabilities.
+ *
+ */
+
+static void* nonmoving_concurrent_mark(void *mark_queue);
+
+/* Signals to mutators that they should stop to synchronize with the nonmoving
+ * collector so it can proceed to sweep phase. */
+bool nonmoving_syncing = false;
 
 static void nonmoving_init_segment(struct nonmoving_segment *seg, uint8_t block_size)
 {
@@ -160,10 +217,19 @@ static struct nonmoving_allocator *alloc_nonmoving_allocator(uint32_t n_caps)
 
 void nonmoving_init(void)
 {
+#if defined(THREADED_RTS)
+    initMutex(&gc_mutex);
+    initMutex(&nonmoving_collection_mutex);
     initMutex(&nonmoving_heap.mutex);
+#endif
+#if defined(CONCURRENT_MARK)
+    initCondition(&concurrent_coll_finished);
+    initMutex(&concurrent_coll_finished_lock);
+#endif
     for (unsigned int i = 0; i < NONMOVING_ALLOCA_CNT; i++) {
         nonmoving_heap.allocators[i] = alloc_nonmoving_allocator(n_capabilities);
     }
+    nonmoving_mark_init_upd_rem_set();
 }
 
 /*
@@ -254,24 +320,33 @@ void nonmoving_collect()
 {
     if (!major_gc) return;
 
+    // We can't start a new collection until the old one has finished
+#if defined(CONCURRENT_MARK)
+    if (concurrent_coll_running) {
+        ACQUIRE_LOCK(&concurrent_coll_finished_lock);
+        waitCondition(&concurrent_coll_finished, &concurrent_coll_finished_lock);
+        RELEASE_LOCK(&concurrent_coll_finished_lock);
+    }
+#endif
+
     nonmoving_clear_all_bitmaps();
 
-    MarkQueue mark_queue;
-    init_mark_queue(&mark_queue);
+    MarkQueue *mark_queue = stgMallocBytes(sizeof(MarkQueue), "mark queue");
+    init_mark_queue(mark_queue);
 
     // Mark roots
-    markCAFs((evac_fn)mark_queue_add_root, &mark_queue);
+    markCAFs((evac_fn)mark_queue_add_root, mark_queue);
     for (unsigned int n = 0; n < n_capabilities; ++n) {
-        markCapability((evac_fn)mark_queue_add_root, &mark_queue,
+        markCapability((evac_fn)mark_queue_add_root, mark_queue,
                 capabilities[n], true/*don't mark sparks*/);
     }
-    markScheduler((evac_fn)mark_queue_add_root, &mark_queue);
-    nonmoving_mark_weak_ptr_list(&mark_queue);
-    markStablePtrTable((evac_fn)mark_queue_add_root, &mark_queue);
+    markScheduler((evac_fn)mark_queue_add_root, mark_queue);
+    nonmoving_mark_weak_ptr_list(mark_queue);
+    markStablePtrTable((evac_fn)mark_queue_add_root, mark_queue);
 
     // Mark threads resurrected during moving heap scavenging
     for (StgTSO *tso = resurrected_threads; tso != END_TSO_QUEUE; tso = tso->global_link) {
-        mark_queue_push_closure_(&mark_queue, (StgClosure*)tso);
+        mark_queue_push_closure_(mark_queue, (StgClosure*)tso);
     }
 
     // Roots marked, mark threads and weak pointers
@@ -294,51 +369,126 @@ void nonmoving_collect()
     oldest_gen->old_weak_ptr_list = oldest_gen->weak_ptr_list;
     oldest_gen->weak_ptr_list = NULL;
 
-    {
-threads:
+    // We are now safe to start concurrent marking
+#if defined(CONCURRENT_MARK)
+    concurrent_coll_running = true;
+    nonmoving_write_barrier_enabled = true;
+    createOSThread(&mark_thread, "non-moving mark thread",
+                   nonmoving_concurrent_mark, mark_queue);
+#else
+    nonmoving_concurrent_mark(mark_queue);
+#endif
+}
+
+/* Mark mark queue, threads, and weak pointers until no more weaks have been
+ * resuscitated
+ */
+static void nonmoving_mark_threads_weaks(MarkQueue *mark_queue)
+{
+    while (true) {
+        nonmoving_yield_mark(mark_queue);
+
         // Propagate marks
-        nonmoving_mark(&mark_queue);
+        nonmoving_mark(mark_queue);
 
         // Mark threads and weaks
-        nonmoving_mark_threads(&mark_queue);
+        nonmoving_mark_threads(mark_queue);
 
-        if (nonmoving_mark_weaks(&mark_queue)) {
-            goto threads;
-        }
+        if (! nonmoving_mark_weaks(mark_queue))
+            return;
+    }
+}
 
-        // NOTE: This should be called only once otherwise it corrupts lists
-        // (hard to debug)
-        nonmoving_resurrect_threads(&mark_queue);
+static void* nonmoving_concurrent_mark(void *data)
+{
+    MarkQueue *mark_queue = (MarkQueue *) data;
+    ACQUIRE_LOCK(&gc_mutex);
 
-        // No more resurrecting threads after this point
-weaks:
+#if defined(CONCURRENT_MARK)
+    Task *task = newBoundTask();
+    Capability *cap = waitForWorkerCapability(task);
+
+    // Do concurrent marking; most of the heap will get marked here.
+    nonmoving_mark_threads_weaks(mark_queue);
+
+    // Gather final remembered sets from mutators and mark them
+    nonmoving_begin_flush(&cap, task);
+
+    bool all_caps_syncd;
+    do {
+        all_caps_syncd = nonmoving_wait_for_flush();
+        nonmoving_mark_threads_weaks(mark_queue);
+    } while (!all_caps_syncd);
+#else
+    nonmoving_mark_threads_weaks(mark_queue);
+#endif
+
+    // NOTE: This should be called only once otherwise it corrupts lists
+    // (hard to debug)
+    nonmoving_resurrect_threads(mark_queue);
+
+    // No more resurrecting threads after this point
+
+    // Do last marking of weak pointers
+    while (true) {
         // Propagate marks
-        nonmoving_mark(&mark_queue);
+        nonmoving_mark(mark_queue);
 
-        if (nonmoving_mark_weaks(&mark_queue)) {
-            goto weaks;
-        }
-
-        nonmoving_mark_dead_weaks(&mark_queue);
-
-        // Propagate marks
-        nonmoving_mark(&mark_queue);
+        if (!nonmoving_mark_weaks(mark_queue))
+            break;
     }
 
-    ASSERT(mark_queue.top->head == 0);
-    ASSERT(mark_queue.blocks->link == NULL);
+    nonmoving_mark_dead_weaks(mark_queue);
+
+    // Propagate marks
+    nonmoving_mark(mark_queue);
+
+    ASSERT(mark_queue->top->head == 0);
+    ASSERT(mark_queue->blocks->link == NULL);
+
+    // Everything has been marked; allow the mutators to proceed
+#if defined(CONCURRENT_MARK)
+    nonmoving_finish_flush(cap, task);
+    nonmoving_write_barrier_enabled = false;
+#endif
+    // After this point young generation collections can proceed without
+    // intervention from the non-moving mark.
+    RELEASE_LOCK(&gc_mutex);
+
+    /****************************************************
+     * Sweep
+     ****************************************************/
 
     // Because we can't mark large object blocks (no room for mark bit) we
     // collect them in a map in mark_queue and we pass it here to sweep large
     // objects
-    nonmoving_sweep_large_objects(mark_queue.marked_objects);
-    nonmoving_sweep_mut_lists(mark_queue.marked_objects);
-    nonmoving_sweep_stable_name_table(mark_queue.marked_objects);
-    free_mark_queue(&mark_queue);
+    nonmoving_sweep_large_objects(mark_queue->marked_objects);
+    nonmoving_sweep_mut_lists(mark_queue->marked_objects);
+    nonmoving_sweep_stable_name_table(mark_queue->marked_objects);
+
+    free_mark_queue(mark_queue);
+    stgFree(mark_queue);
 
     nonmoving_sweep();
     ASSERT(nonmoving_heap.sweep_list == NULL);
+
+#if defined(CONCURRENT_MARK)
+    // Signal that the concurrent collection is finished, allowing the next
+    // non-moving collection to proceed
+    concurrent_coll_running = false;
+    signalCondition(&concurrent_coll_finished);
+#endif
+    RELEASE_LOCK(&nonmoving_collection_mutex);
+
+#if defined(CONCURRENT_MARK)
+    // Release resources
+    releaseCapability(cap);
+    boundTaskExiting(task);
+    freeMyTask();
+#endif
+    return NULL;
 }
+
 
 #if defined(DEBUG)
 

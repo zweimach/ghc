@@ -829,7 +829,7 @@ findMemoryLeak (void)
     for (i = 0; i < n_capabilities; i++) {
         markBlocks(gc_threads[i]->free_blocks);
         markBlocks(capabilities[i]->pinned_object_block);
-        markBlocks(capabilities[i]->upd_rem_set.blocks);
+        markBlocks(capabilities[i]->upd_rem_set.queue.blocks);
     }
 
     if (RtsFlags.GcFlags.useNonmoving) {
@@ -988,7 +988,7 @@ memInventory (bool show)
 
   // count UpdRemSet blocks
   for (i = 0; i < n_capabilities; ++i) {
-      upd_rem_set_blocks += countBlocks(capabilities[i]->upd_rem_set.blocks);
+      upd_rem_set_blocks += countBlocks(capabilities[i]->upd_rem_set.queue.blocks);
   }
 
   // count nonmoving blocks

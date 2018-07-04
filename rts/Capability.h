@@ -27,12 +27,6 @@
 
 #include "BeginPrivate.h"
 
-void upd_rem_set_push_thunk(Capability *cap, StgThunk *origin);
-
-void upd_rem_set_push_thunk_(StgRegTable *reg, StgThunk *origin);
-// Debug only -- count number of entries in UpdRemSet
-int count_upd_rem_set(Capability* cap);
-
 struct Capability_ {
     // State required by the STG virtual machine when running Haskell
     // code.  During STG execution, the BaseReg register always points
@@ -91,7 +85,7 @@ struct Capability_ {
     bdescr **mut_lists;
     bdescr **saved_mut_lists; // tmp use during GC
 
-    MarkQueue upd_rem_set;
+    UpdRemSet upd_rem_set;
 
     // block for allocating pinned objects into
     bdescr *pinned_object_block;
@@ -265,7 +259,8 @@ extern Capability **capabilities;
 typedef enum {
     SYNC_OTHER,
     SYNC_GC_SEQ,
-    SYNC_GC_PAR
+    SYNC_GC_PAR,
+    SYNC_FLUSH_UPD_REM_SET
 } SyncType;
 
 //
@@ -301,6 +296,8 @@ EXTERN_INLINE void recordMutableCap (const StgClosure *p, Capability *cap,
 EXTERN_INLINE void recordClosureMutated (Capability *cap, StgClosure *p);
 
 #if defined(THREADED_RTS)
+
+Capability * waitForWorkerCapability (Task *task);
 
 // Gives up the current capability IFF there is a higher-priority
 // thread waiting for it.  This happens in one of two ways:

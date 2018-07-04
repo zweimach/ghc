@@ -2,6 +2,7 @@
 #include "RtsUtils.h"
 #include "NonMoving.h"
 #include "NonMovingScav.h"
+#include "NonMovingMark.h"
 #include "Capability.h"
 #include "Scav.h"
 #include "Evac.h"
@@ -363,3 +364,54 @@ scavenge_nonmoving_segment(struct nonmoving_segment *seg)
         seg_block->u.scan = (P_)(((uint8_t*)seg_block->u.scan) + nonmoving_segment_block_size(seg));
     }
 }
+
+#if defined(CONCURRENT_MARK)
+static void
+scavenge_mark_queue_entry(MarkQueueEnt *ent) {
+    switch (ent->type) {
+    case MARK_CLOSURE:
+        evacuate(&ent->mark_closure.p);
+        evacuate(&ent->mark_closure.origin);
+        evacuate(&ent->mark_closure.origin_value);
+        break;
+
+    case MARK_ARRAY:
+        evacuate((StgClosure **) &ent->mark_array.array);
+        break;
+
+    default:
+        barf("unknown mark queue entry");
+    }
+}
+
+static void
+scavenge_mark_queue_blocks(bdescr *blocks) {
+    while (blocks) {
+        MarkQueueBlock *block = (MarkQueueBlock *) blocks->start;
+        for (uint32_t i=0; i < block->head; i++) {
+            scavenge_mark_queue_entry(&block->entries[i]);
+        }
+        blocks = blocks->link;
+    }
+}
+
+// Defined in NonMovingMark.c
+extern bdescr *upd_rem_set_blocks;
+
+void
+scavenge_upd_rem_set()
+{
+    if (current_mark_queue) {
+        scavenge_mark_queue_blocks(current_mark_queue->blocks);
+        scavenge_mark_queue_blocks(upd_rem_set_blocks);
+        for (uint32_t i=0; i < n_capabilities; i++) {
+            scavenge_mark_queue_blocks(capabilities[i]->upd_rem_set.queue.blocks);
+        }
+    }
+}
+
+#else
+
+void scavenge_upd_rem_set() {}
+
+#endif
