@@ -87,6 +87,13 @@ extern "C" {
 
 #define sizeofW(t) ROUNDUP_BYTES_TO_WDS(sizeof(t))
 
+/* Support for Ward static analyser */
+#if defined(WARD)
+#define WARD_PERM(...) __attribute__((ward(__VA_ARGS__)))
+#else
+#define WARD_PERM(...)
+#endif
+
 /* -----------------------------------------------------------------------------
    Assertions and Debuggery
 

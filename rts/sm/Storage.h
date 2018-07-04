@@ -32,7 +32,14 @@ void storageAddCapabilities (uint32_t from, uint32_t to);
 extern Mutex sm_mutex;
 #endif
 
-#if defined(THREADED_RTS)
+#if defined(WARD)
+#define ACQUIRE_SM_LOCK _acquire_sm_lock()
+#define RELEASE_SM_LOCK _release_sm_lock()
+void _acquire_sm_lock()
+    WARD_PERM(grant(sm_lock_held), need(take_sm_lock), revoke(take_sm_lock));
+void _release_sm_lock()
+    WARD_PERM(need(sm_lock_held), revoke(sm_lock_held), grant(take_sm_lock));
+#elif defined(THREADED_RTS)
 #define ACQUIRE_SM_LOCK   ACQUIRE_LOCK(&sm_mutex);
 #define RELEASE_SM_LOCK   RELEASE_LOCK(&sm_mutex);
 #define ASSERT_SM_LOCK()  ASSERT_LOCK_HELD(&sm_mutex);

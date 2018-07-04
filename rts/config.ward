@@ -1,0 +1,9 @@
+sm_lock_held      "assume the storage manager lock is held";
+take_sm_lock      "the ability to take the storage manager lock"
+  -> ! sm_lock_held;
+
+.enforce "sm/NonMovingMark.c";
+.enforce "sm/NonMovingMark.h";
+.enforce "sm/BlockAlloc.c";
+.enforce "rts/sm/BlockAlloc.h";
+.enforce "Block.h";

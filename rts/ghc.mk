@@ -638,3 +638,15 @@ $(eval $(call clean-target,rts,dist,rts/dist))
 
 BINDIST_EXTRAS += rts/package.conf.in
 
+
+# -----------------------------------------------------------------------------
+# static analysis via ward
+
+WARD ?= ward
+
+rts/ward : $(addsuffix .ward.graph,$(addprefix ,$(rts_C_SRCS)))
+	$(WARD) $(CC) --mode=compiler --config=rts/config.ward $+
+
+# Depend on object file to ensure rebuilds if header dependencies change.
+rts/%.c.ward.graph : rts/%.c rts/dist/build/%.o rts/config.ward
+	$(WARD) $(CC) --mode=graph -q --config=rts/config.ward $(addprefix -P,$(rts_PACKAGE_CPP_OPTS)) $(addprefix -P,$(filter -I%,$(rts_CC_OPTS))) -P-DWARD $< > $@

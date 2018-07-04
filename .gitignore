@@ -14,6 +14,7 @@ Thumbs.db
 *.rej
 *.patch
 *.stackdump
+*.ward.graph
 
 *.hi
 *.hi-boot

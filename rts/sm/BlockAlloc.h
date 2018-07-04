@@ -10,8 +10,10 @@
 
 #include "BeginPrivate.h"
 
-bdescr *allocLargeChunk (W_ min, W_ max);
-bdescr *allocLargeChunkOnNode (uint32_t node, W_ min, W_ max);
+bdescr *allocLargeChunk (W_ min, W_ max)
+    WARD_PERM(need(sm_lock_held));
+bdescr *allocLargeChunkOnNode (uint32_t node, W_ min, W_ max)
+    WARD_PERM(need(sm_lock_held));
 
 /* Debugging  -------------------------------------------------------------- */
 

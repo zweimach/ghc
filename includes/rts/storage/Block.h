@@ -280,37 +280,49 @@ extern void initBlockAllocator(void);
 
 /* Allocation -------------------------------------------------------------- */
 
-bdescr *allocGroup(W_ n);
+bdescr *allocGroup(W_ n)
+    WARD_PERM(need(sm_lock_held));
 
-EXTERN_INLINE bdescr* allocBlock(void);
+EXTERN_INLINE bdescr* allocBlock(void)
+    WARD_PERM(need(sm_lock_held));
 EXTERN_INLINE bdescr* allocBlock(void)
 {
     return allocGroup(1);
 }
 
-bdescr *allocGroupOnNode(uint32_t node, W_ n);
+bdescr *allocGroupOnNode(uint32_t node, W_ n)
+    WARD_PERM(need(sm_lock_held));
 
-EXTERN_INLINE bdescr* allocBlockOnNode(uint32_t node);
+EXTERN_INLINE bdescr* allocBlockOnNode(uint32_t node)
+    WARD_PERM(need(sm_lock_held));
 EXTERN_INLINE bdescr* allocBlockOnNode(uint32_t node)
 {
     return allocGroupOnNode(node,1);
 }
 
 // versions that take the storage manager lock for you:
-bdescr *allocGroup_lock(W_ n);
-bdescr *allocBlock_lock(void);
+bdescr *allocGroup_lock(W_ n)
+    WARD_PERM(need(take_sm_lock));
+bdescr *allocBlock_lock(void)
+    WARD_PERM(need(take_sm_lock));
 
-bdescr *allocGroupOnNode_lock(uint32_t node, W_ n);
-bdescr *allocBlockOnNode_lock(uint32_t node);
+bdescr *allocGroupOnNode_lock(uint32_t node, W_ n)
+    WARD_PERM(need(take_sm_lock));
+bdescr *allocBlockOnNode_lock(uint32_t node)
+    WARD_PERM(need(take_sm_lock));
 
 /* De-Allocation ----------------------------------------------------------- */
 
-void freeGroup(bdescr *p);
-void freeChain(bdescr *p);
+void freeGroup(bdescr *p)
+    WARD_PERM(need(sm_lock_held));
+void freeChain(bdescr *p)
+    WARD_PERM(need(sm_lock_held));
 
 // versions that take the storage manager lock for you:
-void freeGroup_lock(bdescr *p);
-void freeChain_lock(bdescr *p);
+void freeGroup_lock(bdescr *p)
+    WARD_PERM(need(take_sm_lock));
+void freeChain_lock(bdescr *p)
+    WARD_PERM(need(take_sm_lock));
 
 bdescr * splitBlockGroup (bdescr *bd, uint32_t blocks);
 

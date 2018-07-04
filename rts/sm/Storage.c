@@ -880,7 +880,7 @@ allocateMightFail (Capability *cap, W_ n)
         // Only credit allocation after we've passed the size check above
         accountAllocation(cap, n);
 
-        ACQUIRE_SM_LOCK
+        ACQUIRE_SM_LOCK;
         bd = allocGroupOnNode(cap->node,req_blocks);
         dbl_link_onto(bd, &g0->large_objects);
         g0->n_large_blocks += bd->blocks; // might be larger than req_blocks
@@ -1438,7 +1438,7 @@ void freeExec (AdjustorExecutable addr)
     writable = *((void**)addr - 1);
     ACQUIRE_SM_LOCK;
     ffi_closure_free (writable);
-    RELEASE_SM_LOCK
+    RELEASE_SM_LOCK;
 }
 
 #elif defined(ios_HOST_OS)
@@ -1485,7 +1485,7 @@ void freeExec(AdjustorExecutable exec)
     ACQUIRE_SM_LOCK;
     removeHashTable(allocatedExecs, (StgWord)exec, writ);
     ffi_closure_free(cl);
-    RELEASE_SM_LOCK
+    RELEASE_SM_LOCK;
 }
 
 #else
@@ -1561,7 +1561,7 @@ void freeExec (void *addr)
         }
     }
 
-    RELEASE_SM_LOCK
+    RELEASE_SM_LOCK;
 }
 
 #endif /* switch(HOST_OS) */
