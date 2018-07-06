@@ -1267,7 +1267,7 @@ void upd_rem_set_push_thunk_(StgRegTable *reg, StgThunk *origin)
 void upd_rem_set_push_closure_(StgRegTable *reg,
                                StgClosure *p,
                                StgClosure *origin_closure,
-                               StgClosure **origin_field)
+                               StgWord origin_field)
 {
     (void)reg;
     (void)p;
