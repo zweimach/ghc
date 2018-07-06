@@ -18,5 +18,5 @@ extern DLL_IMPORT_RTS
 void upd_rem_set_push_closure_(StgRegTable *reg,
                                StgClosure *p,
                                StgClosure *origin_closure,
-                               StgClosure **origin_field);
+                               StgWord origin_field);
 

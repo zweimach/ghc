@@ -22,7 +22,7 @@
 
 void mark_queue_add_root(MarkQueue* q, StgClosure** root)
 {
-    mark_queue_push_closure(q, *root, NULL, NULL);
+    mark_queue_push_closure(q, *root, NULL, 0);
 }
 
 void mark_queue_push (MarkQueue *q, const MarkQueueEnt *ent)
@@ -44,7 +44,7 @@ void mark_queue_push (MarkQueue *q, const MarkQueueEnt *ent)
 void mark_queue_push_closure (MarkQueue *q,
                               StgClosure *p,
                               StgClosure *origin_closure,
-                              StgClosure **origin_field)
+                              StgWord origin_field)
 {
 #if defined(DEBUG)
     assert_in_nonmoving_heap((P_)p);
@@ -68,7 +68,7 @@ void mark_queue_push_closure (MarkQueue *q,
 /* Push a closure to the mark queue without origin information */
 void mark_queue_push_closure_ (MarkQueue *q, StgClosure *p)
 {
-    mark_queue_push_closure(q, p, NULL, NULL);
+    mark_queue_push_closure(q, p, NULL, 0);
 }
 
 
@@ -212,7 +212,7 @@ mark_small_bitmap (MarkQueue *queue, StgClosure **p, StgWord size, StgWord bitma
     while (size > 0) {
         if ((bitmap & 1) == 0) {
             // TODO: Origin?
-            mark_queue_push_closure(queue, *p, NULL, NULL);
+            mark_queue_push_closure(queue, *p, NULL, 0);
         }
         p++;
         bitmap = bitmap >> 1;
@@ -368,7 +368,7 @@ mark_closure (MarkQueue *queue, StgClosure *p)
         mark_queue_push_closure(queue,                           \
                                 (StgClosure *) (obj)->field,     \
                                 p,                               \
-                                (StgClosure **) &(obj)->field)
+                                ((StgClosure **) &(obj)->field) - (StgClosure **) (obj))
 
     ASSERT(!IS_FORWARDING_PTR(p->header.info));
 
@@ -613,9 +613,9 @@ mark_closure (MarkQueue *queue, StgClosure *p)
 
     case THUNK: {
         mark_queue_push_thunk_srt(queue, info);
-        StgClosure **end = (StgClosure **) ((StgThunk *)p)->payload + info->layout.payload.ptrs;
-        for (StgClosure **field = (StgClosure **) ((StgThunk *)p)->payload; field < end; field++) {
-            mark_queue_push_closure(queue, *field, p, field);
+        for (StgWord i = 0; i < info->layout.payload.ptrs; i++) {
+            StgClosure *field = ((StgThunk *) p)->payload[i];
+            mark_queue_push_closure(queue, field, p, i);
         }
         break;
     }
@@ -626,9 +626,9 @@ mark_closure (MarkQueue *queue, StgClosure *p)
     case WEAK:
     case PRIM:
     {
-        StgClosure **end = (StgClosure **) ((StgClosure *)p)->payload + info->layout.payload.ptrs;
-        for (StgClosure **field = (StgClosure **) ((StgClosure *)p)->payload; field < end; field++) {
-            mark_queue_push_closure(queue, *field, p, field);
+        for (StgWord i = 0; i < info->layout.payload.ptrs; i++) {
+            StgClosure *field = ((StgClosure *) p)->payload[i];
+            mark_queue_push_closure(queue, field, p, i);
         }
         break;
     }
@@ -704,9 +704,9 @@ mark_closure (MarkQueue *queue, StgClosure *p)
     case SMALL_MUT_ARR_PTRS_FROZEN_CLEAN:
     case SMALL_MUT_ARR_PTRS_FROZEN_DIRTY: {
         StgSmallMutArrPtrs *arr = (StgSmallMutArrPtrs *) p;
-        StgClosure **end = arr->payload + arr->ptrs;
-        for (StgClosure **i = arr->payload; i < end; i++) {
-            mark_queue_push_closure(queue, *i, p, i);
+        for (StgWord i = 0; i < arr->ptrs; i++) {
+            StgClosure *field = arr->payload[i];
+            mark_queue_push_closure(queue, field, p, i);
         }
         break;
     }
@@ -723,7 +723,7 @@ mark_closure (MarkQueue *queue, StgClosure *p)
 
     case MUT_PRIM: {
         for (StgHalfWord p_idx = 0; p_idx < info->layout.payload.ptrs; ++p_idx) {
-            mark_queue_push_closure(queue, p->payload[p_idx], p, &p->payload[p_idx]);
+            mark_queue_push_closure(queue, p->payload[p_idx], p, p_idx);
         }
         break;
     }
