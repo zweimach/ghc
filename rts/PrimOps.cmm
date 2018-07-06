@@ -640,7 +640,7 @@ stg_atomicModifyMutVarzh ( gcptr mv, gcptr f )
     ccall upd_rem_set_push_closure_(BaseReg "ptr",
                                     h "ptr",
                                     mv "ptr",
-                                    (mv + SIZEOF_StgHeader + OFFSET_StgMutVar_var) "ptr");
+                                    BYTES_TO_WDS(OFFSET_StgMutVar_var));
 
     if (GET_INFO(mv) == stg_MUT_VAR_CLEAN_info) {
         ccall dirty_MUT_VAR(BaseReg "ptr", mv "ptr");
@@ -1493,7 +1493,7 @@ stg_takeMVarzh ( P_ mvar /* :: MVar a */ )
     ccall upd_rem_set_push_closure_(BaseReg "ptr",
                                     val "ptr",
                                     mvar "ptr",
-                                    mvar + SIZEOF_StgHeader + OFFSET_StgMVar_value "ptr");
+                                    BYTES_TO_WDS(OFFSET_StgMVar_value));
 
     q = StgMVar_head(mvar);
 loop:
@@ -1566,7 +1566,7 @@ stg_tryTakeMVarzh ( P_ mvar /* :: MVar a */ )
     ccall upd_rem_set_push_closure_(BaseReg "ptr",
                                     val "ptr",
                                     mvar "ptr",
-                                    mvar + SIZEOF_StgHeader + OFFSET_StgMVar_value "ptr");
+                                    BYTES_TO_WDS(OFFSET_StgMVar_value));
 
     q = StgMVar_head(mvar);
 loop:

@@ -323,7 +323,7 @@ emitPrimOp dflags res@[] WriteMutVarOp [mutv,var]
         -- Update upd_rem_set --
         old_val <- CmmLocal <$> newTemp (cmmExprType dflags var)
         emitAssign old_val (cmmLoadIndexW dflags mutv (fixedHdrSizeW dflags) (gcWord dflags))
-        emitUpdRemSet (CmmReg old_val) mutv (cmmOffsetW dflags mutv (fixedHdrSizeW dflags))
+        emitUpdRemSet (CmmReg old_val) mutv (zeroExpr dflags)
         ------------------------
 
         emitStore (cmmOffsetW dflags mutv (fixedHdrSizeW dflags)) var
@@ -2479,5 +2479,5 @@ emitUpdRemSet p origin origin_field =
       [(CmmReg (CmmGlobal BaseReg), AddrHint),
        (p, AddrHint),
        (origin, AddrHint),
-       (origin_field, AddrHint)]
+       (origin_field, NoHint)]
       False

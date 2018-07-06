@@ -22,9 +22,9 @@ typedef struct {
     enum EntryType type;
     union {
         struct {
-            StgClosure *p;             // the object to be marked
-            StgClosure *origin;        // the object where this reference was found
-            StgClosure **origin_field; // pointer to field where the reference was found
+            StgClosure *p;        // the object to be marked
+            StgClosure *origin;   // the object where this reference was found
+            StgWord origin_field; // field index where the reference was found
             StgClosure *origin_value;
         } mark_closure;
         struct {
@@ -90,7 +90,7 @@ void mark_queue_push(MarkQueue *q, const MarkQueueEnt *ent);
 void mark_queue_push_closure(MarkQueue *q,
                              StgClosure *p,
                              StgClosure *origin_closure,
-                             StgClosure **origin_field);
+                             StgWord origin_field);
 void mark_queue_push_closure_(MarkQueue *q, StgClosure *p);
 void mark_queue_push_thunk_srt(MarkQueue *q, const StgInfoTable *info);
 void mark_queue_push_fun_srt(MarkQueue *q, const StgInfoTable *info);
