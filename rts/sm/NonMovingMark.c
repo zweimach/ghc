@@ -233,6 +233,9 @@ void push_fun_srt (MarkQueue *q, const StgInfoTable *info, enum push_type push_t
  * Pushing to the update remembered set
  *********************************************************/
 
+/* Push the free variables of a (now-evaluated) thunk to the
+ * update remembered set.
+ */
 void upd_rem_set_push_thunk(Capability *cap, StgThunk *origin)
 {
     // TODO: Eliminate this conditional once it's folded into codegen
@@ -240,11 +243,13 @@ void upd_rem_set_push_thunk(Capability *cap, StgThunk *origin)
     const StgInfoTable *info = get_itbl((StgClosure*)origin);
     MarkQueue *queue = &cap->upd_rem_set.queue;
     push_thunk_srt(queue, info, PUSH_UPD_REM_SET);
-    push_closure(queue,
-                 origin->payload[0],
-                 (StgClosure*)origin,
-                 0,
-                 PUSH_UPD_REM_SET);
+    for (StgWord i = 0; i < info->layout.payload.ptrs; i++) {
+        push_closure(queue,
+                     origin->payload[i],
+                     (StgClosure*)origin,
+                     i,
+                     PUSH_UPD_REM_SET);
+    }
 }
 
 void upd_rem_set_push_thunk_(StgRegTable *reg, StgThunk *origin)
