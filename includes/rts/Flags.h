@@ -96,6 +96,7 @@ typedef struct _DEBUG_FLAGS {
     bool weak;           /* 'w' */
     bool gccafs;         /* 'G' */
     bool gc;             /* 'g' */
+    bool nonmoving_gc;   /* 'n' */
     bool block_alloc;    /* 'b' */
     bool sanity;         /* 'S'   warning: might be expensive! */
     bool stable;         /* 't' */
