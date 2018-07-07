@@ -397,9 +397,6 @@ scavenge_mark_queue_blocks(bdescr *blocks) {
     }
 }
 
-// Defined in NonMovingMark.c
-extern bdescr *upd_rem_set_block_list;
-
 void
 scavenge_upd_rem_set()
 {
