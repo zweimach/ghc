@@ -177,6 +177,7 @@ void initRtsFlagsDefaults(void)
     RtsFlags.DebugFlags.weak            = false;
     RtsFlags.DebugFlags.gccafs          = false;
     RtsFlags.DebugFlags.gc              = false;
+    RtsFlags.DebugFlags.nonmoving_gc    = false;
     RtsFlags.DebugFlags.block_alloc     = false;
     RtsFlags.DebugFlags.sanity          = false;
     RtsFlags.DebugFlags.stable          = false;
@@ -397,6 +398,7 @@ usage_text[] = {
 "  -Dw  DEBUG: weak",
 "  -DG  DEBUG: gccafs",
 "  -Dg  DEBUG: gc",
+"  -Dn  DEBUG: non-moving gc",
 "  -Db  DEBUG: block",
 "  -DS  DEBUG: sanity",
 "  -Dt  DEBUG: stable",
@@ -1821,6 +1823,9 @@ static void read_debug_flags(const char* arg)
             break;
         case 'g':
             RtsFlags.DebugFlags.gc = true;
+            break;
+        case 'n':
+            RtsFlags.DebugFlags.nonmoving_gc = true;
             break;
         case 'b':
             RtsFlags.DebugFlags.block_alloc = true;
