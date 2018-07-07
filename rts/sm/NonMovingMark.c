@@ -18,6 +18,7 @@
 #include "Weak.h"
 #include "MarkWeak.h"
 #include "Evac.h"
+#include "sm/Storage.h"
 
 // How many Array# entries to add to the mark queue at once?
 #define MARK_ARRAY_CHUNK_LENGTH 128
@@ -92,7 +93,11 @@ static void nonmoving_add_upd_rem_set_blocks(MarkQueue *rset)
     end->link = upd_rem_set_block_list;
     upd_rem_set_block_list = start;
     RELEASE_LOCK(&upd_rem_set_lock);
+
+    // Reset remembered set
+    ACQUIRE_SM_LOCK;
     init_mark_queue(rset);
+    RELEASE_SM_LOCK;
 }
 
 #if defined(CONCURRENT_MARK)
