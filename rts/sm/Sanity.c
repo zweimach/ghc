@@ -990,6 +990,7 @@ memInventory (bool show)
   for (i = 0; i < n_capabilities; ++i) {
       upd_rem_set_blocks += countBlocks(capabilities[i]->upd_rem_set.queue.blocks);
   }
+  upd_rem_set_blocks += count_global_upd_rem_set_blocks();
 
   // count nonmoving blocks
   if (RtsFlags.GcFlags.useNonmoving) {

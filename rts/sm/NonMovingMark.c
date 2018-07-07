@@ -23,7 +23,7 @@
 #define MARK_ARRAY_CHUNK_LENGTH 128
 
 static Mutex upd_rem_set_lock;
-bdescr *upd_rem_set_blocks = NULL;
+bdescr *upd_rem_set_block_list = NULL;
 
 #if defined(CONCURRENT_MARK)
 /* Used during the mark/sweep phase transition to track how many capabilities
@@ -69,7 +69,7 @@ void nonmoving_mark_init_upd_rem_set() {
  * the mark queue. For efficiency, each capability maintains its own local
  * accumulator of remembered set entries. When a capability fills its
  * accumulator it is linked in to the global remembered set
- * (upd_rem_set_blocks), where it is consumed by the mark phase.
+ * (upd_rem_set_block_list), where it is consumed by the mark phase.
  *
  * The mark phase is responsible for freeing update remembered set block
  * allocations.
@@ -89,8 +89,8 @@ static void nonmoving_add_upd_rem_set_blocks(MarkQueue *rset)
 
     // add the blocks to the global remembered set
     ACQUIRE_LOCK(&upd_rem_set_lock);
-    end->link = upd_rem_set_blocks;
-    upd_rem_set_blocks = start;
+    end->link = upd_rem_set_block_list;
+    upd_rem_set_block_list = start;
     RELEASE_LOCK(&upd_rem_set_lock);
     init_mark_queue(rset);
 }
@@ -265,13 +265,10 @@ void upd_rem_set_push_closure_(StgRegTable *reg,
     push_closure(queue, p, origin_closure, origin_field, PUSH_UPD_REM_SET);
 }
 
-int count_upd_rem_set(Capability *cap)
+int count_global_upd_rem_set_blocks()
 {
-    MarkQueue *upd_rem_set = &cap->upd_rem_set.queue;
-    return countBlocks(upd_rem_set->blocks->link) * MARK_QUEUE_BLOCK_ENTRIES
-        + upd_rem_set->top->head;
+    return countBlocks(upd_rem_set_block_list);
 }
-
 /*********************************************************
  * Pushing to the mark queue
  *********************************************************/

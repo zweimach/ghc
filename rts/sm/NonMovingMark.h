@@ -91,8 +91,8 @@ void nonmoving_mark_init_upd_rem_set(void);
 void init_upd_rem_set(UpdRemSet *rset);
 void upd_rem_set_push_thunk(Capability *cap, StgThunk *origin);
 void upd_rem_set_push_thunk_(StgRegTable *reg, StgThunk *origin);
-// Debug only -- count number of entries in UpdRemSet
-int count_upd_rem_set(Capability* cap);
+// Debug only -- count number of blocks in global UpdRemSet
+int count_global_upd_rem_set_blocks(void);
 
 #if defined(CONCURRENT_MARK)
 void nonmoving_flush_cap_upd_rem_set_blocks(Capability *cap);

@@ -396,14 +396,14 @@ scavenge_mark_queue_blocks(bdescr *blocks) {
 }
 
 // Defined in NonMovingMark.c
-extern bdescr *upd_rem_set_blocks;
+extern bdescr *upd_rem_set_block_list;
 
 void
 scavenge_upd_rem_set()
 {
     if (current_mark_queue) {
         scavenge_mark_queue_blocks(current_mark_queue->blocks);
-        scavenge_mark_queue_blocks(upd_rem_set_blocks);
+        scavenge_mark_queue_blocks(upd_rem_set_block_list);
         for (uint32_t i=0; i < n_capabilities; i++) {
             scavenge_mark_queue_blocks(capabilities[i]->upd_rem_set.queue.blocks);
         }
