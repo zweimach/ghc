@@ -430,8 +430,10 @@ static void* nonmoving_concurrent_mark(void *data)
     ASSERT(nonmoving_mark_cap == NULL);
     Task *task = newBoundTask();
     nonmoving_mark_task = task;
-    Capability *cap = waitForWorkerCapability(task);
+    Capability *cap = task->cap;
+    waitForCapability(&cap, task);
     nonmoving_mark_cap = cap;
+    debugTrace(DEBUG_nonmoving_gc, "Commencing mark...");
 
     // Do concurrent marking; most of the heap will get marked here.
     nonmoving_mark_threads_weaks(mark_queue);
