@@ -880,6 +880,7 @@ yieldCapability (Capability** pCap, Task *task, bool gcAllowed)
                 break;
 
             case SYNC_FLUSH_UPD_REM_SET:
+                debugTrace(DEBUG_nonmoving_gc, "Flushing update remembered set blocks...");
                 nonmoving_flush_cap_upd_rem_set_blocks(cap);
                 break;
 

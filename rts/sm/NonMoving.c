@@ -373,6 +373,7 @@ void nonmoving_collect()
 #if defined(CONCURRENT_MARK)
     concurrent_coll_running = true;
     nonmoving_write_barrier_enabled = true;
+    debugTrace(DEBUG_nonmoving_gc, "Starting concurrent mark thread");
     createOSThread(&mark_thread, "non-moving mark thread",
                    nonmoving_concurrent_mark, mark_queue);
 #else
@@ -403,6 +404,7 @@ static void* nonmoving_concurrent_mark(void *data)
 {
     MarkQueue *mark_queue = (MarkQueue *) data;
     ACQUIRE_LOCK(&gc_mutex);
+    debugTrace(DEBUG_nonmoving_gc, "Starting mark...");
 
 #if defined(CONCURRENT_MARK)
     Task *task = newBoundTask();
@@ -450,6 +452,7 @@ static void* nonmoving_concurrent_mark(void *data)
 #if defined(CONCURRENT_MARK)
     nonmoving_finish_flush(cap, task);
     nonmoving_write_barrier_enabled = false;
+    debugTrace(DEBUG_nonmoving_gc, "Finished mutator sync; sweeping...");
 #endif
     // After this point young generation collections can proceed without
     // intervention from the non-moving mark.
@@ -471,6 +474,7 @@ static void* nonmoving_concurrent_mark(void *data)
 
     nonmoving_sweep();
     ASSERT(nonmoving_heap.sweep_list == NULL);
+    debugTrace(DEBUG_nonmoving_gc, "Finished sweeping.");
 
 #if defined(CONCURRENT_MARK)
     // Signal that the concurrent collection is finished, allowing the next
