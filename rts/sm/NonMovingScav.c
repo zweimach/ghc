@@ -371,8 +371,10 @@ scavenge_mark_queue_entry(MarkQueueEnt *ent) {
     switch (ent->type) {
     case MARK_CLOSURE:
         evacuate(&ent->mark_closure.p);
-        evacuate(&ent->mark_closure.origin);
-        evacuate(&ent->mark_closure.origin_value);
+        if (ent->mark_closure.origin) {
+            evacuate(&ent->mark_closure.origin);
+            evacuate(&ent->mark_closure.origin_value);
+        }
         break;
 
     case MARK_ARRAY:
