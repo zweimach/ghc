@@ -246,15 +246,33 @@ void upd_rem_set_push_thunk(Capability *cap, StgThunk *origin)
     // TODO: Eliminate this conditional once it's folded into codegen
     if (!nonmoving_write_barrier_enabled) return;
     const StgInfoTable *info = get_itbl((StgClosure*)origin);
-    MarkQueue *queue = &cap->upd_rem_set.queue;
-    push_thunk_srt(queue, info, PUSH_UPD_REM_SET);
-    for (StgWord i = 0; i < info->layout.payload.ptrs; i++) {
-        push_closure(queue,
-                     origin->payload[i],
-                     (StgClosure*)origin,
-                     i,
-                     PUSH_UPD_REM_SET);
+    switch (info->type) {
+    case THUNK:
+    case THUNK_1_0:
+    case THUNK_0_1:
+    case THUNK_2_0:
+    case THUNK_1_1:
+    case THUNK_0_2:
+    {
+        MarkQueue *queue = &cap->upd_rem_set.queue;
+        push_thunk_srt(queue, info, PUSH_UPD_REM_SET);
+        for (StgWord i = 0; i < info->layout.payload.ptrs; i++) {
+            push_closure(queue,
+                         origin->payload[i],
+                         (StgClosure*)origin,
+                         i,
+                         PUSH_UPD_REM_SET);
+        }
+        break;
     }
+    case THUNK_SELECTOR:
+    case BLACKHOLE:
+        // TODO: This is right, right?
+        break;
+    default:
+        barf("upd_rem_set_push_thunk: invalid thunk pushed: p=%p, type=%d", origin, info->type);
+    }
+
 }
 
 void upd_rem_set_push_thunk_(StgRegTable *reg, StgThunk *origin)
@@ -1003,6 +1021,7 @@ GNUC_ATTR_HOT void nonmoving_mark(MarkQueue *queue)
         // suspend marking if moving collection needs to run
         nonmoving_yield_mark(queue);
 
+        // TODO: Pull from update remembered set
         MarkQueueEnt ent = mark_queue_pop(queue);
 
         switch (ent.type) {
