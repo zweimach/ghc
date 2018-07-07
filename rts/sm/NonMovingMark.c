@@ -24,10 +24,13 @@
 
 static Mutex upd_rem_set_lock;
 bdescr *upd_rem_set_blocks = NULL;
+
+#if defined(CONCURRENT_MARK)
 /* Used during the mark/sweep phase transition to track how many capabilities
  * have pushed their update remembered sets. Protected by upd_rem_set_lock.
  */
 static StgWord upd_rem_set_flush_count = 0;
+#endif
 
 /* Signaled by each capability when it has flushed its update remembered set */
 static Condition upd_rem_set_flushed_cond;

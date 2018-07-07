@@ -1535,15 +1535,15 @@ scheduleDoGC (Capability **pcap, Task *task USED_IF_THREADS,
 
     heap_census = scheduleNeedHeapProfile(true);
 
-    // Request that the non-moving mark suspend, if one is running.
-    if (RtsFlags.GcFlags.useNonmoving) {
-        nonmoving_suspend_mark();
-    }
-
     // Figure out which generation we are collecting, so that we can
     // decide whether this is a parallel GC or not.
     collect_gen = calcNeeded(force_major || heap_census, NULL);
     major_gc = (collect_gen == RtsFlags.GcFlags.generations-1);
+
+    // Request that the non-moving mark suspend, if one is running.
+    if (RtsFlags.GcFlags.useNonmoving) {
+        nonmoving_suspend_mark();
+    }
 
 #if defined(THREADED_RTS)
     if (sched_state < SCHED_INTERRUPTING
@@ -1934,10 +1934,6 @@ delete_threads_and_gc:
         releaseAllCapabilities(n_capabilities, cap, task);
     }
 #endif
-
-    if (RtsFlags.GcFlags.useNonmoving) {
-        nonmoving_resume_mark();
-    }
 
     return;
 }

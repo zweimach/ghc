@@ -33,13 +33,8 @@ struct nonmoving_segment * const END_NONMOVING_TODO_LIST = (struct nonmoving_seg
  */
 Mutex nonmoving_collection_mutex;
 
-/*
- * This mutex ensures mutual exclusion between the concurrent non-moving mark
- * phase and the younger-generation moving collections. The mark phase holds this
- * most of duration it is running but yields it to the younger generation if
- * requested (see nonmoving_yield_mark).
- */
-Mutex gc_mutex;
+Capability *nonmoving_mark_cap = NULL;
+Task *nonmoving_mark_task = NULL;
 #endif
 
 /*
@@ -67,9 +62,9 @@ Mutex concurrent_coll_finished_lock;
  *    active collection finishes.
  *
  *  - The non-moving collector must yield to younger generation collections. This
- *    is enforced by the gc_mutex, which is held by either the young generation
- *    collector or non-moving collector. The pause_nonmoving_mark flag is used by the
- *    young generation to signal to the non-moving collector that it should yield.
+ *    is enforced by the nonmoving mark taking a capability. The
+ *    pause_nonmoving_mark flag is used by the young generation to signal to the
+ *    non-moving collector that it should yield this capability.
  *
  *  - In between the mark and sweep phases the non-moving collector must synchronize
  *    with mutator threads to collect and mark their final update remembered
@@ -218,7 +213,6 @@ static struct nonmoving_allocator *alloc_nonmoving_allocator(uint32_t n_caps)
 void nonmoving_init(void)
 {
 #if defined(THREADED_RTS)
-    initMutex(&gc_mutex);
     initMutex(&nonmoving_collection_mutex);
     initMutex(&nonmoving_heap.mutex);
 #endif
@@ -316,6 +310,32 @@ static void nonmoving_mark_weak_ptr_list(MarkQueue *mark_queue)
     }
 }
 
+#if defined(CONCURRENT_MARK)
+/* Called by mark to possibly yield to a young generation collection */
+void nonmoving_yield_mark(struct MarkQueue_ *mark_queue)
+{
+    if (pause_nonmoving_mark) {
+        debugTrace(DEBUG_nonmoving_gc, "Pausing non-moving mark")
+        current_mark_queue = mark_queue;
+        pause_nonmoving_mark = false;
+        yieldCapability(&nonmoving_mark_cap, nonmoving_mark_task, true);
+        // young generation collection runs here
+        debugTrace(DEBUG_nonmoving_gc, "Resuming non-moving mark")
+        current_mark_queue = NULL;
+    }
+}
+
+/* Called by the young generation GC to pause an on-going non-moving mark */
+void nonmoving_suspend_mark()
+{
+    pause_nonmoving_mark = true;
+}
+#else
+void nonmoving_yield_mark(struct MarkQueue_ *mark_queue STG_UNUSED) {}
+void nonmoving_suspend_mark() {}
+#endif
+
+
 void nonmoving_collect()
 {
     if (!major_gc) return;
@@ -403,12 +423,15 @@ static void nonmoving_mark_threads_weaks(MarkQueue *mark_queue)
 static void* nonmoving_concurrent_mark(void *data)
 {
     MarkQueue *mark_queue = (MarkQueue *) data;
-    ACQUIRE_LOCK(&gc_mutex);
     debugTrace(DEBUG_nonmoving_gc, "Starting mark...");
 
 #if defined(CONCURRENT_MARK)
+    ASSERT(nonmoving_mark_task == NULL);
+    ASSERT(nonmoving_mark_cap == NULL);
     Task *task = newBoundTask();
+    nonmoving_mark_task = task;
     Capability *cap = waitForWorkerCapability(task);
+    nonmoving_mark_cap = cap;
 
     // Do concurrent marking; most of the heap will get marked here.
     nonmoving_mark_threads_weaks(mark_queue);
@@ -454,9 +477,18 @@ static void* nonmoving_concurrent_mark(void *data)
     nonmoving_write_barrier_enabled = false;
     debugTrace(DEBUG_nonmoving_gc, "Finished mutator sync; sweeping...");
 #endif
+
     // After this point young generation collections can proceed without
-    // intervention from the non-moving mark.
-    RELEASE_LOCK(&gc_mutex);
+    // intervention from the non-moving mark. We release our capability
+    // to allow this.
+#if defined(CONCURRENT_MARK)
+    // Release resources
+    nonmoving_mark_cap = NULL;
+    nonmoving_mark_task = NULL;
+    releaseCapability(cap);
+    boundTaskExiting(task);
+    freeMyTask();
+#endif
 
     /****************************************************
      * Sweep
@@ -484,12 +516,6 @@ static void* nonmoving_concurrent_mark(void *data)
 #endif
     RELEASE_LOCK(&nonmoving_collection_mutex);
 
-#if defined(CONCURRENT_MARK)
-    // Release resources
-    releaseCapability(cap);
-    boundTaskExiting(task);
-    freeMyTask();
-#endif
     return NULL;
 }
 

@@ -84,6 +84,7 @@ typedef struct {
 #define MARK_QUEUE_BLOCK_ENTRIES ((BLOCK_SIZE - sizeof(MarkQueueBlock)) / sizeof(MarkQueueEnt))
 
 extern bool nonmoving_write_barrier_enabled;
+extern MarkQueue *current_mark_queue;
 
 void nonmoving_mark_init_upd_rem_set(void);
 
