@@ -813,6 +813,7 @@ findMemoryLeak (void)
     for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
         for (i = 0; i < n_capabilities; i++) {
             markBlocks(capabilities[i]->mut_lists[g]);
+            markBlocks(capabilities[i]->saved_mut_lists[g]);
             markBlocks(gc_threads[i]->gens[g].part_list);
             markBlocks(gc_threads[i]->gens[g].scavd_list);
             markBlocks(gc_threads[i]->gens[g].todo_bd);
@@ -951,6 +952,7 @@ memInventory (bool show)
       gen_blocks[g] = 0;
       for (i = 0; i < n_capabilities; i++) {
           gen_blocks[g] += countBlocks(capabilities[i]->mut_lists[g]);
+          gen_blocks[g] += countBlocks(capabilities[i]->saved_mut_lists[g]);
           gen_blocks[g] += countBlocks(gc_threads[i]->gens[g].part_list);
           gen_blocks[g] += countBlocks(gc_threads[i]->gens[g].scavd_list);
           gen_blocks[g] += countBlocks(gc_threads[i]->gens[g].todo_bd);
