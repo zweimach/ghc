@@ -1023,7 +1023,7 @@ GNUC_ATTR_HOT void nonmoving_mark(MarkQueue *queue)
 {
     while (true) {
         // suspend marking if moving collection needs to run
-        nonmoving_yield_mark(queue);
+        nonmoving_yield_mark();
 
         MarkQueueEnt ent = mark_queue_pop(queue);
 

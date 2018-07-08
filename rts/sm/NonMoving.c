@@ -312,7 +312,7 @@ static void nonmoving_mark_weak_ptr_list(MarkQueue *mark_queue)
 
 #if defined(CONCURRENT_MARK)
 /* Called by mark to possibly yield to a young generation collection */
-void nonmoving_yield_mark(struct MarkQueue_ *mark_queue)
+void nonmoving_yield_mark()
 {
     if (pause_nonmoving_mark) {
         debugTrace(DEBUG_nonmoving_gc, "Pausing non-moving mark")
@@ -332,7 +332,7 @@ void nonmoving_suspend_mark()
     pause_nonmoving_mark = true;
 }
 #else
-void nonmoving_yield_mark(struct MarkQueue_ *mark_queue STG_UNUSED) {}
+void nonmoving_yield_mark() {}
 void nonmoving_suspend_mark() {}
 #endif
 
@@ -409,7 +409,7 @@ void nonmoving_collect()
 static void nonmoving_mark_threads_weaks(MarkQueue *mark_queue)
 {
     while (true) {
-        nonmoving_yield_mark(mark_queue);
+        nonmoving_yield_mark();
 
         // Propagate marks
         nonmoving_mark(mark_queue);

@@ -172,7 +172,7 @@ INLINE_HEADER bool nonmoving_get_closure_mark_bit(StgPtr p)
 }
 
 struct MarkQueue_;
-void nonmoving_yield_mark(struct MarkQueue_ *mark_queue);
+void nonmoving_yield_mark(void);
 void nonmoving_suspend_mark(void);
 
 #if defined(DEBUG)
