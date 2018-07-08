@@ -1043,7 +1043,22 @@ GNUC_ATTR_HOT void nonmoving_mark(MarkQueue *queue)
             break;
         }
         case NULL_ENTRY:
-            return;
+            // Perhaps the update remembered set has more to mark...
+            if (upd_rem_set_block_list) {
+                ACQUIRE_LOCK(&upd_rem_set_lock);
+                bdescr *old = queue->blocks;
+                queue->blocks = upd_rem_set_block_list;
+                queue->top = (MarkQueueBlock *) queue->blocks->start;
+                upd_rem_set_block_list = NULL;
+                RELEASE_LOCK(&upd_rem_set_lock);
+
+                ACQUIRE_SM_LOCK;
+                freeGroup(old);
+                RELEASE_SM_LOCK;
+            } else {
+                // Nothing more to do
+                return;
+            }
         }
     }
 }
