@@ -20,6 +20,10 @@
 #include "Evac.h"
 #include "sm/Storage.h"
 
+// Necessary to declare global register variable
+#include "GCThread.h"
+#include "GCTDecl.h"
+
 // How many Array# entries to add to the mark queue at once?
 #define MARK_ARRAY_CHUNK_LENGTH 128
 

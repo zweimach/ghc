@@ -319,7 +319,10 @@ void nonmoving_yield_mark(struct MarkQueue_ *mark_queue)
         pause_nonmoving_mark = false;
         yieldCapability(&nonmoving_mark_cap, nonmoving_mark_task, true);
         // young generation collection runs here
-        debugTrace(DEBUG_nonmoving_gc, "Resuming non-moving mark")
+        debugTrace(DEBUG_nonmoving_gc, "Resuming non-moving mark");
+
+        SET_GCT(gc_threads[nonmoving_mark_cap->no]);
+        gct->id = osThreadId();
     }
 }
 
@@ -433,6 +436,10 @@ static void* nonmoving_concurrent_mark(void *data)
     waitForCapability(&cap, task);
     nonmoving_mark_cap = cap;
     debugTrace(DEBUG_nonmoving_gc, "Commencing mark...");
+
+    SET_GCT(gc_threads[cap->no]);
+    gct->id = osThreadId();
+
 
     // Do concurrent marking; most of the heap will get marked here.
     nonmoving_mark_threads_weaks(mark_queue);
