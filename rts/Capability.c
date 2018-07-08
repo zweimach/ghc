@@ -299,6 +299,7 @@ initCapability (Capability *cap, uint32_t i)
 
     for (g = 0; g < RtsFlags.GcFlags.generations; g++) {
         cap->mut_lists[g] = NULL;
+        cap->saved_mut_lists[g] = NULL;
     }
 
     cap->weak_ptr_list_hd = NULL;
