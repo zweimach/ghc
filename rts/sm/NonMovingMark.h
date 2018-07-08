@@ -22,6 +22,7 @@ enum EntryType {
 
 typedef struct {
     enum EntryType type;
+    // All pointers should be untagged
     union {
         struct {
             StgClosure *p;        // the object to be marked

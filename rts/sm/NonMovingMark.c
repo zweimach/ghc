@@ -191,10 +191,10 @@ void push_closure (MarkQueue *q,
     MarkQueueEnt ent = {
         .type = MARK_CLOSURE,
         .mark_closure = {
-            .p = p,
-            .origin = origin_closure,
+            .p = UNTAG_CLOSURE(p),
+            .origin = UNTAG_CLOSURE(origin_closure),
             .origin_field = origin_field,
-            .origin_value = p
+            .origin_value = UNTAG_CLOSURE(p)
         }
     };
     push(q, &ent, push_type);
