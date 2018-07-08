@@ -1025,7 +1025,6 @@ GNUC_ATTR_HOT void nonmoving_mark(MarkQueue *queue)
         // suspend marking if moving collection needs to run
         nonmoving_yield_mark(queue);
 
-        // TODO: Pull from update remembered set
         MarkQueueEnt ent = mark_queue_pop(queue);
 
         switch (ent.type) {
@@ -1047,7 +1046,17 @@ GNUC_ATTR_HOT void nonmoving_mark(MarkQueue *queue)
             break;
         }
         case NULL_ENTRY:
-            return;
+            // Perhaps the update remembered set has more to mark...
+            if (upd_rem_set_block_list) {
+                ACQUIRE_LOCK(&upd_rem_set_lock);
+                queue->blocks = upd_rem_set_block_list;
+                queue->top = (MarkQueueBlock *) queue->blocks->start;
+                upd_rem_set_block_list = NULL;
+                RELEASE_LOCK(&upd_rem_set_lock);
+            } else {
+                // Nothing more to do
+                return;
+            }
         }
     }
 }
