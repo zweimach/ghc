@@ -833,9 +833,11 @@ findMemoryLeak (void)
         markBlocks(capabilities[i]->pinned_object_block);
         markBlocks(capabilities[i]->upd_rem_set.queue.blocks);
     }
-    markBlocks(upd_rem_set_block_list);
 
     if (RtsFlags.GcFlags.useNonmoving) {
+        markBlocks(upd_rem_set_block_list);
+        if (current_mark_queue)
+            markBlocks(current_mark_queue->blocks);
         for (i = 0; i < NONMOVING_ALLOCA_CNT; i++) {
             struct nonmoving_allocator *alloc = nonmoving_heap.allocators[i];
             markNonMovingSegments(alloc->filled);
@@ -1002,6 +1004,8 @@ memInventory (bool show)
           nonmoving_blocks += countNonMovingAllocator(nonmoving_heap.allocators[alloc_idx]);
       }
       nonmoving_blocks += countNonMovingSegments(nonmoving_heap.free);
+      if (current_mark_queue)
+          nonmoving_blocks += countBlocks(current_mark_queue->blocks);
   }
 
   live_blocks = 0;

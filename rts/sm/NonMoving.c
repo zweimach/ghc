@@ -316,12 +316,10 @@ void nonmoving_yield_mark(struct MarkQueue_ *mark_queue)
 {
     if (pause_nonmoving_mark) {
         debugTrace(DEBUG_nonmoving_gc, "Pausing non-moving mark")
-        current_mark_queue = mark_queue;
         pause_nonmoving_mark = false;
         yieldCapability(&nonmoving_mark_cap, nonmoving_mark_task, true);
         // young generation collection runs here
         debugTrace(DEBUG_nonmoving_gc, "Resuming non-moving mark")
-        current_mark_queue = NULL;
     }
 }
 
@@ -353,6 +351,7 @@ void nonmoving_collect()
 
     MarkQueue *mark_queue = stgMallocBytes(sizeof(MarkQueue), "mark queue");
     init_mark_queue(mark_queue);
+    current_mark_queue = mark_queue;
 
     // Mark roots
     markCAFs((evac_fn)mark_queue_add_root, mark_queue);
@@ -503,6 +502,7 @@ static void* nonmoving_concurrent_mark(void *data)
     nonmoving_sweep_mut_lists(mark_queue->marked_objects);
     nonmoving_sweep_stable_name_table(mark_queue->marked_objects);
 
+    current_mark_queue = NULL;
     free_mark_queue(mark_queue);
     stgFree(mark_queue);
 
