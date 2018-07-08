@@ -467,6 +467,11 @@ GarbageCollect (uint32_t collect_gen,
 
   // NO MORE EVACUATION AFTER THIS POINT!
 
+#if defined(CONCURRENT_MARK)
+  if (RtsFlags.GcFlags.useNonmoving)
+      scavenge_upd_rem_set();
+#endif
+
   // Mark and sweep the oldest generation
   if (RtsFlags.GcFlags.useNonmoving)
       nonmoving_collect();
@@ -851,11 +856,6 @@ GarbageCollect (uint32_t collect_gen,
 #if defined(DEBUG)
   // check for memory leaks if DEBUG is on
   memInventory(DEBUG_gc);
-#endif
-
-#if defined(CONCURRENT_MARK)
-  if (RtsFlags.GcFlags.useNonmoving)
-      scavenge_upd_rem_set();
 #endif
 
   // ok, GC over: tell the stats department what happened.
