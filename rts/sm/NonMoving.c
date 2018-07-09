@@ -339,8 +339,6 @@ void nonmoving_suspend_mark() {}
 
 void nonmoving_collect()
 {
-    if (!major_gc) return;
-
     // We can't start a new collection until the old one has finished
 #if defined(CONCURRENT_MARK)
     if (concurrent_coll_running) {

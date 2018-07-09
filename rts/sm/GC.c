@@ -472,7 +472,7 @@ GarbageCollect (uint32_t collect_gen,
 #endif
 
   // Mark and sweep the oldest generation
-  if (RtsFlags.GcFlags.useNonmoving)
+  if (RtsFlags.GcFlags.useNonmoving && major_gc)
       nonmoving_collect();
 
   copied = 0;
