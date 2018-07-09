@@ -83,7 +83,9 @@ void nonmoving_mark_init_upd_rem_set() {
 
 enum push_type { PUSH_MARK_QUEUE, PUSH_UPD_REM_SET };
 
-/* Transfers the given Must hold sm_mutex. */
+/* Transfers the given capability's update-remembered set to the global
+ * remembered set.
+ */
 static void nonmoving_add_upd_rem_set_blocks(MarkQueue *rset)
 {
     // find the tail of the queue
@@ -127,8 +129,10 @@ void nonmoving_flush_cap_upd_rem_set_blocks(Capability *cap)
  */
 void nonmoving_begin_flush(Capability **cap, Task *task)
 {
+    debugTrace(DEBUG_nonmoving_gc, "Starting update remembered set flush...");
     upd_rem_set_flush_count = 0;
     stopAllCapabilitiesWith(cap, task, SYNC_FLUSH_UPD_REM_SET);
+    nonmoving_add_upd_rem_set_blocks(&(*cap)->upd_rem_set.queue);
 }
 
 /* Wait until a capability has flushed its update remembered set. Returns true
@@ -137,9 +141,13 @@ void nonmoving_begin_flush(Capability **cap, Task *task)
 bool nonmoving_wait_for_flush()
 {
     ACQUIRE_LOCK(&upd_rem_set_lock);
-    waitCondition(&upd_rem_set_flushed_cond, &upd_rem_set_lock);
     debugTrace(DEBUG_nonmoving_gc, "Flush count %d", upd_rem_set_flush_count);
-    bool finished = (upd_rem_set_flush_count == n_capabilities) || (sched_state == SCHED_SHUTTING_DOWN);
+    // n_caps - 1 since we have already taken a capability; it's remembered set is flushed by
+    // nonmoving_begin_flush.
+    bool finished = (upd_rem_set_flush_count == n_capabilities-1) || (sched_state == SCHED_SHUTTING_DOWN);
+    if (!finished) {
+        waitCondition(&upd_rem_set_flushed_cond, &upd_rem_set_lock);
+    }
     RELEASE_LOCK(&upd_rem_set_lock);
     return finished;
 }
@@ -156,6 +164,7 @@ void nonmoving_shutting_down()
  */
 void nonmoving_finish_flush(const Capability *cap, Task *task)
 {
+    debugTrace(DEBUG_nonmoving_gc, "Finished update remembered set flush...");
     broadcastCondition(&upd_rem_set_flush_done_cond);
     releaseAllCapabilities(n_capabilities, cap, task);
 }
