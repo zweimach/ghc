@@ -1,5 +1,6 @@
 #include "Rts.h"
 #include "RtsUtils.h"
+#include "Trace.h"
 #include "NonMoving.h"
 #include "NonMovingScav.h"
 #include "NonMovingMark.h"
@@ -410,12 +411,13 @@ scavenge_mark_queue_blocks(bdescr *blocks) {
 void
 scavenge_upd_rem_set()
 {
+    debugTrace(DEBUG_nonmoving_gc, "scavenging update remembered set\n");
     if (current_mark_queue) {
         scavenge_mark_queue_blocks(current_mark_queue->blocks);
-        scavenge_mark_queue_blocks(upd_rem_set_block_list);
-        for (uint32_t i=0; i < n_capabilities; i++) {
-            scavenge_mark_queue_blocks(capabilities[i]->upd_rem_set.queue.blocks);
-        }
+    }
+    scavenge_mark_queue_blocks(upd_rem_set_block_list);
+    for (uint32_t i=0; i < n_capabilities; i++) {
+        scavenge_mark_queue_blocks(capabilities[i]->upd_rem_set.queue.blocks);
     }
 }
 
