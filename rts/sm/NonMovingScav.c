@@ -381,6 +381,7 @@ scavenge_mark_queue_entry(MarkQueueEnt *ent) {
         fixup_ptr(&ent->mark_closure.p);
         if (ent->mark_closure.p == NULL) {
             // the object died, it will be ignored by the mark
+            ent->type = NULL_MARK_QUEUE_ENTRY;
         } else if (ent->mark_closure.origin) {
             LOOKS_LIKE_CLOSURE_PTR(ent->mark_closure.p);
             fixup_ptr(&ent->mark_closure.origin);
@@ -390,6 +391,9 @@ scavenge_mark_queue_entry(MarkQueueEnt *ent) {
 
     case MARK_ARRAY:
         fixup_ptr((StgClosure **) &ent->mark_array.array);
+        break;
+
+    case NULL_MARK_QUEUE_ENTRY:
         break;
 
     default:

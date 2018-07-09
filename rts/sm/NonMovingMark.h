@@ -15,7 +15,7 @@
 #include "BeginPrivate.h"
 
 enum EntryType {
-    NULL_ENTRY = 0,
+    NULL_MARK_QUEUE_ENTRY = 0,
     MARK_CLOSURE,
     MARK_ARRAY
 };

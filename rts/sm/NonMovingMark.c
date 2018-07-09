@@ -1064,7 +1064,7 @@ GNUC_ATTR_HOT void nonmoving_mark(MarkQueue *queue)
             }
             break;
         }
-        case NULL_ENTRY:
+        case NULL_MARK_QUEUE_ENTRY:
             // Perhaps the update remembered set has more to mark...
             if (upd_rem_set_block_list) {
                 ACQUIRE_LOCK(&upd_rem_set_lock);
