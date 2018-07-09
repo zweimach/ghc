@@ -267,7 +267,7 @@ static void nonmoving_clear_segment_bitmaps(struct nonmoving_segment *seg)
     }
 }
 
-void nonmoving_clear_all_bitmaps()
+static void nonmoving_clear_all_bitmaps(void)
 {
     for (int alloca_idx = 0; alloca_idx < NONMOVING_ALLOCA_CNT; ++alloca_idx) {
         struct nonmoving_allocator *alloca = nonmoving_heap.allocators[alloca_idx];
@@ -275,6 +275,19 @@ void nonmoving_clear_all_bitmaps()
         nonmoving_clear_segment_bitmaps(alloca->active);
         for (uint32_t cap_n = 0; cap_n < n_capabilities; ++cap_n) {
             nonmoving_clear_segment_bitmaps(alloca->current[cap_n]);
+        }
+    }
+}
+
+static void nonmoving_prepare_mark(void)
+{
+    nonmoving_clear_all_bitmaps();
+    for (int alloca_idx = 0; alloca_idx < NONMOVING_ALLOCA_CNT; ++alloca_idx) {
+        struct nonmoving_allocator *alloca = nonmoving_heap.allocators[alloca_idx];
+        struct nonmoving_segment *seg = alloca->filled;
+        while (seg) {
+            seg->next_free_snap = seg->next_free;
+            seg = seg->link;
         }
     }
 }
@@ -348,7 +361,7 @@ void nonmoving_collect()
     }
 #endif
 
-    nonmoving_clear_all_bitmaps();
+    nonmoving_prepare_mark();
 
     MarkQueue *mark_queue = stgMallocBytes(sizeof(MarkQueue), "mark queue");
     init_mark_queue(mark_queue);
