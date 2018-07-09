@@ -570,8 +570,11 @@ GarbageCollect (uint32_t collect_gen,
     bdescr *next, *prev;
     gen = &generations[g];
 
-    // for generations we collected...
-    if (g <= N) {
+    if (g == RtsFlags.GcFlags.generations-1 && RtsFlags.GcFlags.useNonmoving) {
+
+        // Nothing; the nonmoving collector will handle this.
+
+    } else if (g <= N) {   // for generations we collected...
 
         /* free old memory and shift to-space into from-space for all
          * the collected generations (except the allocation area).  These
@@ -684,8 +687,8 @@ GarbageCollect (uint32_t collect_gen,
         gen->n_compact_blocks += gen->n_live_compact_blocks;
     }
 
-    ASSERT(countBlocks(gen->large_objects) == gen->n_large_blocks);
-    ASSERT(countOccupied(gen->large_objects) == gen->n_large_words);
+    //ASSERT(countBlocks(gen->large_objects) == gen->n_large_blocks);
+    //ASSERT(countOccupied(gen->large_objects) == gen->n_large_words);
     // We can run the same assertion on compact objects because there
     // is memory "the GC doesn't see" (directly), but which is still
     // accounted in gen->n_compact_blocks

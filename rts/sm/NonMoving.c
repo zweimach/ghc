@@ -515,6 +515,22 @@ static void* nonmoving_concurrent_mark(void *data)
     ASSERT(nonmoving_heap.sweep_list == NULL);
     debugTrace(DEBUG_nonmoving_gc, "Finished sweeping.");
 
+    // Final cleanup
+    freeChain(oldest_gen->old_blocks);
+    oldest_gen->old_blocks = NULL;
+    oldest_gen->n_old_blocks = 0;
+
+    freeChain(oldest_gen->large_objects);
+    oldest_gen->large_objects  = oldest_gen->scavenged_large_objects;
+    oldest_gen->n_large_blocks = oldest_gen->n_scavenged_large_blocks;
+    oldest_gen->n_large_words  = countOccupied(oldest_gen->large_objects);
+    oldest_gen->n_new_large_words = 0;
+
+    oldest_gen->scavenged_large_objects = NULL;
+    oldest_gen->n_scavenged_large_blocks = 0;
+    oldest_gen->live_compact_objects = NULL;
+    oldest_gen->n_live_compact_blocks = 0;
+
 #if defined(CONCURRENT_MARK)
     // Signal that the concurrent collection is finished, allowing the next
     // non-moving collection to proceed
