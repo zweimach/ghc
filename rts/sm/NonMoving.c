@@ -433,11 +433,11 @@ static void* nonmoving_concurrent_mark(void *data)
     Capability *cap = task->cap;
     waitForCapability(&cap, task);
     nonmoving_mark_cap = cap;
-    debugTrace(DEBUG_nonmoving_gc, "Commencing mark...");
 
     SET_GCT(gc_threads[cap->no]);
     gct->id = osThreadId();
 
+    debugTrace(DEBUG_nonmoving_gc, "Commencing mark...");
 
     // Do concurrent marking; most of the heap will get marked here.
     nonmoving_mark_threads_weaks(mark_queue);
