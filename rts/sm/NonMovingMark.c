@@ -780,7 +780,11 @@ mark_closure (MarkQueue *queue, StgClosure *p)
     }
 
     else {
-        barf("NonMovingMark: found object with flag: %" FMT_Word16, bd->flags);
+        // Here we have an object living outside of the non-moving heap. Since
+        // we moved everything to the non-moving heap before starting the major
+        // collection, we know that we don't need to trace it: it was allocated
+        // after we took our snapshot.
+        return;
     }
 
     /////////////////////////////////////////////////////
