@@ -39,10 +39,6 @@ static StgWord upd_rem_set_flush_count = 0;
 
 /* Signaled by each capability when it has flushed its update remembered set */
 static Condition upd_rem_set_flushed_cond;
-/* Signaled when all capabilities have flushed their update remembered sets;
- * waited upon by capabilities synchronizing with the non-moving collector.
- */
-static Condition upd_rem_set_flush_done_cond;
 
 /* Indicates to mutators that the write barrier must be respected. Set while
  * concurrent mark is running.
@@ -58,7 +54,6 @@ MarkQueue *current_mark_queue = NULL;
 void nonmoving_mark_init_upd_rem_set() {
     initMutex(&upd_rem_set_lock);
     initCondition(&upd_rem_set_flushed_cond);
-    initCondition(&upd_rem_set_flush_done_cond);
 }
 
 /* Note [Update remembered set]
@@ -117,11 +112,8 @@ void nonmoving_flush_cap_upd_rem_set_blocks(Capability *cap)
     nonmoving_add_upd_rem_set_blocks(&cap->upd_rem_set.queue);
     atomic_inc(&upd_rem_set_flush_count, 1);
     signalCondition(&upd_rem_set_flushed_cond);
-
-    // Wait until all threads have synchronised
-    ACQUIRE_LOCK(&upd_rem_set_lock);
-    waitCondition(&upd_rem_set_flush_done_cond, &upd_rem_set_lock);
-    RELEASE_LOCK(&upd_rem_set_lock);
+    // After this mutation will remain suspended until nonmoving_finish_flush
+    // releases its capabilities.
 }
 
 /* Request that all capabilities flush their update remembered sets and suspend
@@ -165,7 +157,6 @@ void nonmoving_shutting_down()
 void nonmoving_finish_flush(const Capability *cap, Task *task)
 {
     debugTrace(DEBUG_nonmoving_gc, "Finished update remembered set flush...");
-    broadcastCondition(&upd_rem_set_flush_done_cond);
     releaseAllCapabilities(n_capabilities, cap, task);
 }
 #else
