@@ -422,13 +422,11 @@ void nonmoving_collect()
 /* Mark mark queue, threads, and weak pointers until no more weaks have been
  * resuscitated
  */
-static void nonmoving_mark_threads_weaks(MarkQueue *mark_queue)
+static void nonmoving_mark_threads_weaks(MarkQueue *mark_queue, bool can_yield)
 {
     while (true) {
-        nonmoving_yield_mark();
-
         // Propagate marks
-        nonmoving_mark(mark_queue);
+        nonmoving_mark(mark_queue, can_yield);
 
         // Mark threads and weaks
         nonmoving_mark_threads(mark_queue);
@@ -468,7 +466,7 @@ static void* nonmoving_concurrent_mark(void *data)
     debugTrace(DEBUG_nonmoving_gc, "Commencing mark...");
 
     // Do concurrent marking; most of the heap will get marked here.
-    nonmoving_mark_threads_weaks(mark_queue);
+    nonmoving_mark_threads_weaks(mark_queue, true);
 
     // Gather final remembered sets from mutators and mark them
     nonmoving_begin_flush(&cap, task);
@@ -476,10 +474,11 @@ static void* nonmoving_concurrent_mark(void *data)
     bool all_caps_syncd;
     do {
         all_caps_syncd = nonmoving_wait_for_flush();
-        nonmoving_mark_threads_weaks(mark_queue);
+        nonmoving_mark_threads_weaks(mark_queue, false);
     } while (!all_caps_syncd);
 #else
-    nonmoving_mark_threads_weaks(mark_queue);
+    // no reason to yield since this is non-concurrent.
+    nonmoving_mark_threads_weaks(mark_queue, false);
 #endif
 
     // NOTE: This should be called only once otherwise it corrupts lists
@@ -491,7 +490,7 @@ static void* nonmoving_concurrent_mark(void *data)
     // Do last marking of weak pointers
     while (true) {
         // Propagate marks
-        nonmoving_mark(mark_queue);
+        nonmoving_mark(mark_queue, false);
 
         if (!nonmoving_mark_weaks(mark_queue))
             break;
@@ -500,15 +499,15 @@ static void* nonmoving_concurrent_mark(void *data)
     nonmoving_mark_dead_weaks(mark_queue);
 
     // Propagate marks
-    nonmoving_mark(mark_queue);
+    nonmoving_mark(mark_queue, false);
 
     ASSERT(mark_queue->top->head == 0);
     ASSERT(mark_queue->blocks->link == NULL);
 
     // Everything has been marked; allow the mutators to proceed
 #if defined(CONCURRENT_MARK)
-    nonmoving_finish_flush(cap, task);
     nonmoving_write_barrier_enabled = false;
+    nonmoving_finish_flush(cap, task);
     debugTrace(DEBUG_nonmoving_gc, "Finished mutator sync; sweeping...");
 #endif
 

@@ -1043,13 +1043,14 @@ mark_closure (MarkQueue *queue, StgClosure *p)
  *  a. nonmoving_prepare_mark has been called.
  *  b. the nursery has been fully evacuated into the non-moving generation.
  *  c. the mark queue has been seeded with a set of roots.
- *
+ *  d. can_yield = false when we are in the midst of a update-remembered set flush.
  */
-GNUC_ATTR_HOT void nonmoving_mark(MarkQueue *queue)
+GNUC_ATTR_HOT void nonmoving_mark(MarkQueue *queue, bool can_yield)
 {
     while (true) {
-        // suspend marking if moving collection needs to run
-        nonmoving_yield_mark();
+        // suspend marking if moving collection needs to run.
+        if (can_yield)
+            nonmoving_yield_mark();
 
         MarkQueueEnt ent = mark_queue_pop(queue);
 

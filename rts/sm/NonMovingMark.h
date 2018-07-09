@@ -110,7 +110,7 @@ void mark_queue_add_root(MarkQueue* q, StgClosure** root);
 
 void init_mark_queue(MarkQueue *queue);
 void free_mark_queue(MarkQueue *queue);
-void nonmoving_mark(struct MarkQueue_ *restrict queue);
+void nonmoving_mark(struct MarkQueue_ *restrict queue, bool can_yield);
 
 bool nonmoving_mark_weaks(struct MarkQueue_ *queue);
 void nonmoving_mark_threads(struct MarkQueue_ *queue);
