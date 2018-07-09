@@ -135,12 +135,19 @@ void nonmoving_begin_flush(Capability **cap, Task *task)
  */
 bool nonmoving_wait_for_flush()
 {
-    bool finished;
     ACQUIRE_LOCK(&upd_rem_set_lock);
     waitCondition(&upd_rem_set_flushed_cond, &upd_rem_set_lock);
-    finished = upd_rem_set_flush_count == n_capabilities;
+    debugTrace(DEBUG_nonmoving_gc, "Flush count %d", upd_rem_set_flush_count);
+    bool finished = (upd_rem_set_flush_count == n_capabilities) || (sched_state == SCHED_SHUTTING_DOWN);
     RELEASE_LOCK(&upd_rem_set_lock);
     return finished;
+}
+
+/* Signal to the mark thread that the RTS is shutting down. */
+void nonmoving_shutting_down()
+{
+    ASSERT(sched_state == SCHED_SHUTTING_DOWN);
+    signalCondition(&upd_rem_set_flushed_cond);
 }
 
 /* Notify capabilities that the synchronisation is finished; they may resume
@@ -151,6 +158,8 @@ void nonmoving_finish_flush(const Capability *cap, Task *task)
     broadcastCondition(&upd_rem_set_flush_done_cond);
     releaseAllCapabilities(n_capabilities, cap, task);
 }
+#else
+void nonmoving_shutting_down() {}
 #endif
 
 /*********************************************************

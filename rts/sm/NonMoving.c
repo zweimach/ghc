@@ -355,6 +355,7 @@ void nonmoving_collect()
     // We can't start a new collection until the old one has finished
 #if defined(CONCURRENT_MARK)
     if (concurrent_coll_running) {
+        if (sched_state == SCHED_RUNNING) return;
         ACQUIRE_LOCK(&concurrent_coll_finished_lock);
         waitCondition(&concurrent_coll_finished, &concurrent_coll_finished_lock);
         RELEASE_LOCK(&concurrent_coll_finished_lock);
@@ -404,11 +405,15 @@ void nonmoving_collect()
 
     // We are now safe to start concurrent marking
 #if defined(CONCURRENT_MARK)
-    concurrent_coll_running = true;
-    nonmoving_write_barrier_enabled = true;
-    debugTrace(DEBUG_nonmoving_gc, "Starting concurrent mark thread");
-    createOSThread(&mark_thread, "non-moving mark thread",
-                   nonmoving_concurrent_mark, mark_queue);
+    if (sched_state == SCHED_RUNNING) {
+        concurrent_coll_running = true;
+        nonmoving_write_barrier_enabled = true;
+        debugTrace(DEBUG_nonmoving_gc, "Starting concurrent mark thread");
+        createOSThread(&mark_thread, "non-moving mark thread",
+                       nonmoving_concurrent_mark, mark_queue);
+    } else {
+        nonmoving_concurrent_mark(mark_queue);
+    }
 #else
     nonmoving_concurrent_mark(mark_queue);
 #endif
@@ -441,14 +446,23 @@ static void* nonmoving_concurrent_mark(void *data)
 #if defined(CONCURRENT_MARK)
     ASSERT(nonmoving_mark_task == NULL);
     ASSERT(nonmoving_mark_cap == NULL);
-    Task *task = newBoundTask();
-    nonmoving_mark_task = task;
-    Capability *cap = task->cap;
-    waitForCapability(&cap, task);
-    nonmoving_mark_cap = cap;
 
-    SET_GCT(gc_threads[cap->no]);
-    gct->id = osThreadId();
+    Task *task;
+    Capability *cap;
+    if (sched_state == SCHED_RUNNING) {
+        task = newBoundTask();
+        cap = task->cap;
+        waitForCapability(&cap, task);
+
+        SET_GCT(gc_threads[cap->no]);
+        gct->id = osThreadId();
+
+    } else {
+        task = myTask();
+        cap = task->cap;
+    }
+    nonmoving_mark_task = task;
+    nonmoving_mark_cap = cap;
 
     debugTrace(DEBUG_nonmoving_gc, "Commencing mark...");
 

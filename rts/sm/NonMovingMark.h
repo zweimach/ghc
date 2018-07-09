@@ -104,6 +104,7 @@ void nonmoving_begin_flush(Capability **cap, Task *task);
 bool nonmoving_wait_for_flush(void);
 void nonmoving_finish_flush(const Capability *cap, Task *task);
 #endif
+void nonmoving_shutting_down(void);
 
 void mark_queue_add_root(MarkQueue* q, StgClosure** root);
 

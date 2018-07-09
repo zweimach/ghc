@@ -44,6 +44,7 @@
 #include "Stable.h"
 #include "TopHandler.h"
 #include "sm/NonMoving.h"
+#include "sm/NonMovingMark.h"
 
 #if defined(HAVE_SYS_TYPES_H)
 #include <sys/types.h>
@@ -2667,6 +2668,7 @@ exitScheduler (bool wait_foreign USED_IF_THREADS)
         releaseCapability(cap);
     }
     sched_state = SCHED_SHUTTING_DOWN;
+    nonmoving_shutting_down();
 
     shutdownCapabilities(task, wait_foreign);
 
