@@ -441,6 +441,7 @@ static void nonmoving_mark_threads_weaks(MarkQueue *mark_queue)
 static void* nonmoving_concurrent_mark(void *data)
 {
     MarkQueue *mark_queue = (MarkQueue *) data;
+    ACQUIRE_LOCK(&nonmoving_collection_mutex);
     debugTrace(DEBUG_nonmoving_gc, "Starting mark...");
 
 #if defined(CONCURRENT_MARK)
