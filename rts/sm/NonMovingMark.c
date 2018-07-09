@@ -765,7 +765,7 @@ mark_closure (MarkQueue *queue, StgClosure *p)
         } else {
             struct nonmoving_segment *seg = nonmoving_get_segment((StgPtr) p);
             nonmoving_block_idx block_idx = nonmoving_get_block_idx((StgPtr) p);
-            if (p >= nonmoving_segment_get_block(seg, seg->next_free_snap)
+            if (p >= (StgClosure *) nonmoving_segment_get_block(seg, seg->next_free_snap)
                 || nonmoving_get_mark_bit(seg, block_idx)) {
                 return;
             }
