@@ -111,6 +111,7 @@ static void nonmoving_add_upd_rem_set_blocks(MarkQueue *rset)
  */
 void nonmoving_flush_cap_upd_rem_set_blocks(Capability *cap)
 {
+    debugTrace(DEBUG_nonmoving_gc, "Capability %d flushing update remembered set", cap->no);
     nonmoving_add_upd_rem_set_blocks(&cap->upd_rem_set.queue);
     atomic_inc(&upd_rem_set_flush_count, 1);
     signalCondition(&upd_rem_set_flushed_cond);
