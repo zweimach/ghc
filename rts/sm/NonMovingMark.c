@@ -186,6 +186,8 @@ void push_closure (MarkQueue *q,
                    enum push_type push_type)
 {
 #if defined(DEBUG)
+    LOOKS_LIKE_CLOSURE_PTR(p);
+    LOOKS_LIKE_CLOSURE_PTR(origin_closure);
     assert_in_nonmoving_heap((P_)p);
     if (origin_closure) {
         assert_in_nonmoving_heap((P_)origin_closure);
