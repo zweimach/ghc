@@ -366,19 +366,29 @@ scavenge_nonmoving_segment(struct nonmoving_segment *seg)
 }
 
 #if defined(CONCURRENT_MARK)
+static void fixup_ptr(StgClosure **p)
+{
+    *p = isAlive(*p);
+}
+
 static void
 scavenge_mark_queue_entry(MarkQueueEnt *ent) {
     switch (ent->type) {
     case MARK_CLOSURE:
-        evacuate(&ent->mark_closure.p);
-        if (ent->mark_closure.origin) {
-            evacuate(&ent->mark_closure.origin);
-            evacuate(&ent->mark_closure.origin_value);
+        if (ent->mark_closure.p == (StgClosure*)0x42001f6000)
+            debugBelch("HMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM\n");
+        fixup_ptr(&ent->mark_closure.p);
+        if (ent->mark_closure.p == NULL) {
+            // the object died, it will be ignored by the mark
+        } else if (ent->mark_closure.origin) {
+            LOOKS_LIKE_CLOSURE_PTR(ent->mark_closure.p);
+            fixup_ptr(&ent->mark_closure.origin);
+            fixup_ptr(&ent->mark_closure.origin_value);
         }
         break;
 
     case MARK_ARRAY:
-        evacuate((StgClosure **) &ent->mark_array.array);
+        fixup_ptr((StgClosure **) &ent->mark_array.array);
         break;
 
     default:

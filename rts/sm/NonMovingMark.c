@@ -1029,10 +1029,12 @@ GNUC_ATTR_HOT void nonmoving_mark(MarkQueue *queue)
 
         switch (ent.type) {
         case MARK_CLOSURE:
+            if (!ent.mark_closure.p) continue;
             mark_closure(queue, ent.mark_closure.p);
             break;
         case MARK_ARRAY: {
             const StgMutArrPtrs *arr = ent.mark_array.array;
+            if (!arr) continue;
             StgWord start = ent.mark_array.start_index;
             StgWord end = start + MARK_ARRAY_CHUNK_LENGTH;
             if (end < arr->ptrs) {
