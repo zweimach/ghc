@@ -83,6 +83,8 @@ enum push_type { PUSH_MARK_QUEUE, PUSH_UPD_REM_SET };
  */
 static void nonmoving_add_upd_rem_set_blocks(MarkQueue *rset)
 {
+    if (mark_queue_is_empty(rset)) return;
+
     // find the tail of the queue
     bdescr *start = rset->blocks;
     bdescr *end = start;

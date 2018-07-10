@@ -130,6 +130,11 @@ void mark_queue_push_thunk_srt(MarkQueue *q, const StgInfoTable *info);
 void mark_queue_push_fun_srt(MarkQueue *q, const StgInfoTable *info);
 void mark_queue_push_array(MarkQueue *q, const StgMutArrPtrs *array, StgWord start_index);
 
+INLINE_HEADER bool mark_queue_is_empty(MarkQueue *q)
+{
+    return (q->blocks == NULL) || (q->top->head == 0 && q->blocks->link == NULL);
+}
+
 #if defined(DEBUG)
 
 void print_queue_ent(MarkQueueEnt *ent);
