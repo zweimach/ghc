@@ -102,7 +102,7 @@ int count_global_upd_rem_set_blocks(void);
 void nonmoving_flush_cap_upd_rem_set_blocks(Capability *cap);
 void nonmoving_begin_flush(Capability **cap, Task *task);
 bool nonmoving_wait_for_flush(void);
-void nonmoving_finish_flush(const Capability *cap, Task *task);
+void nonmoving_finish_flush(Capability *cap, Task *task);
 #endif
 void nonmoving_shutting_down(void);
 

@@ -156,7 +156,7 @@ void nonmoving_shutting_down()
 /* Notify capabilities that the synchronisation is finished; they may resume
  * execution.
  */
-void nonmoving_finish_flush(const Capability *cap, Task *task)
+void nonmoving_finish_flush(Capability *cap, Task *task)
 {
     debugTrace(DEBUG_nonmoving_gc, "Finished update remembered set flush...");
     releaseAllCapabilities(n_capabilities, cap, task);
