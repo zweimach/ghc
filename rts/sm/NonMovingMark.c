@@ -34,7 +34,7 @@ bdescr *upd_rem_set_block_list = NULL;
 /* Used during the mark/sweep phase transition to track how many capabilities
  * have pushed their update remembered sets. Protected by upd_rem_set_lock.
  */
-static StgWord upd_rem_set_flush_count = 0;
+static volatile StgWord upd_rem_set_flush_count = 0;
 #endif
 
 /* Signaled by each capability when it has flushed its update remembered set */
@@ -110,12 +110,15 @@ static void nonmoving_add_upd_rem_set_blocks(MarkQueue *rset)
  */
 void nonmoving_flush_cap_upd_rem_set_blocks(Capability *cap)
 {
-    debugTrace(DEBUG_nonmoving_gc, "Capability %d flushing update remembered set", cap->no);
-    nonmoving_add_upd_rem_set_blocks(&cap->upd_rem_set.queue);
-    atomic_inc(&upd_rem_set_flush_count, 1);
-    signalCondition(&upd_rem_set_flushed_cond);
-    // After this mutation will remain suspended until nonmoving_finish_flush
-    // releases its capabilities.
+    if (! cap->upd_rem_set_syncd) {
+        debugTrace(DEBUG_nonmoving_gc, "Capability %d flushing update remembered set", cap->no);
+        nonmoving_add_upd_rem_set_blocks(&cap->upd_rem_set.queue);
+        atomic_inc(&upd_rem_set_flush_count, 1);
+        cap->upd_rem_set_syncd = true;
+        signalCondition(&upd_rem_set_flushed_cond);
+        // After this mutation will remain suspended until nonmoving_finish_flush
+        // releases its capabilities.
+    }
 }
 
 /* Request that all capabilities flush their update remembered sets and suspend
@@ -124,9 +127,20 @@ void nonmoving_flush_cap_upd_rem_set_blocks(Capability *cap)
 void nonmoving_begin_flush(Capability **cap, Task *task)
 {
     debugTrace(DEBUG_nonmoving_gc, "Starting update remembered set flush...");
+    for (unsigned int i = 0; i < n_capabilities; i++) {
+        capabilities[i]->upd_rem_set_syncd = false;
+    }
     upd_rem_set_flush_count = 0;
+    nonmoving_flush_cap_upd_rem_set_blocks(*cap);
     stopAllCapabilitiesWith(cap, task, SYNC_FLUSH_UPD_REM_SET);
-    nonmoving_add_upd_rem_set_blocks(&(*cap)->upd_rem_set.queue);
+
+    // XXX: We may have been given a capability via releaseCapability (i.e. a
+    // task suspended due to a foreign call) in which case our requestSync
+    // logic won't have been hit. Make sure that everyone so far has flushed.
+    // Ideally we want to mark asynchronously with syncing.
+    for (unsigned int i = 0; i < n_capabilities; i++) {
+        nonmoving_flush_cap_upd_rem_set_blocks(capabilities[i]);
+    }
 }
 
 /* Wait until a capability has flushed its update remembered set. Returns true
@@ -136,9 +150,7 @@ bool nonmoving_wait_for_flush()
 {
     ACQUIRE_LOCK(&upd_rem_set_lock);
     debugTrace(DEBUG_nonmoving_gc, "Flush count %d", upd_rem_set_flush_count);
-    // n_caps - 1 since we have already taken a capability; it's remembered set is flushed by
-    // nonmoving_begin_flush.
-    bool finished = (upd_rem_set_flush_count == n_capabilities-1) || (sched_state == SCHED_SHUTTING_DOWN);
+    bool finished = (upd_rem_set_flush_count == n_capabilities) || (sched_state == SCHED_SHUTTING_DOWN);
     if (!finished) {
         waitCondition(&upd_rem_set_flushed_cond, &upd_rem_set_lock);
     }

@@ -64,11 +64,16 @@ Mutex concurrent_coll_finished_lock;
  *  - The non-moving collector must yield to younger generation collections. This
  *    is enforced by the nonmoving mark taking a capability. The
  *    pause_nonmoving_mark flag is used by the young generation to signal to the
- *    non-moving collector that it should yield this capability.
+ *    non-moving collector that it should yield this capability. However, we may
+ *    not yield when in flushing update remembered sets (see below) as we would
+ *    deadlock with the younger generation collector. To avoid deadlock performGC
+ *    flushes TODO
  *
  *  - In between the mark and sweep phases the non-moving collector must synchronize
  *    with mutator threads to collect and mark their final update remembered
- *    sets. This is accomplished using stopAllCapabilities.
+ *    sets. This is accomplished using
+ *    stopAllCapabilitiesWith(SYNC_FLUSH_UPD_REM_SET). Capabilities are held
+ *    the final mark has concluded.
  *
  */
 
@@ -359,6 +364,10 @@ void nonmoving_collect()
         ACQUIRE_LOCK(&concurrent_coll_finished_lock);
         waitCondition(&concurrent_coll_finished, &concurrent_coll_finished_lock);
         RELEASE_LOCK(&concurrent_coll_finished_lock);
+    }
+
+    for (unsigned int i = 0; i < n_capabilities; i++) {
+        capabilities[i]->upd_rem_set_syncd = false;
     }
 #endif
 

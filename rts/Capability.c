@@ -523,6 +523,8 @@ releaseCapability_ (Capability* cap,
 
     cap->running_task = NULL;
 
+    nonmoving_flush_cap_upd_rem_set_blocks(cap);
+
     // Check to see whether a worker thread can be given
     // the go-ahead to return the result of an external call..
     if (cap->n_returning_tasks != 0) {

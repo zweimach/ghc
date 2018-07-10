@@ -85,7 +85,9 @@ struct Capability_ {
     bdescr **mut_lists;
     bdescr **saved_mut_lists; // tmp use during GC
 
+    // The update remembered set for the non-moving collector
     UpdRemSet upd_rem_set;
+    bool upd_rem_set_syncd;
 
     // block for allocating pinned objects into
     bdescr *pinned_object_block;
