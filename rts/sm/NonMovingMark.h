@@ -15,7 +15,6 @@
 enum EntryType {
     NULL_ENTRY = 0,
     MARK_CLOSURE,
-    MARK_FROM_SEL,
     MARK_ARRAY
 };
 
@@ -28,11 +27,6 @@ typedef struct {
             StgClosure **origin_field; // pointer to field where the reference was found
             StgClosure *origin_value;
         } mark_closure;
-        struct {
-            StgClosure *p;
-            StgWord origin_field;    // index of the referencing field
-            StgClosure *mark_indir;
-        } mark_from_sel;
         struct {
             const StgMutArrPtrs *array;
             StgWord start_index;
@@ -47,7 +41,7 @@ typedef struct {
     MarkQueueEnt entries[];
 } MarkQueueBlock;
 
-#define MARK_PREFETCH_QUEUE_DEPTH 8
+#define MARK_PREFETCH_QUEUE_DEPTH 0 // TODO: 8
 
 /* The mark queue is not capable of concurrent read or write.
  *
