@@ -216,6 +216,10 @@ void push_closure (MarkQueue *q,
                    StgWord origin_field,
                    enum push_type push_type)
 {
+    // TODO: Push this into callers where they already have the Bdescr
+    if (HEAP_ALLOCED_GC(p) && (Bdescr((StgPtr) p)->gen != oldest_gen))
+        return;
+
 #if defined(DEBUG)
     LOOKS_LIKE_CLOSURE_PTR(p);
     LOOKS_LIKE_CLOSURE_PTR(origin_closure);
@@ -1090,13 +1094,9 @@ mark_closure (MarkQueue *queue, StgClosure *p)
  *  c. the mark queue has been seeded with a set of roots.
  *  d. can_yield = false when we are in the midst of a update-remembered set flush.
  */
-GNUC_ATTR_HOT void nonmoving_mark(MarkQueue *queue, bool can_yield)
+GNUC_ATTR_HOT void nonmoving_mark(MarkQueue *queue)
 {
     while (true) {
-        // suspend marking if moving collection needs to run.
-        if (can_yield)
-            nonmoving_yield_mark();
-
         MarkQueueEnt ent = mark_queue_pop(queue);
 
         switch (ent.type) {

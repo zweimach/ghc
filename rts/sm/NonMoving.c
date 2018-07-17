@@ -37,12 +37,6 @@ Capability *nonmoving_mark_cap = NULL;
 Task *nonmoving_mark_task = NULL;
 #endif
 
-/*
- * This is used to signal to an on-going mark that it should suspend itself so
- * a younger-generation collection can run.
- */
-bool pause_nonmoving_mark = false;
-
 #if defined(CONCURRENT_MARK)
 OSThreadId mark_thread;
 bool concurrent_coll_running = false;
@@ -60,14 +54,6 @@ Mutex concurrent_coll_finished_lock;
  *    we attempt to initiate a new collection while this is set we wait on the
  *    concurrent_coll_finished condition variable, which signals when the
  *    active collection finishes.
- *
- *  - The non-moving collector must yield to younger generation collections. This
- *    is enforced by the nonmoving mark taking a capability. The
- *    pause_nonmoving_mark flag is used by the young generation to signal to the
- *    non-moving collector that it should yield this capability. However, we may
- *    not yield when in flushing update remembered sets (see below) as we would
- *    deadlock with the younger generation collector. To avoid deadlock performGC
- *    flushes TODO
  *
  *  - In between the mark and sweep phases the non-moving collector must synchronize
  *    with mutator threads to collect and mark their final update remembered
@@ -328,33 +314,6 @@ static void nonmoving_mark_weak_ptr_list(MarkQueue *mark_queue)
     }
 }
 
-#if defined(CONCURRENT_MARK)
-/* Called by mark to possibly yield to a young generation collection */
-void nonmoving_yield_mark()
-{
-    if (pause_nonmoving_mark) {
-        debugTrace(DEBUG_nonmoving_gc, "Pausing non-moving mark")
-        pause_nonmoving_mark = false;
-        yieldCapability(&nonmoving_mark_cap, nonmoving_mark_task, true);
-        // young generation collection runs here
-        debugTrace(DEBUG_nonmoving_gc, "Resuming non-moving mark");
-
-        SET_GCT(gc_threads[nonmoving_mark_cap->no]);
-        gct->id = osThreadId();
-    }
-}
-
-/* Called by the young generation GC to pause an on-going non-moving mark */
-void nonmoving_suspend_mark()
-{
-    pause_nonmoving_mark = true;
-}
-#else
-void nonmoving_yield_mark() {}
-void nonmoving_suspend_mark() {}
-#endif
-
-
 void nonmoving_collect()
 {
     // We can't start a new collection until the old one has finished
@@ -431,11 +390,11 @@ void nonmoving_collect()
 /* Mark mark queue, threads, and weak pointers until no more weaks have been
  * resuscitated
  */
-static void nonmoving_mark_threads_weaks(MarkQueue *mark_queue, bool can_yield)
+static void nonmoving_mark_threads_weaks(MarkQueue *mark_queue)
 {
     while (true) {
         // Propagate marks
-        nonmoving_mark(mark_queue, can_yield);
+        nonmoving_mark(mark_queue);
 
         // Mark threads and weaks
         nonmoving_mark_threads(mark_queue);
@@ -475,7 +434,7 @@ static void* nonmoving_concurrent_mark(void *data)
     debugTrace(DEBUG_nonmoving_gc, "Commencing mark...");
 
     // Do concurrent marking; most of the heap will get marked here.
-    nonmoving_mark_threads_weaks(mark_queue, true);
+    nonmoving_mark_threads_weaks(mark_queue);
 
     // Gather final remembered sets from mutators and mark them
     nonmoving_begin_flush(&cap, task);
@@ -483,11 +442,10 @@ static void* nonmoving_concurrent_mark(void *data)
     bool all_caps_syncd;
     do {
         all_caps_syncd = nonmoving_wait_for_flush();
-        nonmoving_mark_threads_weaks(mark_queue, false);
+        nonmoving_mark_threads_weaks(mark_queue);
     } while (!all_caps_syncd);
 #else
-    // no reason to yield since this is non-concurrent.
-    nonmoving_mark_threads_weaks(mark_queue, false);
+    nonmoving_mark_threads_weaks(mark_queue);
 #endif
 
     // NOTE: This should be called only once otherwise it corrupts lists
@@ -499,7 +457,7 @@ static void* nonmoving_concurrent_mark(void *data)
     // Do last marking of weak pointers
     while (true) {
         // Propagate marks
-        nonmoving_mark(mark_queue, false);
+        nonmoving_mark(mark_queue);
 
         if (!nonmoving_mark_weaks(mark_queue))
             break;
@@ -508,7 +466,7 @@ static void* nonmoving_concurrent_mark(void *data)
     nonmoving_mark_dead_weaks(mark_queue);
 
     // Propagate marks
-    nonmoving_mark(mark_queue, false);
+    nonmoving_mark(mark_queue);
 
     ASSERT(mark_queue->top->head == 0);
     ASSERT(mark_queue->blocks->link == NULL);

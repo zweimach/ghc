@@ -466,11 +466,6 @@ GarbageCollect (uint32_t collect_gen,
 
   // NO MORE EVACUATION AFTER THIS POINT!
 
-#if defined(CONCURRENT_MARK)
-  if (RtsFlags.GcFlags.useNonmoving)
-      scavenge_upd_rem_set();
-#endif
-
   // Mark and sweep the oldest generation
   if (RtsFlags.GcFlags.useNonmoving && major_gc)
       nonmoving_collect();

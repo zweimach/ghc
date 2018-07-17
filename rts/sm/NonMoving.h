@@ -169,9 +169,6 @@ INLINE_HEADER bool nonmoving_get_closure_mark_bit(StgPtr p)
     return nonmoving_get_mark_bit(nonmoving_get_segment(p), nonmoving_get_block_idx(p));
 }
 
-void nonmoving_yield_mark(void);
-void nonmoving_suspend_mark(void);
-
 #if defined(DEBUG)
 
 void nonmoving_print_segment(struct nonmoving_segment *seg);

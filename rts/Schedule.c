@@ -1541,11 +1541,6 @@ scheduleDoGC (Capability **pcap, Task *task USED_IF_THREADS,
     collect_gen = calcNeeded(force_major || heap_census, NULL);
     major_gc = (collect_gen == RtsFlags.GcFlags.generations-1);
 
-    // Request that the non-moving mark suspend, if one is running.
-    if (RtsFlags.GcFlags.useNonmoving) {
-        nonmoving_suspend_mark();
-    }
-
 #if defined(THREADED_RTS)
     if (sched_state < SCHED_INTERRUPTING
         && RtsFlags.ParFlags.parGcEnabled
