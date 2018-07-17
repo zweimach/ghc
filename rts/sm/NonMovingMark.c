@@ -46,6 +46,10 @@ void mark_queue_push_closure (MarkQueue *q,
                               StgClosure *origin_closure,
                               StgWord origin_field)
 {
+    // TODO: Push this into callers where they already have the Bdescr
+    if (HEAP_ALLOCED_GC(p) && (Bdescr((StgPtr) p)->gen != oldest_gen))
+        return;
+
 #if defined(DEBUG)
     assert_in_nonmoving_heap((P_)p);
     if (origin_closure) {
