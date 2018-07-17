@@ -50,6 +50,13 @@ bool nonmoving_write_barrier_enabled = false;
  */
 MarkQueue *current_mark_queue = NULL;
 
+
+/*********************************************************
+ * Forward declarations
+ *********************************************************/
+static void mark_tso (MarkQueue *queue, StgTSO *tso);
+static void mark_stack (MarkQueue *queue, StgPtr sp, StgPtr spBottom);
+
 /* Initialise update remembered set data structures */
 void nonmoving_mark_init_upd_rem_set() {
     initMutex(&upd_rem_set_lock);
@@ -347,7 +354,20 @@ void mark_queue_push_closure (MarkQueue *q,
 /* TODO: Do we really never want to specify the origin here? */
 void mark_queue_add_root(MarkQueue* q, StgClosure** root)
 {
-    mark_queue_push_closure(q, *root, NULL, 0);
+    StgClosure *p = UNTAG_CLOSURE(*root);
+    ASSERTM(LOOKS_LIKE_CLOSURE_PTR(p), "invalid closure, info=%p", p->header.info);
+    ASSERT(!IS_FORWARDING_PTR(p->header.info));
+    const StgInfoTable *info = get_itbl(p);
+
+    switch (info->type) {
+    case TSO:
+        // We must mark TSOs eagerly since they are not covered by the write barrier.
+        mark_tso(q, (StgTSO *) p);
+        break;
+
+    default:
+        mark_queue_push_closure(q, p, NULL, 0);
+    }
 }
 
 /* Push a closure to the mark queue without origin information */
@@ -459,15 +479,31 @@ void free_mark_queue(MarkQueue *queue)
 
 static void mark_tso (MarkQueue *queue, StgTSO *tso)
 {
+    if (tso == END_TSO_QUEUE)
+        return;
+    ASSERT(get_itbl((StgClosure *) tso)->type == TSO);
+    ASSERT(HEAP_ALLOCED_GC((StgPtr) tso));
+
+    bdescr *bd = Bdescr((StgPtr) tso);
+    if ((bd->flags & BF_NONMOVING) == 0)
+        return;
+
+    if (nonmoving_get_closure_mark_bit((StgPtr) tso))
+        return;
+    nonmoving_set_closure_mark_bit((StgPtr) tso);
+
     if (tso->bound != NULL) {
-        mark_queue_push_closure_(queue, (StgClosure *) tso->bound->tso);
+        //mark_queue_push_closure_(queue, (StgClosure *) tso->bound->tso);
+        mark_tso(queue, tso->bound->tso);
     }
 
     mark_queue_push_closure_(queue, (StgClosure *) tso->blocked_exceptions);
     mark_queue_push_closure_(queue, (StgClosure *) tso->bq);
     mark_queue_push_closure_(queue, (StgClosure *) tso->trec);
-    mark_queue_push_closure_(queue, (StgClosure *) tso->stackobj);
-    mark_queue_push_closure_(queue, (StgClosure *) tso->_link);
+    //mark_queue_push_closure_(queue, (StgClosure *) tso->stackobj);
+    mark_stack(queue, tso->stackobj->sp, tso->stackobj->stack + tso->stackobj->stack_size);
+    //mark_queue_push_closure_(queue, (StgClosure *) tso->_link);
+    mark_tso(queue, tso->_link);
     if (   tso->why_blocked == BlockedOnMVar
         || tso->why_blocked == BlockedOnMVarRead
         || tso->why_blocked == BlockedOnBlackHole
@@ -1006,12 +1042,16 @@ mark_closure (MarkQueue *queue, StgClosure *p)
     }
 
     case TSO:
+        // TSOs must be roots since stacks aren't covered by the write barrier
+        //barf("mark_closure: Unmarked TSO");
         mark_tso(queue, (StgTSO *) p);
         break;
 
     case STACK: {
-        StgStack *stack = (StgStack *) p;
-        mark_stack(queue, stack->sp, stack->stack + stack->stack_size);
+        // Stacks must be roots since they aren't covered by the write barrier
+        barf("mark_closure: Unmarked STACK");
+        //StgStack *stack = (StgStack *) p;
+        //mark_stack(queue, stack->sp, stack->stack + stack->stack_size);
         break;
     }
 
