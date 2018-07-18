@@ -50,6 +50,9 @@ bool nonmoving_write_barrier_enabled = false;
  */
 MarkQueue *current_mark_queue = NULL;
 
+static void mark_tso (MarkQueue *queue, StgTSO *tso);
+static void mark_stack (MarkQueue *queue, StgStack *stack);
+
 /* Initialise update remembered set data structures */
 void nonmoving_mark_init_upd_rem_set() {
     initMutex(&upd_rem_set_lock);
@@ -75,8 +78,6 @@ void nonmoving_mark_init_upd_rem_set() {
  * allocations.
  *
  */
-
-enum push_type { PUSH_MARK_QUEUE, PUSH_UPD_REM_SET };
 
 /* Transfers the given capability's update-remembered set to the global
  * remembered set.
@@ -181,12 +182,12 @@ void nonmoving_shutting_down() {}
  * Pushing to either the mark queue or remembered set
  *********************************************************/
 
-STATIC_INLINE void push (MarkQueue *q, const MarkQueueEnt *ent, enum push_type push_type)
+STATIC_INLINE void push (MarkQueue *q, const MarkQueueEnt *ent)
 {
     // Are we at the end of the block?
     if (q->top->head == MARK_QUEUE_BLOCK_ENTRIES) {
         // Yes, this block is full.
-        if (push_type == PUSH_UPD_REM_SET) {
+        if (q->is_upd_rem_set) {
             nonmoving_add_upd_rem_set_blocks(q);
         } else {
             // allocate a fresh block.
@@ -206,8 +207,7 @@ STATIC_INLINE
 void push_closure (MarkQueue *q,
                    StgClosure *p,
                    StgClosure *origin_closure,
-                   StgWord origin_field,
-                   enum push_type push_type)
+                   StgWord origin_field)
 {
     // TODO: Push this into callers where they already have the Bdescr
     if (HEAP_ALLOCED_GC(p) && (Bdescr((StgPtr) p)->gen != oldest_gen))
@@ -231,14 +231,13 @@ void push_closure (MarkQueue *q,
             .origin_value = UNTAG_CLOSURE(p)
         }
     };
-    push(q, &ent, push_type);
+    push(q, &ent);
 }
 
 STATIC_INLINE
 void push_array (MarkQueue *q,
                  const StgMutArrPtrs *array,
-                 StgWord start_index,
-                 enum push_type push_type)
+                 StgWord start_index)
 {
     MarkQueueEnt ent = {
         .type = MARK_ARRAY,
@@ -247,24 +246,24 @@ void push_array (MarkQueue *q,
             .start_index = start_index
         }
     };
-    push(q, &ent, push_type);
+    push(q, &ent);
 }
 
 STATIC_INLINE
-void push_thunk_srt (MarkQueue *q, const StgInfoTable *info, enum push_type push_type)
+void push_thunk_srt (MarkQueue *q, const StgInfoTable *info)
 {
     const StgThunkInfoTable *thunk_info = itbl_to_thunk_itbl(info);
     if (thunk_info->i.srt) {
-        push_closure(q, (StgClosure*)GET_SRT(thunk_info), NULL, 0, push_type);
+        push_closure(q, (StgClosure*)GET_SRT(thunk_info), NULL, 0);
     }
 }
 
 STATIC_INLINE
-void push_fun_srt (MarkQueue *q, const StgInfoTable *info, enum push_type push_type)
+void push_fun_srt (MarkQueue *q, const StgInfoTable *info)
 {
     const StgFunInfoTable *fun_info = itbl_to_fun_itbl(info);
     if (fun_info->i.srt) {
-        push_closure(q, (StgClosure*)GET_FUN_SRT(fun_info), NULL, 0, push_type);
+        push_closure(q, (StgClosure*)GET_FUN_SRT(fun_info), NULL, 0);
     }
 }
 
@@ -289,13 +288,12 @@ void upd_rem_set_push_thunk(Capability *cap, StgThunk *origin)
     case THUNK_0_2:
     {
         MarkQueue *queue = &cap->upd_rem_set.queue;
-        push_thunk_srt(queue, info, PUSH_UPD_REM_SET);
+        push_thunk_srt(queue, info);
         for (StgWord i = 0; i < info->layout.payload.ptrs; i++) {
             push_closure(queue,
                          origin->payload[i],
                          (StgClosure*)origin,
-                         i,
-                         PUSH_UPD_REM_SET);
+                         i);
         }
         break;
     }
@@ -324,7 +322,25 @@ void upd_rem_set_push_closure_(StgRegTable *reg,
     // TODO: Eliminate this conditional once it's folded into codegen
     if (!nonmoving_write_barrier_enabled) return;
     MarkQueue *queue = &regTableToCapability(reg)->upd_rem_set.queue;
-    push_closure(queue, p, origin_closure, origin_field, PUSH_UPD_REM_SET);
+    push_closure(queue, p, origin_closure, origin_field);
+}
+
+void upd_rem_set_push_tso(Capability *cap, StgTSO *tso)
+{
+    // TODO: Eliminate this conditional once it's folded into codegen
+    if (!nonmoving_write_barrier_enabled) return;
+    if (Bdescr((StgPtr) tso)->gen != oldest_gen) return;
+    if (nonmoving_get_closure_mark_bit((StgPtr) tso)) return;
+    mark_tso(&cap->upd_rem_set.queue, tso);
+}
+
+void upd_rem_set_push_stack(Capability *cap, StgStack *stack)
+{
+    // TODO: Eliminate this conditional once it's folded into codegen
+    if (!nonmoving_write_barrier_enabled) return;
+    if (Bdescr((StgPtr) stack)->gen != oldest_gen) return;
+    if (nonmoving_get_closure_mark_bit((StgPtr) stack)) return;
+    mark_stack(&cap->upd_rem_set.queue, stack);
 }
 
 int count_global_upd_rem_set_blocks()
@@ -337,7 +353,7 @@ int count_global_upd_rem_set_blocks()
 
 void mark_queue_push (MarkQueue *q, const MarkQueueEnt *ent)
 {
-    push(q, ent, PUSH_MARK_QUEUE);
+    push(q, ent);
 }
 
 void mark_queue_push_closure (MarkQueue *q,
@@ -345,7 +361,7 @@ void mark_queue_push_closure (MarkQueue *q,
                               StgClosure *origin_closure,
                               StgWord origin_field)
 {
-    push_closure(q, p, origin_closure, origin_field, PUSH_MARK_QUEUE);
+    push_closure(q, p, origin_closure, origin_field);
 }
 
 /* TODO: Do we really never want to specify the origin here? */
@@ -362,19 +378,19 @@ void mark_queue_push_closure_ (MarkQueue *q, StgClosure *p)
 
 void mark_queue_push_fun_srt (MarkQueue *q, const StgInfoTable *info)
 {
-    push_fun_srt(q, info, PUSH_MARK_QUEUE);
+    push_fun_srt(q, info);
 }
 
 void mark_queue_push_thunk_srt (MarkQueue *q, const StgInfoTable *info)
 {
-    push_thunk_srt(q, info, PUSH_MARK_QUEUE);
+    push_thunk_srt(q, info);
 }
 
 void mark_queue_push_array (MarkQueue *q,
                             const StgMutArrPtrs *array,
                             StgWord start_index)
 {
-    push_array(q, array, start_index, PUSH_MARK_QUEUE);
+    push_array(q, array, start_index);
 }
 
 /*********************************************************
@@ -430,6 +446,7 @@ void init_mark_queue(MarkQueue *queue)
     queue->blocks = bd;
     queue->top = (MarkQueueBlock *) bd->start;
     queue->top->head = 0;
+    queue->is_upd_rem_set = false;
     queue->marked_objects = allocHashTable();
 
 #if MARK_PREFETCH_QUEUE_DEPTH > 0
@@ -443,6 +460,7 @@ void init_mark_queue(MarkQueue *queue)
 void init_upd_rem_set(UpdRemSet *rset)
 {
     init_mark_queue(&rset->queue);
+    rset->queue.is_upd_rem_set = true;
 }
 
 void free_mark_queue(MarkQueue *queue)
@@ -571,7 +589,7 @@ mark_arg_block (MarkQueue *queue, const StgFunInfoTable *fun_info, StgClosure **
 }
 
 static GNUC_ATTR_HOT void
-mark_stack (MarkQueue *queue, StgPtr sp, StgPtr spBottom)
+mark_stack_ (MarkQueue *queue, StgPtr sp, StgPtr spBottom)
 {
     ASSERT(sp <= spBottom);
 
@@ -649,6 +667,12 @@ mark_stack (MarkQueue *queue, StgPtr sp, StgPtr spBottom)
             barf("mark_stack: weird activation record found on stack: %d", (int)(info->i.type));
         }
     }
+}
+
+static GNUC_ATTR_HOT void
+mark_stack (MarkQueue *queue, StgStack *stack)
+{
+    mark_stack_(queue, stack->sp, stack->stack + stack->stack_size);
 }
 
 static GNUC_ATTR_HOT void
@@ -967,7 +991,7 @@ mark_closure (MarkQueue *queue, StgClosure *p)
     case AP_STACK: {
         StgAP_STACK *ap = (StgAP_STACK *)p;
         PUSH_FIELD(ap, fun);
-        mark_stack(queue, (StgPtr) ap->payload, (StgPtr) ap->payload + ap->size);
+        mark_stack_(queue, (StgPtr) ap->payload, (StgPtr) ap->payload + ap->size);
         break;
     }
 
@@ -1015,7 +1039,7 @@ mark_closure (MarkQueue *queue, StgClosure *p)
 
     case STACK: {
         StgStack *stack = (StgStack *) p;
-        mark_stack(queue, stack->sp, stack->stack + stack->stack_size);
+        mark_stack(queue, stack);
         break;
     }
 

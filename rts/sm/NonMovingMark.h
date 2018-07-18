@@ -61,6 +61,9 @@ typedef struct MarkQueue_ {
     // Cached value of blocks->start.
     MarkQueueBlock *top;
 
+    // Is this a mark queue or a capability-local update remembered set?
+    bool is_upd_rem_set;
+
     // Marked objects outside of nonmoving heap, namely large and static
     // objects.
     HashTable *marked_objects;
@@ -95,6 +98,8 @@ void nonmoving_mark_init_upd_rem_set(void);
 void init_upd_rem_set(UpdRemSet *rset);
 void upd_rem_set_push_thunk(Capability *cap, StgThunk *origin);
 void upd_rem_set_push_thunk_(StgRegTable *reg, StgThunk *origin);
+void upd_rem_set_push_tso(Capability *cap, StgTSO *tso);
+void upd_rem_set_push_stack(Capability *cap, StgStack *stack);
 // Debug only -- count number of blocks in global UpdRemSet
 int count_global_upd_rem_set_blocks(void);
 
