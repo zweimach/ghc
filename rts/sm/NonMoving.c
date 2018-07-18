@@ -275,6 +275,14 @@ static void nonmoving_prepare_mark(void)
     nonmoving_clear_all_bitmaps();
     for (int alloca_idx = 0; alloca_idx < NONMOVING_ALLOCA_CNT; ++alloca_idx) {
         struct nonmoving_allocator *alloca = nonmoving_heap.allocators[alloca_idx];
+
+        // Update current segments' snapshot pointers
+        for (uint32_t cap_n = 0; cap_n < n_capabilities; ++cap_n) {
+            struct nonmoving_segment *seg = alloca->current[cap_n];
+            seg->next_free_snap = seg->next_free;
+        }
+
+        // Update filled segments' snapshot pointers
         struct nonmoving_segment *seg = alloca->filled;
         while (seg) {
             seg->next_free_snap = seg->next_free;
