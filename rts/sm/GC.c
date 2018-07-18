@@ -568,6 +568,7 @@ GarbageCollect (uint32_t collect_gen,
     if (g == RtsFlags.GcFlags.generations-1 && RtsFlags.GcFlags.useNonmoving) {
 
         // Nothing; the nonmoving collector will handle this.
+        continue; // TODO: Handle bookkeeping below
 
     } else if (g <= N) {   // for generations we collected...
 
