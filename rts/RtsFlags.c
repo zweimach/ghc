@@ -1671,6 +1671,9 @@ static void normaliseRtsOpts (void)
     if (RtsFlags.MiscFlags.generate_dump_file) {
         RtsFlags.MiscFlags.install_seh_handlers = true;
     }
+
+    if (RtsFlags.GcFlags.useNonmoving && RtsFlags.GcFlags.generations == 1)
+        barf("The non-moving collector doesn't support -G1");
 }
 
 static void errorUsage (void)
