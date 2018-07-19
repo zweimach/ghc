@@ -710,14 +710,12 @@ mark_closure (MarkQueue *queue, StgClosure *p)
 
         case THUNK_STATIC:
             if (info->srt != 0) {
-                evacuate_static_object(THUNK_STATIC_LINK((StgClosure *)p), p);
                 mark_queue_push_thunk_srt(queue, info); // TODO this function repeats the check above
             }
             return;
 
         case FUN_STATIC:
             if (info->srt != 0 || info->layout.payload.ptrs != 0) {
-                evacuate_static_object(STATIC_LINK(info, p), p);
                 mark_queue_push_fun_srt(queue, info); // TODO this function repeats the check above
 
                 // a FUN_STATIC can also be an SRT, so it may have pointer
@@ -731,7 +729,6 @@ mark_closure (MarkQueue *queue, StgClosure *p)
             return;
 
         case IND_STATIC:
-            evacuate_static_object(IND_STATIC_LINK((StgClosure *)p), p);
             StgInd *ind = (StgInd *)p;
             PUSH_FIELD(ind, indirectee);
             return;
@@ -740,7 +737,6 @@ mark_closure (MarkQueue *queue, StgClosure *p)
         case CONSTR_1_0:
         case CONSTR_2_0:
         case CONSTR_1_1:
-            evacuate_static_object(STATIC_LINK(info,(StgClosure *)p), p);
             for (StgHalfWord i = 0; i < info->layout.payload.ptrs; ++i) {
                 PUSH_FIELD(p, payload[i]);
             }
@@ -766,7 +762,7 @@ mark_closure (MarkQueue *queue, StgClosure *p)
             // * oldest_gen->large_objects:
             //     if it's not evacuated in this GC (was evacuated before)
             // * oldest_gen->scavenged_large_objects:
-            //     if it's evacuated in this GC (must be scavenged by scavenge_nonmoving_heap)
+            //     if it's evacuated in this GC (must have been scavenged by scavenge_nonmoving_segment)
             //
             // If it's in large_objects we must move it to scavenged_large_objects,
             // which will be made large_objects by the end of this GC.
