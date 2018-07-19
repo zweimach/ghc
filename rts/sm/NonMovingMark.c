@@ -18,6 +18,8 @@
 #include "Evac.h"
 #include "sm/Storage.h"
 
+static void mark_tso (MarkQueue *queue, StgTSO *tso);
+static void mark_stack (MarkQueue *queue, StgStack *stack);
 
 /* Note [Large objects in the non-moving collector]
  * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -520,7 +522,7 @@ mark_arg_block (MarkQueue *queue, const StgFunInfoTable *fun_info, StgClosure **
 }
 
 static GNUC_ATTR_HOT void
-mark_stack (MarkQueue *queue, StgPtr sp, StgPtr spBottom)
+mark_stack_ (MarkQueue *queue, StgPtr sp, StgPtr spBottom)
 {
     ASSERT(sp <= spBottom);
 
@@ -598,6 +600,12 @@ mark_stack (MarkQueue *queue, StgPtr sp, StgPtr spBottom)
             barf("mark_stack: weird activation record found on stack: %d", (int)(info->i.type));
         }
     }
+}
+
+static GNUC_ATTR_HOT void
+mark_stack (MarkQueue *queue, StgStack *stack)
+{
+    mark_stack_(queue, stack->sp, stack->stack + stack->stack_size);
 }
 
 static GNUC_ATTR_HOT void
@@ -917,7 +925,7 @@ mark_closure (MarkQueue *queue, StgClosure *p)
     case AP_STACK: {
         StgAP_STACK *ap = (StgAP_STACK *)p;
         PUSH_FIELD(ap, fun);
-        mark_stack(queue, (StgPtr) ap->payload, (StgPtr) ap->payload + ap->size);
+        mark_stack_(queue, (StgPtr) ap->payload, (StgPtr) ap->payload + ap->size);
         break;
     }
 
@@ -963,11 +971,9 @@ mark_closure (MarkQueue *queue, StgClosure *p)
         mark_tso(queue, (StgTSO *) p);
         break;
 
-    case STACK: {
-        StgStack *stack = (StgStack *) p;
-        mark_stack(queue, stack->sp, stack->stack + stack->stack_size);
+    case STACK:
+        mark_stack(queue, (StgStack *) p);
         break;
-    }
 
     case MUT_PRIM: {
         for (StgHalfWord p_idx = 0; p_idx < info->layout.payload.ptrs; ++p_idx) {
