@@ -167,7 +167,7 @@ GNUC_ATTR_HOT void nonmoving_sweep(void)
     }
 }
 
-void nonmoving_sweep_mut_lists(HashTable *marked_objects)
+void nonmoving_sweep_mut_lists()
 {
     for (uint32_t n = 0; n < n_capabilities; n++) {
         Capability *cap = capabilities[n];
@@ -176,7 +176,7 @@ void nonmoving_sweep_mut_lists(HashTable *marked_objects)
         for (bdescr *bd = old_mut_list; bd; bd = bd->link) {
             for (StgPtr p = bd->start; p < bd->free; p++) {
                 StgClosure **q = (StgClosure**)p;
-                if (nonmoving_is_alive(marked_objects, *q)) {
+                if (nonmoving_is_alive(*q)) {
                     recordMutableGen_GC(*q, oldest_gen->no);
                 }
             }
@@ -185,14 +185,14 @@ void nonmoving_sweep_mut_lists(HashTable *marked_objects)
     }
 }
 
-void nonmoving_sweep_large_objects(HashTable *marked_objects)
+void nonmoving_sweep_large_objects()
 {
     bdescr *free_blocks = NULL; // Blocks to be freed
 
     bdescr *next_large;
     for (bdescr *large = oldest_gen->scavenged_large_objects; large; large = next_large) {
         next_large = large->link;
-        if (!lookupHashTable(marked_objects, (W_)large)) {
+        if (!(large->flags & BF_MARKED)) {
             dbl_link_remove(large, &oldest_gen->scavenged_large_objects);
             // update n_large_blocks again. this is slightly annoying, we
             // scavenge this object before mark phase and update the counter,
@@ -208,7 +208,7 @@ void nonmoving_sweep_large_objects(HashTable *marked_objects)
 
 // Essentially nonmoving_is_alive, but works when the object died in moving
 // heap, see nonmoving_sweep_stable_name_table
-static bool is_alive(HashTable *marked_objects, StgClosure *p)
+static bool is_alive(StgClosure *p)
 {
     if (!HEAP_ALLOCED_GC(p)) {
         return true;
@@ -216,13 +216,13 @@ static bool is_alive(HashTable *marked_objects, StgClosure *p)
 
     bdescr *bd = Bdescr((P_)p);
     if (bd->flags & BF_NONMOVING) {
-        return nonmoving_is_alive(marked_objects, p);
+        return nonmoving_is_alive(p);
     } else {
         return isAlive(p);
     }
 }
 
-void nonmoving_sweep_stable_name_table(HashTable *marked_objects)
+void nonmoving_sweep_stable_name_table()
 {
     // See comments in gcStableTables
 
@@ -237,11 +237,11 @@ void nonmoving_sweep_stable_name_table(HashTable *marked_objects)
     FOR_EACH_STABLE_NAME(
         p, {
             if (p->sn_obj != NULL) {
-                if (!is_alive(marked_objects, (StgClosure*)p->sn_obj)) {
+                if (!is_alive((StgClosure*)p->sn_obj)) {
                     p->sn_obj = NULL; // Just to make an assertion happy
                     freeSnEntry(p);
                 } else if (p->addr != NULL) {
-                    if (!is_alive(marked_objects, (StgClosure*)p->addr)) {
+                    if (!is_alive((StgClosure*)p->addr)) {
                         p->addr = NULL;
                     }
                 }
