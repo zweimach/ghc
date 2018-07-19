@@ -469,10 +469,6 @@ GarbageCollect (uint32_t collect_gen,
 
   // NO MORE EVACUATION AFTER THIS POINT!
 
-  // Mark and sweep the oldest generation
-  if (RtsFlags.GcFlags.useNonmoving)
-      nonmoving_collect();
-
   copied = 0;
   par_max_copied = 0;
   par_balanced_copied = 0;
@@ -706,6 +702,12 @@ GarbageCollect (uint32_t collect_gen,
         }
     }
   } // for all generations
+
+  // Mark and sweep the oldest generation.
+  // N.B. This can only happen after we've moved
+  // oldest_gen->scavenged_large_objects back to oldest_gen->large_objects.
+  if (RtsFlags.GcFlags.useNonmoving && major_gc)
+      nonmoving_collect();
 
   // update the max size of older generations after a major GC
   resize_generations();
