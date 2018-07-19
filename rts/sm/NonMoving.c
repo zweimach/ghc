@@ -217,6 +217,11 @@ void nonmoving_clear_all_bitmaps()
             nonmoving_clear_segment_bitmaps(alloca->current[cap_n]);
         }
     }
+
+    // Clear large object bits
+    for (bdescr *bd = oldest_gen->large_objects; bd; bd = bd->link) {
+        bd->flags &= ~BF_MARKED;
+    }
 }
 
 // Mark weak pointers in the non-moving heap. They'll either end up in
@@ -299,8 +304,8 @@ threads:
         // Propagate marks
         nonmoving_mark(&mark_queue);
 
-        // Mark threads and weaks
-        nonmoving_mark_threads(&mark_queue);
+        // Tidy threads and weaks
+        nonmoving_tidy_threads();
 
         if (nonmoving_mark_weaks(&mark_queue)) {
             goto threads;
@@ -327,14 +332,14 @@ weaks:
 
     ASSERT(mark_queue.top->head == 0);
     ASSERT(mark_queue.blocks->link == NULL);
+    free_mark_queue(&mark_queue);
 
     // Because we can't mark large object blocks (no room for mark bit) we
     // collect them in a map in mark_queue and we pass it here to sweep large
     // objects
-    nonmoving_sweep_large_objects(mark_queue.marked_objects);
-    nonmoving_sweep_mut_lists(mark_queue.marked_objects);
-    nonmoving_sweep_stable_name_table(mark_queue.marked_objects);
-    free_mark_queue(&mark_queue);
+    nonmoving_sweep_large_objects();
+    nonmoving_sweep_mut_lists();
+    nonmoving_sweep_stable_name_table();
 
     nonmoving_sweep();
     ASSERT(nonmoving_heap.sweep_list == NULL);
