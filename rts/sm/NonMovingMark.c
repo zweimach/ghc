@@ -50,6 +50,13 @@ bool nonmoving_write_barrier_enabled = false;
  */
 MarkQueue *current_mark_queue = NULL;
 
+/* This is the set of large objects that are being collected in the current major GC cycle.
+ * We don't use oldest_gen->{large_objects,scavenged_large_objects} since these
+ * are mutated by minor collections.
+ */
+bdescr *nonmoving_large_objects = NULL;
+bdescr *nonmoving_marked_large_objects = NULL;
+
 static void mark_tso (MarkQueue *queue, StgTSO *tso);
 static void mark_stack (MarkQueue *queue, StgStack *stack);
 
@@ -770,13 +777,14 @@ mark_closure (MarkQueue *queue, StgClosure *p)
 #if defined(DEBUG)
             bool found_it = false;
 #endif
-            for (bdescr *large = oldest_gen->large_objects; large; large = large->link) {
+            for (bdescr *large = nonmoving_large_objects; large; large = large->link) {
                 if (large == bd) {
                     // remove from large_object list
                     dbl_link_remove(bd, &oldest_gen->large_objects);
                     // move to scavenged_large_objects
-                    dbl_link_onto(bd, &oldest_gen->scavenged_large_objects);
-                    oldest_gen->n_scavenged_large_blocks += bd->blocks;
+                    dbl_link_onto(bd, &nonmoving_marked_large_objects);
+                    // TODO: statistics
+                    //oldest_gen->n_scavenged_large_blocks += bd->blocks;
 #if defined(DEBUG)
                     found_it = true;
 #endif

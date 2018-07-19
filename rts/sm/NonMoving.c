@@ -338,6 +338,24 @@ void nonmoving_collect()
     }
 #endif
 
+    // Prepend gen->large_objects to nonmoving_large_objects
+    if (oldest_gen->large_objects) {
+        if (nonmoving_large_objects) {
+            bdescr *start = oldest_gen->large_objects;
+            bdescr *end = oldest_gen->large_objects->u.back;
+
+            start->u.back = nonmoving_large_objects->u.back;
+            nonmoving_large_objects->u.back = end;
+            end->link = nonmoving_large_objects;
+            nonmoving_large_objects = start;
+        } else {
+            nonmoving_large_objects = oldest_gen->large_objects;
+        }
+
+        oldest_gen->large_objects = NULL;
+        ASSERT(oldest_gen->scavenged_large_objects == NULL);
+    }
+
     nonmoving_prepare_mark();
 
     MarkQueue *mark_queue = stgMallocBytes(sizeof(MarkQueue), "mark queue");

@@ -93,6 +93,9 @@ extern MarkQueue *current_mark_queue;
 // Defined in NonMovingMark.c
 extern bdescr *upd_rem_set_block_list;
 
+extern bdescr *nonmoving_large_objects;
+extern bdescr *nonmoving_marked_large_objects;
+
 void nonmoving_mark_init_upd_rem_set(void);
 
 void init_upd_rem_set(UpdRemSet *rset);

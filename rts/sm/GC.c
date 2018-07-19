@@ -466,10 +466,6 @@ GarbageCollect (uint32_t collect_gen,
 
   // NO MORE EVACUATION AFTER THIS POINT!
 
-  // Mark and sweep the oldest generation
-  if (RtsFlags.GcFlags.useNonmoving && major_gc)
-      nonmoving_collect();
-
   copied = 0;
   par_max_copied = 0;
   par_balanced_copied = 0;
@@ -565,12 +561,7 @@ GarbageCollect (uint32_t collect_gen,
     bdescr *next, *prev;
     gen = &generations[g];
 
-    if (g == RtsFlags.GcFlags.generations-1 && RtsFlags.GcFlags.useNonmoving) {
-
-        // Nothing; the nonmoving collector will handle this.
-        continue; // TODO: Handle bookkeeping below
-
-    } else if (g <= N) {   // for generations we collected...
+    if (g <= N) {   // for generations we collected...
 
         /* free old memory and shift to-space into from-space for all
          * the collected generations (except the allocation area).  These
@@ -707,6 +698,10 @@ GarbageCollect (uint32_t collect_gen,
         }
     }
   } // for all generations
+
+  // Mark and sweep the oldest generation
+  if (RtsFlags.GcFlags.useNonmoving && major_gc)
+      nonmoving_collect();
 
   // update the max size of older generations after a major GC
   resize_generations();
