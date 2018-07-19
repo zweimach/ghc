@@ -143,7 +143,8 @@ typedef struct bdescr_ {
 #define BF_LARGE     2
 /* Block is pinned */
 #define BF_PINNED    4
-/* Block is to be marked, not copied */
+/* Block is to be marked, not copied. Also used for marked large objects in
+ * non-moving heap. */
 #define BF_MARKED    8
 /* Block is executable */
 #define BF_EXEC      32
