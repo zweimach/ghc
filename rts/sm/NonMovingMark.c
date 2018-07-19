@@ -17,6 +17,37 @@
 #include "MarkWeak.h"
 #include "Evac.h"
 
+
+/* Note [Large objects in the non-moving collector]
+ * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ * The nonmoving collector keeps a separate list of its large objects, apart from
+ * oldest_gen->large_objects. There are two reasons for this:
+ *
+ *  1. oldest_gen is mutated by minor collections, which happen concurrently with
+ *     marking
+ *  2. the non-moving collector needs a consistent picture
+ *
+ * At the beginning of a major collection, nonmoving_collect takes the objects in
+ * oldest_gen->large_objects (which includes all large objects evacuated by the
+ * moving collector) and adds them to nonmoving_large_objects. This is the set
+ * of large objects that will being collected in the current major GC cycle.
+ *
+ * As the concurrent mark phase proceeds, the large objects in
+ * nonmoving_large_objects that are found to be live are moved to
+ * nonmoving_marked_large_objects. During sweep we discard all objects that remain
+ * in nonmoving_large_objects and move everything in nonmoving_marked_larged_objects
+ * back to nonmoving_large_objects.
+ *
+ * During minor collections large objects will accumulate on
+ * oldest_gen->large_objects, where they will be picked up by the nonmoving
+ * collector during the next major GC.
+ */
+
+bdescr *nonmoving_large_objects = NULL;
+bdescr *nonmoving_marked_large_objects = NULL;
+memcount n_nonmoving_large_blocks = 0;
+memcount n_nonmoving_marked_large_blocks = 0;
+
 // How many Array# entries to add to the mark queue at once?
 #define MARK_ARRAY_CHUNK_LENGTH 128
 
@@ -457,7 +488,8 @@ mark_closure (MarkQueue *queue, StgClosure *p)
             // * oldest_gen->large_objects:
             //     if it's not evacuated in this GC (was evacuated before)
             // * oldest_gen->scavenged_large_objects:
-            //     if it's evacuated in this GC (must be scavenged by scavenge_nonmoving_heap)
+            //     if it's evacuated in this GC (must have been scavenged by
+            //     scavenge_nonmoving_segment)
             //
             // If it's in large_objects we must move it to scavenged_large_objects,
             // which will be made large_objects by the end of this GC.
@@ -465,13 +497,14 @@ mark_closure (MarkQueue *queue, StgClosure *p)
 #if defined(DEBUG)
             bool found_it = false;
 #endif
-            for (bdescr *large = oldest_gen->large_objects; large; large = large->link) {
+            for (bdescr *large = nonmoving_large_objects; large; large = large->link) {
                 if (large == bd) {
                     // remove from large_object list
-                    dbl_link_remove(bd, &oldest_gen->large_objects);
+                    dbl_link_remove(bd, &nonmoving_large_objects);
+                    n_nonmoving_large_blocks -= bd->blocks;
                     // move to scavenged_large_objects
-                    dbl_link_onto(bd, &oldest_gen->scavenged_large_objects);
-                    oldest_gen->n_scavenged_large_blocks += bd->blocks;
+                    dbl_link_onto(bd, &nonmoving_marked_large_objects);
+                    n_nonmoving_marked_large_blocks += bd->blocks;
 #if defined(DEBUG)
                     found_it = true;
 #endif
@@ -479,10 +512,15 @@ mark_closure (MarkQueue *queue, StgClosure *p)
                 }
             }
 
-#if defined(DEBUG)
+#if defined(DEBUG) && !defined(CONCURRENT_MARK)
             if (!found_it) {
-                // Not in large_objects list, must be in scavenged_large_objects
-                for (bdescr *large = oldest_gen->scavenged_large_objects; large; large = large->link) {
+                /* Not in large_objects list, we must have already marked it.
+                 *
+                 * We can't say much with certainty during a concurrent collection;
+                 * it may be in either oldest_gen->scavenged_large_objects or oldest_gen->large_objects,
+                 * but we can't walk them atomically
+                 */
+                for (bdescr *large = nonmoving_marked_large_objects; large; large = large->link) {
                     if (large == bd) {
                         found_it = true;
                         break;
@@ -490,7 +528,7 @@ mark_closure (MarkQueue *queue, StgClosure *p)
                 }
             }
 
-            ASSERT(found_it);
+            ASSERTM(found_it, "failed to find large object block containing %p", p);
 #endif
 
             // Mark contents

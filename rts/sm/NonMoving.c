@@ -219,7 +219,7 @@ void nonmoving_clear_all_bitmaps()
     }
 
     // Clear large object bits
-    for (bdescr *bd = oldest_gen->large_objects; bd; bd = bd->link) {
+    for (bdescr *bd = nonmoving_large_objects; bd; bd = bd->link) {
         bd->flags &= ~BF_MARKED;
     }
 }
@@ -260,6 +260,29 @@ void nonmoving_collect()
     if (!major_gc) return;
 
     nonmoving_clear_all_bitmaps();
+
+    // Prepend gen->large_objects to nonmoving_large_objects
+    if (oldest_gen->large_objects) {
+        if (nonmoving_large_objects) {
+            bdescr *next;
+            for (bdescr *bd = oldest_gen->large_objects; bd; bd = next) {
+                next = bd->link;
+                dbl_link_onto(bd, &nonmoving_large_objects);
+                // TODO: need to account for this in genLiveWords
+            }
+        } else {
+            nonmoving_large_objects = oldest_gen->large_objects;
+        }
+
+        n_nonmoving_large_blocks += oldest_gen->n_large_blocks;
+        oldest_gen->large_objects = NULL;
+        oldest_gen->n_large_blocks = 0;
+        oldest_gen->n_large_words = 0;
+    }
+    ASSERT(oldest_gen->scavenged_large_objects == NULL);
+    // N.B. These should have been cleared at the end of the last sweep.
+    ASSERT(nonmoving_marked_large_objects == NULL);
+    ASSERT(n_nonmoving_marked_large_blocks == 0);
 
     MarkQueue mark_queue;
     init_mark_queue(&mark_queue);
@@ -513,6 +536,20 @@ void locate_object(P_ obj)
                 debugBelch("%p is in large blocks of generation %d\n", obj, g);
                 return;
             }
+        }
+    }
+
+    for (bdescr *large_block = nonmoving_large_objects; large_block; large_block = large_block->link) {
+        if ((P_)large_block->start == obj) {
+            debugBelch("%p is in nonmoving_large_objects\n", obj);
+            return;
+        }
+    }
+
+    for (bdescr *large_block = nonmoving_marked_large_objects; large_block; large_block = large_block->link) {
+        if ((P_)large_block->start == obj) {
+            debugBelch("%p is in nonmoving_marked_large_objects\n", obj);
+            return;
         }
     }
 
