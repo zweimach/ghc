@@ -439,10 +439,10 @@ mark_closure (MarkQueue *queue, StgClosure *p)
     if (bd->flags & BF_NONMOVING) {
 
         if (bd->flags & BF_LARGE) {
-            if (lookupHashTable(queue->marked_objects, (W_)bd)) {
+            if (bd->flags & BF_MARKED) {
                 return;
             }
-            insertHashTable(queue->marked_objects, (W_)bd, (P_)1);
+            bd->flags |= BF_MARKED;
 
             // Not seen before, object must be in one of these lists:
             //
@@ -791,7 +791,7 @@ GNUC_ATTR_HOT void nonmoving_mark(MarkQueue *queue)
 // - Resurrecting threads; checking if a thread is dead.
 // - Sweeping object lists: large_objects, mut_list, stable_name_table.
 //
-bool nonmoving_is_alive(HashTable *marked_objects, StgClosure *p)
+bool nonmoving_is_alive(StgClosure *p)
 {
     // Ignore static closures. See comments in `isAlive`.
     if (!HEAP_ALLOCED_GC(p)) {
@@ -799,10 +799,14 @@ bool nonmoving_is_alive(HashTable *marked_objects, StgClosure *p)
     }
 
     bdescr *bd = Bdescr((P_)p);
+
+    // All non-static objects in the non-moving heap should be marked as
+    // BF_NONMOVING
+    ASSERT(bd->flags & BF_NONMOVING);
+
     if (bd->flags & BF_LARGE) {
-        return lookupHashTable(marked_objects, (W_)bd);
+        return (bd->flags & BF_MARKED) != 0;
     } else {
-        ASSERT(bd->flags & BF_NONMOVING);
         return nonmoving_get_closure_mark_bit((P_)p);
     }
 }
@@ -825,7 +829,7 @@ bool nonmoving_mark_weaks(struct MarkQueue_ *queue)
         // Otherwise it's a live weak
         ASSERT(w->header.info == &stg_WEAK_info);
 
-        if (nonmoving_is_alive(queue->marked_objects, w->key)) {
+        if (nonmoving_is_alive(w->key)) {
             nonmoving_mark_live_weak(queue, w);
             did_work = true;
 
@@ -873,7 +877,7 @@ void nonmoving_mark_dead_weaks(struct MarkQueue_ *queue)
     }
 }
 
-void nonmoving_mark_threads(struct MarkQueue_ *queue)
+void nonmoving_tidy_threads()
 {
     StgTSO *next;
     StgTSO **prev = &oldest_gen->old_threads;
@@ -881,7 +885,7 @@ void nonmoving_mark_threads(struct MarkQueue_ *queue)
 
         next = t->global_link;
 
-        if (nonmoving_is_alive(queue->marked_objects, (StgClosure*)t)) {
+        if (nonmoving_is_alive((StgClosure*)t)) {
             // alive
             *prev = next;
 
