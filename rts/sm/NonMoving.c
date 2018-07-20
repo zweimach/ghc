@@ -26,6 +26,8 @@ struct nonmoving_heap nonmoving_heap;
 
 struct nonmoving_segment * const END_NONMOVING_TODO_LIST = (struct nonmoving_segment*)1;
 
+static void* nonmoving_concurrent_mark(void *mark_queue);
+
 static void nonmoving_init_segment(struct nonmoving_segment *seg, uint8_t block_size)
 {
     seg->link = NULL;
@@ -225,6 +227,27 @@ void nonmoving_clear_all_bitmaps()
     }
 }
 
+static void nonmoving_prepare_mark(void)
+{
+    nonmoving_clear_all_bitmaps();
+    for (int alloca_idx = 0; alloca_idx < NONMOVING_ALLOCA_CNT; ++alloca_idx) {
+        struct nonmoving_allocator *alloca = nonmoving_heap.allocators[alloca_idx];
+
+        // Update current segments' snapshot pointers
+        for (uint32_t cap_n = 0; cap_n < n_capabilities; ++cap_n) {
+            struct nonmoving_segment *seg = alloca->current[cap_n];
+            seg->next_free_snap = seg->next_free;
+        }
+
+        // Update filled segments' snapshot pointers
+        struct nonmoving_segment *seg = alloca->filled;
+        while (seg) {
+            seg->next_free_snap = seg->next_free;
+            seg = seg->link;
+        }
+    }
+}
+
 // Mark weak pointers in the non-moving heap. They'll either end up in
 // dead_weak_ptr_list or stay in weak_ptr_list. Either way they need to be kept
 // during sweep. See `MarkWeak.c:markWeakPtrList` for the moving heap variant
@@ -260,8 +283,6 @@ void nonmoving_collect()
 {
     if (!major_gc) return;
 
-    nonmoving_clear_all_bitmaps();
-
     // Prepend gen->large_objects to nonmoving_large_objects
     if (oldest_gen->large_objects) {
         if (nonmoving_large_objects) {
@@ -283,22 +304,24 @@ void nonmoving_collect()
     ASSERT(nonmoving_marked_large_objects == NULL);
     ASSERT(n_nonmoving_marked_large_blocks == 0);
 
-    MarkQueue mark_queue;
-    init_mark_queue(&mark_queue);
+    nonmoving_prepare_mark();
+
+    MarkQueue *mark_queue = stgMallocBytes(sizeof(MarkQueue), "mark queue");
+    init_mark_queue(mark_queue);
 
     // Mark roots
-    markCAFs((evac_fn)mark_queue_add_root, &mark_queue);
+    markCAFs((evac_fn)mark_queue_add_root, mark_queue);
     for (unsigned int n = 0; n < n_capabilities; ++n) {
-        markCapability((evac_fn)mark_queue_add_root, &mark_queue,
+        markCapability((evac_fn)mark_queue_add_root, mark_queue,
                 capabilities[n], true/*don't mark sparks*/);
     }
-    markScheduler((evac_fn)mark_queue_add_root, &mark_queue);
-    nonmoving_mark_weak_ptr_list(&mark_queue);
-    markStablePtrTable((evac_fn)mark_queue_add_root, &mark_queue);
+    markScheduler((evac_fn)mark_queue_add_root, mark_queue);
+    nonmoving_mark_weak_ptr_list(mark_queue);
+    markStablePtrTable((evac_fn)mark_queue_add_root, mark_queue);
 
     // Mark threads resurrected during moving heap scavenging
     for (StgTSO *tso = resurrected_threads; tso != END_TSO_QUEUE; tso = tso->global_link) {
-        mark_queue_push_closure_(&mark_queue, (StgClosure*)tso);
+        mark_queue_push_closure_(mark_queue, (StgClosure*)tso);
     }
 
     // Roots marked, mark threads and weak pointers
@@ -321,40 +344,66 @@ void nonmoving_collect()
     oldest_gen->old_weak_ptr_list = oldest_gen->weak_ptr_list;
     oldest_gen->weak_ptr_list = NULL;
 
-    {
-threads:
+    // We are now safe to start concurrent marking
+    nonmoving_concurrent_mark(mark_queue);
+}
+
+/* Mark mark queue, threads, and weak pointers until no more weaks have been
+ * resuscitated
+ */
+static void nonmoving_mark_threads_weaks(MarkQueue *mark_queue)
+{
+    while (true) {
         // Propagate marks
-        nonmoving_mark(&mark_queue);
+        nonmoving_mark(mark_queue);
 
         // Tidy threads and weaks
         nonmoving_tidy_threads();
 
-        if (nonmoving_mark_weaks(&mark_queue)) {
-            goto threads;
-        }
+        if (! nonmoving_mark_weaks(mark_queue))
+            return;
+    }
+}
 
-        // NOTE: This should be called only once otherwise it corrupts lists
-        // (hard to debug)
-        nonmoving_resurrect_threads(&mark_queue);
+static void* nonmoving_concurrent_mark(void *data)
+{
+    MarkQueue *mark_queue = (MarkQueue *) data;
+    debugTrace(DEBUG_nonmoving_gc, "Starting mark...");
 
-        // No more resurrecting threads after this point
-weaks:
+    nonmoving_mark_threads_weaks(mark_queue);
+
+    // NOTE: This should be called only once otherwise it corrupts lists
+    // (hard to debug)
+    nonmoving_resurrect_threads(mark_queue);
+
+    // No more resurrecting threads after this point
+
+    // Do last marking of weak pointers
+    while (true) {
         // Propagate marks
-        nonmoving_mark(&mark_queue);
+        nonmoving_mark(mark_queue);
 
-        if (nonmoving_mark_weaks(&mark_queue)) {
-            goto weaks;
-        }
-
-        nonmoving_mark_dead_weaks(&mark_queue);
-
-        // Propagate marks
-        nonmoving_mark(&mark_queue);
+        if (!nonmoving_mark_weaks(mark_queue))
+            break;
     }
 
-    ASSERT(mark_queue.top->head == 0);
-    ASSERT(mark_queue.blocks->link == NULL);
-    free_mark_queue(&mark_queue);
+    nonmoving_mark_dead_weaks(mark_queue);
+
+    // Propagate marks
+    nonmoving_mark(mark_queue);
+
+    ASSERT(mark_queue->top->head == 0);
+    ASSERT(mark_queue->blocks->link == NULL);
+    free_mark_queue(mark_queue);
+    stgFree(mark_queue);
+    debugTrace(DEBUG_nonmoving_gc, "Done marking");
+
+    // Everything has been marked; allow the mutators to proceed
+    // TODO
+
+    /****************************************************
+     * Sweep
+     ****************************************************/
 
     // Because we can't mark large object blocks (no room for mark bit) we
     // collect them in a map in mark_queue and we pass it here to sweep large
@@ -365,6 +414,9 @@ weaks:
 
     nonmoving_sweep();
     ASSERT(nonmoving_heap.sweep_list == NULL);
+    debugTrace(DEBUG_nonmoving_gc, "Finished sweeping.");
+
+    return NULL;
 }
 
 #if defined(DEBUG)
