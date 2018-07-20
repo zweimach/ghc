@@ -851,6 +851,8 @@ findMemoryLeak (void)
             }
         }
         markNonMovingSegments(nonmoving_heap.free);
+        if (current_mark_queue)
+            markBlocks(current_mark_queue->blocks);
     }
 
 #if defined(PROFILING)
@@ -1009,6 +1011,8 @@ memInventory (bool show)
           nonmoving_blocks += countNonMovingAllocator(nonmoving_heap.allocators[alloc_idx]);
       }
       nonmoving_blocks += countNonMovingSegments(nonmoving_heap.free);
+      if (current_mark_queue)
+          nonmoving_blocks += countBlocks(current_mark_queue->blocks);
   }
 
   live_blocks = 0;

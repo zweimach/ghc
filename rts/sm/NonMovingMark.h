@@ -8,6 +8,10 @@
 
 #pragma once
 
+#include "Hash.h"
+#include "Task.h"
+#include "NonMoving.h"
+
 #include "BeginPrivate.h"
 
 #include "Hash.h"
@@ -88,6 +92,7 @@ typedef struct {
 extern bdescr *nonmoving_large_objects, *nonmoving_marked_large_objects;
 extern memcount n_nonmoving_large_blocks, n_nonmoving_marked_large_blocks;
 
+extern MarkQueue *current_mark_queue;
 extern bdescr *upd_rem_set_block_list;
 extern bool nonmoving_write_barrier_enabled;
 void nonmoving_mark_init_upd_rem_set(void);
@@ -99,6 +104,14 @@ void upd_rem_set_push_tso(Capability *cap, StgTSO *tso);
 void upd_rem_set_push_stack(Capability *cap, StgStack *stack);
 // Debug only -- count number of blocks in global UpdRemSet
 int count_global_upd_rem_set_blocks(void);
+
+#if defined(CONCURRENT_MARK)
+void nonmoving_flush_cap_upd_rem_set_blocks(Capability *cap);
+void nonmoving_begin_flush(Capability **cap, Task *task);
+bool nonmoving_wait_for_flush(void);
+void nonmoving_finish_flush(Capability *cap, Task *task);
+#endif
+void nonmoving_shutting_down(void);
 
 void mark_queue_add_root(MarkQueue* q, StgClosure** root);
 

@@ -12,8 +12,13 @@
 
 #include <string.h>
 #include "HeapAlloc.h"
+#include "NonMovingMark.h"
 
 #include "BeginPrivate.h"
+
+#if defined(THREADED_RTS)
+#define CONCURRENT_MARK
+#endif
 
 // Segments
 #define NONMOVING_SEGMENT_BITS 15   // 2^15 = 32kByte
