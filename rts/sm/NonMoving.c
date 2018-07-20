@@ -370,6 +370,7 @@ void nonmoving_collect()
         oldest_gen->n_large_blocks = 0;
     }
     ASSERT(oldest_gen->scavenged_large_objects == NULL);
+    // N.B. These should have been cleared at the end of the last sweep.
     ASSERT(nonmoving_marked_large_objects == NULL);
     ASSERT(n_nonmoving_marked_large_blocks == 0);
 
