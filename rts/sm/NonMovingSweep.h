@@ -21,3 +21,7 @@ void nonmoving_sweep_large_objects(void);
 
 // Remove dead entries in the stable name table
 void nonmoving_sweep_stable_name_table(void);
+
+// Collect the set of segments to be collected during a major GC into
+// nonmoving_heap.sweep_list.
+void nonmoving_prepare_sweep(void);

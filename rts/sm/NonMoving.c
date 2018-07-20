@@ -218,15 +218,37 @@ void nonmoving_clear_all_bitmaps()
     for (int alloca_idx = 0; alloca_idx < NONMOVING_ALLOCA_CNT; ++alloca_idx) {
         struct nonmoving_allocator *alloca = nonmoving_heap.allocators[alloca_idx];
         nonmoving_clear_segment_bitmaps(alloca->filled);
-        nonmoving_clear_segment_bitmaps(alloca->active);
-        for (uint32_t cap_n = 0; cap_n < n_capabilities; ++cap_n) {
-            nonmoving_clear_segment_bitmaps(alloca->current[cap_n]);
-        }
     }
 
     // Clear large object bits
     for (bdescr *bd = nonmoving_large_objects; bd; bd = bd->link) {
         bd->flags &= ~BF_MARKED;
+    }
+}
+
+/* Prepare the heap bitmaps and snapshot metadata for a mark */
+static void nonmoving_prepare_mark(void)
+{
+    nonmoving_clear_all_bitmaps();
+    for (int alloca_idx = 0; alloca_idx < NONMOVING_ALLOCA_CNT; ++alloca_idx) {
+        struct nonmoving_allocator *alloca = nonmoving_heap.allocators[alloca_idx];
+
+        // Update current segments' snapshot pointers
+        for (uint32_t cap_n = 0; cap_n < n_capabilities; ++cap_n) {
+            struct nonmoving_segment *seg = alloca->current[cap_n];
+            seg->next_free_snap = seg->next_free;
+        }
+
+        // Update filled segments' snapshot pointers
+        struct nonmoving_segment *seg = alloca->filled;
+        while (seg) {
+            seg->next_free_snap = seg->next_free;
+            seg = seg->link;
+        }
+
+        // N.B. It's not necessary to update snapshot pointers of active segments;
+        // they were set after they were swept and haven't seen any allocation
+        // since.
     }
 }
 
@@ -265,7 +287,8 @@ void nonmoving_collect()
 {
     if (!major_gc) return;
 
-    nonmoving_clear_all_bitmaps();
+    nonmoving_prepare_mark();
+    nonmoving_prepare_sweep();
 
     // Prepend gen->large_objects to nonmoving_large_objects
     if (oldest_gen->large_objects) {
