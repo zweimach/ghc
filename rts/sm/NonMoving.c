@@ -77,16 +77,19 @@ static inline unsigned long log2_ceil(unsigned long x)
     return (x - (1 << log)) ? log + 1 : log;
 }
 
-static void *nonmoving_allocate_block_from_segment(struct nonmoving_segment *seg)
+// Advance a segment's next_free pointer. Returns true if segment if full.
+static bool advance_next_free(struct nonmoving_segment *seg)
 {
     uint8_t *bitmap = seg->bitmap;
-    for (unsigned int i = seg->next_free; i < nonmoving_segment_block_count(seg); i++) {
+    unsigned int blk_count = nonmoving_segment_block_count(seg);
+    for (unsigned int i = seg->next_free+1; i < blk_count; i++) {
         if (!bitmap[i]) {
-            seg->next_free = i + 1;
-            return nonmoving_segment_get_block(seg, i);
+            seg->next_free = i;
+            return false;
         }
     }
-    return NULL;
+    seg->next_free = blk_count;
+    return true;
 }
 
 /* sz is in words */
@@ -100,25 +103,25 @@ void *nonmoving_allocate(Capability *cap, StgWord sz)
 
     struct nonmoving_allocator *alloca = nonmoving_heap.allocators[allocator_idx];
 
-    while (true) {
-        // First try allocating into current segment
-        struct nonmoving_segment *current = alloca->current[cap->no];
-        ASSERT(current); // current is never NULL
-        void *ret = nonmoving_allocate_block_from_segment(current);
-        if (ret) {
-            ASSERT(GET_CLOSURE_TAG(ret) == 0); // check alignment
-            // Add segment to the todo list unless it's already there
-            // current->todo_link == NULL means not in todo list
-            if (!current->todo_link) {
-                gen_workspace *ws = &gct->gens[oldest_gen->no];
-                current->todo_link = ws->todo_seg;
-                ws->todo_seg = current;
-            }
-            return ret;
-        }
+    // Allocate into current segment
+    struct nonmoving_segment *current = alloca->current[cap->no];
+    ASSERT(current); // current is never NULL
+    void *ret = nonmoving_segment_get_block(current, current->next_free);
+    ASSERT(GET_CLOSURE_TAG(ret) == 0); // check alignment
 
+    // Add segment to the todo list unless it's already there
+    // current->todo_link == NULL means not in todo list
+    if (!current->todo_link) {
+        gen_workspace *ws = &gct->gens[oldest_gen->no];
+        current->todo_link = ws->todo_seg;
+        ws->todo_seg = current;
+    }
+
+    // Advance the current segment's next_free or allocate a new segment if full
+    bool full = advance_next_free(current);
+    if (full) {
         // Current segment is full, link it to filled, take an active segment
-        // if it exists, otherwise allocate a new segment. Need to take the
+        // if one exists, otherwise allocate a new segment. Need to take the
         // non-moving heap lock as allocators can be manipulated by scavenge
         // threads concurrently, and in the case where we need to allocate a
         // segment we'll need to modify the free segment list.
@@ -126,7 +129,7 @@ void *nonmoving_allocate(Capability *cap, StgWord sz)
         current->link = alloca->filled;
         alloca->filled = current;
 
-        // check active
+        // first look for a new segment in the active list
         if (alloca->active) {
             // remove an active, make it current
             struct nonmoving_segment *new_current = alloca->active;
@@ -144,6 +147,8 @@ void *nonmoving_allocate(Capability *cap, StgWord sz)
             alloca->current[cap->no] = new_current;
         }
     }
+
+    return ret;
 }
 
 /* Allocate a nonmoving_allocator */
