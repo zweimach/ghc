@@ -114,7 +114,8 @@ static void nonmoving_add_upd_rem_set_blocks(MarkQueue *rset)
  * Pushing to either the mark queue or remembered set
  *********************************************************/
 
-STATIC_INLINE void push (MarkQueue *q, const MarkQueueEnt *ent)
+STATIC_INLINE void
+push (MarkQueue *q, const MarkQueueEnt *ent)
 {
     // Are we at the end of the block?
     if (q->top->head == MARK_QUEUE_BLOCK_ENTRIES) {
@@ -135,7 +136,7 @@ STATIC_INLINE void push (MarkQueue *q, const MarkQueueEnt *ent)
     q->top->head++;
 }
 
-STATIC_INLINE
+static
 void push_closure (MarkQueue *q,
                    StgClosure *p,
                    StgClosure *origin_closure,
@@ -166,7 +167,7 @@ void push_closure (MarkQueue *q,
     push(q, &ent);
 }
 
-STATIC_INLINE
+static
 void push_array (MarkQueue *q,
                  const StgMutArrPtrs *array,
                  StgWord start_index)
@@ -185,7 +186,7 @@ void push_array (MarkQueue *q,
     push(q, &ent);
 }
 
-STATIC_INLINE
+static
 void push_thunk_srt (MarkQueue *q, const StgInfoTable *info)
 {
     const StgThunkInfoTable *thunk_info = itbl_to_thunk_itbl(info);
@@ -194,7 +195,7 @@ void push_thunk_srt (MarkQueue *q, const StgInfoTable *info)
     }
 }
 
-STATIC_INLINE
+static
 void push_fun_srt (MarkQueue *q, const StgInfoTable *info)
 {
     const StgFunInfoTable *fun_info = itbl_to_fun_itbl(info);
