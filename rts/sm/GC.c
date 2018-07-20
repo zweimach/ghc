@@ -700,7 +700,9 @@ GarbageCollect (uint32_t collect_gen,
     }
   } // for all generations
 
-  // Mark and sweep the oldest generation
+  // Mark and sweep the oldest generation.
+  // N.B. This can only happen after we've moved
+  // oldest_gen->scavenged_large_objects back to oldest_gen->large_objects.
   if (RtsFlags.GcFlags.useNonmoving && major_gc)
       nonmoving_collect();
 
