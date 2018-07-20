@@ -9,17 +9,26 @@
 #include "Rts.h"
 #include "NonMovingMark.h"
 #include "NonMoving.h"
+#include "BlockAlloc.h"
 #include "HeapAlloc.h"
 #include "Task.h"
 #include "HeapUtils.h"
 #include "Printer.h"
+#include "Schedule.h"
 #include "Weak.h"
 #include "MarkWeak.h"
 #include "Evac.h"
 #include "sm/Storage.h"
 
+// Necessary to declare global register variable
+#include "GCThread.h"
+#include "GCTDecl.h"
+
 static void mark_tso (MarkQueue *queue, StgTSO *tso);
 static void mark_stack (MarkQueue *queue, StgStack *stack);
+
+// How many Array# entries to add to the mark queue at once?
+#define MARK_ARRAY_CHUNK_LENGTH 128
 
 /* Note [Large objects in the non-moving collector]
  * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -72,14 +81,33 @@ memcount n_nonmoving_marked_large_blocks = 0;
  */
 static Mutex upd_rem_set_lock;
 bdescr *upd_rem_set_block_list = NULL;
+
+#if defined(CONCURRENT_MARK)
+/* Used during the mark/sweep phase transition to track how many capabilities
+ * have pushed their update remembered sets. Protected by upd_rem_set_lock.
+ */
+static volatile StgWord upd_rem_set_flush_count = 0;
+#endif
+
+
+/* Signaled by each capability when it has flushed its update remembered set */
+static Condition upd_rem_set_flushed_cond;
+
 /* Indicates to mutators that the write barrier must be respected. Set while
  * concurrent mark is running.
  */
 bool nonmoving_write_barrier_enabled = false;
 
+/* Used to provide the current mark queue to the young generation
+ * collector for scavenging.
+ */
+MarkQueue *current_mark_queue = NULL;
+
+
 /* Initialise update remembered set data structures */
 void nonmoving_mark_init_upd_rem_set() {
     initMutex(&upd_rem_set_lock);
+    initCondition(&upd_rem_set_flushed_cond);
 }
 
 /* Transfers the given capability's update-remembered set to the global
@@ -107,9 +135,79 @@ static void nonmoving_add_upd_rem_set_blocks(MarkQueue *rset)
     RELEASE_SM_LOCK;
 }
 
-// How many Array# entries to add to the mark queue at once?
-#define MARK_ARRAY_CHUNK_LENGTH 128
+#if defined(CONCURRENT_MARK)
+/* Called by capabilities to flush their update remembered sets when
+ * synchronising with the non-moving collector as it transitions from mark to
+ * sweep phase.
+ */
+void nonmoving_flush_cap_upd_rem_set_blocks(Capability *cap)
+{
+    if (! cap->upd_rem_set_syncd) {
+        debugTrace(DEBUG_nonmoving_gc, "Capability %d flushing update remembered set", cap->no);
+        nonmoving_add_upd_rem_set_blocks(&cap->upd_rem_set.queue);
+        atomic_inc(&upd_rem_set_flush_count, 1);
+        cap->upd_rem_set_syncd = true;
+        signalCondition(&upd_rem_set_flushed_cond);
+        // After this mutation will remain suspended until nonmoving_finish_flush
+        // releases its capabilities.
+    }
+}
 
+/* Request that all capabilities flush their update remembered sets and suspend
+ * execution until the further notice.
+ */
+void nonmoving_begin_flush(Capability **cap, Task *task)
+{
+    debugTrace(DEBUG_nonmoving_gc, "Starting update remembered set flush...");
+    for (unsigned int i = 0; i < n_capabilities; i++) {
+        capabilities[i]->upd_rem_set_syncd = false;
+    }
+    upd_rem_set_flush_count = 0;
+    nonmoving_flush_cap_upd_rem_set_blocks(*cap);
+    stopAllCapabilitiesWith(cap, task, SYNC_FLUSH_UPD_REM_SET);
+
+    // XXX: We may have been given a capability via releaseCapability (i.e. a
+    // task suspended due to a foreign call) in which case our requestSync
+    // logic won't have been hit. Make sure that everyone so far has flushed.
+    // Ideally we want to mark asynchronously with syncing.
+    for (unsigned int i = 0; i < n_capabilities; i++) {
+        nonmoving_flush_cap_upd_rem_set_blocks(capabilities[i]);
+    }
+}
+
+/* Wait until a capability has flushed its update remembered set. Returns true
+ * if all capabilities have flushed.
+ */
+bool nonmoving_wait_for_flush()
+{
+    ACQUIRE_LOCK(&upd_rem_set_lock);
+    debugTrace(DEBUG_nonmoving_gc, "Flush count %d", upd_rem_set_flush_count);
+    bool finished = (upd_rem_set_flush_count == n_capabilities) || (sched_state == SCHED_SHUTTING_DOWN);
+    if (!finished) {
+        waitCondition(&upd_rem_set_flushed_cond, &upd_rem_set_lock);
+    }
+    RELEASE_LOCK(&upd_rem_set_lock);
+    return finished;
+}
+
+/* Signal to the mark thread that the RTS is shutting down. */
+void nonmoving_shutting_down()
+{
+    ASSERT(sched_state == SCHED_SHUTTING_DOWN);
+    signalCondition(&upd_rem_set_flushed_cond);
+}
+
+/* Notify capabilities that the synchronisation is finished; they may resume
+ * execution.
+ */
+void nonmoving_finish_flush(Capability *cap, Task *task)
+{
+    debugTrace(DEBUG_nonmoving_gc, "Finished update remembered set flush...");
+    releaseAllCapabilities(n_capabilities, cap, task);
+}
+#else
+void nonmoving_shutting_down() {}
+#endif
 
 /*********************************************************
  * Pushing to either the mark queue or remembered set
@@ -746,7 +844,8 @@ mark_closure (MarkQueue *queue, StgClosure *p)
         } else {
             struct nonmoving_segment *seg = nonmoving_get_segment((StgPtr) p);
             nonmoving_block_idx block_idx = nonmoving_get_block_idx((StgPtr) p);
-            if (nonmoving_get_mark_bit(seg, block_idx)) {
+            if (p >= (StgClosure *) nonmoving_segment_get_block(seg, seg->next_free_snap)
+                || nonmoving_get_mark_bit(seg, block_idx)) {
                 return;
             }
             nonmoving_set_mark_bit(seg, block_idx);
@@ -770,7 +869,11 @@ mark_closure (MarkQueue *queue, StgClosure *p)
     }
 
     else {
-        barf("NonMovingMark: found object with flag: %" FMT_Word16, bd->flags);
+        // Here we have an object living outside of the non-moving heap. Since
+        // we moved everything to the non-moving heap before starting the major
+        // collection, we know that we don't need to trace it: it was allocated
+        // after we took our snapshot.
+        return;
     }
 
     /////////////////////////////////////////////////////

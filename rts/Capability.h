@@ -87,6 +87,7 @@ struct Capability_ {
 
     // The update remembered set for the non-moving collector
     UpdRemSet upd_rem_set;
+    bool upd_rem_set_syncd;
 
     // block for allocating pinned objects into
     bdescr *pinned_object_block;
@@ -260,7 +261,8 @@ extern Capability **capabilities;
 typedef enum {
     SYNC_OTHER,
     SYNC_GC_SEQ,
-    SYNC_GC_PAR
+    SYNC_GC_PAR,
+    SYNC_FLUSH_UPD_REM_SET
 } SyncType;
 
 //
@@ -297,10 +299,10 @@ EXTERN_INLINE void recordClosureMutated (Capability *cap, StgClosure *p);
 
 #if defined(THREADED_RTS)
 
-// Gives up the current capability IFF there is a higher-priority
-// thread waiting for it.  This happens in one of two ways:
 Capability * waitForWorkerCapability (Task *task);
 
+// Gives up the current capability IFF there is a higher-priority
+// thread waiting for it.  This happens in one of two ways:
 //
 //   (a) we are passing the capability to another OS thread, so
 //       that it can run a bound Haskell thread, or
