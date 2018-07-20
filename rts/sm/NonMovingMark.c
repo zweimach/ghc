@@ -859,7 +859,7 @@ void nonmoving_mark_dead_weak(struct MarkQueue_ *queue, StgWeak *w)
 
 void nonmoving_mark_live_weak(struct MarkQueue_ *queue, StgWeak *w)
 {
-    ASSERT(nonmoving_get_closure_mark_bit((P_)w));
+    mark_queue_push_closure_(queue, w);
     mark_queue_push_closure_(queue, w->value);
     mark_queue_push_closure_(queue, w->finalizer);
     mark_queue_push_closure_(queue, w->cfinalizers);
