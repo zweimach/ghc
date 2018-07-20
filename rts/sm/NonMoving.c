@@ -27,6 +27,7 @@ struct nonmoving_heap nonmoving_heap;
 struct nonmoving_segment * const END_NONMOVING_TODO_LIST = (struct nonmoving_segment*)1;
 
 static void* nonmoving_concurrent_mark(void *mark_queue);
+static void nonmoving_clear_bitmap(struct nonmoving_segment *seg);
 
 static void nonmoving_init_segment(struct nonmoving_segment *seg, uint8_t block_size)
 {
@@ -202,6 +203,12 @@ void nonmoving_add_capabilities(uint32_t new_n_caps)
     nonmoving_heap.n_caps = new_n_caps;
 }
 
+static void nonmoving_clear_bitmap(struct nonmoving_segment *seg)
+{
+    unsigned int n = nonmoving_segment_block_count(seg);
+    memset(seg->bitmap, 0, n);
+}
+
 static void nonmoving_clear_segment_bitmaps(struct nonmoving_segment *seg)
 {
     while (seg) {
@@ -210,7 +217,7 @@ static void nonmoving_clear_segment_bitmaps(struct nonmoving_segment *seg)
     }
 }
 
-void nonmoving_clear_all_bitmaps()
+static void nonmoving_clear_all_bitmaps(void)
 {
     for (int alloca_idx = 0; alloca_idx < NONMOVING_ALLOCA_CNT; ++alloca_idx) {
         struct nonmoving_allocator *alloca = nonmoving_heap.allocators[alloca_idx];

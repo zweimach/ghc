@@ -138,14 +138,6 @@ INLINE_HEADER nonmoving_block_idx nonmoving_get_block_idx(StgPtr p)
     return (nonmoving_block_idx) (offset / blk_size);
 }
 
-INLINE_HEADER void nonmoving_clear_bitmap(struct nonmoving_segment *seg)
-{
-    unsigned int n = nonmoving_segment_block_count(seg);
-    memset(seg->bitmap, 0, n);
-}
-
-void nonmoving_clear_all_bitmaps(void);
-
 INLINE_HEADER void nonmoving_set_mark_bit(struct nonmoving_segment *seg, nonmoving_block_idx i)
 {
     seg->bitmap[i] = 1;
