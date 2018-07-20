@@ -299,6 +299,8 @@ EXTERN_INLINE void recordClosureMutated (Capability *cap, StgClosure *p);
 
 // Gives up the current capability IFF there is a higher-priority
 // thread waiting for it.  This happens in one of two ways:
+Capability * waitForWorkerCapability (Task *task);
+
 //
 //   (a) we are passing the capability to another OS thread, so
 //       that it can run a bound Haskell thread, or
