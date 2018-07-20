@@ -15,7 +15,7 @@
 #include "GCUtils.h"
 #include "Stable.h"
 
-static void prepare_sweep(void)
+void nonmoving_prepare_sweep()
 {
     ASSERT(nonmoving_heap.sweep_list == NULL);
 
@@ -138,8 +138,6 @@ clear_segment_free_blocks(struct nonmoving_segment* seg)
 
 GNUC_ATTR_HOT void nonmoving_sweep(void)
 {
-    prepare_sweep();
-
     while (nonmoving_heap.sweep_list) {
         struct nonmoving_segment *seg = nonmoving_heap.sweep_list;
 
