@@ -797,7 +797,8 @@ mark_closure (MarkQueue *queue, StgClosure *p)
             // * oldest_gen->large_objects:
             //     if it's not evacuated in this GC (was evacuated before)
             // * oldest_gen->scavenged_large_objects:
-            //     if it's evacuated in this GC (must be scavenged by scavenge_nonmoving_heap)
+            //     if it's evacuated in this GC (must have been scavenged by
+            //     scavenge_nonmoving_segment)
             //
             // If it's in large_objects we must move it to scavenged_large_objects,
             // which will be made large_objects by the end of this GC.
