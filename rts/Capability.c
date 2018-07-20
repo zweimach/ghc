@@ -522,6 +522,8 @@ releaseCapability_ (Capability* cap,
 
     cap->running_task = NULL;
 
+    nonmoving_flush_cap_upd_rem_set_blocks(cap);
+
     // Check to see whether a worker thread can be given
     // the go-ahead to return the result of an external call..
     if (cap->n_returning_tasks != 0) {
@@ -846,6 +848,9 @@ void waitForCapability (Capability **pCap, Task *task)
  *      SYNC_GC_PAR), either to do a sequential GC, forkProcess, or
  *      setNumCapabilities.  We should give up the Capability temporarily.
  *
+ * When yieldCapability returns *pCap will have been updated to the new
+ * capability held by the caller.
+ *
  * ------------------------------------------------------------------------- */
 
 #if defined (THREADED_RTS)
@@ -861,16 +866,28 @@ yieldCapability (Capability** pCap, Task *task, bool gcAllowed)
     {
         PendingSync *sync = pending_sync;
 
-        if (sync && sync->type == SYNC_GC_PAR) {
-            if (! sync->idle[cap->no]) {
-                traceEventGcStart(cap);
-                gcWorkerThread(cap);
-                traceEventGcEnd(cap);
-                traceSparkCounters(cap);
-                // See Note [migrated bound threads 2]
-                if (task->cap == cap) {
-                    return true;
+        if (sync) {
+            switch (sync->type) {
+            case SYNC_GC_PAR:
+                if (! sync->idle[cap->no]) {
+                    traceEventGcStart(cap);
+                    gcWorkerThread(cap);
+                    traceEventGcEnd(cap);
+                    traceSparkCounters(cap);
+                    // See Note [migrated bound threads 2]
+                    if (task->cap == cap) {
+                        return true;
+                    }
                 }
+                break;
+
+            case SYNC_FLUSH_UPD_REM_SET:
+                debugTrace(DEBUG_nonmoving_gc, "Flushing update remembered set blocks...");
+                nonmoving_flush_cap_upd_rem_set_blocks(cap);
+                break;
+
+            default:
+                break;
             }
         }
     }
