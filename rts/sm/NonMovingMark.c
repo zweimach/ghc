@@ -269,7 +269,7 @@ void upd_rem_set_push_tso(Capability *cap, StgTSO *tso)
     // TODO: Eliminate this conditional once it's folded into codegen
     if (!nonmoving_write_barrier_enabled) return;
     if (Bdescr((StgPtr) tso)->gen != oldest_gen) return;
-    if (nonmoving_get_closure_mark_bit((StgPtr) tso)) return;
+    if (nonmoving_closure_marked((StgPtr) tso)) return;
     mark_tso(&cap->upd_rem_set.queue, tso);
 }
 
@@ -278,7 +278,7 @@ void upd_rem_set_push_stack(Capability *cap, StgStack *stack)
     // TODO: Eliminate this conditional once it's folded into codegen
     if (!nonmoving_write_barrier_enabled) return;
     if (Bdescr((StgPtr) stack)->gen != oldest_gen) return;
-    if (nonmoving_get_closure_mark_bit((StgPtr) stack)) return;
+    if (nonmoving_closure_marked((StgPtr) stack)) return;
     mark_stack(&cap->upd_rem_set.queue, stack);
 }
 
@@ -753,11 +753,28 @@ mark_closure (MarkQueue *queue, StgClosure *p)
         } else {
             struct nonmoving_segment *seg = nonmoving_get_segment((StgPtr) p);
             nonmoving_block_idx block_idx = nonmoving_get_block_idx((StgPtr) p);
-            if (p >= (StgClosure *) nonmoving_segment_get_block(seg, seg->next_free_snap)
-                && !nonmoving_get_mark_bit(seg, block_idx)) {
+
+            /* We don't mark blocks that,
+             *  - were not live at the time that the snapshot was taken, or
+             *  - we have already marked this cycle
+             */
+            uint8_t mark = nonmoving_get_mark(seg, block_idx);
+            /* Don't mark things we've already marked (since we may loop) */
+            if (mark == nonmoving_mark_epoch)
+                return;
+
+            StgClosure *snapshot_loc =
+              (StgClosure *) nonmoving_segment_get_block(seg, seg->next_free_snap);
+            if (p >= snapshot_loc && mark == 0) {
+                /* In this case we are in segment which wasn't filled at the
+                 * time that the snapshot was taken. We mustn't trace things
+                 * above the allocation pointer that aren't marked since they
+                 * may not be valid objects.
+                 */
                 return;
             }
-            nonmoving_set_mark_bit(seg, block_idx);
+
+            nonmoving_set_mark(seg, block_idx);
         }
     }
 
@@ -1084,7 +1101,7 @@ bool nonmoving_is_alive(StgClosure *p)
     if (bd->flags & BF_LARGE) {
         return (bd->flags & BF_MARKED) != 0;
     } else {
-        return nonmoving_get_closure_mark_bit((P_)p);
+        return nonmoving_closure_marked((P_)p);
     }
 }
 
@@ -1136,7 +1153,7 @@ void nonmoving_mark_dead_weak(struct MarkQueue_ *queue, StgWeak *w)
 
 void nonmoving_mark_live_weak(struct MarkQueue_ *queue, StgWeak *w)
 {
-    ASSERT(nonmoving_get_closure_mark_bit((P_)w));
+    ASSERT(nonmoving_closure_marked((P_)w));
     mark_queue_push_closure_(queue, w->value);
     mark_queue_push_closure_(queue, w->finalizer);
     mark_queue_push_closure_(queue, w->cfinalizers);
@@ -1146,7 +1163,7 @@ void nonmoving_mark_dead_weaks(struct MarkQueue_ *queue)
 {
     StgWeak *next_w;
     for (StgWeak *w = oldest_gen->old_weak_ptr_list; w; w = next_w) {
-        ASSERT(!nonmoving_get_closure_mark_bit((P_)(w->key)));
+        ASSERT(!nonmoving_closure_marked((P_)(w->key)));
         nonmoving_mark_dead_weak(queue, w);
         next_w = w ->link;
         w->link = dead_weak_ptr_list;
