@@ -1592,7 +1592,7 @@ scavenge_mutable_list(bdescr *bd, generation *gen)
                 && gen == oldest_gen
                 && HEAP_ALLOCED_GC(p)
                 && !(Bdescr(p)->flags | BF_LARGE)) {
-                nonmoving_set_closure_mark_bit(p);
+                nonmoving_set_closure_mark(p);
             }
 
 #if defined(DEBUG)

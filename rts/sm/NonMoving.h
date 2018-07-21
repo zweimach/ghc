@@ -146,24 +146,38 @@ INLINE_HEADER void nonmoving_clear_bitmap(struct nonmoving_segment *seg)
 
 void nonmoving_clear_all_bitmaps(void);
 
-INLINE_HEADER void nonmoving_set_mark_bit(struct nonmoving_segment *seg, nonmoving_block_idx i)
+// TODO: Eliminate this
+extern uint8_t nonmoving_mark_epoch;
+
+INLINE_HEADER void nonmoving_set_mark(struct nonmoving_segment *seg, nonmoving_block_idx i)
 {
-    seg->bitmap[i] = 1;
+    seg->bitmap[i] = nonmoving_mark_epoch;
 }
 
-INLINE_HEADER bool nonmoving_get_mark_bit(struct nonmoving_segment *seg, nonmoving_block_idx i)
+INLINE_HEADER uint8_t nonmoving_get_mark(struct nonmoving_segment *seg, nonmoving_block_idx i)
 {
     return seg->bitmap[i];
 }
 
-INLINE_HEADER void nonmoving_set_closure_mark_bit(StgPtr p)
+INLINE_HEADER void nonmoving_set_closure_mark(StgPtr p)
 {
-    nonmoving_set_mark_bit(nonmoving_get_segment(p), nonmoving_get_block_idx(p));
+    nonmoving_set_mark(nonmoving_get_segment(p), nonmoving_get_block_idx(p));
 }
 
-INLINE_HEADER bool nonmoving_get_closure_mark_bit(StgPtr p)
+// TODO: Audit the uses of these
+/* Was the given closure marked this major GC cycle? */
+INLINE_HEADER bool nonmoving_closure_marked_this_cycle(StgPtr p)
 {
-    return nonmoving_get_mark_bit(nonmoving_get_segment(p), nonmoving_get_block_idx(p));
+    struct nonmoving_segment *seg = nonmoving_get_segment(p);
+    nonmoving_block_idx blk_idx = nonmoving_get_block_idx(p);
+    return nonmoving_get_mark(seg, blk_idx) != 0;
+}
+
+INLINE_HEADER bool nonmoving_closure_marked(StgPtr p)
+{
+    struct nonmoving_segment *seg = nonmoving_get_segment(p);
+    nonmoving_block_idx blk_idx = nonmoving_get_block_idx(p);
+    return nonmoving_get_mark(seg, blk_idx) == nonmoving_mark_epoch;
 }
 
 #if defined(DEBUG)
