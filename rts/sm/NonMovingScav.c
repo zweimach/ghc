@@ -351,12 +351,12 @@ scavenge_nonmoving_segment(struct nonmoving_segment *seg)
         nonmoving_block_idx p_idx = nonmoving_get_block_idx((StgPtr)p);
         // bit set = was allocated in the previous GC
         // bit not set = new allocation, so scavenge
-        if (!(nonmoving_get_mark_bit(seg, p_idx))) {
+        if (nonmoving_get_mark(seg, p_idx) == 0) {
             // Set the mark bit to avoid scavenging this object in the next GC.
             // We only need to scavenge it again if it points to a younger
             // generation, but in that case it should be in the mut_list, which
             // is scavenged always.
-            nonmoving_set_mark_bit(seg, p_idx);
+            nonmoving_set_mark(seg, p_idx);
             nonmoving_scavenge_one(p);
         }
 

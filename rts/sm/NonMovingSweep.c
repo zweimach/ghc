@@ -128,7 +128,7 @@ clear_segment_free_blocks(struct nonmoving_segment* seg)
     unsigned int block_size = nonmoving_segment_block_size(seg);
     for (unsigned int p_idx = 0; p_idx < nonmoving_segment_block_count(seg); ++p_idx) {
         // after mark, so bit not set == dead
-        if (!(nonmoving_get_mark_bit(seg, p_idx))) {
+        if (nonmoving_get_mark(seg, p_idx) == 0) {
             memset(nonmoving_segment_get_block(seg, p_idx), 0, block_size);
         }
     }
