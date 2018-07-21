@@ -1,0 +1,22 @@
+variables:
+  THREADS: 9
+
+before_script:
+  - sed -i -e 's%url *= *\.\./%url = https://git.haskell.org/%' .gitmodules
+  - git submodule sync --recursive
+  - git submodule update --init --recursive
+  - git checkout .gitmodules
+
+  - bash .circleci/prepare-system.sh
+  - sudo apt-get update
+  - sudo apt-get install -qy libffi-dev
+
+  - make clean || true
+  - ./boot
+  - ./configure --with-system-libffi
+
+validate:
+  script:
+    - "make V=0 -j$THREADS"
+    - |
+      make test WAY="nonmoving nonmoving_thr" THREADS=$THREADS
