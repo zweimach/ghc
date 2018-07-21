@@ -24,6 +24,12 @@
 
 struct nonmoving_heap nonmoving_heap;
 
+uint8_t nonmoving_mark_epoch = 1;
+
+static void nonmoving_bump_epoch(void) {
+    nonmoving_mark_epoch = nonmoving_mark_epoch == 1 ? 2 : 1;
+}
+
 struct nonmoving_segment * const END_NONMOVING_TODO_LIST = (struct nonmoving_segment*)1;
 
 static void nonmoving_init_segment(struct nonmoving_segment *seg, uint8_t block_size)
@@ -230,6 +236,7 @@ void nonmoving_clear_all_bitmaps()
 static void nonmoving_prepare_mark(void)
 {
     nonmoving_clear_all_bitmaps();
+    nonmoving_bump_epoch();
     for (int alloca_idx = 0; alloca_idx < NONMOVING_ALLOCA_CNT; ++alloca_idx) {
         struct nonmoving_allocator *alloca = nonmoving_heap.allocators[alloca_idx];
 
@@ -457,7 +464,7 @@ void nonmoving_print_segment(struct nonmoving_segment *seg)
 
     for (nonmoving_block_idx p_idx = 0; p_idx < seg->next_free; ++p_idx) {
         StgClosure *p = (StgClosure*)nonmoving_segment_get_block(seg, p_idx);
-        if (nonmoving_get_mark_bit(seg, p_idx)) {
+        if (nonmoving_get_mark(seg, p_idx) != 0) {
             debugBelch("%d (%p)* :\t", p_idx, (void*)p);
         } else {
             debugBelch("%d (%p)  :\t", p_idx, (void*)p);
