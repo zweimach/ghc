@@ -850,6 +850,7 @@ findMemoryLeak (void)
                 markNonMovingSegments(alloc->current[j]);
             }
         }
+        markNonMovingSegments(nonmoving_heap.sweep_list);
         markNonMovingSegments(nonmoving_heap.free);
         if (current_mark_queue)
             markBlocks(current_mark_queue->blocks);
@@ -1010,6 +1011,7 @@ memInventory (bool show)
       for (int alloc_idx = 0; alloc_idx < NONMOVING_ALLOCA_CNT; alloc_idx++) {
           nonmoving_blocks += countNonMovingAllocator(nonmoving_heap.allocators[alloc_idx]);
       }
+      nonmoving_blocks += countNonMovingSegments(nonmoving_heap.sweep_list);
       nonmoving_blocks += countNonMovingSegments(nonmoving_heap.free);
       if (current_mark_queue)
           nonmoving_blocks += countBlocks(current_mark_queue->blocks);
