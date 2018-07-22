@@ -459,7 +459,9 @@ again:
             bdescr *old_block = q->blocks;
             q->blocks = old_block->link;
             q->top = (MarkQueueBlock*)q->blocks->start;
+            ACQUIRE_SM_LOCK;
             freeGroup(old_block); // TODO: hold on to a block to avoid repeated allocation/deallocation?
+            RELEASE_SM_LOCK;
             goto again;
         }
     }
@@ -508,12 +510,14 @@ void init_upd_rem_set(UpdRemSet *rset)
 void free_mark_queue(MarkQueue *queue)
 {
     bdescr* b = queue->blocks;
+    ACQUIRE_SM_LOCK;
     while (b)
     {
         bdescr* b_ = b->link;
         freeGroup(b);
         b = b_;
     }
+    RELEASE_SM_LOCK;
     freeHashTable(queue->marked_objects, NULL);
 }
 
