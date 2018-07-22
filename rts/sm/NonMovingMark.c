@@ -115,7 +115,7 @@ again:
         // Is this the first block of the queue?
         if (q->blocks->link == NULL) {
             // Yes, therefore queue is empty...
-            MarkQueueEnt none = {};
+            MarkQueueEnt none = { .type = NULL_ENTRY };
             return none;
         } else {
             // No, unwind to the previous block and try popping again...
