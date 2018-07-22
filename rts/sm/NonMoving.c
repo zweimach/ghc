@@ -476,6 +476,7 @@ static void* nonmoving_concurrent_mark(void *data)
         gct->id = osThreadId();
 
     } else {
+        return NULL;
         task = myTask();
         cap = task->cap;
     }
