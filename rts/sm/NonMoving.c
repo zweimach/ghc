@@ -386,6 +386,7 @@ void nonmoving_collect()
 
     MarkQueue *mark_queue = stgMallocBytes(sizeof(MarkQueue), "mark queue");
     init_mark_queue(mark_queue);
+    current_mark_queue = mark_queue;
 
     // Mark roots
     markCAFs((evac_fn)mark_queue_add_root, mark_queue);
