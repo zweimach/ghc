@@ -3,6 +3,6 @@ test('heap_all',
       extra_ways(['prof'])),
       # These ways produce slightly different heap representations.
       # Currently we don't test them.
-      omit_ways(['ghci', 'hpc'])
+      omit_ways(['ghci', 'hpc', 'sanity', 'nonmoving', 'nonmoving_thr']),
      ],
      compile_and_run, [''])

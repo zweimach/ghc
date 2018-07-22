@@ -480,7 +480,7 @@ markStableTables(evac_fn evac, void *user)
  * collector may move the object it points to.
  * -------------------------------------------------------------------------- */
 
-STATIC_INLINE void
+static void
 threadStableNameTable( evac_fn evac, void *user )
 {
     FOR_EACH_STABLE_NAME(p, {
@@ -493,7 +493,7 @@ threadStableNameTable( evac_fn evac, void *user )
     });
 }
 
-STATIC_INLINE void
+static void
 threadStablePtrTable( evac_fn evac, void *user )
 {
     FOR_EACH_STABLE_PTR(p, evac(user, (StgClosure **)&p->addr););
