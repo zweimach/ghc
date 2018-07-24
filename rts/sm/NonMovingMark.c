@@ -702,53 +702,12 @@ mark_closure (MarkQueue *queue, StgClosure *p)
             }
             bd->flags |= BF_MARKED;
 
-            // Not seen before, object must be in one of these lists:
-            //
-            // * oldest_gen->large_objects:
-            //     if it's not evacuated in this GC (was evacuated before)
-            // * oldest_gen->scavenged_large_objects:
-            //     if it's evacuated in this GC (must have been scavenged by
-            //     scavenge_nonmoving_segment)
-            //
-            // If it's in large_objects we must move it to scavenged_large_objects,
-            // which will be made large_objects by the end of this GC.
-
-#if defined(DEBUG)
-            bool found_it = false;
-#endif
-            for (bdescr *large = nonmoving_large_objects; large; large = large->link) {
-                if (large == bd) {
-                    // remove from large_object list
-                    dbl_link_remove(bd, &nonmoving_large_objects);
-                    n_nonmoving_large_blocks -= bd->blocks;
-                    // move to scavenged_large_objects
-                    dbl_link_onto(bd, &nonmoving_marked_large_objects);
-                    n_nonmoving_marked_large_blocks += bd->blocks;
-#if defined(DEBUG)
-                    found_it = true;
-#endif
-                    break;
-                }
-            }
-
-#if defined(DEBUG) && !defined(CONCURRENT_MARK)
-            if (!found_it) {
-                /* Not in large_objects list, we must have already marked it.
-                 *
-                 * We can't say much with certainty during a concurrent collection;
-                 * it may be in either oldest_gen->scavenged_large_objects or oldest_gen->large_objects,
-                 * but we can't walk them atomically
-                 */
-                for (bdescr *large = nonmoving_marked_large_objects; large; large = large->link) {
-                    if (large == bd) {
-                        found_it = true;
-                        break;
-                    }
-                }
-            }
-
-            ASSERTM(found_it, "failed to find large object block containing %p", p);
-#endif
+            // Remove the object from nonmoving_large_objects and link it to
+            // nonmoving_marked_large_objects
+            dbl_link_remove(bd, &nonmoving_large_objects);
+            dbl_link_onto(bd, &nonmoving_marked_large_objects);
+            n_nonmoving_large_blocks -= bd->blocks;
+            n_nonmoving_marked_large_blocks += bd->blocks;
 
             // Mark contents
             p = (StgClosure*)bd->start;

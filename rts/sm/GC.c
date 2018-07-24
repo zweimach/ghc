@@ -51,7 +51,6 @@
 #include "CheckUnload.h"
 #include "CNF.h"
 #include "RtsFlags.h"
-#include "NonMovingScav.h"
 #include "NonMoving.h"
 
 #if defined(PROFILING)
