@@ -257,6 +257,17 @@ static void nonmoving_prepare_mark(void)
         // they were set after they were swept and haven't seen any allocation
         // since.
     }
+
+    ASSERT(oldest_gen->scavenged_large_objects == NULL);
+    bdescr *next;
+    for (bdescr *bd = oldest_gen->large_objects; bd; bd = next) {
+        next = bd->link;
+        dbl_link_onto(bd, &nonmoving_large_objects);
+    }
+    n_nonmoving_large_blocks += oldest_gen->n_large_blocks;
+    oldest_gen->large_objects = NULL;
+    oldest_gen->n_large_words = 0;
+    oldest_gen->n_large_blocks = 0;
 }
 
 // Mark weak pointers in the non-moving heap. They'll either end up in
@@ -292,30 +303,9 @@ static void nonmoving_mark_weak_ptr_list(MarkQueue *mark_queue)
 
 void nonmoving_collect()
 {
-    if (!major_gc) return;
-
     nonmoving_prepare_mark();
     nonmoving_prepare_sweep();
 
-    // Prepend gen->large_objects to nonmoving_large_objects
-    if (oldest_gen->large_objects) {
-        if (nonmoving_large_objects) {
-            bdescr *next;
-            for (bdescr *bd = oldest_gen->large_objects; bd; bd = next) {
-                next = bd->link;
-                dbl_link_onto(bd, &nonmoving_large_objects);
-                // TODO: need to account for this in genLiveWords
-            }
-        } else {
-            nonmoving_large_objects = oldest_gen->large_objects;
-        }
-
-        n_nonmoving_large_blocks += oldest_gen->n_large_blocks;
-        oldest_gen->large_objects = NULL;
-        oldest_gen->n_large_blocks = 0;
-        oldest_gen->n_large_words = 0;
-    }
-    ASSERT(oldest_gen->scavenged_large_objects == NULL);
     // N.B. These should have been cleared at the end of the last sweep.
     ASSERT(nonmoving_marked_large_objects == NULL);
     ASSERT(n_nonmoving_marked_large_blocks == 0);
