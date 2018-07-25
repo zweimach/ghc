@@ -335,6 +335,7 @@ split_block_high (bdescr *bd, W_ n)
     ret->blocks = n;
     ret->start = ret->free = bd->start + (bd->blocks - n)*BLOCK_SIZE_W;
     ret->link = NULL;
+    ret->flags |= BF_ALLOCD;
 
     bd->blocks -= n;
 
@@ -362,6 +363,7 @@ split_block_low (bdescr *bd, W_ n)
     setup_tail(bd);
     freeGroup(bd_);
 
+    bd->flags |= BF_ALLOCD;
     return bd;
 }
 
@@ -498,6 +500,7 @@ allocGroupOnNode (uint32_t node, W_ n)
 finish:
     IF_DEBUG(sanity, memset(bd->start, 0xaa, bd->blocks * BLOCK_SIZE));
     IF_DEBUG(sanity, checkFreeListSanity());
+    bd->flags |= BF_ALLOCD;
     return bd;
 }
 
@@ -761,6 +764,7 @@ freeGroup(bdescr *p)
 
   node = p->node;
 
+  p->flags &= ~BF_ALLOCD;
   p->free = (void *)-1;  /* indicates that this block is free */
   p->gen = NULL;
   p->gen_no = 0;
@@ -888,6 +892,7 @@ countBlocks(bdescr *bd)
     W_ n;
     for (n=0; bd != NULL; bd=bd->link) {
         n += bd->blocks;
+        ASSERT(bd->flags & BF_ALLOCD);
     }
     return n;
 }
@@ -903,6 +908,7 @@ countAllocdBlocks(bdescr *bd)
     W_ n;
     for (n=0; bd != NULL; bd=bd->link) {
         n += bd->blocks;
+        ASSERT(bd->flags & BF_ALLOCD);
 
         // hack for megablock groups: see (*1) above
         if (bd->blocks > BLOCKS_PER_MBLOCK) {
@@ -1081,6 +1087,7 @@ markBlocks (bdescr *bd)
 {
     for (; bd != NULL; bd = bd->link) {
         bd->flags |= BF_KNOWN;
+        ASSERTM(bd->flags & BF_ALLOCD, "reachable but unallocated block: %p\n", bd);
     }
 }
 

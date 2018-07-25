@@ -64,6 +64,7 @@ allocBlocks_sync(uint32_t n, bdescr **hd)
         bd[i].blocks = 1;
         bd[i].link = &bd[i+1];
         bd[i].free = bd[i].start;
+        bd[i].flags = BF_ALLOCD;
     }
     bd[n-1].link = NULL;
     // We have to hold the lock until we've finished fiddling with the metadata,
@@ -323,7 +324,7 @@ alloc_todo_block (gen_workspace *ws, uint32_t size)
             }
         }
         // blocks in to-space get the BF_EVACUATED flag.
-        bd->flags = BF_EVACUATED;
+        bd->flags = BF_EVACUATED | BF_ALLOCD;
         bd->u.scan = bd->start;
         initBdescr(bd, ws->gen, ws->gen->to);
     }

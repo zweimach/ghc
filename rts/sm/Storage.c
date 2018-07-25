@@ -578,7 +578,7 @@ allocNursery (uint32_t node, bdescr *tail, W_ blocks)
             initBdescr(&bd[i], g0, g0);
 
             bd[i].blocks = 1;
-            bd[i].flags = 0;
+            bd[i].flags = BF_ALLOCD;
 
             if (i > 0) {
                 bd[i].u.back = &bd[i-1];
@@ -905,7 +905,7 @@ allocateMightFail (Capability *cap, W_ n)
         g0->n_new_large_words += n;
         RELEASE_SM_LOCK;
         initBdescr(bd, g0, g0);
-        bd->flags = BF_LARGE;
+        bd->flags = BF_LARGE | BF_ALLOCD;
         bd->free = bd->start + n;
         cap->total_allocated += n;
         return bd->start;
@@ -932,7 +932,7 @@ allocateMightFail (Capability *cap, W_ n)
             cap->r.rNursery->n_blocks++;
             RELEASE_SM_LOCK;
             initBdescr(bd, g0, g0);
-            bd->flags = 0;
+            bd->flags = BF_ALLOCD;
             // If we had to allocate a new block, then we'll GC
             // pretty quickly now, because MAYBE_GC() will
             // notice that CurrentNursery->link is NULL.
@@ -1063,7 +1063,7 @@ allocatePinned (Capability *cap, W_ n)
         }
 
         cap->pinned_object_block = bd;
-        bd->flags  = BF_PINNED | BF_LARGE | BF_EVACUATED;
+        bd->flags  = BF_PINNED | BF_LARGE | BF_EVACUATED | BF_ALLOCD;
 
         // The pinned_object_block remains attached to the capability
         // until it is full, even if a GC occurs.  We want this
@@ -1530,7 +1530,7 @@ AdjustorWritable allocateExec (W_ bytes, AdjustorExecutable *exec_ret)
         bd = allocGroup(stg_max(1, pagesize / BLOCK_SIZE));
         debugTrace(DEBUG_gc, "allocate exec block %p", bd->start);
         bd->gen_no = 0;
-        bd->flags = BF_EXEC;
+        bd->flags = BF_EXEC | BF_ALLOCD;
         bd->link = exec_block;
         if (exec_block != NULL) {
             exec_block->u.back = bd;

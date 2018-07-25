@@ -1058,7 +1058,8 @@ memInventory (bool show)
       debugBelch("\n");
       findMemoryLeak();
   }
-  ASSERT(n_alloc_blocks == live_blocks);
+  ASSERTM(n_alloc_blocks == live_blocks,
+          "allocated blocks=%" FMT_Word ", live blocks=%" FMT_Word, n_alloc_blocks, live_blocks);
   ASSERT(!leak);
 }
 

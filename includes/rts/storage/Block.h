@@ -158,6 +158,7 @@ typedef struct bdescr_ {
 #define BF_COMPACT   512
 /* A non-moving allocator segment (see NonMoving.c) */
 #define BF_NONMOVING 1024
+#define BF_ALLOCD    2048
 /* Maximum flag value (do not define anything higher than this!) */
 #define BF_FLAG_MAX  (1 << 15)
 

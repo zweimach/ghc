@@ -57,7 +57,7 @@ static struct nonmoving_segment *nonmoving_alloc_segment(uint32_t node)
         RELEASE_SPIN_LOCK(&gc_alloc_block_sync);
         for (StgWord32 i = 0; i < bd->blocks; ++i) {
             initBdescr(&bd[i], oldest_gen, oldest_gen);
-            bd[i].flags = BF_NONMOVING;
+            bd[i].flags = BF_NONMOVING | BF_ALLOCD;
         }
         ret = (struct nonmoving_segment *)bd->start;
     }

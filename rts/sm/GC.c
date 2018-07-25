@@ -947,7 +947,7 @@ new_gc_thread (uint32_t n, gc_thread *t)
             bdescr *bd = allocBlockOnNode(capNoToNumaNode(n));
                 // no lock, locks aren't initialised yet
             initBdescr(bd, ws->gen, ws->gen->to);
-            bd->flags = BF_EVACUATED;
+            bd->flags = BF_EVACUATED | BF_ALLOCD;
             bd->u.scan = bd->free = bd->start;
 
             ws->todo_bd = bd;

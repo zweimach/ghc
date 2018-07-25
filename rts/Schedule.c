@@ -1152,7 +1152,7 @@ scheduleHandleHeapOverflow( Capability *cap, StgTSO *t )
                 for (x = bd; x < bd + blocks; x++) {
                     initBdescr(x,g0,g0);
                     x->free = x->start;
-                    x->flags = 0;
+                    x->flags = BF_ALLOCD;
                 }
             }
 
