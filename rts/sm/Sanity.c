@@ -734,6 +734,10 @@ static void checkGeneration (generation *gen,
 
     ASSERT(countBlocks(gen->blocks) == gen->n_blocks);
     ASSERT(countBlocks(gen->large_objects) == gen->n_large_blocks);
+    if (RtsFlags.GcFlags.useNonmoving && gen == oldest_gen) {
+        ASSERT(countBlocks(nonmoving_large_objects) == n_nonmoving_large_blocks);
+        ASSERT(countBlocks(nonmoving_marked_large_objects) == n_nonmoving_marked_large_blocks);
+    }
 
 #if defined(THREADED_RTS)
     // heap sanity checking doesn't work with SMP, because we can't
@@ -833,6 +837,8 @@ findMemoryLeak (void)
     }
 
     if (RtsFlags.GcFlags.useNonmoving) {
+        markBlocks(nonmoving_large_objects);
+        markBlocks(nonmoving_marked_large_objects);
         for (i = 0; i < NONMOVING_ALLOCA_CNT; i++) {
             struct nonmoving_allocator *alloc = nonmoving_heap.allocators[i];
             markNonMovingSegments(alloc->filled);
@@ -993,6 +999,8 @@ memInventory (bool show)
 
   // count nonmoving blocks
   if (RtsFlags.GcFlags.useNonmoving) {
+      nonmoving_blocks += countAllocdBlocks(nonmoving_large_objects);
+      nonmoving_blocks += countAllocdBlocks(nonmoving_marked_large_objects);
       for (int alloc_idx = 0; alloc_idx < NONMOVING_ALLOCA_CNT; alloc_idx++) {
           nonmoving_blocks += countNonMovingAllocator(nonmoving_heap.allocators[alloc_idx]);
       }

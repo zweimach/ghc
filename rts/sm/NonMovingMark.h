@@ -72,6 +72,9 @@ typedef struct MarkQueue_ {
 // The length of MarkQueueBlock.entries
 #define MARK_QUEUE_BLOCK_ENTRIES ((BLOCK_SIZE - sizeof(MarkQueueBlock)) / sizeof(MarkQueueEnt))
 
+extern bdescr *nonmoving_large_objects, *nonmoving_marked_large_objects;
+extern memcount n_nonmoving_large_blocks, n_nonmoving_marked_large_blocks;
+
 void mark_queue_add_root(MarkQueue* q, StgClosure** root);
 
 void init_mark_queue(MarkQueue *queue);

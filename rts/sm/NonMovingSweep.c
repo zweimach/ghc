@@ -187,23 +187,11 @@ void nonmoving_sweep_mut_lists()
 
 void nonmoving_sweep_large_objects()
 {
-    bdescr *free_blocks = NULL; // Blocks to be freed
-
-    bdescr *next_large;
-    for (bdescr *large = oldest_gen->scavenged_large_objects; large; large = next_large) {
-        next_large = large->link;
-        if (!(large->flags & BF_MARKED)) {
-            dbl_link_remove(large, &oldest_gen->scavenged_large_objects);
-            // update n_large_blocks again. this is slightly annoying, we
-            // scavenge this object before mark phase and update the counter,
-            // only to realize it's dead.
-            oldest_gen->n_scavenged_large_blocks -= large->blocks;
-            // Link the block to the chain of free blocks
-            dbl_link_onto(large, &free_blocks);
-        }
-    }
-
-    freeChain(free_blocks);
+    freeChain(nonmoving_large_objects);
+    nonmoving_large_objects = nonmoving_marked_large_objects;
+    n_nonmoving_large_blocks = n_nonmoving_marked_large_blocks;
+    nonmoving_marked_large_objects = NULL;
+    n_nonmoving_marked_large_blocks = 0;
 }
 
 // Essentially nonmoving_is_alive, but works when the object died in moving
