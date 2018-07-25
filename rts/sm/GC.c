@@ -627,16 +627,32 @@ GarbageCollect (uint32_t collect_gen,
         gen->old_blocks = NULL;
         gen->n_old_blocks = 0;
 
-        /* LARGE OBJECTS.  The current live large objects are chained on
-         * scavenged_large, having been moved during garbage
-         * collection from large_objects.  Any objects left on the
-         * large_objects list are therefore dead, so we free them here.
-         */
-        freeChain(gen->large_objects);
-        gen->large_objects  = gen->scavenged_large_objects;
-        gen->n_large_blocks = gen->n_scavenged_large_blocks;
-        gen->n_large_words  = countOccupied(gen->large_objects);
-        gen->n_new_large_words = 0;
+        /* LARGE OBJECTS */
+        if (RtsFlags.GcFlags.useNonmoving && g == oldest_gen->no) {
+            /* When using the non-moving collector we need to preserve old
+             * large objects here as we'll only know about their liveness after
+             * the mark phase.
+             */
+            for (bd = gen->scavenged_large_objects; bd; bd = next) {
+                next = bd->link;
+                dbl_link_onto(bd, &gen->large_objects);
+                gen->n_large_words += bd->free - bd->start;
+            }
+            gen->n_large_blocks += gen->n_scavenged_large_blocks;
+            gen->scavenged_large_objects = NULL;
+            gen->n_scavenged_large_blocks = 0;
+        } else {
+            /* The current live large objects are chained on scavenged_large,
+             * having been moved during garbage collection from large_objects.
+             * Any objects left on the large_objects list are therefore dead,
+             * so we free them here.
+             */
+            freeChain(gen->large_objects);
+            gen->large_objects  = gen->scavenged_large_objects;
+            gen->n_large_blocks = gen->n_scavenged_large_blocks;
+            gen->n_large_words  = countOccupied(gen->large_objects);
+            gen->n_new_large_words = 0;
+        }
 
         /* COMPACT_NFDATA. The currently live compacts are chained
          * to live_compact_objects, quite like large objects. And
@@ -648,6 +664,8 @@ GarbageCollect (uint32_t collect_gen,
          *
          * See Note [Compact Normal Forms] for details.
          */
+
+        // TODO(osa): we need the same large object treatment here
         for (bd = gen->compact_objects; bd; bd = next) {
             next = bd->link;
             compactFree(((StgCompactNFDataBlock*)bd->start)->owner);
