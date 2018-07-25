@@ -1142,6 +1142,9 @@ setTSOPrev (Capability *cap, StgTSO *tso, StgTSO *target)
 void
 dirty_TSO (Capability *cap, StgTSO *tso)
 {
+    if (RtsFlags.GcFlags.useNonmoving)
+        upd_rem_set_push_tso(cap, tso);
+
     if (tso->dirty == 0) {
         tso->dirty = 1;
         recordClosureMutated(cap,(StgClosure*)tso);
@@ -1151,6 +1154,9 @@ dirty_TSO (Capability *cap, StgTSO *tso)
 void
 dirty_STACK (Capability *cap, StgStack *stack)
 {
+    if (RtsFlags.GcFlags.useNonmoving)
+        upd_rem_set_push_stack(cap, stack);
+
     if (stack->dirty == 0) {
         stack->dirty = 1;
         recordClosureMutated(cap,(StgClosure*)stack);
