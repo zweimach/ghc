@@ -785,8 +785,9 @@ GarbageCollect (uint32_t collect_gen,
   // check sanity after GC
   // before resurrectThreads(), because that might overwrite some
   // closures, which will cause problems with THREADED where we don't
-  // fill slop.
-  IF_DEBUG(sanity, checkSanity(true /* after GC */, major_gc));
+  // fill slop. If we are using the nonmoving collector then we can't claim to
+  // be *after* the major GC; it's now running concurrently.
+  IF_DEBUG(sanity, checkSanity(true /* after GC */, major_gc && !RtsFlags.GcFlags.useNonmoving));
 
   // If a heap census is due, we need to do it before
   // resurrectThreads(), for the same reason as checkSanity above:
