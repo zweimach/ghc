@@ -720,8 +720,12 @@ GarbageCollect (uint32_t collect_gen,
   // Mark and sweep the oldest generation.
   // N.B. This can only happen after we've moved
   // oldest_gen->scavenged_large_objects back to oldest_gen->large_objects.
-  if (RtsFlags.GcFlags.useNonmoving && major_gc)
+  if (RtsFlags.GcFlags.useNonmoving && major_gc) {
+      // we may need to take the lock to allocate mark queue blocks
+      RELEASE_SM_LOCK;
       nonmoving_collect();
+      ACQUIRE_SM_LOCK;
+  }
 
   // update the max size of older generations after a major GC
   resize_generations();
