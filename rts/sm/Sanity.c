@@ -735,17 +735,21 @@ static void checkGeneration (generation *gen,
 
     ASSERT(countBlocks(gen->blocks) == gen->n_blocks);
     ASSERT(countBlocks(gen->large_objects) == gen->n_large_blocks);
+
+#if defined(THREADED_RTS)
+    // heap sanity checking doesn't work with SMP for two reasons:
+    //   * we can't zero the slop (see Updates.h).  However, we can sanity-check
+    //     the heap after a major gc, because there is no slop.
+    //
+    //   * the nonmoving collector may be mutating its large object lists, unless we
+    //     were in fact called by the nonmoving collector.
+    if (!after_major_gc) return;
+#endif
+
     if (RtsFlags.GcFlags.useNonmoving && gen == oldest_gen) {
         ASSERT(countBlocks(nonmoving_large_objects) == n_nonmoving_large_blocks);
         ASSERT(countBlocks(nonmoving_marked_large_objects) == n_nonmoving_marked_large_blocks);
     }
-
-#if defined(THREADED_RTS)
-    // heap sanity checking doesn't work with SMP, because we can't
-    // zero the slop (see Updates.h).  However, we can sanity-check
-    // the heap after a major gc, because there is no slop.
-    if (!after_major_gc) return;
-#endif
 
     checkHeapChain(gen->blocks);
 
