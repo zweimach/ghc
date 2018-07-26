@@ -19,4 +19,4 @@ validate:
   script:
     - "make V=0 -j$THREADS"
     - |
-      make test WAY="nonmoving nonmoving_thr" THREADS=$THREADS SKIP_PERF_TESTS=YES
+      make slowtest WAY="nonmoving nonmoving_thr" THREADS=$THREADS SKIP_PERF_TESTS=YES
