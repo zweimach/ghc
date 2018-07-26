@@ -20,6 +20,7 @@ enum EntryType {
 
 typedef struct {
     enum EntryType type;
+    // All pointers should be untagged
     union {
         struct {
             StgClosure *p;        // the object to be marked
@@ -58,6 +59,9 @@ typedef struct MarkQueue_ {
     // Cached value of blocks->start.
     MarkQueueBlock *top;
 
+    // Is this a mark queue or a capability-local update remembered set?
+    bool is_upd_rem_set;
+
     // Marked objects outside of nonmoving heap, namely large and static
     // objects.
     HashTable *marked_objects;
@@ -69,11 +73,32 @@ typedef struct MarkQueue_ {
 #endif
 } MarkQueue;
 
+/* While it shares its representation with MarkQueue, UpdRemSet differs in
+ * behavior when pushing; namely full chunks are immediately pushed to the
+ * global update remembered set, not accumulated into a chain. We make this
+ * distinction apparent in the types.
+ */
+typedef struct {
+    MarkQueue queue;
+} UpdRemSet;
+
 // The length of MarkQueueBlock.entries
 #define MARK_QUEUE_BLOCK_ENTRIES ((BLOCK_SIZE - sizeof(MarkQueueBlock)) / sizeof(MarkQueueEnt))
 
 extern bdescr *nonmoving_large_objects, *nonmoving_marked_large_objects;
 extern memcount n_nonmoving_large_blocks, n_nonmoving_marked_large_blocks;
+
+extern bdescr *upd_rem_set_block_list;
+extern bool nonmoving_write_barrier_enabled;
+void nonmoving_mark_init_upd_rem_set(void);
+
+void init_upd_rem_set(UpdRemSet *rset);
+void upd_rem_set_push_thunk(Capability *cap, StgThunk *origin);
+void upd_rem_set_push_thunk_(StgRegTable *reg, StgThunk *origin);
+void upd_rem_set_push_tso(Capability *cap, StgTSO *tso);
+void upd_rem_set_push_stack(Capability *cap, StgStack *stack);
+// Debug only -- count number of blocks in global UpdRemSet
+int count_global_upd_rem_set_blocks(void);
 
 void mark_queue_add_root(MarkQueue* q, StgClosure** root);
 
@@ -98,6 +123,11 @@ void mark_queue_push_closure_(MarkQueue *q, StgClosure *p);
 void mark_queue_push_thunk_srt(MarkQueue *q, const StgInfoTable *info);
 void mark_queue_push_fun_srt(MarkQueue *q, const StgInfoTable *info);
 void mark_queue_push_array(MarkQueue *q, const StgMutArrPtrs *array, StgWord start_index);
+
+INLINE_HEADER bool mark_queue_is_empty(MarkQueue *q)
+{
+    return (q->blocks == NULL) || (q->top->head == 0 && q->blocks->link == NULL);
+}
 
 #if defined(DEBUG)
 
