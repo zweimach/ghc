@@ -656,6 +656,9 @@ def test(name, setup, func, args):
     global parallelTests
     global allTestNames
     global thisdir_settings
+    if name in config.skip_tests:
+        t.n_tests_skipped += 1
+        return
     if name in allTestNames:
         framework_fail(name, 'duplicate', 'There are multiple tests with this name')
     if not re.match('^[0-9]*[a-zA-Z][a-zA-Z0-9._-]*$', name):
