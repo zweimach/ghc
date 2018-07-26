@@ -220,6 +220,7 @@ void nonmoving_sweep_stable_name_table()
     // the old heap may be reused by the time we reach here (2) concurrent table
     // modifications
 
+    stableLock();
     FOR_EACH_STABLE_NAME(
         p, {
             if (p->sn_obj != NULL) {
@@ -233,4 +234,5 @@ void nonmoving_sweep_stable_name_table()
                 }
             }
         });
+    stableUnlock();
 }
