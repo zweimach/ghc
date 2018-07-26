@@ -227,7 +227,9 @@ push (MarkQueue *q, const MarkQueueEnt *ent)
             nonmoving_add_upd_rem_set_blocks(q);
         } else {
             // allocate a fresh block.
+            ACQUIRE_SM_LOCK;
             bdescr *bd = allocGroup(1);
+            RELEASE_SM_LOCK;
             bd->link = q->blocks;
             q->blocks = bd;
             q->top = (MarkQueueBlock *) bd->start;
