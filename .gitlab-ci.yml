@@ -14,9 +14,13 @@ before_script:
   - make clean || true
   - ./boot
   - ./configure --with-system-libffi
+  - |
+    echo 'GhcStage3HcOpts += +RTS -xn -RTS' >> mk/build.mk
 
 validate:
   script:
     - "make V=0 -j$THREADS"
+    - |
+      make stage=3
     - |
       make test WAY="nonmoving nonmoving_thr" THREADS=$THREADS SKIP_PERF_TESTS=YES
