@@ -56,6 +56,7 @@ parser.add_argument("--no-print-summary", action="store_true", help="should we p
 parser.add_argument("--only", action="append", help="just this test (can be give multiple --only= flags)")
 parser.add_argument("--way", action="append", help="just this way")
 parser.add_argument("--skipway", action="append", help="skip this way")
+parser.add_argument("--skip-test", action="append", help="skip this test")
 parser.add_argument("--threads", type=int, help="threads to run simultaneously")
 parser.add_argument("--verbose", type=int, choices=[0,1,2,3,4,5], help="verbose (Values 0 through 5 accepted)")
 parser.add_argument("--junit", type=argparse.FileType('wb'), help="output testsuite summary in JUnit format")
@@ -87,6 +88,7 @@ config.metrics_file = args.metrics_file
 hasMetricsFile = bool(config.metrics_file)
 config.summary_file = args.summary_file
 config.no_print_summary = args.no_print_summary
+config.skip_test = args.skip_test
 
 if args.only:
     config.only = args.only
