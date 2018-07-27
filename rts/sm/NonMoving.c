@@ -24,6 +24,12 @@
 
 struct nonmoving_heap nonmoving_heap;
 
+uint8_t nonmoving_mark_epoch = 1;
+
+static void nonmoving_bump_epoch(void) {
+    nonmoving_mark_epoch = nonmoving_mark_epoch == 1 ? 2 : 1;
+}
+
 struct nonmoving_segment * const END_NONMOVING_TODO_LIST = (struct nonmoving_segment*)1;
 
 static void nonmoving_init_segment(struct nonmoving_segment *seg, uint8_t block_size)
@@ -77,16 +83,19 @@ static inline unsigned long log2_ceil(unsigned long x)
     return (x - (1 << log)) ? log + 1 : log;
 }
 
-static void *nonmoving_allocate_block_from_segment(struct nonmoving_segment *seg)
+// Advance a segment's next_free pointer. Returns true if segment if full.
+static bool advance_next_free(struct nonmoving_segment *seg)
 {
     uint8_t *bitmap = seg->bitmap;
-    for (unsigned int i = seg->next_free; i < nonmoving_segment_block_count(seg); i++) {
+    unsigned int blk_count = nonmoving_segment_block_count(seg);
+    for (unsigned int i = seg->next_free+1; i < blk_count; i++) {
         if (!bitmap[i]) {
-            seg->next_free = i + 1;
-            return nonmoving_segment_get_block(seg, i);
+            seg->next_free = i;
+            return false;
         }
     }
-    return NULL;
+    seg->next_free = blk_count;
+    return true;
 }
 
 /* sz is in words */
@@ -100,25 +109,25 @@ void *nonmoving_allocate(Capability *cap, StgWord sz)
 
     struct nonmoving_allocator *alloca = nonmoving_heap.allocators[allocator_idx];
 
-    while (true) {
-        // First try allocating into current segment
-        struct nonmoving_segment *current = alloca->current[cap->no];
-        ASSERT(current); // current is never NULL
-        void *ret = nonmoving_allocate_block_from_segment(current);
-        if (ret) {
-            ASSERT(GET_CLOSURE_TAG(ret) == 0); // check alignment
-            // Add segment to the todo list unless it's already there
-            // current->todo_link == NULL means not in todo list
-            if (!current->todo_link) {
-                gen_workspace *ws = &gct->gens[oldest_gen->no];
-                current->todo_link = ws->todo_seg;
-                ws->todo_seg = current;
-            }
-            return ret;
-        }
+    // Allocate into current segment
+    struct nonmoving_segment *current = alloca->current[cap->no];
+    ASSERT(current); // current is never NULL
+    void *ret = nonmoving_segment_get_block(current, current->next_free);
+    ASSERT(GET_CLOSURE_TAG(ret) == 0); // check alignment
 
+    // Add segment to the todo list unless it's already there
+    // current->todo_link == NULL means not in todo list
+    if (!current->todo_link) {
+        gen_workspace *ws = &gct->gens[oldest_gen->no];
+        current->todo_link = ws->todo_seg;
+        ws->todo_seg = current;
+    }
+
+    // Advance the current segment's next_free or allocate a new segment if full
+    bool full = advance_next_free(current);
+    if (full) {
         // Current segment is full, link it to filled, take an active segment
-        // if it exists, otherwise allocate a new segment. Need to take the
+        // if one exists, otherwise allocate a new segment. Need to take the
         // non-moving heap lock as allocators can be manipulated by scavenge
         // threads concurrently, and in the case where we need to allocate a
         // segment we'll need to modify the free segment list.
@@ -126,7 +135,7 @@ void *nonmoving_allocate(Capability *cap, StgWord sz)
         current->link = alloca->filled;
         alloca->filled = current;
 
-        // check active
+        // first look for a new segment in the active list
         if (alloca->active) {
             // remove an active, make it current
             struct nonmoving_segment *new_current = alloca->active;
@@ -144,6 +153,8 @@ void *nonmoving_allocate(Capability *cap, StgWord sz)
             alloca->current[cap->no] = new_current;
         }
     }
+
+    return ret;
 }
 
 /* Allocate a nonmoving_allocator */
@@ -213,16 +224,50 @@ void nonmoving_clear_all_bitmaps()
     for (int alloca_idx = 0; alloca_idx < NONMOVING_ALLOCA_CNT; ++alloca_idx) {
         struct nonmoving_allocator *alloca = nonmoving_heap.allocators[alloca_idx];
         nonmoving_clear_segment_bitmaps(alloca->filled);
-        nonmoving_clear_segment_bitmaps(alloca->active);
-        for (uint32_t cap_n = 0; cap_n < n_capabilities; ++cap_n) {
-            nonmoving_clear_segment_bitmaps(alloca->current[cap_n]);
-        }
     }
 
     // Clear large object bits
     for (bdescr *bd = nonmoving_large_objects; bd; bd = bd->link) {
         bd->flags &= ~BF_MARKED;
     }
+}
+
+/* Prepare the heap bitmaps and snapshot metadata for a mark */
+static void nonmoving_prepare_mark(void)
+{
+    nonmoving_clear_all_bitmaps();
+    nonmoving_bump_epoch();
+    for (int alloca_idx = 0; alloca_idx < NONMOVING_ALLOCA_CNT; ++alloca_idx) {
+        struct nonmoving_allocator *alloca = nonmoving_heap.allocators[alloca_idx];
+
+        // Update current segments' snapshot pointers
+        for (uint32_t cap_n = 0; cap_n < n_capabilities; ++cap_n) {
+            struct nonmoving_segment *seg = alloca->current[cap_n];
+            seg->next_free_snap = seg->next_free;
+        }
+
+        // Update filled segments' snapshot pointers
+        struct nonmoving_segment *seg = alloca->filled;
+        while (seg) {
+            seg->next_free_snap = seg->next_free;
+            seg = seg->link;
+        }
+
+        // N.B. It's not necessary to update snapshot pointers of active segments;
+        // they were set after they were swept and haven't seen any allocation
+        // since.
+    }
+
+    ASSERT(oldest_gen->scavenged_large_objects == NULL);
+    bdescr *next;
+    for (bdescr *bd = oldest_gen->large_objects; bd; bd = next) {
+        next = bd->link;
+        dbl_link_onto(bd, &nonmoving_large_objects);
+    }
+    n_nonmoving_large_blocks += oldest_gen->n_large_blocks;
+    oldest_gen->large_objects = NULL;
+    oldest_gen->n_large_words = 0;
+    oldest_gen->n_large_blocks = 0;
 }
 
 // Mark weak pointers in the non-moving heap. They'll either end up in
@@ -258,29 +303,9 @@ static void nonmoving_mark_weak_ptr_list(MarkQueue *mark_queue)
 
 void nonmoving_collect()
 {
-    if (!major_gc) return;
+    nonmoving_prepare_mark();
+    nonmoving_prepare_sweep();
 
-    nonmoving_clear_all_bitmaps();
-
-    // Prepend gen->large_objects to nonmoving_large_objects
-    if (oldest_gen->large_objects) {
-        if (nonmoving_large_objects) {
-            bdescr *next;
-            for (bdescr *bd = oldest_gen->large_objects; bd; bd = next) {
-                next = bd->link;
-                dbl_link_onto(bd, &nonmoving_large_objects);
-                // TODO: need to account for this in genLiveWords
-            }
-        } else {
-            nonmoving_large_objects = oldest_gen->large_objects;
-        }
-
-        n_nonmoving_large_blocks += oldest_gen->n_large_blocks;
-        oldest_gen->large_objects = NULL;
-        oldest_gen->n_large_blocks = 0;
-        oldest_gen->n_large_words = 0;
-    }
-    ASSERT(oldest_gen->scavenged_large_objects == NULL);
     // N.B. These should have been cleared at the end of the last sweep.
     ASSERT(nonmoving_marked_large_objects == NULL);
     ASSERT(n_nonmoving_marked_large_blocks == 0);
@@ -429,7 +454,7 @@ void nonmoving_print_segment(struct nonmoving_segment *seg)
 
     for (nonmoving_block_idx p_idx = 0; p_idx < seg->next_free; ++p_idx) {
         StgClosure *p = (StgClosure*)nonmoving_segment_get_block(seg, p_idx);
-        if (nonmoving_get_mark_bit(seg, p_idx)) {
+        if (nonmoving_get_mark(seg, p_idx) != 0) {
             debugBelch("%d (%p)* :\t", p_idx, (void*)p);
         } else {
             debugBelch("%d (%p)  :\t", p_idx, (void*)p);

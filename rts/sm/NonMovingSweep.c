@@ -15,7 +15,7 @@
 #include "GCUtils.h"
 #include "Stable.h"
 
-static void prepare_sweep(void)
+void nonmoving_prepare_sweep()
 {
     ASSERT(nonmoving_heap.sweep_list == NULL);
 
@@ -128,7 +128,7 @@ clear_segment_free_blocks(struct nonmoving_segment* seg)
     unsigned int block_size = nonmoving_segment_block_size(seg);
     for (unsigned int p_idx = 0; p_idx < nonmoving_segment_block_count(seg); ++p_idx) {
         // after mark, so bit not set == dead
-        if (!(nonmoving_get_mark_bit(seg, p_idx))) {
+        if (nonmoving_get_mark(seg, p_idx) == 0) {
             memset(nonmoving_segment_get_block(seg, p_idx), 0, block_size);
         }
     }
@@ -138,8 +138,6 @@ clear_segment_free_blocks(struct nonmoving_segment* seg)
 
 GNUC_ATTR_HOT void nonmoving_sweep(void)
 {
-    prepare_sweep();
-
     while (nonmoving_heap.sweep_list) {
         struct nonmoving_segment *seg = nonmoving_heap.sweep_list;
 
