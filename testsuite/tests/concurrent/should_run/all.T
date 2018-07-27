@@ -133,7 +133,7 @@ test('conc013', normal, compile_and_run, [''])
 test('conc014', normal, compile_and_run, [''])
 test('conc015', normal, compile_and_run, [''])
 test('conc015a', normal, compile_and_run, [''])
-test('conc016', omit_ways(['threaded2']), # see comment in conc016.hs
+test('conc016', omit_ways(['threaded2', 'nonmoving_thr']), # see comment in conc016.hs
                 compile_and_run, [''])
 test('conc017', normal, compile_and_run, [''])
 test('conc017a', normal, compile_and_run, [''])
