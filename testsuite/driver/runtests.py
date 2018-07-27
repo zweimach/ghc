@@ -88,7 +88,7 @@ config.metrics_file = args.metrics_file
 hasMetricsFile = bool(config.metrics_file)
 config.summary_file = args.summary_file
 config.no_print_summary = args.no_print_summary
-config.skip_test = args.skip_test
+config.skipped_tests = args.skip_test
 
 if args.only:
     config.only = args.only
