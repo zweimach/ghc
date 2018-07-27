@@ -89,7 +89,7 @@ test('T7970', normal, compile_and_run, [''])
 test('AtomicPrimops', normal, compile_and_run, [''])
 
 # test uses 2 threads and yield, scheduling can vary with threaded2
-test('threadstatus-9333', [omit_ways(['threaded2'])], compile_and_run, [''])
+test('threadstatus-9333', [omit_ways(['threaded2', 'nonmoving_thr'])], compile_and_run, [''])
 
 test('T9379', normal, compile_and_run, [''])
 

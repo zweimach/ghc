@@ -15,9 +15,9 @@ test('T7506', normal, compile_fail, [''])
 test('T7243', normal, compile_fail, [''])
 test('T10461', normal, compile_fail, [''])
 
-# UnsafeReenter tests implementation of an undefined behavior (calling Haskell
-# from an unsafe foreign function) and only makes sense in non-threaded way
-# (threaded runtime will hang). See #14912.
+# UnsafeReenter seems to just hang instead of erroring out
+# with the threaded1, threaded2 and profthreaded ways,
+# see #14912.
 test('UnsafeReenter',
      [omit_ways(threaded_ways), exit_code(1)],
      compile_and_run,
