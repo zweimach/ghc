@@ -7,7 +7,7 @@ test('conc027', normal, compile_and_run, [''])
 test('conc051', normal, compile_and_run, [''])
 
 if ('threaded1' in config.run_ways):
-   only_threaded_ways = only_ways(['ghci','threaded1','threaded2'])
+   only_threaded_ways = only_ways(['ghci','threaded1','threaded2', 'nonmoving_thr'])
 else:
    only_threaded_ways = skip
 
@@ -17,7 +17,7 @@ test('conc069a', only_threaded_ways, compile_and_run, [''])
 # those for now.
 test('conc070', only_threaded_ways, compile_and_run, [''])
 
-test('conc071', omit_ways(['threaded2']), compile_and_run, [''])
+test('conc071', omit_ways(['threaded2', 'nonmoving_thr']), compile_and_run, [''])
 test('conc072', only_ways(['threaded2']), compile_and_run, [''])
 test('conc073', normal, compile_and_run, [''])
 
@@ -89,7 +89,7 @@ test('T7970', normal, compile_and_run, [''])
 test('AtomicPrimops', normal, compile_and_run, [''])
 
 # test uses 2 threads and yield, scheduling can vary with threaded2
-test('threadstatus-9333', [omit_ways(['threaded2'])], compile_and_run, [''])
+test('threadstatus-9333', [omit_ways(['threaded2', 'nonmoving_thr'])], compile_and_run, [''])
 
 test('T9379', normal, compile_and_run, [''])
 

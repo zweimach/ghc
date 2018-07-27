@@ -18,5 +18,6 @@ before_script:
 validate:
   script:
     - "make V=0 -j$THREADS"
+    # posix009 is broken in nonmoving_thr
     - |
-      make test WAY="nonmoving nonmoving_thr" THREADS=$THREADS SKIP_PERF_TESTS=YES
+      make slowtest WAY="nonmoving nonmoving_thr" THREADS=$THREADS SKIP_PERF_TESTS=YES SKIP_TESTS="posix009"

@@ -259,7 +259,8 @@ RUNTEST_OPTS +=  \
 	--config 'hp2ps=$(call quote_path,$(HP2PS_ABS))' \
 	--config 'hpc=$(call quote_path,$(HPC))' \
 	--config 'gs=$(call quote_path,$(GS))' \
-	--config 'timeout_prog=$(call quote_path,$(TIMEOUT_PROGRAM))'
+	--config 'timeout_prog=$(call quote_path,$(TIMEOUT_PROGRAM))' \
+  $(addprefix --skip-test=, $(SKIP_TESTS))
 
 RUNTEST_OPTS += -e "config.stage=$(GhcStage)"
 

@@ -21,7 +21,7 @@ test('T10461', normal, compile_fail, [''])
 test('UnsafeReenter',
      [omit_ways(['ghciext', 'ghci']),
       exit_code(1),
-      expect_broken_for(14912, ['threaded1', 'threaded2', 'profthreaded'])
+      expect_broken_for(14912, ['threaded1', 'threaded2', 'profthreaded', 'nonmoving_thr'])
      ], compile_and_run, ['-v0 UnsafeReenterC.c'])
 test('UnsafeReenterGhci',
      [exit_code(1), extra_files(['UnsafeReenter.hs', 'UnsafeReenterC.c']), expect_broken(13730)],
