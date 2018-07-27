@@ -25,7 +25,7 @@ class TestConfig:
         # Run these tests only (run all tests if empty)
         self.run_only_some_tests = False
         self.only = set()
-        self.skip_tests   = []
+        self.skipped_tests   = []
 
         # Accept new output which differs from the sample?
         self.accept = 0
