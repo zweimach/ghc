@@ -157,7 +157,7 @@ test('CatPairs', normal, compile, [''])
 test('CatEntail', normal, compile, [''])
 
 # When running with WAY=ghci, T7653 uses a lot of memory.
-test('T7653', high_memory_usage, compile_and_run, [''])
+test('T7653', [high_memory_usage, expect_broken_for(74, ['nonmoving_thr'])], compile_and_run, [''])
 test('T7787', normal, compile_and_run, [''])
 
 test('topHandler01', when(opsys('mingw32'), skip), compile_and_run, [''])
