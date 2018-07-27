@@ -11,6 +11,9 @@
 #include "Capability.h"
 #include "Printer.h"
 #include "Storage.h"
+// We call evacuate, which expects the thread-local gc_thread to be valid;
+// This is sometimes declared as a register variable therefore it is necessary
+// to include the declaration so that the compiler doesn't clobber the register.
 #include "GCThread.h"
 #include "GCTDecl.h"
 
