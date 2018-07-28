@@ -527,6 +527,10 @@ static void* nonmoving_concurrent_mark(void *data)
     stgFree(mark_queue);
     debugTrace(DEBUG_nonmoving_gc, "Done marking");
 
+    // Now remove all dead objects from the mut_list to ensure that a younger
+    // generation collection doesn't attempt to look at them after we've swept.
+    nonmoving_sweep_mut_lists();
+
     // Everything has been marked; allow the mutators to proceed
 #if defined(CONCURRENT_MARK)
     nonmoving_write_barrier_enabled = false;
@@ -553,7 +557,6 @@ static void* nonmoving_concurrent_mark(void *data)
     // collect them in a map in mark_queue and we pass it here to sweep large
     // objects
     nonmoving_sweep_large_objects();
-    nonmoving_sweep_mut_lists();
     nonmoving_sweep_stable_name_table();
 
     nonmoving_sweep();
