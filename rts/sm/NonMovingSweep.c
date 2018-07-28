@@ -149,12 +149,12 @@ GNUC_ATTR_HOT void nonmoving_sweep(void)
 
         switch (ret) {
         case SEGMENT_FREE:
-            push_free_segment(seg);
             IF_DEBUG(sanity, clear_segment(seg));
+            push_free_segment(seg);
             break;
         case SEGMENT_PARTIAL:
-            push_active_segment(seg);
             IF_DEBUG(sanity, clear_segment_free_blocks(seg));
+            push_active_segment(seg);
             break;
         case SEGMENT_FILLED:
             push_filled_segment(seg);
