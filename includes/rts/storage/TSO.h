@@ -185,10 +185,18 @@ typedef struct StgTSO_ {
 
 } *StgTSOPtr; // StgTSO defined in rts/Types.h
 
+// flag of StgStack's dirty field indicating that the stack is currently being marked
+// by concurrent mark thread. A so-marked stack must not be mutated until the
+// flag is cleared.
+#define CONCURRENT_GC_MARKING_STACK 4
+#define MUTATOR_MARKING_STACK 8
+#define STACK_MARKED 16
+
 typedef struct StgStack_ {
     StgHeader  header;
     StgWord32  stack_size;     // stack size in *words*
-    StgWord32  dirty;          // non-zero => dirty
+    StgWord32  pad;
+    StgWord    dirty;          // non-zero => dirty
     StgPtr     sp;             // current stack pointer
     StgWord    stack[];
 } StgStack;

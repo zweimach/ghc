@@ -369,22 +369,77 @@ void upd_rem_set_push_closure_(StgRegTable *reg,
     push_closure(queue, p, origin_closure, origin_field);
 }
 
+STATIC_INLINE bool needs_upd_rem_set_mark(StgClosure *p)
+{
+    // TODO: Deduplicate with mark_closure
+    bdescr *bd = Bdescr((StgPtr) p);
+    if (bd->gen != oldest_gen) {
+        return false;
+    } else if (bd->flags & BF_LARGE) {
+        return ! (bd->flags & BF_MARKED);
+    } else {
+        struct nonmoving_segment *seg = nonmoving_get_segment((StgPtr) p);
+        nonmoving_block_idx block_idx = nonmoving_get_block_idx((StgPtr) p);
+        return ! nonmoving_get_mark(seg, block_idx);
+    }
+}
+
+/* Set the mark bit; only to be called *after* we have fully marked the closure */
+STATIC_INLINE void finish_upd_rem_set_mark(StgClosure *p)
+{
+    bdescr *bd = Bdescr((StgPtr) p);
+    if (bd->flags & BF_LARGE) {
+        // Someone else may have already marked it.
+        if (! (bd->flags & BF_MARKED)) {
+            bd->flags |= BF_MARKED;
+            dbl_link_remove(bd, &nonmoving_large_objects);
+            dbl_link_onto(bd, &nonmoving_marked_large_objects);
+            n_nonmoving_large_blocks -= bd->blocks;
+            n_nonmoving_marked_large_blocks += bd->blocks;
+        }
+    } else {
+        struct nonmoving_segment *seg = nonmoving_get_segment((StgPtr) p);
+        nonmoving_block_idx block_idx = nonmoving_get_block_idx((StgPtr) p);
+        nonmoving_set_mark(seg, block_idx);
+    }
+}
+
 void upd_rem_set_push_tso(Capability *cap, StgTSO *tso)
 {
     // TODO: Eliminate this conditional once it's folded into codegen
     if (!nonmoving_write_barrier_enabled) return;
-    if (Bdescr((StgPtr) tso)->gen != oldest_gen) return;
-    if (nonmoving_closure_marked((StgPtr) tso)) return;
-    mark_tso(&cap->upd_rem_set.queue, tso);
+    if (needs_upd_rem_set_mark((StgClosure *) tso)) {
+        debugBelch("upd_rem_set: TSO %p\n", tso);
+        mark_tso(&cap->upd_rem_set.queue, tso);
+        finish_upd_rem_set_mark((StgClosure *) tso);
+    }
 }
 
 void upd_rem_set_push_stack(Capability *cap, StgStack *stack)
 {
     // TODO: Eliminate this conditional once it's folded into codegen
     if (!nonmoving_write_barrier_enabled) return;
-    if (Bdescr((StgPtr) stack)->gen != oldest_gen) return;
-    if (nonmoving_closure_marked((StgPtr) stack)) return;
-    mark_stack(&cap->upd_rem_set.queue, stack);
+    if (needs_upd_rem_set_mark((StgClosure *) stack)) {
+        // See Note [Concurrent marking of stacks]
+        while (1) {
+            StgWord dirty = stack->dirty;
+            StgWord res = cas(&stack->dirty, dirty, dirty | MUTATOR_MARKING_STACK);
+            if (res & MUTATOR_MARKING_STACK) {
+                // We have claimed the right to mark the stack.
+                break;
+            } else if (res & CONCURRENT_GC_MARKING_STACK) {
+                // The concurrent GC has claimed the right to mark the stack. Wait until it finishes
+                // before proceeding with mutation.
+                while (!(stack->dirty & STACK_MARKED));
+                  //busy_wait_nop(); // TODO: Spinning here is unfortunate
+                return;
+            }
+        }
+
+        debugBelch("upd_rem_set: STACK %p\n", stack->sp);
+        mark_stack(&cap->upd_rem_set.queue, stack);
+        finish_upd_rem_set_mark((StgClosure *) stack);
+    }
 }
 
 int count_global_upd_rem_set_blocks()
@@ -529,6 +584,8 @@ void free_mark_queue(MarkQueue *queue)
 
 static void mark_tso (MarkQueue *queue, StgTSO *tso)
 {
+    // TODO: Clear dirty if contains only old gen objects
+
     if (tso->bound != NULL) {
         mark_queue_push_closure_(queue, (StgClosure *) tso->bound->tso);
     }
@@ -720,6 +777,8 @@ mark_stack_ (MarkQueue *queue, StgPtr sp, StgPtr spBottom)
 static GNUC_ATTR_HOT void
 mark_stack (MarkQueue *queue, StgStack *stack)
 {
+    // TODO: Clear dirty if contains only old gen objects
+
     mark_stack_(queue, stack->sp, stack->stack + stack->stack_size);
 }
 
@@ -1073,9 +1132,34 @@ mark_closure (MarkQueue *queue, StgClosure *p)
         mark_tso(queue, (StgTSO *) p);
         break;
 
-    case STACK:
-        mark_stack(queue, (StgStack *) p);
-        break;
+    case STACK: {
+      /* Note [Concurrent marking of stacks]
+       * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+       * We may race with a mutator to start marking a stack. This is bad
+       * since the mutator may start mutating the stack once it finishes its
+       * mark, causing our own mark to get confused.
+       *
+       * Consequently, we must take care to ensure that either the mutator or
+       * the mark claim the stack for marking; not both.
+       */
+      StgStack *stack = (StgStack *) p;
+      while (1) {
+          StgWord dirty = stack->dirty;
+          StgWord res = cas(&stack->dirty, dirty, dirty | CONCURRENT_GC_MARKING_STACK);
+          if (res & MUTATOR_MARKING_STACK) {
+              // A mutator has already started marking the stack; we just let it
+              // do its thing and move on. There's no reason to wait; we know that
+              // the stack will be fully marked before we sweep due to the final
+              // post-mark synchronization.
+              return;
+          } else if (res & CONCURRENT_GC_MARKING_STACK) {
+              mark_stack(queue, stack);
+              res |= STACK_MARKED;
+              break;
+        }
+      }
+      break;
+    }
 
     case MUT_PRIM: {
         for (StgHalfWord p_idx = 0; p_idx < info->layout.payload.ptrs; ++p_idx) {
