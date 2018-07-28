@@ -735,7 +735,12 @@ mark_closure (MarkQueue *queue, StgClosure *p)
                                 p,                               \
                                 ((StgClosure **) &(obj)->field) - (StgClosure **) (obj))
 
+#if !defined(CONCURRENT_MARK)
+    // A moving collection running concurrently with the mark may
+    // evacuate a reference living in the nonmoving heap, resulting in a
+    // forwarding pointer.
     ASSERT(!IS_FORWARDING_PTR(p->header.info));
+#endif
 
     if (!HEAP_ALLOCED_GC(p)) {
         const StgInfoTable *info = get_itbl(p);
