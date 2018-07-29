@@ -20,3 +20,8 @@ void upd_rem_set_push_closure_(StgRegTable *reg,
                                StgClosure *origin_closure,
                                StgWord origin_field);
 
+
+void upd_rem_set_push_closure(Capability *cap,
+                              StgClosure *p,
+                              StgClosure *origin_closure,
+                              StgWord origin_field);
