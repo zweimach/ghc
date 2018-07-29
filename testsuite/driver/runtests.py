@@ -77,7 +77,8 @@ all_ways = config.run_ways+config.compile_ways+config.other_ways
 config.rootdirs = args.rootdir
 config.summary_file = args.summary_file
 config.no_print_summary = args.no_print_summary
-config.skipped_tests = args.skip_test
+if args.skip_test:
+    config.skipped_tests = args.skip_test
 
 if args.only:
     config.only = args.only
