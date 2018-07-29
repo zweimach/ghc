@@ -185,13 +185,55 @@ typedef struct StgTSO_ {
 
 } *StgTSOPtr; // StgTSO defined in rts/Types.h
 
-// flag of StgStack's dirty field indicating that the stack is currently being marked
-// by concurrent mark thread. A so-marked stack must not be mutated until the
-// flag is cleared.
+/* Note [StgStack dirtiness flags and concurrent marking]
+ *
+ * Without concurrent collection by the nonmoving collector the stack dirtiness story
+ * is quite simple: The stack is either STACK_DIRTY (meaning it has been added to mut_list)
+ * or not.
+ *
+ * However, things are considerably more complicated with concurrent collection
+ * (indicated by nonmoving_write_barrier_enabled): In addition to adding the
+ * stack to mut_list and flagging it as STACK_DIRTY, we also must ensure that
+ * stacks are marked in accordance with the nonmoving collector's snapshot
+ * invariant. This is: every stack alive at the time the snapshot is taken
+ * must be marked at some point after the moment the snapshot is
+ * taken and before it is mutated or the commencement of the sweep phase.
+ *
+ * This marking may be done by the concurrent mark phase (in the case of a
+ * thread that never runs during the concurrent mark) or by the mutator when
+ * dirtying the stack. However, it is unsafe for the concurrent collector to
+ * traverse the stack while it is under mutation. Consequently, the follow
+ * handshake is obeyed by the mutator's write barrier and the concurrent mark to
+ * ensure this doesn't happen:
+ *
+ * 1. The entity seeking to mark first checks that the stack lives in the nonmoving
+ *    generation; if not then the stack was not alive at the time the snapshot
+ *    was taken and therefore we need not mark it.
+ *
+ * 2. The entity seeking to mark checks the stack's mark bit. If it is set then
+ *    no mark is necessary.
+ *
+ * 3. The entity seeking to mark tries to lock the stack for marking by
+ *    atomically setting its ownership flag (CONCURRENT_GC_MARKING_STACK in the
+ *    case of the concurrent mark, MUTATOR_MARKING_STACK in the case of the
+ *    mutator write barrier; Note: these are mutually exclusive)
+ *
+ *    a. If the mutator finds the concurrent collector has already locked the
+ *       stack then it waits until it is finished (indicated by the mark bit
+ *       being set) before proceeding with execution.
+ *
+ *    b. If the concurrent collector finds that the mutator has locked the stack
+ *       then it moves on, leaving the mutator to mark it. There is no need to wait;
+ *       the mark is guaranteed to finish before sweep due to the post-mark
+ *       synchronization with mutators.
+ *
+ *    c. Whoever succeeds in locking the stack is responsible for marking it and
+ *       setting the stack's mark bit.
+ *
+ */
 #define STACK_DIRTY 1
 #define CONCURRENT_GC_MARKING_STACK 4
 #define MUTATOR_MARKING_STACK 8
-#define STACK_MARKED 16
 // used by sanity checker to verify that all dirty stacks are on the mutable list
 #define STACK_SANE 64
 

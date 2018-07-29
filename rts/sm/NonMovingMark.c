@@ -431,7 +431,7 @@ void upd_rem_set_push_stack(Capability *cap, StgStack *stack)
     // TODO: Eliminate this conditional once it's folded into codegen
     if (!nonmoving_write_barrier_enabled) return;
     if (needs_upd_rem_set_mark((StgClosure *) stack)) {
-        // See Note [Concurrent marking of stacks]
+        // See Note [StgStack dirtiness flags and concurrent marking]
         while (1) {
             StgWord dirty = stack->dirty;
             StgWord res = cas(&stack->dirty, dirty, dirty | MUTATOR_MARKING_STACK);
@@ -1154,30 +1154,24 @@ mark_closure (MarkQueue *queue, StgClosure *p)
         break;
 
     case STACK: {
-      /* Note [Concurrent marking of stacks]
-       * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-       * We may race with a mutator to start marking a stack. This is bad
-       * since the mutator may start mutating the stack once it finishes its
-       * mark, causing our own mark to get confused.
-       *
-       * Consequently, we must take care to ensure that either the mutator or
-       * the mark claim the stack for marking; not both.
-       */
       StgStack *stack = (StgStack *) p;
+      // See Note [StgStack dirtiness flags and concurrent marking]
+      StgWord dirty = stack->dirty;
       while (1) {
-          StgWord dirty = stack->dirty;
-          StgWord res = cas(&stack->dirty, dirty, dirty | CONCURRENT_GC_MARKING_STACK);
-          if (res & MUTATOR_MARKING_STACK) {
+          if (dirty & MUTATOR_MARKING_STACK) {
               // A mutator has already started marking the stack; we just let it
               // do its thing and move on. There's no reason to wait; we know that
               // the stack will be fully marked before we sweep due to the final
               // post-mark synchronization.
               return;
-          } else if (res & CONCURRENT_GC_MARKING_STACK) {
+          } else if (dirty & CONCURRENT_GC_MARKING_STACK) {
               mark_stack(queue, stack);
-              res |= STACK_MARKED;
+              // TODO: CAS this?
+              stack->dirty |= STACK_MARKED;
               break;
-        }
+          } else {
+              dirty = cas(&stack->dirty, dirty, dirty | CONCURRENT_GC_MARKING_STACK);
+          }
       }
       break;
     }
