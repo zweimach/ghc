@@ -797,20 +797,12 @@ static GNUC_ATTR_HOT void
 mark_closure (MarkQueue *queue, StgClosure *p)
 {
     p = UNTAG_CLOSURE(p);
-    ASSERTM(LOOKS_LIKE_CLOSURE_PTR(p), "invalid closure, info=%p", p->header.info);
 
 #   define PUSH_FIELD(obj, field)                                \
         mark_queue_push_closure(queue,                           \
                                 (StgClosure *) (obj)->field,     \
                                 p,                               \
                                 ((StgClosure **) &(obj)->field) - (StgClosure **) (obj))
-
-#if !defined(CONCURRENT_MARK)
-    // A moving collection running concurrently with the mark may
-    // evacuate a reference living in the nonmoving heap, resulting in a
-    // forwarding pointer.
-    ASSERT(!IS_FORWARDING_PTR(p->header.info));
-#endif
 
     if (!HEAP_ALLOCED_GC(p)) {
         const StgInfoTable *info = get_itbl(p);
@@ -876,6 +868,28 @@ mark_closure (MarkQueue *queue, StgClosure *p)
 
     bdescr *bd = Bdescr((StgPtr) p);
 
+    if (bd->gen != oldest_gen) {
+        // Here we have an object living outside of the non-moving heap. Since
+        // we moved everything to the non-moving heap before starting the major
+        // collection, we know that we don't need to trace it: it was allocated
+        // after we took our snapshot.
+#if !defined(CONCURRENT_MARK)
+        // This should never happen in the non-concurrent case
+        barf("Closure outside of non-moving heap: %p", p);
+#else
+        return;
+#endif
+    }
+
+    ASSERTM(LOOKS_LIKE_CLOSURE_PTR(p), "invalid closure, info=%p", p->header.info);
+#if !defined(CONCURRENT_MARK)
+    // A moving collection running concurrently with the mark may
+    // evacuate a reference living in the nonmoving heap, resulting in a
+    // forwarding pointer.
+    ASSERT(!IS_FORWARDING_PTR(p->header.info));
+#endif
+
+
     if (bd->flags & BF_NONMOVING) {
 
         if (bd->flags & BF_LARGE) {
@@ -938,11 +952,7 @@ mark_closure (MarkQueue *queue, StgClosure *p)
     }
 
     else {
-        // Here we have an object living outside of the non-moving heap. Since
-        // we moved everything to the non-moving heap before starting the major
-        // collection, we know that we don't need to trace it: it was allocated
-        // after we took our snapshot.
-        return;
+        barf("Strange closure in nonmoving mark: %p", p);
     }
 
     /////////////////////////////////////////////////////
