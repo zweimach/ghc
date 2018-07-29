@@ -539,12 +539,13 @@ stg_casMutVarzh ( gcptr mv, gcptr old, gcptr new )
 #if defined(THREADED_RTS)
     gcptr h;
 
+    // TODO: snapshot write barrier
     (h) = prim %cmpxchgW(mv + SIZEOF_StgHeader + OFFSET_StgMutVar_var, old, new);
     if (h != old) {
         return (1,h);
     } else {
         if (GET_INFO(mv) == stg_MUT_VAR_CLEAN_info) {
-            ccall dirty_MUT_VAR(BaseReg "ptr", mv "ptr");
+            ccall dirty_MUT_VAR(BaseReg "ptr", mv "ptr", old);
         }
         return (0,new);
     }
@@ -557,7 +558,7 @@ stg_casMutVarzh ( gcptr mv, gcptr old, gcptr new )
     } else {
         StgMutVar_var(mv) = new;
         if (GET_INFO(mv) == stg_MUT_VAR_CLEAN_info) {
-            ccall dirty_MUT_VAR(BaseReg "ptr", mv "ptr");
+            ccall dirty_MUT_VAR(BaseReg "ptr", mv "ptr", old);
         }
         return (0,new);
     }
@@ -636,16 +637,8 @@ stg_atomicModifyMutVarzh ( gcptr mv, gcptr f )
     StgMutVar_var(mv) = y;
 #endif
 
-    // Add old value to upd_rem_set
-    if (nonmoving_write_barrier_enabled != 0) {
-        ccall upd_rem_set_push_closure_(BaseReg "ptr",
-                                        h "ptr",
-                                        mv "ptr",
-                                        BYTES_TO_WDS(OFFSET_StgMutVar_var));
-    }
-
     if (GET_INFO(mv) == stg_MUT_VAR_CLEAN_info) {
-        ccall dirty_MUT_VAR(BaseReg "ptr", mv "ptr");
+        ccall dirty_MUT_VAR(BaseReg "ptr", mv "ptr", h);
     }
 
     return (r);
