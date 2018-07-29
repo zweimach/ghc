@@ -53,6 +53,10 @@ Condition concurrent_coll_finished;
 Mutex concurrent_coll_finished_lock;
 #endif
 
+#if defined(DEBUG)
+void gcCAFs(void);
+#endif
+
 /* Note [Concurrent non-moving collection]
  * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
  * Concurrency-control of non-moving garbage collection is a bit tricky. There
@@ -563,6 +567,10 @@ static void* nonmoving_concurrent_mark(void *data)
     ASSERT(nonmoving_heap.sweep_list == NULL);
     debugTrace(DEBUG_nonmoving_gc, "Finished sweeping.");
 
+    // mark the garbage collected CAFs as dead
+#if defined(DEBUG)
+    gcCAFs();
+#endif
     // TODO: Remainder of things done by GarbageCollect
 
 #if defined(CONCURRENT_MARK)
