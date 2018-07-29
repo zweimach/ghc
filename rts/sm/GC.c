@@ -173,7 +173,7 @@ static void collect_pinned_object_blocks (void);
 static void heapOverflow            (void);
 
 #if defined(DEBUG)
-static void gcCAFs                  (void);
+void gcCAFs                  (void);
 #endif
 
 /* -----------------------------------------------------------------------------
@@ -752,7 +752,7 @@ GarbageCollect (uint32_t collect_gen,
 
  // mark the garbage collected CAFs as dead
 #if defined(DEBUG)
-  if (major_gc) { gcCAFs(); }
+  if (major_gc && !RtsFlags.GcFlags.useNonmoving) { gcCAFs(); }
 #endif
 
   // Update the stable pointer hash table.
@@ -1864,7 +1864,7 @@ resize_nursery (void)
 
 #if defined(DEBUG)
 
-static void gcCAFs(void)
+void gcCAFs(void)
 {
     StgIndStatic *p, *prev;
 
