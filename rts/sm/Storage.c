@@ -1130,8 +1130,8 @@ setTSOLink (Capability *cap, StgTSO *tso, StgTSO *target)
     if (tso->dirty == 0) {
         tso->dirty = 1;
         recordClosureMutated(cap,(StgClosure*)tso);
-        if (RtsFlags.GcFlags.useNonmoving)
-            upd_rem_set_push_tso(cap, tso->_link);
+        if (nonmoving_write_barrier_enabled)
+            upd_rem_set_push_closure(cap, (StgClosure *) tso->_link, NULL, 0);
     }
     tso->_link = target;
 }
@@ -1142,8 +1142,8 @@ setTSOPrev (Capability *cap, StgTSO *tso, StgTSO *target)
     if (tso->dirty == 0) {
         tso->dirty = 1;
         recordClosureMutated(cap,(StgClosure*)tso);
-        if (RtsFlags.GcFlags.useNonmoving)
-            upd_rem_set_push_tso(cap, tso->block_info.prev);
+        if (nonmoving_write_barrier_enabled)
+            upd_rem_set_push_closure(cap, (StgClosure *) tso->block_info.prev, NULL, 0);
     }
     tso->block_info.prev = target;
 }
@@ -1156,7 +1156,7 @@ dirty_TSO (Capability *cap, StgTSO *tso)
         recordClosureMutated(cap,(StgClosure*)tso);
     }
 
-    if (RtsFlags.GcFlags.useNonmoving)
+    if (nonmoving_write_barrier_enabled)
         upd_rem_set_push_tso(cap, tso);
 }
 
@@ -1168,7 +1168,7 @@ dirty_STACK (Capability *cap, StgStack *stack)
         recordClosureMutated(cap,(StgClosure*)stack);
     }
 
-    if (RtsFlags.GcFlags.useNonmoving)
+    if (nonmoving_write_barrier_enabled)
         upd_rem_set_push_stack(cap, stack);
 }
 
@@ -1184,11 +1184,11 @@ void
 dirty_MVAR(StgRegTable *reg, StgClosure *p)
 {
     Capability *cap = regTableToCapability(reg);
-    if (RtsFlags.GcFlags.useNonmoving) {
+    if (nonmoving_write_barrier_enabled) {
         StgMVar *mvar = (StgMVar *) p;
-        upd_rem_set_push_closure_(reg, mvar->value, NULL, 0);
-        upd_rem_set_push_closure_(reg, (StgClosure *) mvar->head, NULL, 0);
-        upd_rem_set_push_closure_(reg, (StgClosure *) mvar->tail, NULL, 0);
+        upd_rem_set_push_closure(cap, mvar->value, NULL, 0);
+        upd_rem_set_push_closure(cap, (StgClosure *) mvar->head, NULL, 0);
+        upd_rem_set_push_closure(cap, (StgClosure *) mvar->tail, NULL, 0);
     }
     recordClosureMutated(cap, p);
 }
