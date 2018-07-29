@@ -440,8 +440,8 @@ void upd_rem_set_push_stack(Capability *cap, StgStack *stack)
                 break;
             } else if (res & CONCURRENT_GC_MARKING_STACK) {
                 // The concurrent GC has claimed the right to mark the stack. Wait until it finishes
-                // before proceeding with mutation.
-                while (!(stack->dirty & STACK_MARKED));
+                // marking before proceeding with mutation.
+                while (needs_upd_rem_set_mark((StgClosure *) stack));
                   //busy_wait_nop(); // TODO: Spinning here is unfortunate
                 return;
             }
@@ -889,14 +889,12 @@ mark_closure (MarkQueue *queue, StgClosure *p)
     ASSERT(!IS_FORWARDING_PTR(p->header.info));
 #endif
 
-
     if (bd->flags & BF_NONMOVING) {
 
         if (bd->flags & BF_LARGE) {
             if (bd->flags & BF_MARKED) {
                 return;
             }
-            bd->flags |= BF_MARKED;
 
             // Remove the object from nonmoving_large_objects and link it to
             // nonmoving_marked_large_objects
@@ -930,8 +928,6 @@ mark_closure (MarkQueue *queue, StgClosure *p)
                  */
                 return;
             }
-
-            nonmoving_set_mark(seg, block_idx);
         }
     }
 
@@ -1166,8 +1162,6 @@ mark_closure (MarkQueue *queue, StgClosure *p)
               return;
           } else if (dirty & CONCURRENT_GC_MARKING_STACK) {
               mark_stack(queue, stack);
-              // TODO: CAS this?
-              stack->dirty |= STACK_MARKED;
               break;
           } else {
               dirty = cas(&stack->dirty, dirty, dirty | CONCURRENT_GC_MARKING_STACK);
@@ -1201,6 +1195,19 @@ mark_closure (MarkQueue *queue, StgClosure *p)
     }
 
 #   undef PUSH_FIELD
+
+    /* Set the mark bit: it's important that we do this only after we actually mark
+     * the object since in the case of marking stacks there may be a mutator waiting
+     * for us to finish so it can start execution.
+     */
+    if (bd->flags & BF_LARGE) {
+        bd->flags |= BF_MARKED;
+    } else {
+        // TODO: Kill repetition
+        struct nonmoving_segment *seg = nonmoving_get_segment((StgPtr) p);
+        nonmoving_block_idx block_idx = nonmoving_get_block_idx((StgPtr) p);
+        nonmoving_set_mark(seg, block_idx);
+    }
 }
 
 /* This is the main mark loop.
