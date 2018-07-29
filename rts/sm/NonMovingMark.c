@@ -358,6 +358,16 @@ void upd_rem_set_push_thunk_(StgRegTable *reg, StgThunk *origin)
     upd_rem_set_push_thunk(regTableToCapability(reg), origin);
 }
 
+void upd_rem_set_push_closure(Capability *cap,
+                              StgClosure *p,
+                              StgClosure *origin_closure,
+                              StgWord origin_field)
+{
+  if (!nonmoving_write_barrier_enabled) return;
+  MarkQueue *queue = &cap->upd_rem_set.queue;
+  push_closure(queue, p, origin_closure, origin_field);
+}
+
 void upd_rem_set_push_closure_(StgRegTable *reg,
                                StgClosure *p,
                                StgClosure *origin_closure,
@@ -365,7 +375,8 @@ void upd_rem_set_push_closure_(StgRegTable *reg,
 {
     // TODO: Eliminate this conditional once it's folded into codegen
     if (!nonmoving_write_barrier_enabled) return;
-    MarkQueue *queue = &regTableToCapability(reg)->upd_rem_set.queue;
+    Capability *cap = regTableToCapability(reg);
+    MarkQueue *queue = &cap->upd_rem_set.queue;
     push_closure(queue, p, origin_closure, origin_field);
 }
 
