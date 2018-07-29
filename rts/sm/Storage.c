@@ -1089,6 +1089,21 @@ allocatePinned (Capability *cap, W_ n)
    Write Barriers
    -------------------------------------------------------------------------- */
 
+/* These write barriers on heavily mutated objects serve two purposes:
+ *
+ * - Efficient maintenance of the generational invariant: Record whether or not
+ *   we have added a particular mutable object to mut_list as they may contain
+ *   references to younger generations.
+ *
+ * - Maintenance of the nonmoving collector's snapshot invariant: Record objects
+ *   which are about to no longer be reachable due to mutation.
+ *
+ * In each case we record whether the object has been added to the mutable list
+ * by way of either the info pointer or a dedicated "dirty" flag. The GC will
+ * clear this flag and remove the object from mut_list (or rather, not re-add it)
+ * to if it finds the object contains no references into any younger generation.
+ */
+
 /*
    This is the write barrier for MUT_VARs, a.k.a. IORefs.  A
    MUT_VAR_CLEAN object is not on the mutable list; a MUT_VAR_DIRTY
