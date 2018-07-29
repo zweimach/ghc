@@ -335,6 +335,7 @@ nonmoving_scavenge_one(StgClosure *q)
 void
 scavenge_nonmoving_segment(struct nonmoving_segment *seg)
 {
+    const StgWord blk_size = nonmoving_segment_block_size(seg);
     gct->evac_gen_no = oldest_gen->no;
     gct->failed_to_evac = false;
 
@@ -360,6 +361,6 @@ scavenge_nonmoving_segment(struct nonmoving_segment *seg)
             nonmoving_scavenge_one(p);
         }
 
-        seg_block->u.scan = (P_)(((uint8_t*)seg_block->u.scan) + nonmoving_segment_block_size(seg));
+        seg_block->u.scan = (P_)(((uint8_t*)seg_block->u.scan) + blk_size);
     }
 }
