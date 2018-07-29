@@ -188,9 +188,12 @@ typedef struct StgTSO_ {
 // flag of StgStack's dirty field indicating that the stack is currently being marked
 // by concurrent mark thread. A so-marked stack must not be mutated until the
 // flag is cleared.
+#define STACK_DIRTY 1
 #define CONCURRENT_GC_MARKING_STACK 4
 #define MUTATOR_MARKING_STACK 8
 #define STACK_MARKED 16
+// used by sanity checker to verify that all dirty stacks are on the mutable list
+#define STACK_SANE 64
 
 typedef struct StgStack_ {
     StgHeader  header;
