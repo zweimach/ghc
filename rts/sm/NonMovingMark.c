@@ -391,7 +391,7 @@ STATIC_INLINE bool needs_upd_rem_set_mark(StgClosure *p)
     } else {
         struct nonmoving_segment *seg = nonmoving_get_segment((StgPtr) p);
         nonmoving_block_idx block_idx = nonmoving_get_block_idx((StgPtr) p);
-        return ! nonmoving_get_mark(seg, block_idx);
+        return nonmoving_get_mark(seg, block_idx) != nonmoving_mark_epoch;
     }
 }
 
