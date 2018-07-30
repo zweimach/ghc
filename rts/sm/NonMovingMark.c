@@ -25,10 +25,6 @@
 #include "Evac.h"
 #include "sm/Storage.h"
 
-// Necessary to declare global register variable
-#include "GCThread.h"
-#include "GCTDecl.h"
-
 static void mark_tso (MarkQueue *queue, StgTSO *tso);
 static void mark_stack (MarkQueue *queue, StgStack *stack);
 
