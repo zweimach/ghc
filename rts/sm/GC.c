@@ -717,16 +717,6 @@ GarbageCollect (uint32_t collect_gen,
     }
   } // for all generations
 
-  // Mark and sweep the oldest generation.
-  // N.B. This can only happen after we've moved
-  // oldest_gen->scavenged_large_objects back to oldest_gen->large_objects.
-  if (RtsFlags.GcFlags.useNonmoving && major_gc) {
-      // we may need to take the lock to allocate mark queue blocks
-      RELEASE_SM_LOCK;
-      nonmoving_collect();
-      ACQUIRE_SM_LOCK;
-  }
-
   // update the max size of older generations after a major GC
   resize_generations();
 
@@ -746,15 +736,6 @@ GarbageCollect (uint32_t collect_gen,
       }
   }
 
-  resize_nursery();
-
-  resetNurseries();
-
- // mark the garbage collected CAFs as dead
-#if defined(DEBUG)
-  if (major_gc && !RtsFlags.GcFlags.useNonmoving) { gcCAFs(); }
-#endif
-
   // Update the stable pointer hash table.
   updateStableTables(major_gc);
 
@@ -762,6 +743,27 @@ GarbageCollect (uint32_t collect_gen,
   // because a finalizer may call hs_free_fun_ptr() or
   // hs_free_stable_ptr(), both of which access the StablePtr table.
   stableUnlock();
+
+  // Mark and sweep the oldest generation.
+  // N.B. This can only happen after we've moved
+  // oldest_gen->scavenged_large_objects back to oldest_gen->large_objects.
+  // Moreover, it must not happen while holding stableLock since we may
+  // collect non-concurrently when in SCHED_SHUTTING_DOWN.
+  if (RtsFlags.GcFlags.useNonmoving && major_gc) {
+      // we may need to take the lock to allocate mark queue blocks
+      RELEASE_SM_LOCK;
+      nonmoving_collect();
+      ACQUIRE_SM_LOCK;
+  }
+
+  resize_nursery();
+
+  resetNurseries();
+
+  // mark the garbage collected CAFs as dead
+#if defined(DEBUG)
+  if (major_gc && !RtsFlags.GcFlags.useNonmoving) { gcCAFs(); }
+#endif
 
   // Must be after stableUnlock(), because it might free stable ptrs.
   if (major_gc) {
