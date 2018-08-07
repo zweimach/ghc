@@ -307,7 +307,6 @@ static void nonmoving_mark_weak_ptr_list(MarkQueue *mark_queue)
 void nonmoving_collect()
 {
     nonmoving_prepare_mark();
-    nonmoving_prepare_sweep();
 
     // N.B. These should have been cleared at the end of the last sweep.
     ASSERT(nonmoving_marked_large_objects == NULL);
@@ -386,6 +385,8 @@ weaks:
     ASSERT(mark_queue.blocks->link == NULL);
     free_mark_queue(&mark_queue);
 
+    nonmoving_prepare_sweep();
+
     // Because we can't mark large object blocks (no room for mark bit) we
     // collect them in a map in mark_queue and we pass it here to sweep large
     // objects
@@ -412,30 +413,34 @@ void assert_in_nonmoving_heap(StgPtr p)
 
     for (int alloca_idx = 0; alloca_idx < NONMOVING_ALLOCA_CNT; ++alloca_idx) {
         struct nonmoving_allocator *alloca = nonmoving_heap.allocators[alloca_idx];
+        // Search current segments
         for (uint32_t cap_idx = 0; cap_idx < n_capabilities; ++cap_idx) {
-            struct nonmoving_segment *seg = alloca->current[0]; // TODO: only one capability for now
+            struct nonmoving_segment *seg = alloca->current[cap_idx];
             if (p >= (P_)seg && p < (((P_)seg) + NONMOVING_SEGMENT_SIZE_W)) {
                 return;
             }
-            int seg_idx = 0;
-            seg = alloca->active;
-            while (seg) {
-                if (p >= (P_)seg && p < (((P_)seg) + NONMOVING_SEGMENT_SIZE_W)) {
-                    return;
-                }
-                seg_idx++;
-                seg = seg->link;
-            }
+        }
 
-            seg_idx = 0;
-            seg = alloca->filled;
-            while (seg) {
-                if (p >= (P_)seg && p < (((P_)seg) + NONMOVING_SEGMENT_SIZE_W)) {
-                    return;
-                }
-                seg_idx++;
-                seg = seg->link;
+        // Search active segments
+        int seg_idx = 0;
+        struct nonmoving_segment *seg = alloca->active;
+        while (seg) {
+            if (p >= (P_)seg && p < (((P_)seg) + NONMOVING_SEGMENT_SIZE_W)) {
+                return;
             }
+            seg_idx++;
+            seg = seg->link;
+        }
+
+        // Search filled segments
+        seg_idx = 0;
+        seg = alloca->filled;
+        while (seg) {
+            if (p >= (P_)seg && p < (((P_)seg) + NONMOVING_SEGMENT_SIZE_W)) {
+                return;
+            }
+            seg_idx++;
+            seg = seg->link;
         }
     }
 
