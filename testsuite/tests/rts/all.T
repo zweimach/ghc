@@ -150,7 +150,7 @@ test('exec_signals',
       cmd_prefix('./exec_signals_prepare')],
      compile_and_run, [''])
 
-test('return_mem_to_os', normal, compile_and_run, [''])
+test('return_mem_to_os', expect_broken_for(welltyped_gc_bug(84), ['nonmoving', 'nonmoving_thr']), compile_and_run, [''])
 
 test('T4850', when(opsys('mingw32'), expect_broken(4850)), run_command, ['$MAKE -s --no-print-directory T4850'])
 
