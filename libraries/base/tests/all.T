@@ -241,4 +241,4 @@ test('T3474',
 test('T14425', normal, compile_and_run, [''])
 test('T10412', normal, compile_and_run, [''])
 test('T13896', normal, compile_and_run, [''])
-test('T13167', expect_broken_for(welltyped_gc_bug(83), ['nonmoving', 'nonmoving_thr']), compile_and_run, [''])
+test('T13167', normal, compile_and_run, [''])
