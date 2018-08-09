@@ -46,7 +46,6 @@ import SMRep
 import FastString
 import Outputable
 import Util
-import Module ( rtsUnitId )
 
 import Data.Bits ((.&.), bit)
 import Control.Monad (liftM, when, unless)
