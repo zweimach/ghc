@@ -193,6 +193,10 @@ def expect_fail_for( ways ):
 def _expect_fail_for( name, opts, ways ):
     opts.expect_fail_for = ways
 
+def welltyped_gc_bug( bug ):
+    """ A marker that a ticket lives in Well-Typed's nonmoving GC bug tracker """
+    return bug
+
 def expect_broken( bug ):
     # This test is a expected not to work due to the indicated trac bug
     # number.
