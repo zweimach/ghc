@@ -309,7 +309,28 @@ void push_fun_srt (MarkQueue *q, const StgInfoTable *info)
 
 /*********************************************************
  * Pushing to the update remembered set
+ *
+ * upd_rem_set_push_* functions are directly called by
+ * mutators and need to check whether the value is in
+ * non-moving heap.
  *********************************************************/
+
+// Check if the object is traced by the non-moving collector. This holds in two
+// conditions:
+//
+// - Object is in non-moving heap
+// - Object is a large (BF_LARGE) and marked as BF_NONMOVING
+// - Object is static (HEAP_ALLOCED_GC(obj) == false)
+//
+static
+bool check_in_nonmoving_heap(StgClosure *p) {
+    if (HEAP_ALLOCED_GC(p)) {
+        // This works for both large and small objects:
+        return Bdescr((P_)p)->flags & BF_NONMOVING;
+    } else {
+        return true; // a static object
+    }
+}
 
 /* Push the free variables of a (now-evaluated) thunk to the
  * update remembered set.
@@ -329,11 +350,18 @@ void upd_rem_set_push_thunk(Capability *cap, StgThunk *origin)
     {
         MarkQueue *queue = &cap->upd_rem_set.queue;
         push_thunk_srt(queue, info);
+
+        // Don't record the origin of objects living outside of the nonmoving
+        // heap; we can't perform the selector optimisation on them anyways.
+        bool origin_in_nonmoving = check_in_nonmoving_heap((StgClosure*)origin);
+
         for (StgWord i = 0; i < info->layout.payload.ptrs; i++) {
-            push_closure(queue,
-                         origin->payload[i],
-                         (StgClosure*)origin,
-                         i);
+            if (check_in_nonmoving_heap(origin->payload[i])) {
+                push_closure(queue,
+                             origin->payload[i],
+                             origin_in_nonmoving ? (StgClosure*)origin : NULL,
+                             origin_in_nonmoving ? 0 : i);
+            }
         }
         break;
     }
@@ -359,9 +387,10 @@ void upd_rem_set_push_closure(Capability *cap,
                               StgClosure *origin_closure,
                               StgWord origin_field)
 {
-  if (!nonmoving_write_barrier_enabled) return;
-  MarkQueue *queue = &cap->upd_rem_set.queue;
-  push_closure(queue, p, origin_closure, origin_field);
+    if (!nonmoving_write_barrier_enabled) return;
+    if (!check_in_nonmoving_heap(p)) return;
+    MarkQueue *queue = &cap->upd_rem_set.queue;
+    push_closure(queue, p, origin_closure, origin_field);
 }
 
 void upd_rem_set_push_closure_(StgRegTable *reg,
@@ -371,6 +400,7 @@ void upd_rem_set_push_closure_(StgRegTable *reg,
 {
     // TODO: Eliminate this conditional once it's folded into codegen
     if (!nonmoving_write_barrier_enabled) return;
+    if (!check_in_nonmoving_heap(p)) return;
     Capability *cap = regTableToCapability(reg);
     MarkQueue *queue = &cap->upd_rem_set.queue;
     push_closure(queue, p, origin_closure, origin_field);
@@ -415,6 +445,7 @@ void upd_rem_set_push_tso(Capability *cap, StgTSO *tso)
 {
     // TODO: Eliminate this conditional once it's folded into codegen
     if (!nonmoving_write_barrier_enabled) return;
+    if (!check_in_nonmoving_heap((StgClosure*)tso)) return;
     if (needs_upd_rem_set_mark((StgClosure *) tso)) {
         debugBelch("upd_rem_set: TSO %p\n", tso);
         mark_tso(&cap->upd_rem_set.queue, tso);
@@ -426,6 +457,7 @@ void upd_rem_set_push_stack(Capability *cap, StgStack *stack)
 {
     // TODO: Eliminate this conditional once it's folded into codegen
     if (!nonmoving_write_barrier_enabled) return;
+    if (!check_in_nonmoving_heap((StgClosure*)stack)) return;
     if (needs_upd_rem_set_mark((StgClosure *) stack)) {
         // See Note [StgStack dirtiness flags and concurrent marking]
         while (1) {
