@@ -320,17 +320,14 @@ emitPrimOp dflags res@[] WriteMutVarOp [mutv,var]
         -- the writes for the closure it points to have occurred.
         emitPrimCall res MO_WriteBarrier []
 
-        -- Update upd_rem_set --
         old_val <- CmmLocal <$> newTemp (cmmExprType dflags var)
         emitAssign old_val (cmmLoadIndexW dflags mutv (fixedHdrSizeW dflags) (gcWord dflags))
-        emitUpdRemSet (CmmReg old_val) mutv (zeroExpr dflags)
-        ------------------------
 
         emitStore (cmmOffsetW dflags mutv (fixedHdrSizeW dflags)) var
         emitCCall
                 [{-no results-}]
                 (CmmLit (CmmLabel mkDirty_MUT_VAR_Label))
-                [(baseExpr, AddrHint), (mutv,AddrHint)]
+                [(baseExpr, AddrHint), (mutv, AddrHint), (CmmReg old_val, AddrHint)]
 
 --  #define sizzeofByteArrayzh(r,a) \
 --     r = ((StgArrBytes *)(a))->bytes
@@ -2466,18 +2463,3 @@ emitCtzCall res x width = do
         [ res ]
         (MO_Ctz width)
         [ x ]
-
-emitUpdRemSet
-    :: CmmExpr -- ^ object to be marked (e.g. old value of an overwritten field)
-    -> CmmExpr -- ^ object where this reference was found
-    -> CmmExpr -- ^ pointer to where the reference to this object was found
-    -> FCode ()
-emitUpdRemSet p origin origin_field =
-    emitRtsCall
-      rtsUnitId
-      (fsLit "upd_rem_set_push_closure_")
-      [(CmmReg (CmmGlobal BaseReg), AddrHint),
-       (p, AddrHint),
-       (origin, AddrHint),
-       (origin_field, NoHint)]
-      False
