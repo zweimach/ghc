@@ -594,8 +594,11 @@ void assert_in_nonmoving_heap(StgPtr p)
     if (!HEAP_ALLOCED_GC(p))
         return;
 
-    if (Bdescr(p)->flags & BF_LARGE)
+    bdescr *bd = Bdescr(p);
+    if (bd->flags & BF_LARGE) {
+        ASSERT(bd->flags & BF_NONMOVING);
         return;
+    }
 
     for (int alloca_idx = 0; alloca_idx < NONMOVING_ALLOCA_CNT; ++alloca_idx) {
         struct nonmoving_allocator *alloca = nonmoving_heap.allocators[alloca_idx];
