@@ -390,7 +390,11 @@ void upd_rem_set_push_closure(Capability *cap,
     if (!nonmoving_write_barrier_enabled) return;
     if (!check_in_nonmoving_heap(p)) return;
     MarkQueue *queue = &cap->upd_rem_set.queue;
-    push_closure(queue, p, origin_closure, origin_field);
+    if (check_in_nonmoving_heap(origin_closure)) {
+        push_closure(queue, p, origin_closure, origin_field);
+    } else {
+        push_closure(queue, p, NULL, 0);
+    }
 }
 
 void upd_rem_set_push_closure_(StgRegTable *reg,
@@ -398,12 +402,7 @@ void upd_rem_set_push_closure_(StgRegTable *reg,
                                StgClosure *origin_closure,
                                StgWord origin_field)
 {
-    // TODO: Eliminate this conditional once it's folded into codegen
-    if (!nonmoving_write_barrier_enabled) return;
-    if (!check_in_nonmoving_heap(p)) return;
-    Capability *cap = regTableToCapability(reg);
-    MarkQueue *queue = &cap->upd_rem_set.queue;
-    push_closure(queue, p, origin_closure, origin_field);
+    upd_rem_set_push_closure(regTableToCapability(reg), p, origin_closure, origin_field);
 }
 
 STATIC_INLINE bool needs_upd_rem_set_mark(StgClosure *p)
