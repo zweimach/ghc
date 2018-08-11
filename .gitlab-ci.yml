@@ -18,7 +18,9 @@ before_script:
 validate:
   script:
     - |
-      make V=0 -j$THREADS EXTRA_HADDOCK_OPTS="+RTS -xn -RTS"
+      make V=0 -j$THREADS HADDOCK_DOCS=NO
     # posix009 is broken in nonmoving_thr
     - |
       make slowtest WAY="nonmoving nonmoving_thr" THREADS=$THREADS SKIP_PERF_TESTS=YES SKIP_TESTS="posix009 hpc_raytrace"
+    - |
+      make V=0 HADDOCK_DOCS=YES EXTRA_HADDOCK_OPTS="+RTS -xn -RTS"
