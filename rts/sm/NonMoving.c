@@ -94,19 +94,34 @@ static void nonmoving_init_segment(struct nonmoving_segment *seg, uint8_t block_
     Bdescr((P_)seg)->u.scan = nonmoving_segment_get_block(seg, 0);
 }
 
+
+static struct nonmoving_segment *nonmoving_pop_free_segment(void)
+{
+    while (true) {
+        struct nonmoving_segment *seg = nonmoving_heap.free;
+        if (seg == NULL) {
+            return NULL;
+        }
+        if (cas((StgVolatilePtr) &nonmoving_heap.free,
+                (StgWord) seg,
+                (StgWord) seg->link) == (StgWord) seg) {
+            return seg;
+        }
+    }
+}
 /*
  * Request a fresh segment from the free segment list or allocate one of the
  * given node.
  *
- * Must hold `nonmoving_heap.mutex`.
  */
 static struct nonmoving_segment *nonmoving_alloc_segment(uint32_t node)
 {
+    // First try taking something off of the free list
     struct nonmoving_segment *ret;
-    if (nonmoving_heap.free) {
-        ret = nonmoving_heap.free;
-        nonmoving_heap.free = ret->link;
-    } else {
+    ret = nonmoving_pop_free_segment();
+
+    // Nothing in the free list, allocate a new segment...
+    if (ret == NULL) {
         // Take gc spinlock: another thread may be scavenging a moving
         // generation and call `todo_block_full`
         ACQUIRE_SPIN_LOCK(&gc_alloc_block_sync);
@@ -118,6 +133,7 @@ static struct nonmoving_segment *nonmoving_alloc_segment(uint32_t node)
         }
         ret = (struct nonmoving_segment *)bd->start;
     }
+
     // Check alignment
     ASSERT(((uintptr_t)ret % NONMOVING_SEGMENT_SIZE) == 0);
     return ret;
@@ -147,6 +163,21 @@ static bool advance_next_free(struct nonmoving_segment *seg)
     }
     seg->next_free = blk_count;
     return true;
+}
+
+static struct nonmoving_segment *pop_active_segment(struct nonmoving_allocator *alloca)
+{
+    while (true) {
+        struct nonmoving_segment *seg = alloca->active;
+        if (seg == NULL) {
+            return NULL;
+        }
+        if (cas((StgVolatilePtr) &alloca->active,
+                (StgWord) seg,
+                (StgWord) seg->link) == (StgWord) seg) {
+            return seg;
+        }
+    }
 }
 
 /* sz is in words */
@@ -182,27 +213,21 @@ void *nonmoving_allocate(Capability *cap, StgWord sz)
         // non-moving heap lock as allocators can be manipulated by scavenge
         // threads concurrently, and in the case where we need to allocate a
         // segment we'll need to modify the free segment list.
-        ACQUIRE_LOCK(&nonmoving_heap.mutex);
-        current->link = alloca->filled;
-        alloca->filled = current;
+        nonmoving_push_filled_segment(current);
 
         // first look for a new segment in the active list
-        if (alloca->active) {
-            // remove an active, make it current
-            struct nonmoving_segment *new_current = alloca->active;
-            alloca->active = new_current->link;
-            RELEASE_LOCK(&nonmoving_heap.mutex);
-            new_current->link = NULL;
-            alloca->current[cap->no] = new_current;
-        }
+        struct nonmoving_segment *new_current = pop_active_segment(alloca);
 
         // there are no active segments, allocate new segment
-        else {
-            struct nonmoving_segment *new_current = nonmoving_alloc_segment(cap->node);
-            RELEASE_LOCK(&nonmoving_heap.mutex);
+        if (new_current == NULL) {
+            new_current = nonmoving_alloc_segment(cap->node);
             nonmoving_init_segment(new_current, NONMOVING_ALLOCA0 + allocator_idx);
             alloca->current[cap->no] = new_current;
         }
+
+        // make it current
+        new_current->link = NULL;
+        alloca->current[cap->no] = new_current;
     }
 
     return ret;
@@ -224,7 +249,6 @@ void nonmoving_init(void)
 {
 #if defined(THREADED_RTS)
     initMutex(&nonmoving_collection_mutex);
-    initMutex(&nonmoving_heap.mutex);
 #endif
 #if defined(CONCURRENT_MARK)
     initCondition(&concurrent_coll_finished);
