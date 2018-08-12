@@ -15,6 +15,15 @@
 #include "GCUtils.h"
 #include "Stable.h"
 
+static void pop_all_filled_segments(struct nonmoving_allocator *alloc)
+{
+    while (true) {
+        struct nonmoving_segment *head = alloc->filled;
+        if (cas((StgVolatilePtr) &alloc->filled, (StgWord) head, (StgWord) NULL) == (StgWord) head)
+            return head;
+    }
+}
+
 void nonmoving_prepare_sweep()
 {
     ASSERT(nonmoving_heap.sweep_list == NULL);
@@ -23,11 +32,7 @@ void nonmoving_prepare_sweep()
     for (int alloc_idx = 0; alloc_idx < NONMOVING_ALLOCA_CNT; alloc_idx++)
     {
         struct nonmoving_allocator *alloc = nonmoving_heap.allocators[alloc_idx];
-        struct nonmoving_segment *filled = alloc->filled;
-        alloc->filled = NULL;
-        if (filled == NULL) {
-            continue;
-        }
+        struct nonmoving_segment *filled = pop_all_filled_segments(alloc);
 
         // Link filled to sweep_list
         struct nonmoving_segment *filled_head = filled;
@@ -45,38 +50,6 @@ enum sweep_result {
     SEGMENT_PARTIAL,  // segment is partially filled: place on active list
     SEGMENT_FILLED    // segment is full: place on filled list
 };
-
-// Add a segment to the free list.
-// We will never run concurrently with the allocator (i.e. the nursery
-// collector), so no synchronization is needed here.
-static void push_free_segment(struct nonmoving_segment *seg)
-{
-    seg->link = nonmoving_heap.free;
-    nonmoving_heap.free = seg;
-    // TODO: free excess segments
-}
-
-// Add a segment to the appropriate active list.
-// We will never run concurrently with the allocator (i.e. the nursery
-// collector), so no synchronization is needed here.
-static void push_active_segment(struct nonmoving_segment *seg)
-{
-    struct nonmoving_allocator *alloc =
-        nonmoving_heap.allocators[seg->block_size - NONMOVING_ALLOCA0];
-    seg->link = alloc->active;
-    alloc->active = seg;
-}
-
-// Add a segment to the appropriate active list.
-// We will never run concurrently with the allocator (i.e. the nursery
-// collector), so no synchronization is needed here.
-static void push_filled_segment(struct nonmoving_segment *seg)
-{
-    struct nonmoving_allocator *alloc =
-        nonmoving_heap.allocators[seg->block_size - NONMOVING_ALLOCA0];
-    seg->link = alloc->filled;
-    alloc->filled = seg;
-}
 
 // Determine which list a marked segment should be placed on and initialize
 // next_free indices as appropriate.
@@ -150,14 +123,14 @@ GNUC_ATTR_HOT void nonmoving_sweep(void)
         switch (ret) {
         case SEGMENT_FREE:
             IF_DEBUG(sanity, clear_segment(seg));
-            push_free_segment(seg);
+            nonmoving_push_free_segment(seg);
             break;
         case SEGMENT_PARTIAL:
             IF_DEBUG(sanity, clear_segment_free_blocks(seg));
-            push_active_segment(seg);
+            nonmoving_push_active_segment(seg);
             break;
         case SEGMENT_FILLED:
-            push_filled_segment(seg);
+            nonmoving_push_filled_segment(seg);
             break;
         default:
             barf("nonmoving_sweep: weird sweep return: %d\n", ret);
