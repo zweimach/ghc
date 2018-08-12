@@ -72,7 +72,6 @@ struct nonmoving_allocator {
 struct nonmoving_heap {
     struct nonmoving_allocator *allocators[NONMOVING_ALLOCA_CNT];
     struct nonmoving_segment *free; // free segment list
-    Mutex mutex; // protects free list
 
     // records the current length of the nonmoving_allocator.current arrays
     unsigned int n_caps;
@@ -89,6 +88,41 @@ void nonmoving_collect(void);
 void *nonmoving_allocate(Capability *cap, StgWord sz);
 void nonmoving_add_capabilities(uint32_t new_n_caps);
 
+// Add a segment to the free list.
+INLINE_HEADER void nonmoving_push_free_segment(struct nonmoving_segment *seg)
+{
+    while (true) {
+        seg->link = nonmoving_heap.free;
+        if (cas((StgVolatilePtr) &nonmoving_heap.free, (StgWord) seg->link, (StgWord) seg) == (StgWord) seg->link)
+            break;
+    }
+    // TODO: free excess segments
+}
+
+// Add a segment to the appropriate active list.
+INLINE_HEADER void nonmoving_push_active_segment(struct nonmoving_segment *seg)
+{
+    struct nonmoving_allocator *alloc =
+        nonmoving_heap.allocators[seg->block_size - NONMOVING_ALLOCA0];
+    while (true) {
+        seg->link = alloc->active;
+        if (cas((StgVolatilePtr) &alloc->active, (StgWord) seg->link, (StgWord) seg) == (StgWord) seg->link)
+            break;
+    }
+}
+
+// Add a segment to the appropriate active list.
+INLINE_HEADER void nonmoving_push_filled_segment(struct nonmoving_segment *seg)
+{
+    struct nonmoving_allocator *alloc =
+        nonmoving_heap.allocators[seg->block_size - NONMOVING_ALLOCA0];
+    while (true) {
+        seg->link = alloc->filled;
+        ASSERT(seg->link != seg);
+        if (cas((StgVolatilePtr) &alloc->filled, (StgWord) seg->link, (StgWord) seg) == (StgWord) seg->link)
+            break;
+    }
+}
 // Assert that the pointer can be traced by the non-moving collector (e.g. in
 // mark phase). This means one of the following:
 //
