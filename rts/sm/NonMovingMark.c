@@ -446,7 +446,7 @@ void upd_rem_set_push_tso(Capability *cap, StgTSO *tso)
     if (!nonmoving_write_barrier_enabled) return;
     if (!check_in_nonmoving_heap((StgClosure*)tso)) return;
     if (needs_upd_rem_set_mark((StgClosure *) tso)) {
-        debugBelch("upd_rem_set: TSO %p\n", tso);
+        debugTrace(DEBUG_nonmoving_gc, "upd_rem_set: TSO %p\n", tso);
         mark_tso(&cap->upd_rem_set.queue, tso);
         finish_upd_rem_set_mark((StgClosure *) tso);
     }
@@ -474,7 +474,7 @@ void upd_rem_set_push_stack(Capability *cap, StgStack *stack)
             }
         }
 
-        debugBelch("upd_rem_set: STACK %p\n", stack->sp);
+        debugTrace(DEBUG_nonmoving_gc, "upd_rem_set: STACK %p\n", stack->sp);
         mark_stack(&cap->upd_rem_set.queue, stack);
         finish_upd_rem_set_mark((StgClosure *) stack);
     }
