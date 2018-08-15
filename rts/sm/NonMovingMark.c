@@ -10,8 +10,6 @@
 // We call evacuate, which expects the thread-local gc_thread to be valid;
 // This is sometimes declared as a register variable therefore it is necessary
 // to include the declaration so that the compiler doesn't clobber the register.
-#include "GCThread.h"
-#include "GCTDecl.h"
 #include "NonMovingMark.h"
 #include "NonMoving.h"
 #include "BlockAlloc.h"  /* for countBlocks */
@@ -22,7 +20,6 @@
 #include "Schedule.h"
 #include "Weak.h"
 #include "MarkWeak.h"
-#include "Evac.h"
 #include "sm/Storage.h"
 
 static void mark_tso (MarkQueue *queue, StgTSO *tso);
@@ -852,14 +849,12 @@ mark_closure (MarkQueue *queue, StgClosure *p)
 
         case THUNK_STATIC:
             if (info->srt != 0) {
-                evacuate_static_object(THUNK_STATIC_LINK((StgClosure *)p), p);
                 mark_queue_push_thunk_srt(queue, info); // TODO this function repeats the check above
             }
             return;
 
         case FUN_STATIC:
             if (info->srt != 0 || info->layout.payload.ptrs != 0) {
-                evacuate_static_object(STATIC_LINK(info, p), p);
                 mark_queue_push_fun_srt(queue, info); // TODO this function repeats the check above
 
                 // a FUN_STATIC can also be an SRT, so it may have pointer
@@ -873,16 +868,13 @@ mark_closure (MarkQueue *queue, StgClosure *p)
             return;
 
         case IND_STATIC:
-            evacuate_static_object(IND_STATIC_LINK((StgClosure *)p), p);
-            StgInd *ind = (StgInd *)p;
-            PUSH_FIELD(ind, indirectee);
+            PUSH_FIELD((StgInd *) p, indirectee);
             return;
 
         case CONSTR:
         case CONSTR_1_0:
         case CONSTR_2_0:
         case CONSTR_1_1:
-            evacuate_static_object(STATIC_LINK(info,(StgClosure *)p), p);
             for (StgHalfWord i = 0; i < info->layout.payload.ptrs; ++i) {
                 PUSH_FIELD(p, payload[i]);
             }
