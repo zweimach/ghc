@@ -158,6 +158,10 @@ typedef struct bdescr_ {
 #define BF_COMPACT   512
 /* A non-moving allocator segment (see NonMoving.c) */
 #define BF_NONMOVING 1024
+/* A large object which has been moved to off of oldest_gen->large_objects and
+ * onto nonmoving_large_objects. The mark phase ignores objects which aren't
+ * so-flagged */
+#define BF_NONMOVING_SWEEPING 2048
 /* Maximum flag value (do not define anything higher than this!) */
 #define BF_FLAG_MAX  (1 << 15)
 

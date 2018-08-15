@@ -50,7 +50,10 @@ static void mark_stack (MarkQueue *queue, StgStack *stack);
  *
  * During minor collections large objects will accumulate on
  * oldest_gen->large_objects, where they will be picked up by the nonmoving
- * collector during the next major GC.
+ * collector and moved to nonmoving_large_objects during the next major GC.
+ * When this happens the block gets its BF_NONMOVING_SWEEPING flag set to
+ * indicate that it is part of the snapshot and consequently should be marked by
+ * the nonmoving mark phase..
  */
 
 bdescr *nonmoving_large_objects = NULL;
@@ -420,7 +423,11 @@ STATIC_INLINE bool needs_upd_rem_set_mark(StgClosure *p)
     if (bd->gen != oldest_gen) {
         return false;
     } else if (bd->flags & BF_LARGE) {
-        return ! (bd->flags & BF_MARKED);
+        if (! (bd->flags & BF_NONMOVING_SWEEPING)) {
+            return false;
+        } else {
+            return ! (bd->flags & BF_MARKED);
+        }
     } else {
         struct nonmoving_segment *seg = nonmoving_get_segment((StgPtr) p);
         nonmoving_block_idx block_idx = nonmoving_get_block_idx((StgPtr) p);
@@ -924,6 +931,10 @@ mark_closure (MarkQueue *queue, StgClosure *p)
     if (bd->flags & BF_NONMOVING) {
 
         if (bd->flags & BF_LARGE) {
+            if (! (bd->flags & BF_NONMOVING_SWEEPING)) {
+                // Not in the snapshot
+                return;
+            }
             if (bd->flags & BF_MARKED) {
                 return;
             }
@@ -1323,7 +1334,10 @@ bool nonmoving_is_alive(StgClosure *p)
     ASSERT(bd->flags & BF_NONMOVING);
 
     if (bd->flags & BF_LARGE) {
-        return (bd->flags & BF_MARKED) != 0;
+        return (bd->flags & BF_NONMOVING_SWEEPING) == 0
+                   // the large object wasn't in the snapshot and therefore wasn't marked
+            || (bd->flags & BF_MARKED) != 0;
+                   // The object was marked
     } else {
         return nonmoving_closure_marked((P_)p);
     }

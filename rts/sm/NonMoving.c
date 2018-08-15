@@ -350,6 +350,7 @@ static void nonmoving_prepare_mark(void)
     bdescr *next;
     for (bdescr *bd = oldest_gen->large_objects; bd; bd = next) {
         next = bd->link;
+        bd->flags |= BF_NONMOVING_SWEEPING;
         dbl_link_onto(bd, &nonmoving_large_objects);
     }
     n_nonmoving_large_blocks += oldest_gen->n_large_blocks;
