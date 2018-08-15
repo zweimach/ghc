@@ -500,9 +500,6 @@ static void* nonmoving_concurrent_mark(void *data)
         cap = task->cap;
         waitForCapability(&cap, task);
 
-        SET_GCT(gc_threads[cap->no]);
-        gct->id = osThreadId();
-
     } else {
         return NULL;
         task = myTask();
@@ -593,7 +590,7 @@ static void* nonmoving_concurrent_mark(void *data)
 
     // mark the garbage collected CAFs as dead
 #if defined(DEBUG)
-    gcCAFs();
+    //gcCAFs();
 #endif
     // TODO: Remainder of things done by GarbageCollect
 
