@@ -57,6 +57,14 @@ bdescr *nonmoving_large_objects = NULL;
 bdescr *nonmoving_marked_large_objects = NULL;
 memcount n_nonmoving_large_blocks = 0;
 memcount n_nonmoving_marked_large_blocks = 0;
+#if defined(THREADED_RTS)
+/* Protects everything above. Furthermore, we only set the BF_MARKED bit of
+ * large object blocks when this is held. This ensures that the write barrier
+ * (e.g. finish_upd_rem_set_mark) and the collector (mark_closure) don't try to
+ * move the same large object to nonmoving_marked_large_objects more than once.
+ */
+static Mutex nonmoving_large_objects_mutex;
+#endif
 
 /* Note [Update remembered set]
  * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -105,6 +113,9 @@ MarkQueue *current_mark_queue = NULL;
 void nonmoving_mark_init_upd_rem_set() {
     initMutex(&upd_rem_set_lock);
     initCondition(&upd_rem_set_flushed_cond);
+#if defined(THREADED_RTS)
+    initMutex(&nonmoving_large_objects_mutex);
+#endif
 }
 
 /* Transfers the given capability's update-remembered set to the global
@@ -423,6 +434,7 @@ STATIC_INLINE void finish_upd_rem_set_mark(StgClosure *p)
     bdescr *bd = Bdescr((StgPtr) p);
     if (bd->flags & BF_LARGE) {
         // Someone else may have already marked it.
+        ACQUIRE_LOCK(&nonmoving_large_objects_mutex);
         if (! (bd->flags & BF_MARKED)) {
             bd->flags |= BF_MARKED;
             dbl_link_remove(bd, &nonmoving_large_objects);
@@ -430,6 +442,7 @@ STATIC_INLINE void finish_upd_rem_set_mark(StgClosure *p)
             n_nonmoving_large_blocks -= bd->blocks;
             n_nonmoving_marked_large_blocks += bd->blocks;
         }
+        RELEASE_LOCK(&nonmoving_large_objects_mutex);
     } else {
         struct nonmoving_segment *seg = nonmoving_get_segment((StgPtr) p);
         nonmoving_block_idx block_idx = nonmoving_get_block_idx((StgPtr) p);
@@ -915,13 +928,6 @@ mark_closure (MarkQueue *queue, StgClosure *p)
                 return;
             }
 
-            // Remove the object from nonmoving_large_objects and link it to
-            // nonmoving_marked_large_objects
-            dbl_link_remove(bd, &nonmoving_large_objects);
-            dbl_link_onto(bd, &nonmoving_marked_large_objects);
-            n_nonmoving_large_blocks -= bd->blocks;
-            n_nonmoving_marked_large_blocks += bd->blocks;
-
             // Mark contents
             p = (StgClosure*)bd->start;
         } else {
@@ -1220,7 +1226,22 @@ mark_closure (MarkQueue *queue, StgClosure *p)
      * for us to finish so it can start execution.
      */
     if (bd->flags & BF_LARGE) {
-        bd->flags |= BF_MARKED;
+        /* Marking a large object isn't idempotent since we move it to
+         * nonmoving_marked_large_objects; to ensure that we don't repeatedly
+         * mark a large object, we only set BF_MARKED on large objects in the
+         * nonmoving heap while holding nonmoving_large_objects_mutex
+         */
+        ACQUIRE_LOCK(&nonmoving_large_objects_mutex);
+        if (! (bd->flags & BF_MARKED)) {
+            // Remove the object from nonmoving_large_objects and link it to
+            // nonmoving_marked_large_objects
+            dbl_link_remove(bd, &nonmoving_large_objects);
+            dbl_link_onto(bd, &nonmoving_marked_large_objects);
+            n_nonmoving_large_blocks -= bd->blocks;
+            n_nonmoving_marked_large_blocks += bd->blocks;
+            bd->flags |= BF_MARKED;
+        }
+        RELEASE_LOCK(&nonmoving_large_objects_mutex);
     } else {
         // TODO: Kill repetition
         struct nonmoving_segment *seg = nonmoving_get_segment((StgPtr) p);
