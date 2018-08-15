@@ -141,6 +141,7 @@ GNUC_ATTR_HOT void nonmoving_sweep(void)
     }
 }
 
+/* N.B. This happens during the pause so we own all capabilities. */
 void nonmoving_sweep_mut_lists()
 {
     for (uint32_t n = 0; n < n_capabilities; n++) {
@@ -151,7 +152,7 @@ void nonmoving_sweep_mut_lists()
             for (StgPtr p = bd->start; p < bd->free; p++) {
                 StgClosure **q = (StgClosure**)p;
                 if (nonmoving_is_alive(*q)) {
-                    recordMutableGen_GC(*q, oldest_gen->no);
+                    recordMutableCap(*q, cap, oldest_gen->no);
                 }
             }
         }
