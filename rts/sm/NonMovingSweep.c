@@ -15,7 +15,7 @@
 #include "GCUtils.h"
 #include "Stable.h"
 
-static void pop_all_filled_segments(struct nonmoving_allocator *alloc)
+static struct nonmoving_segment *pop_all_filled_segments(struct nonmoving_allocator *alloc)
 {
     while (true) {
         struct nonmoving_segment *head = alloc->filled;
@@ -35,12 +35,15 @@ void nonmoving_prepare_sweep()
         struct nonmoving_segment *filled = pop_all_filled_segments(alloc);
 
         // Link filled to sweep_list
-        struct nonmoving_segment *filled_head = filled;
-        while (filled->link) {
-            filled = filled->link;
+        if (filled) {
+            struct nonmoving_segment *filled_head = filled;
+            // Find end of filled list
+            while (filled->link) {
+                filled = filled->link;
+            }
+            filled->link = nonmoving_heap.sweep_list;
+            nonmoving_heap.sweep_list = filled_head;
         }
-        filled->link = nonmoving_heap.sweep_list;
-        nonmoving_heap.sweep_list = filled_head;
     }
 }
 
