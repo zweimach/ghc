@@ -192,17 +192,17 @@ typedef struct StgTSO_ {
  * or not.
  *
  * However, things are considerably more complicated with concurrent collection
- * (indicated by nonmoving_write_barrier_enabled): In addition to adding the
- * stack to mut_list and flagging it as STACK_DIRTY, we also must ensure that
- * stacks are marked in accordance with the nonmoving collector's snapshot
- * invariant. This is: every stack alive at the time the snapshot is taken
- * must be marked at some point after the moment the snapshot is
- * taken and before it is mutated or the commencement of the sweep phase.
+ * (namely, when nonmoving_write_barrier_enabled is set): In addition to adding
+ * the stack to mut_list and flagging it as STACK_DIRTY, we also must ensure
+ * that stacks are marked in accordance with the nonmoving collector's snapshot
+ * invariant. This is: every stack alive at the time the snapshot is taken must
+ * be marked at some point after the moment the snapshot is taken and before it
+ * is mutated or the commencement of the sweep phase.
  *
  * This marking may be done by the concurrent mark phase (in the case of a
  * thread that never runs during the concurrent mark) or by the mutator when
  * dirtying the stack. However, it is unsafe for the concurrent collector to
- * traverse the stack while it is under mutation. Consequently, the follow
+ * traverse the stack while it is under mutation. Consequently, the following
  * handshake is obeyed by the mutator's write barrier and the concurrent mark to
  * ensure this doesn't happen:
  *
@@ -216,7 +216,7 @@ typedef struct StgTSO_ {
  * 3. The entity seeking to mark tries to lock the stack for marking by
  *    atomically setting its ownership flag (CONCURRENT_GC_MARKING_STACK in the
  *    case of the concurrent mark, MUTATOR_MARKING_STACK in the case of the
- *    mutator write barrier; Note: these are mutually exclusive)
+ *    mutator write barrier; N.B. these are mutually exclusive)
  *
  *    a. If the mutator finds the concurrent collector has already locked the
  *       stack then it waits until it is finished (indicated by the mark bit
