@@ -482,8 +482,10 @@ void upd_rem_set_push_stack(Capability *cap, StgStack *stack)
             if (res & CONCURRENT_GC_MARKING_STACK) {
                 // The concurrent GC has claimed the right to mark the stack. Wait until it finishes
                 // marking before proceeding with mutation.
-                while (needs_upd_rem_set_mark((StgClosure *) stack));
-                  //busy_wait_nop(); // TODO: Spinning here is unfortunate
+                while (needs_upd_rem_set_mark((StgClosure *) stack))
+#if defined(PARALLEL_GC)
+                    busy_wait_nop(); // TODO: Spinning here is unfortunate
+#endif
                 return;
 
             } else if (!(res & MUTATOR_MARKING_STACK)) {
@@ -840,6 +842,7 @@ mark_stack (MarkQueue *queue, StgStack *stack)
 static GNUC_ATTR_HOT void
 mark_closure (MarkQueue *queue, StgClosure *p)
 {
+ try_again:
     p = UNTAG_CLOSURE(p);
 
 #   define PUSH_FIELD(obj, field)                                \
@@ -1225,6 +1228,11 @@ mark_closure (MarkQueue *queue, StgClosure *p)
         }
         break;
     }
+
+    case WHITEHOLE:
+        while (get_itbl(p)->type == WHITEHOLE)
+            busy_wait_nop();
+        goto try_again;
 
     default:
         barf("mark_closure: unimplemented/strange closure type %d @ %p",
