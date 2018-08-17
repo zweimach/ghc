@@ -1178,13 +1178,16 @@ dirty_TSO (Capability *cap, StgTSO *tso)
 void
 dirty_STACK (Capability *cap, StgStack *stack)
 {
+    // First push to upd_rem_set before we set stack->dirty since we
+    // the nonmoving collector may already be marking the stack.
+    if (nonmoving_write_barrier_enabled)
+        upd_rem_set_push_stack(cap, stack);
+
     if (! (stack->dirty & STACK_DIRTY)) {
         stack->dirty = STACK_DIRTY;
         recordClosureMutated(cap,(StgClosure*)stack);
     }
 
-    if (nonmoving_write_barrier_enabled)
-        upd_rem_set_push_stack(cap, stack);
 }
 
 /*
