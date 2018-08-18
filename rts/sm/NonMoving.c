@@ -407,6 +407,7 @@ void nonmoving_collect()
 #endif
 
     nonmoving_prepare_mark();
+    nonmoving_prepare_sweep();
 
     // N.B. These should have been cleared at the end of the last sweep.
     ASSERT(nonmoving_marked_large_objects == NULL);
@@ -583,8 +584,6 @@ static void* nonmoving_concurrent_mark(void *data)
     /****************************************************
      * Sweep
      ****************************************************/
-
-    nonmoving_prepare_sweep();
 
     // Because we can't mark large object blocks (no room for mark bit) we
     // collect them in a map in mark_queue and we pass it here to sweep large
