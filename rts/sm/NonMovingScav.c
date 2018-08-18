@@ -332,6 +332,7 @@ nonmoving_scavenge_one(StgClosure *q)
     }
 }
 
+/* Scavenge objects evacuated into a nonmoving segment by a minor GC */
 void
 scavenge_nonmoving_segment(struct nonmoving_segment *seg)
 {
@@ -350,14 +351,9 @@ scavenge_nonmoving_segment(struct nonmoving_segment *seg)
         // TODO: No need to calculate block index of each object; calculate
         // block index of `scan`, then increment by one after each iteration.
         nonmoving_block_idx p_idx = nonmoving_get_block_idx((StgPtr)p);
-        // bit set = was allocated in the previous GC
+        // bit set = was allocated in a previous GC, no need to scavenge
         // bit not set = new allocation, so scavenge
         if (nonmoving_get_mark(seg, p_idx) == 0) {
-            // Set the mark bit to avoid scavenging this object in the next GC.
-            // We only need to scavenge it again if it points to a younger
-            // generation, but in that case it should be in the mut_list, which
-            // is scavenged always.
-            nonmoving_set_mark(seg, p_idx);
             nonmoving_scavenge_one(p);
         }
 

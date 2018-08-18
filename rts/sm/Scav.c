@@ -1557,13 +1557,6 @@ scavenge_mutable_list(bdescr *bd, generation *gen)
             p = (StgPtr)*q;
             ASSERT(LOOKS_LIKE_CLOSURE_PTR(p));
 
-            if (RtsFlags.GcFlags.useNonmoving
-                && gen == oldest_gen
-                && HEAP_ALLOCED_GC(p)
-                && !(Bdescr(p)->flags & BF_LARGE)) {
-                nonmoving_set_closure_mark(p);
-            }
-
 #if defined(DEBUG)
             switch (get_itbl((StgClosure *)p)->type) {
             case MUT_VAR_CLEAN:
