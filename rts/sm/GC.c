@@ -1866,19 +1866,14 @@ resize_nursery (void)
 
 void gcCAFs(void)
 {
-    StgIndStatic *p, *prev;
+    uint32_t i = 0;
+    StgIndStatic *prev = NULL;
 
-    const StgInfoTable *info;
-    uint32_t i;
-
-    i = 0;
-    p = debug_caf_list;
-    prev = NULL;
-
-    for (p = debug_caf_list; p != (StgIndStatic*)END_OF_CAF_LIST;
-         p = (StgIndStatic*)p->saved_info) {
-
-        info = get_itbl((StgClosure*)p);
+    for (StgIndStatic *p = debug_caf_list;
+         p != (StgIndStatic*) END_OF_CAF_LIST;
+         p = (StgIndStatic*) p->saved_info)
+    {
+        const StgInfoTable *info = get_itbl((StgClosure*)p);
         ASSERT(info->type == IND_STATIC);
 
         if (p->static_link == NULL) {

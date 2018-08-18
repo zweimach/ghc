@@ -13,6 +13,8 @@
 #include "Capability.h"
 #include "GCThread.h" // for GCUtils.h
 #include "GCUtils.h"
+#include "Storage.h"
+#include "Trace.h"
 #include "Stable.h"
 
 static struct nonmoving_segment *pop_all_filled_segments(struct nonmoving_allocator *alloc)
@@ -90,6 +92,35 @@ nonmoving_sweep_segment(struct nonmoving_segment *seg)
 }
 
 #if defined(DEBUG)
+
+void nonmoving_gc_cafs(struct MarkQueue_ *queue)
+{
+    uint32_t i = 0;
+    StgIndStatic *prev = NULL;
+
+    for (StgIndStatic *p = debug_caf_list;
+         p != (StgIndStatic*) END_OF_CAF_LIST;
+         p = (StgIndStatic*) p->saved_info)
+    {
+        const StgInfoTable *info = get_itbl((StgClosure*)p);
+        ASSERT(info->type == IND_STATIC);
+
+        if (lookupHashTable(queue->marked_objects, (StgWord) p) == 0) {
+            debugTrace(DEBUG_gccafs, "CAF gc'd at 0x%p", p);
+            SET_INFO((StgClosure*)p,&stg_GCD_CAF_info); // stub it
+            if (prev == NULL) {
+                debug_caf_list = (StgIndStatic*)p->saved_info;
+            } else {
+                prev->saved_info = p->saved_info;
+            }
+        } else {
+            prev = p;
+            i++;
+        }
+    }
+
+    debugTrace(DEBUG_gccafs, "%d CAFs live", i);
+}
 
 static void
 clear_segment(struct nonmoving_segment* seg)

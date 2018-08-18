@@ -546,6 +546,13 @@ static void* nonmoving_concurrent_mark(void *data)
     // Propagate marks
     nonmoving_mark(mark_queue);
 
+    debugTrace(DEBUG_nonmoving_gc, "Done marking");
+
+#if defined(DEBUG)
+    // Zap CAFs that we will sweep
+    nonmoving_gc_cafs(mark_queue);
+#endif
+
     ASSERT(mark_queue->top->head == 0);
     ASSERT(mark_queue->blocks->link == NULL);
     current_mark_queue = NULL;
@@ -589,10 +596,6 @@ static void* nonmoving_concurrent_mark(void *data)
     ASSERT(nonmoving_heap.sweep_list == NULL);
     debugTrace(DEBUG_nonmoving_gc, "Finished sweeping.");
 
-    // mark the garbage collected CAFs as dead
-#if defined(DEBUG)
-    //gcCAFs();
-#endif
     // TODO: Remainder of things done by GarbageCollect
 
 #if defined(CONCURRENT_MARK)
