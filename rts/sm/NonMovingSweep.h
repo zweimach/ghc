@@ -25,3 +25,8 @@ void nonmoving_sweep_stable_name_table(void);
 // Collect the set of segments to be collected during a major GC into
 // nonmoving_heap.sweep_list.
 void nonmoving_prepare_sweep(void);
+
+#if defined(DEBUG)
+// The non-moving equivalent of the moving collector's gcCAFs.
+void nonmoving_gc_cafs(struct MarkQueue_ *queue);
+#endif
