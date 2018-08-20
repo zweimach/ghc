@@ -547,6 +547,10 @@ static void* nonmoving_concurrent_mark(void *data)
     // Propagate marks
     nonmoving_mark(mark_queue);
 
+    // Now remove all dead objects from the mut_list to ensure that a younger
+    // generation collection doesn't attempt to look at them after we've swept.
+    nonmoving_sweep_mut_lists();
+
     debugTrace(DEBUG_nonmoving_gc, "Done marking");
 
 #if defined(DEBUG)
@@ -559,11 +563,6 @@ static void* nonmoving_concurrent_mark(void *data)
     current_mark_queue = NULL;
     free_mark_queue(mark_queue);
     stgFree(mark_queue);
-    debugTrace(DEBUG_nonmoving_gc, "Done marking");
-
-    // Now remove all dead objects from the mut_list to ensure that a younger
-    // generation collection doesn't attempt to look at them after we've swept.
-    nonmoving_sweep_mut_lists();
 
     // Everything has been marked; allow the mutators to proceed
 #if defined(CONCURRENT_MARK)
