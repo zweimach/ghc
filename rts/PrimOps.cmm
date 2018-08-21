@@ -349,8 +349,18 @@ stg_casArrayzh ( gcptr arr, W_ ind, gcptr old, gcptr new )
         // Compare and Swap Succeeded:
         SET_HDR(arr, stg_MUT_ARR_PTRS_DIRTY_info, CCCS);
         len = StgMutArrPtrs_ptrs(arr);
+
         // The write barrier.  We must write a byte into the mark table:
         I8[arr + SIZEOF_StgMutArrPtrs + WDS(len) + (ind >> MUT_ARR_PTRS_CARD_BITS )] = 1;
+
+        // Concurrent GC write barrier
+        if (nonmoving_write_barrier_enabled != 0) (likely: False) {
+            ccall upd_rem_set_push_closure_(BaseReg "ptr",
+                                            old "ptr",
+                                            arr "ptr",
+                                            BYTES_TO_WDS(SIZEOF_StgMutArrPtrs) + WDS(ind));
+        }
+
         return (0,new);
     }
 }
@@ -458,9 +468,34 @@ stg_thawSmallArrayzh ( gcptr src, W_ offset, W_ n )
     cloneSmallArray(stg_SMALL_MUT_ARR_PTRS_DIRTY_info, src, offset, n)
 }
 
+// Concurrent GC write barrier for pointer array copies
+stg_copyArray_barrier ( W_ hdr_size, gcptr dst, W_ dst_off, W_ n)
+{
+    W_ i, p;
+    i = dst_off;
+    p = dst + hdr_size + WDS(dst_off);
+
+again:
+    ccall upd_rem_set_push_closure_(BaseReg "ptr",
+                                    W_[p] "ptr",
+                                    dst "ptr",
+                                    BYTES_TO_WDS(hdr_size) + WDS(i));
+    i = i + 1;
+    p = p + WDS(1);
+    if (i < n) {
+        goto again;
+    }
+
+    return ();
+}
+
 stg_copySmallArrayzh ( gcptr src, W_ src_off, gcptr dst, W_ dst_off, W_ n)
 {
     W_ dst_p, src_p, bytes;
+
+    if (nonmoving_write_barrier_enabled != 0) {
+        call stg_copyArray_barrier(SIZEOF_StgSmallMutArrPtrs, dst, dst_off, n);
+    }
 
     SET_INFO(dst, stg_SMALL_MUT_ARR_PTRS_DIRTY_info);
 
@@ -475,6 +510,10 @@ stg_copySmallArrayzh ( gcptr src, W_ src_off, gcptr dst, W_ dst_off, W_ n)
 stg_copySmallMutableArrayzh ( gcptr src, W_ src_off, gcptr dst, W_ dst_off, W_ n)
 {
     W_ dst_p, src_p, bytes;
+
+    if (nonmoving_write_barrier_enabled != 0) {
+        call stg_copyArray_barrier(SIZEOF_StgSmallMutArrPtrs, dst, dst_off, n);
+    }
 
     SET_INFO(dst, stg_SMALL_MUT_ARR_PTRS_DIRTY_info);
 
@@ -506,6 +545,10 @@ stg_casSmallArrayzh ( gcptr arr, W_ ind, gcptr old, gcptr new )
     } else {
         // Compare and Swap Succeeded:
         SET_HDR(arr, stg_SMALL_MUT_ARR_PTRS_DIRTY_info, CCCS);
+
+        // Concurrent GC write barrier
+        recordMutatedPtr(old, arr, BYTES_TO_WDS(SIZEOF_StgSmallMutArrPtrs) + ind);
+
         return (0,new);
     }
 }
@@ -539,7 +582,6 @@ stg_casMutVarzh ( gcptr mv, gcptr old, gcptr new )
 #if defined(THREADED_RTS)
     gcptr h;
 
-    // TODO: snapshot write barrier
     (h) = prim %cmpxchgW(mv + SIZEOF_StgHeader + OFFSET_StgMutVar_var, old, new);
     if (h != old) {
         return (1,h);
@@ -560,6 +602,7 @@ stg_casMutVarzh ( gcptr mv, gcptr old, gcptr new )
         if (GET_INFO(mv) == stg_MUT_VAR_CLEAN_info) {
             ccall dirty_MUT_VAR(BaseReg "ptr", mv "ptr", old);
         }
+        recordMutatedPtr(old, mv, OFFSET_StgMutVar_var);
         return (0,new);
     }
 #endif
@@ -624,6 +667,7 @@ stg_atomicModifyMutVar2zh ( gcptr mv, gcptr f )
 #if defined(THREADED_RTS)
     (h) = prim %cmpxchgW(mv + SIZEOF_StgHeader + OFFSET_StgMutVar_var, x, y);
     if (h != x) { goto retry; }
+    recordMutatedPtr(h, mv, OFFSET_StgMutVar_var);
 #else
     h = StgMutVar_var(mv);
     StgMutVar_var(mv) = y;
@@ -1530,12 +1574,7 @@ stg_takeMVarzh ( P_ mvar /* :: MVar a */ )
     val = StgMVar_value(mvar);
 
     // Add val to upd_rem_set
-    if (nonmoving_write_barrier_enabled != 0) {
-        ccall upd_rem_set_push_closure_(BaseReg "ptr",
-                                        val "ptr",
-                                        mvar "ptr",
-                                        BYTES_TO_WDS(OFFSET_StgMVar_value));
-    }
+    recordMutatedPtr(val, mvar, BYTES_TO_WDS(OFFSET_StgMVar_value));
 
     q = StgMVar_head(mvar);
 loop:
@@ -1605,12 +1644,7 @@ stg_tryTakeMVarzh ( P_ mvar /* :: MVar a */ )
     val = StgMVar_value(mvar);
 
     // Add val to upd_rem_set
-    if (nonmoving_write_barrier_enabled != 0) {
-        ccall upd_rem_set_push_closure_(BaseReg "ptr",
-                                        val "ptr",
-                                        mvar "ptr",
-                                        BYTES_TO_WDS(OFFSET_StgMVar_value));
-    }
+    recordMutatedPtr(val, mvar, BYTES_TO_WDS(OFFSET_StgMVar_value));
 
     q = StgMVar_head(mvar);
 loop:
@@ -1704,6 +1738,7 @@ stg_putMVarzh ( P_ mvar, /* :: MVar a */
 loop:
     if (q == stg_END_TSO_QUEUE_closure) {
         /* No further takes, the MVar is now full. */
+        recordMutatedPtr(StgMVar_value(mvar), mvar, OFFSET_StgMVar_value);
         if (info == stg_MVAR_CLEAN_info) {
             ccall dirty_MVAR(BaseReg "ptr", mvar "ptr");
         }
@@ -1784,6 +1819,7 @@ stg_tryPutMVarzh ( P_ mvar, /* :: MVar a */
 loop:
     if (q == stg_END_TSO_QUEUE_closure) {
         /* No further takes, the MVar is now full. */
+        recordMutatedPtr(StgMVar_value(mvar), mvar, OFFSET_StgMVar_value);
         if (info == stg_MVAR_CLEAN_info) {
             ccall dirty_MVAR(BaseReg "ptr", mvar "ptr");
         }

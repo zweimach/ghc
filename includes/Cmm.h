@@ -828,6 +828,19 @@
       if (__gen > 0) { recordMutableCap(__p, __gen); }
 
 /* -----------------------------------------------------------------------------
+   Update remembered set write barrier
+   -------------------------------------------------------------------------- */
+
+/* Record that a reference to object `p`, residing at word `origin_field` of
+ * object `origin` has been overwritten. This implements the nonmoving collector's
+ * update remembered set write barrier.
+ */
+#define recordMutatedPtr(p, origin, origin_field)               \
+    if (nonmoving_write_barrier_enabled != 0) (likely: False) { \
+        ccall upd_rem_set_push_closure_(BaseReg "ptr", (p) "ptr", (origin) "ptr", (origin_field)); \
+    }
+
+/* -----------------------------------------------------------------------------
    Arrays
    -------------------------------------------------------------------------- */
 
