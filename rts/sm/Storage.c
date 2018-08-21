@@ -1117,10 +1117,6 @@ dirty_MUT_VAR(StgRegTable *reg, StgMutVar *mvar, StgClosure *old)
     if (mvar->header.info == &stg_MUT_VAR_CLEAN_info) {
         mvar->header.info = &stg_MUT_VAR_DIRTY_info;
         recordClosureMutated(cap, (StgClosure *) mvar);
-        if (nonmoving_write_barrier_enabled)
-            upd_rem_set_push_closure_(reg, old,
-                                      (StgClosure *) mvar,
-                                      ((StgClosure **) &mvar->var) - (StgClosure **) mvar);
     }
 }
 
