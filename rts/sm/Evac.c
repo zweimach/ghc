@@ -542,6 +542,7 @@ loop:
           return;
 
       case SRT:
+          TICK_SRT_SCAVD();
           evacuate_static_object(STATIC_LINK(info,(StgClosure *)q), q);
           return;
 
