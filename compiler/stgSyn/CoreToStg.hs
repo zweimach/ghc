@@ -48,6 +48,8 @@ import Demand           ( isUsedOnce )
 import PrimOp           ( PrimCall(..) )
 import UniqFM
 import SrcLoc           ( mkGeneralSrcSpan )
+import Unique
+import PrelNames        ( unpackCStringIdKey, unpackCStringUtf8IdKey )
 
 import Data.List.NonEmpty (nonEmpty, toList)
 import Data.Maybe    (isJust, fromMaybe)
@@ -796,6 +798,9 @@ mkTopStgRhs dflags this_mod ccs rhs_fvs bndr binder_info rhs
     (_, unticked_rhs) = stripStgTicksTop (not . tickishIsCode) rhs
 
     upd_flag | isUsedOnce (idDemandInfo bndr) = SingleEntry
+               -- See Note [String unpack closures are non-updateable]
+             | StgApp fun _ <- unticked_rhs
+             , isStringUnpackFun fun          = SingleEntry
              | otherwise                      = Updatable
 
     -- CAF cost centres generated for -fcaf-all
@@ -838,6 +843,9 @@ mkStgRhs rhs_fvs bndr binder_info rhs
     (_, unticked_rhs) = stripStgTicksTop (not . tickishIsCode) rhs
 
     upd_flag | isUsedOnce (idDemandInfo bndr) = SingleEntry
+               -- See Note [String unpack closures are non-updateable]
+             | StgApp fun _ <- unticked_rhs
+             , isStringUnpackFun fun          = SingleEntry
              | otherwise                      = Updatable
 
   {-
@@ -943,7 +951,21 @@ topLevelBound _                   = False
 -- The set of dynamic live variables is guaranteed ot have no further
 -- let-no-escaped variables in it.
 
+{-
+Note [String unpack closures are non-updateable]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+TODO
+-}
+
+isStringUnpackFun :: Id -> Bool
+isStringUnpackFun i =
+       i `hasKey` unpackCStringUtf8IdKey
+    || i `hasKey` unpackCStringIdKey
+
+----------------------------
 -- The std monad functions:
+----------------------------
 
 initCts :: IdEnv HowBound -> CtsM a -> a
 initCts env m = unCtsM m env
