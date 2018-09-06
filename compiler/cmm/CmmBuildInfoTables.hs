@@ -563,6 +563,10 @@ doSRTs dflags moduleSRTInfo tops = do
 
       (declss, pairs, funSRTs) = unzip3 result
 
+  printForUser dflags stderr neverQualify
+    $ vcat [ ppr lbl <> colon <+> ppr (length ents)
+           | (lbl, ents) <- funSRTs]
+
   -- Next, update the info tables with the SRTs
   let
     srtFieldMap = mapFromList (concat pairs)
