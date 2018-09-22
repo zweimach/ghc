@@ -22,6 +22,13 @@ BUILD_SPHINX_PDF=$BUILD_SPHINX_PDF
 BeConservative=YES
 EOF
 
+if [[ -n ${DWARF:-} ]]; then
+  echo "Building with DWARF support..."
+  echo "GhcLibHcOpts = -g3" >> mk/build.mk
+  echo "GhcRtsHcOpts = -g3" >> mk/build.mk
+  apt-get install -qy libdw1-dev
+fi
+
 case "$(uname)" in
   Linux)
     if [[ -n ${TARGET:-} ]]; then

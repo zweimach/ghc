@@ -35,12 +35,12 @@ aliases:
   - &configure_unix
     run:
       name: Configure
-      command: ./configure
+      command: ./configure $configure_args
   - &configure_unix_32
     run:
       name: Configure
       command: |
-        setarch i386 ./configure --with-ghc=/opt/ghc-i386/8.4.2/bin/ghc
+        setarch i386 ./configure --with-ghc=/opt/ghc-i386/8.4.2/bin/ghc $configure_args
   - &configure_bsd
     run:
       name: Configure
@@ -100,6 +100,28 @@ jobs:
     environment:
       <<: *buildenv
       GHC_COLLECTOR_FLAVOR: x86_64-linux
+    steps:
+      - checkout
+      - *prepare
+      - *submodules
+      - *boot
+      - *configure_unix
+      - *make
+      - *bindist
+      - *storeartifacts
+      - *test
+      - *store_test_results
+
+  # Used only to build binary distributions
+  "validate-x86_64-linux-dwarf":
+    resource_class: xlarge
+    docker:
+      - image: ghcci/x86_64-linux:0.0.4
+    environment:
+      <<: *buildenv
+      GHC_COLLECTOR_FLAVOR: x86_64-linux
+      DWARF: 1
+      CONFIGURE_ARGS: --enable-dwarf-unwind
     steps:
       - checkout
       - *prepare
@@ -296,6 +318,8 @@ workflows:
         *trigger_on_tags
     - validate-hadrian-x86_64-linux
     - validate-x86_64-fedora:
+        *trigger_on_tags
+    - validate-x86_64-linux-dwarf:
         *trigger_on_tags
 
   nightly:
