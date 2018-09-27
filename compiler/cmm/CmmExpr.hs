@@ -43,6 +43,7 @@ import Unique
 
 import Data.Set (Set)
 import Data.Maybe (fromMaybe)
+import Data.Monoid ((<>))
 import qualified Data.Set as Set
 
 import BasicTypes (Alignment, mkAlignment, alignmentOf)
@@ -519,8 +520,8 @@ instance Ord GlobalReg where
    compare (FloatReg i)  (FloatReg  j) = compare i j
    compare (DoubleReg i) (DoubleReg j) = compare i j
    compare (LongReg i)   (LongReg   j) = compare i j
-   compare (XmmReg i _ _)
-           (XmmReg j _ _)              = compare i j
+   compare (XmmReg i mb grt)
+           (XmmReg j mb' grt')         = compare i j <> compare mb mb' <> compare grt grt'
    compare (YmmReg i)    (YmmReg    j) = compare i j
    compare (ZmmReg i)    (ZmmReg    j) = compare i j
    compare Sp Sp = EQ
