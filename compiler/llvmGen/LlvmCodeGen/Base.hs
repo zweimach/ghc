@@ -60,6 +60,7 @@ import qualified Stream
 
 import Data.Maybe (fromJust)
 import Control.Monad (ap)
+import Data.Maybe (mapMaybe)
 
 -- ----------------------------------------------------------------------------
 -- * Some Data Types

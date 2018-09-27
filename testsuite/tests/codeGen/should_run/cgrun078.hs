@@ -1,44 +1,49 @@
-{-# LANGUAGE   CApiFFI
-             , CPP
-             , GHCForeignImportPrim
-             , MagicHash
-  #-}
+{-# OPTIONS_GHC -mavx #-}
+{-# LANGUAGE MagicHash #-}
+{-# LANGUAGE UnboxedTuples #-}
+-- !!! test the lifting of unlifted vector types and
+-- defining various typeclass instances for the lifted types
 
--- | Check that libm foreign import log1p/expm1
---   are equivalent to that of the primops
---   for float/double
-module Main ( main ) where
+import GHC.Exts
 
-import GHC.Float (Floating(..))
+data FloatX4  = FX4# FloatX4#
+
+instance Show FloatX4 where
+  show (FX4# f) = case (unpackFloatX4# f) of
+    (# a, b, c, d #) -> show ((F# a), (F# b), (F# c), (F# d))
+
+
+instance Eq FloatX4 where
+  (FX4# a) == (FX4# b)
+    = case (unpackFloatX4# a) of
+        (# a1, a2, a3, a4 #) ->
+          case (unpackFloatX4# b) of
+            (# b1, b2, b3, b4 #) -> (F# a1) == (F# b1) &&
+                                    (F# a2) == (F# b2) &&
+                                    (F# a3) == (F# b3) &&
+                                    (F# a4) == (F# b4)
+
+data DoubleX2 = DX2# DoubleX2#
+
+instance Show DoubleX2 where
+  show (DX2# d) = case (unpackDoubleX2# d) of
+    (# a, b #) -> show ((D# a), (D# b))
+
+
+instance Eq DoubleX2 where
+  (DX2# a) == (DX2# b)
+    = case (unpackDoubleX2# a) of
+        (# a1, a2 #) ->
+          case (unpackDoubleX2# b) of
+            (# b1, b2 #) -> (D# a1) == (D# b1) &&
+                            (D# a2) == (D# b2)
 
 main :: IO ()
 main = do
-  print $ oldEqualsNewDouble log1pDoubleOld log1pDoubleNew randomDouble
-  print $ oldEqualsNewDouble expm1DoubleOld expm1DoubleNew randomDouble
-  print $ oldEqualsNewFloat log1pFloatOld log1pFloatNew randomFloat
-  print $ oldEqualsNewFloat expm1FloatOld expm1FloatNew randomFloat
+  print (FX4# (broadcastFloatX4# 1.5#))
+  print $ (FX4# (broadcastFloatX4# 1.5#)) == (FX4# (broadcastFloatX4# 2.5#))
+  print $ (FX4# (broadcastFloatX4# 3.5#)) == (FX4# (broadcastFloatX4# 3.5#))
 
-foreign import capi unsafe "math.h log1p" log1pDoubleOld :: Double -> Double
-foreign import capi unsafe "math.h expm1" expm1DoubleOld :: Double -> Double
-foreign import capi unsafe "math.h log1pf" log1pFloatOld :: Float -> Float
-foreign import capi unsafe "math.h expm1f" expm1FloatOld :: Float -> Float
-
-oldEqualsNewDouble :: (Double -> Double) -> (Double -> Double) -> Double -> Bool
-oldEqualsNewDouble f g x = f x == g x
-
-oldEqualsNewFloat :: (Float -> Float) -> (Float -> Float) -> Float -> Bool
-oldEqualsNewFloat f g x = f x == g x
-
-log1pDoubleNew, expm1DoubleNew :: Double -> Double
-log1pDoubleNew = log1p
-expm1DoubleNew = expm1
-
-log1pFloatNew, expm1FloatNew :: Float -> Float
-log1pFloatNew = log1p
-expm1FloatNew = expm1
-
-randomFloat :: Float
-randomFloat = 53213
-
-randomDouble :: Double
-randomDouble = 41901526
+  print (DX2# (broadcastDoubleX2# 2.5##))
+  print $ (DX2# (broadcastDoubleX2# 1.5##)) == (DX2# (broadcastDoubleX2# 2.5##))
+  print $ (DX2# (broadcastDoubleX2# 3.5##)) == (DX2# (broadcastDoubleX2# 3.5##))
