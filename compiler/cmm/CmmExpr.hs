@@ -484,7 +484,7 @@ data GlobalReg
   deriving( Show )
 
 data GlobalVecRegTy = Integer | Float
-  deriving (Show, Eq)
+  deriving (Show, Eq, Ord)
 
 instance Eq GlobalReg where
    VanillaReg i _ == VanillaReg j _ = i==j -- Ignore type when seeking clashes
