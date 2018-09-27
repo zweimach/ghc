@@ -89,6 +89,7 @@ test('cgrun079', normal, compile_and_run, [''])
 test('cgrun080', normal, compile_and_run, [''])
 test('cgrun081', normal, compile_and_run, [''])
 test('cgrun082', normal, compile_and_run, [''])
+test('cgrun083', normal, compile_and_run, [''])
 
 test('T1852', normal, compile_and_run, [''])
 test('T1861', extra_run_opts('0'), compile_and_run, [''])
