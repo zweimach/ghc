@@ -1278,6 +1278,7 @@ genMachOp _ op [x] = case op of
     MO_VU_Quot    _ _ -> panicOp
     MO_VU_Rem     _ _ -> panicOp
 
+    MO_VF_Broadcast _ _ -> panicOp
     MO_VF_Insert  _ _ -> panicOp
     MO_VF_Extract _ _ -> panicOp
 
@@ -1474,6 +1475,7 @@ genMachOp_slow opt op [x, y] = case op of
 
     MO_VS_Neg {} -> panicOp
 
+    MO_VF_Broadcast  {} -> panicOp
     MO_VF_Insert  {} -> panicOp
     MO_VF_Extract {} -> panicOp
 
