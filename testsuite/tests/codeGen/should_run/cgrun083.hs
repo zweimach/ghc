@@ -9,6 +9,8 @@
 import GHC.Exts
 import GHC.IO
 
+data ByteArray = BA (MutableByteArray# RealWorld)
+
 data FloatX4  = FX4# FloatX4#
 
 instance Show FloatX4 where
@@ -41,27 +43,28 @@ instance Eq DoubleX2 where
             (# b1, b2 #) -> (D# a1) == (D# b1) &&
                             (D# a2) == (D# b2)
 
-writeFloatArray :: MutableByteArray RealWorld -> Int -> Float -> IO ()
-writeFloatArray ba (I# i) (F# n) = IO $ \s ->
-    case writeFloatArray# ba i n of s' -> (# s', () #)
+writeFloatArray :: ByteArray -> Int -> Float -> IO ()
+writeFloatArray (BA ba) (I# i) (F# n) = IO $ \s ->
+    case writeFloatArray# ba i n s of s' -> (# s', () #)
 
-readFloatX4 :: MutableByteArray RealWorld -> Int -> IO FloatX4
-readFloatX4 ba (I# i) = IO $ \s ->
-    case realFloatArrayAsFloatX4# ba i s of (# s', r #) -> (# s', FX4# r #)
+readFloatX4 :: ByteArray -> Int -> IO FloatX4
+readFloatX4 (BA ba) (I# i) = IO $ \s ->
+    case readFloatArrayAsFloatX4# ba i s of (# s', r #) -> (# s', FX4# r #)
 
-writeDoubleArray :: MutableByteArray RealWorld -> Int -> Double -> IO ()
-writeDoubleArray ba (I# i) (D# n) = IO $ \s ->
-    case writeDoubleArray# ba i n of s' -> (# s', () #)
+writeDoubleArray :: ByteArray -> Int -> Double -> IO ()
+writeDoubleArray (BA ba) (I# i) (D# n) = IO $ \s ->
+    case writeDoubleArray# ba i n s of s' -> (# s', () #)
 
-readFloatX4 :: MutableByteArray RealWorld -> Int -> IO DoubleX4
-readFloatX4 ba (I# i) = IO $ \s ->
-    case realDoubleArrayAsFloatX4# ba i s of (# s', r #) -> (# s', DX4# r #)
+readDoubleX2 :: ByteArray -> Int -> IO DoubleX2
+readDoubleX2 (BA ba) (I# i) = IO $ \s ->
+    case readDoubleArrayAsDoubleX2# ba i s of (# s', r #) -> (# s', DX2# r #)
 
 main :: IO ()
 main = do
     ba <- IO $ \s -> case newAlignedPinnedByteArray# 64# 64# s of (# s', ba #) -> (# s', BA ba #)
+
     mapM_ (\i -> writeFloatArray ba i (realToFrac i + realToFrac i / 10)) [0..16]
-    print $ readFloatX4 ba 0
+    print =<< readFloatX4 ba 0
 
     mapM_ (\i -> writeDoubleArray ba i (realToFrac i + realToFrac i / 10)) [0..8]
-    print $ readDoubleX4 ba 0
+    print =<< readDoubleX2 ba 0
