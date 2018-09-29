@@ -1253,21 +1253,21 @@ getRegister' _ is32Bit (CmmMachOp mop [x, y]) = do -- dyadic MachOps
     vector_float_broadcast_sse len W32 expr1 expr2
       = do
       dflags   <- getDynFlags
-      fn       <- getAnyReg  expr1
-      (r, exp) <- getSomeReg expr2
+      fn       <- getAnyReg  expr1  -- destination
+      (r, exp) <- getSomeReg expr2  -- source
       let f        = VecFormat len FmtFloat W32
           addr     = spRel dflags 0
-          imm1     = litToImm (CmmInt   0 W32)
-          imm2     = litToImm (CmmInt  16 W32)
-          imm3     = litToImm (CmmInt  32 W32)
-          imm4     = litToImm (CmmInt  48 W32)
           code dst = exp `appOL`
                      (fn dst) `snocOL`
                      (MOVU f (OpReg r) (OpAddr addr)) `snocOL`
-                     (INSERTPS f (OpImm imm1) (OpAddr addr) dst) `snocOL`
-                     (INSERTPS f (OpImm imm2) (OpAddr addr) dst) `snocOL`
-                     (INSERTPS f (OpImm imm3) (OpAddr addr) dst) `snocOL`
-                     (INSERTPS f (OpImm imm4) (OpAddr addr) dst)
+                     (insertps 0) `snocOL`
+                     (insertps 16) `snocOL`
+                     (insertps 32) `snocOL`
+                     (insertps 48)
+            where
+              insertps off =
+                INSERTPS f (OpImm $ litToImm $ CmmInt off W32) (OpAddr addr) dst
+
        in return $ Any f code
     vector_float_broadcast_sse _ _ c _
       = pprPanic "Broadcast not supported for : " (ppr c)
