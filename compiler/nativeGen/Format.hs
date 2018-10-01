@@ -49,7 +49,7 @@ data Format
         | II64
         | FF32
         | FF64
-        | VecFormat Length ScalarFormat Width
+        | VecFormat !Length !ScalarFormat !Width
         deriving (Show, Eq)
 
 data ScalarFormat = FmtInt8
