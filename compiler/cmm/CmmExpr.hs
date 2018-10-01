@@ -395,6 +395,7 @@ data VGcPtr = VGcPtr | VNonGcPtr deriving( Eq, Show )
 -----------------------------------------------------------------------------
 {-
 Note [Overlapping global registers]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The backend might not faithfully implement the abstraction of the STG
 machine with independent registers for different values of type
@@ -416,6 +417,26 @@ on a particular platform. The instance Eq GlobalReg is syntactic
 equality of STG registers and does not take overlap into
 account. However it is still used in UserOfRegs/DefinerOfRegs and
 there are likely still bugs there, beware!
+
+
+Note [SIMD registers]
+~~~~~~~~~~~~~~~~~~~~~
+
+GHC's treatment of SIMD registers is heavily modelled after the x86_64
+architecture. Namely we have 128- (XMM), 256- (YMM), and 512-bit (ZMM)
+registers. Furthermore, we treat each possible format in these registers as a
+distinct register which overlaps with the others. For instance, we XMM1 as a
+2xI64 register is distinct from but overlaps with (in the sense defined in Note
+[Overlapping global registers]) its use as a 4xI32 register.
+
+This model makes it easier to fit SIMD registers into the NCG, which generally
+expects that each global register has a single, known CmmType.
+
+In the future we could consider further refactoring this to eliminate the
+XMM, YMM, and ZMM register names (which are quite x86-specific) and instead just
+having a set of NxM-bit vector registers (e.g. Vec2x64A, Vec2x64B, ...,
+Vec4x32A, ..., Vec4x64A).
+
 -}
 
 data GlobalReg
