@@ -531,7 +531,7 @@ iselExpr64 expr
 -- This is a helper data type which helps reduce the code duplication for
 -- the code generation of arithmetic operations. This is not specifically
 -- targetted for any particular type like Int8, Int32 etc
-data VectorArithInstns = A | S | M | D
+data VectorArithInstns = VA_Add | VA_Sub | VA_Mul | VA_Div
 
 
 getRegister :: CmmExpr -> NatM Register
@@ -986,27 +986,27 @@ getRegister' _ is32Bit (CmmMachOp mop [x, y]) = do -- dyadic MachOps
       MO_VF_Extract l W64   | sse2      -> vector_float_unpack_sse l W64 x y
                             | otherwise -> sorry "Please enable the -msse2 flag"
 
-      MO_VF_Add l w         | avx              -> vector_float_op_avx A l w x y
-                            | sse  && w == W32 -> vector_float_op_sse A l w x y
-                            | sse2 && w == W64 -> vector_float_op_sse A l w x y
+      MO_VF_Add l w         | avx              -> vector_float_op_avx VA_Add l w x y
+                            | sse  && w == W32 -> vector_float_op_sse VA_Add l w x y
+                            | sse2 && w == W64 -> vector_float_op_sse VA_Add l w x y
                             | otherwise
                               -> sorry "Please enable the -mavx or -msse flag"
 
-      MO_VF_Sub l w         | avx              -> vector_float_op_avx S l w x y
-                            | sse  && w == W32 -> vector_float_op_sse S l w x y
-                            | sse2 && w == W64 -> vector_float_op_sse S l w x y
+      MO_VF_Sub l w         | avx              -> vector_float_op_avx VA_Sub l w x y
+                            | sse  && w == W32 -> vector_float_op_sse VA_Sub l w x y
+                            | sse2 && w == W64 -> vector_float_op_sse VA_Sub l w x y
                             | otherwise
                               -> sorry "Please enable the -mavx or -msse flag"
 
-      MO_VF_Mul l w         | avx              -> vector_float_op_avx M l w x y
-                            | sse  && w == W32 -> vector_float_op_sse M l w x y
-                            | sse2 && w == W64 -> vector_float_op_sse M l w x y
+      MO_VF_Mul l w         | avx              -> vector_float_op_avx VA_Mul l w x y
+                            | sse  && w == W32 -> vector_float_op_sse VA_Mul l w x y
+                            | sse2 && w == W64 -> vector_float_op_sse VA_Mul l w x y
                             | otherwise
                               -> sorry "Please enable the -mavx or -msse flag"
 
-      MO_VF_Quot l w        | avx              -> vector_float_op_avx D l w x y
-                            | sse  && w == W32 -> vector_float_op_sse D l w x y
-                            | sse2 && w == W64 -> vector_float_op_sse D l w x y
+      MO_VF_Quot l w        | avx              -> vector_float_op_avx VA_Div l w x y
+                            | sse  && w == W32 -> vector_float_op_sse VA_Div l w x y
+                            | sse2 && w == W64 -> vector_float_op_sse VA_Div l w x y
                             | otherwise
                               -> sorry "Please enable the -mavx or -msse flag"
 
@@ -1123,10 +1123,10 @@ getRegister' _ is32Bit (CmmMachOp mop [x, y]) = do -- dyadic MachOps
                        W64 -> VecFormat l FmtDouble W64
                        _ -> pprPanic "Operation not supported for width " (ppr w)
           code dst = case op of
-            A -> arithInstr VADD
-            S -> arithInstr VSUB
-            M -> arithInstr VMUL
-            D -> arithInstr VDIV
+            VA_Add -> arithInstr VADD
+            VA_Sub -> arithInstr VSUB
+            VA_Mul -> arithInstr VMUL
+            VA_Div -> arithInstr VDIV
             where
               -- opcode src2 src1 dst <==> dst = src1 `opcode` src2
               arithInstr instr = exp1 `appOL` exp2 `snocOL`
@@ -1147,10 +1147,10 @@ getRegister' _ is32Bit (CmmMachOp mop [x, y]) = do -- dyadic MachOps
                        W64 -> VecFormat l FmtDouble W64
                        _ -> pprPanic "Operation not supported for width " (ppr w)
           code dst = case op of
-            A -> arithInstr ADD
-            S -> arithInstr SUB
-            M -> arithInstr MUL
-            D -> arithInstr FDIV
+            VA_Add -> arithInstr ADD
+            VA_Sub -> arithInstr SUB
+            VA_Mul -> arithInstr MUL
+            VA_Div -> arithInstr FDIV
             where
               -- opcode src2 src1 <==> src1 = src1 `opcode` src2
               arithInstr instr
