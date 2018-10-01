@@ -72,13 +72,10 @@ assignArgumentsPos dflags off conv arg_ty reps = (stk_off, assignments)
                                  w      = typeWidth elt_ty
                               in if isFloatType elt_ty
                                  then k (RegisterParam
-                                         (XmmReg s
-                                          (Just (l, w)) (Just Float)),
+                                         (XmmReg s l w Float),
                                          (vs, fs, ds, ls, ss))
                                  else k (RegisterParam
-                                         (XmmReg s
-                                          (Just (l, w))
-                                          (Just Integer)),
+                                         (XmmReg s l w Integer),
                                          (vs, fs, ds, ls, ss))
                       (W256, (vs, fs, ds, ls, s:ss))
                           | passVectorInReg W256 dflags -> k (RegisterParam (YmmReg s), (vs, fs, ds, ls, ss))
@@ -218,10 +215,10 @@ realArgRegsCover dflags
     | passFloatArgsInXmm dflags
       = map ($VGcPtr) (realVanillaRegs dflags) ++
         realLongRegs dflags ++
-        map (\x -> XmmReg x Nothing Nothing) (realXmmRegNos dflags)
+        map (\x -> XmmReg x 1 W128 Integer) (realXmmRegNos dflags)
     | otherwise
       = map ($VGcPtr) (realVanillaRegs dflags) ++
         realFloatRegs dflags ++
         realDoubleRegs dflags ++
         realLongRegs dflags ++
-        map (\x -> XmmReg x Nothing Nothing) (realXmmRegNos dflags)
+        map (\x -> XmmReg x 1 W128 Integer) (realXmmRegNos dflags)
