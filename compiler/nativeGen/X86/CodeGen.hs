@@ -1192,8 +1192,8 @@ getRegister' _ is32Bit (CmmMachOp mop [x, y]) = do -- dyadic MachOps
                               (MOV FF64 (OpAddr addr) (OpReg dst))
                 _          -> panic "Error in offset while unpacking"
       return (Any format code)
-    vector_float_unpack_avx _ _ c _
-      = pprPanic "Unpack not supported for : " (ppr c)
+    vector_float_unpack_avx _ w c e
+      = pprPanic "Unpack not supported for : " (ppr c $$ ppr e $$ ppr w)
     -----------------------
 
     vector_float_unpack_sse :: Length
@@ -1212,8 +1212,8 @@ getRegister' _ is32Bit (CmmMachOp mop [x, y]) = do -- dyadic MachOps
                 CmmInt _ _ -> exp `snocOL` (PSHUFD format (OpImm imm) (OpReg r) dst)
                 _          -> panic "Error in offset while unpacking"
       return (Any format code)
-    vector_float_unpack_sse _ _ c _
-      = pprPanic "Unpack not supported for : " (ppr c)
+    vector_float_unpack_sse _ w c e
+      = pprPanic "Unpack not supported for : " (ppr c $$ ppr e $$ ppr w)
     -----------------------
     vector_float_broadcast_avx :: Length
                            -> Width
