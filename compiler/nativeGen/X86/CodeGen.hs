@@ -556,16 +556,17 @@ getRegister' dflags is32Bit (CmmReg reg)
                let cmmregtype = cmmRegType dflags reg
                if isVecType cmmregtype
                  then return (vectorRegister cmmregtype use_avx use_sse2)
-                 else return (standardRegister cmmregtype use_avx use_sse2)
+                 else return (standardRegister cmmregtype)
   where
-    vectorRegister crt ua us
-      | ua || us  = let vecfmt   = cmmTypeFormat crt
-                        platform = targetPlatform dflags
-                     in (Fixed vecfmt
-                         (getVecRegisterReg platform True vecfmt reg) nilOL)
+    vectorRegister :: CmmType -> Bool -> Bool -> Register
+    vectorRegister reg_ty use_avx use_sse2
+      | use_avx || use_sse2 =
+        let vecfmt   = cmmTypeFormat reg_ty
+            platform = targetPlatform dflags
+        in (Fixed vecfmt (getVecRegisterReg platform True vecfmt reg) nilOL)
       | otherwise = panic "Please enable the -mavx or -msse2 flag"
 
-    standardRegister crt ua us =
+    standardRegister crt =
       let platform = targetPlatform dflags
        in (Fixed (cmmTypeFormat crt) (getRegisterReg platform us reg) nilOL)
 
@@ -1109,13 +1110,13 @@ getRegister' _ is32Bit (CmmMachOp mop [x, y]) = do -- dyadic MachOps
 
     -----------------------
     -- Vector operations---
-    vector_float_op :: VectorArithInstns
-                    -> Length
-                    -> Width
-                    -> CmmExpr
-                    -> CmmExpr
-                    -> NatM Register
-    vector_float_op op l w expr1 expr2 = do
+    vector_float_op_avx :: VectorArithInstns
+                        -> Length
+                        -> Width
+                        -> CmmExpr
+                        -> CmmExpr
+                        -> NatM Register
+    vector_float_op_avx op l w expr1 expr2 = do
       (reg1, exp1) <- getSomeReg expr1
       (reg2, exp2) <- getSomeReg expr2
       let format   = case w of
@@ -1160,10 +1161,10 @@ getRegister' _ is32Bit (CmmMachOp mop [x, y]) = do -- dyadic MachOps
       return (Any format code)
     --------------------
     vector_float_unpack_avx :: Length
-                        -> Width
-                        -> CmmExpr
-                        -> CmmExpr
-                        -> NatM Register
+                            -> Width
+                            -> CmmExpr
+                            -> CmmExpr
+                            -> NatM Register
     vector_float_unpack_avx l W32 expr (CmmLit lit)
       = do
       (r, exp) <- getSomeReg expr
