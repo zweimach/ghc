@@ -1423,13 +1423,21 @@ static bool requestSync (
         // After the sync is completed, we cannot read that struct any
         // more because it has been freed.
         *prev_sync_type = sync->type;
-        do {
-            debugTrace(DEBUG_sched, "someone else is trying to sync (%d)...",
-                       sync->type);
-            ASSERT(*pcap);
-            yieldCapability(pcap,task,true);
-            sync = pending_sync;
-        } while (sync != NULL);
+        if (*pcap == NULL) {
+            // The caller does not hold a capability (e.g. may be a concurrent
+            // mark thread). Consequently we must wait until the pending sync is
+            // finished before proceeding to ensure we don't loop.
+            // TODO: Don't busy-wait
+            while (*prev_sync_type);
+        } else {
+            do {
+                debugTrace(DEBUG_sched, "someone else is trying to sync (%d)...",
+                          sync->type);
+                ASSERT(*pcap);
+                yieldCapability(pcap,task,true);
+                sync = pending_sync;
+            } while (sync != NULL);
+        }
 
         // NOTE: task->cap might have changed now
         return true;

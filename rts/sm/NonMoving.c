@@ -41,9 +41,6 @@ struct nonmoving_segment * const END_NONMOVING_TODO_LIST = (struct nonmoving_seg
  * This mutex ensures that only one non-moving collection is active at a time.
  */
 Mutex nonmoving_collection_mutex;
-
-Capability *nonmoving_mark_cap = NULL;
-Task *nonmoving_mark_task = NULL;
 #endif
 
 #if defined(CONCURRENT_MARK)
@@ -491,32 +488,17 @@ static void* nonmoving_concurrent_mark(void *data)
     ACQUIRE_LOCK(&nonmoving_collection_mutex);
     debugTrace(DEBUG_nonmoving_gc, "Starting mark...");
 
-#if defined(CONCURRENT_MARK)
-    ASSERT(nonmoving_mark_task == NULL);
-    ASSERT(nonmoving_mark_cap == NULL);
-
-    Task *task;
-    Capability *cap;
-    if (sched_state == SCHED_RUNNING) {
-        task = newBoundTask();
-        cap = task->cap;
-        waitForCapability(&cap, task);
-
-    } else {
-        return NULL;
-        task = myTask();
-        cap = task->cap;
-    }
-    nonmoving_mark_task = task;
-    nonmoving_mark_cap = cap;
-
-    debugTrace(DEBUG_nonmoving_gc, "Commencing mark...");
-
     // Do concurrent marking; most of the heap will get marked here.
     nonmoving_mark_threads_weaks(mark_queue);
 
+#if defined(CONCURRENT_MARK)
+    if (sched_state != SCHED_RUNNING) {
+        // TODO
+        return NULL;
+    }
+
     // Gather final remembered sets from mutators and mark them
-    nonmoving_begin_flush(&cap, task);
+    nonmoving_begin_flush();
 
     bool all_caps_syncd;
     do {
@@ -567,17 +549,8 @@ static void* nonmoving_concurrent_mark(void *data)
     // Everything has been marked; allow the mutators to proceed
 #if defined(CONCURRENT_MARK)
     nonmoving_write_barrier_enabled = false;
-    nonmoving_finish_flush(cap, task);
+    nonmoving_finish_flush();
     debugTrace(DEBUG_nonmoving_gc, "Finished mutator sync; sweeping...");
-
-    // After this point young generation collections can proceed without
-    // intervention from the non-moving mark. We release our capability
-    // to allow this.
-    nonmoving_mark_cap = NULL;
-    nonmoving_mark_task = NULL;
-    releaseCapability(cap);
-    boundTaskExiting(task);
-    freeMyTask();
 #endif
 
     /****************************************************
