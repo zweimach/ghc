@@ -11,7 +11,8 @@
 #include "BeginPrivate.h"
 
 void    initStableNameTable   ( void );
-void    exitStableNameTable      ( void );
+void    freeSnEntry           ( snEntry *sn );
+void    exitStableNameTable   ( void );
 StgWord lookupStableName      ( StgPtr p );
 
 void    rememberOldStableNameAddresses ( void );
