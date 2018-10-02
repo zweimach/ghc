@@ -495,7 +495,7 @@ activeStgRegs = [
     ,DoubleReg 1
 #endif
 #if defined(REG_XMM1)
-    ,XmmReg 1 1 W128 Integer
+    ,XmmReg 1 2 W64 Integer
 #endif
 #if defined(REG_YMM1)
     ,YmmReg 1
@@ -510,7 +510,7 @@ activeStgRegs = [
     ,DoubleReg 2
 #endif
 #if defined(REG_XMM2)
-    ,XmmReg 2 1 W128 Integer
+    ,XmmReg 2 2 W64 Integer
 #endif
 #if defined(REG_YMM2)
     ,YmmReg 2
@@ -525,7 +525,7 @@ activeStgRegs = [
     ,DoubleReg 3
 #endif
 #if defined(REG_XMM3)
-    ,XmmReg 3 1 W128 Integer
+    ,XmmReg 3 2 W64 Integer
 #endif
 #if defined(REG_YMM3)
     ,YmmReg 3
@@ -540,7 +540,7 @@ activeStgRegs = [
     ,DoubleReg 4
 #endif
 #if defined(REG_XMM4)
-    ,XmmReg 4 1 W128 Integer
+    ,XmmReg 4 2 W64 Integer
 #endif
 #if defined(REG_YMM4)
     ,YmmReg 4
@@ -555,7 +555,7 @@ activeStgRegs = [
     ,DoubleReg 5
 #endif
 #if defined(REG_XMM5)
-    ,XmmReg 5 1 W128 Integer
+    ,XmmReg 5 2 W64 Integer
 #endif
 #if defined(REG_YMM5)
     ,YmmReg 5
@@ -570,7 +570,7 @@ activeStgRegs = [
     ,DoubleReg 6
 #endif
 #if defined(REG_XMM6)
-    ,XmmReg 6 1 W128 Integer
+    ,XmmReg 6 2 W64 Integer
 #endif
 #if defined(REG_YMM6)
     ,YmmReg 6
