@@ -756,6 +756,8 @@ static Capability * waitForReturnCapability (Task *task)
  * result of the external call back to the Haskell thread that
  * made it.
  *
+ * pCap is strictly an output.
+ *
  * ------------------------------------------------------------------------- */
 
 void waitForCapability (Capability **pCap, Task *task)
