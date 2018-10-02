@@ -21,7 +21,7 @@
 #include "NonMoving.h"
 #include "NonMovingMark.h"
 #include "NonMovingSweep.h"
-#include "Stable.h" // markStablePtrTable
+#include "StablePtr.h" // markStablePtrTable
 #include "Schedule.h" // markScheduler
 #include "MarkWeak.h" // resurrected_threads
 #include "Weak.h" // dead_weak_ptr_list

@@ -15,7 +15,7 @@
 #include "GCUtils.h"
 #include "Storage.h"
 #include "Trace.h"
-#include "Stable.h"
+#include "StableName.h"
 
 static struct nonmoving_segment *pop_all_filled_segments(struct nonmoving_allocator *alloc)
 {
@@ -228,7 +228,7 @@ void nonmoving_sweep_stable_name_table()
     // the old heap may be reused by the time we reach here (2) concurrent table
     // modifications
 
-    stableLock();
+    stableNameLock();
     FOR_EACH_STABLE_NAME(
         p, {
             if (p->sn_obj != NULL) {
@@ -242,5 +242,5 @@ void nonmoving_sweep_stable_name_table()
                 }
             }
         });
-    stableUnlock();
+    stableNameUnlock();
 }
