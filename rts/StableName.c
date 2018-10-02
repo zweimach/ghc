@@ -128,7 +128,7 @@ exitStableNameTable(void)
 #endif
 }
 
-STATIC_INLINE void
+void
 freeSnEntry(snEntry *sn)
 {
   ASSERT(sn->sn_obj == NULL);
