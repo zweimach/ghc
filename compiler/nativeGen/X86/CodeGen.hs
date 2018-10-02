@@ -979,12 +979,12 @@ getRegister' _ is32Bit (CmmMachOp mop [x, y]) = do -- dyadic MachOps
       MO_VF_Broadcast l W64 | sse2      -> vector_float_broadcast_avx l W64 x y
                             | otherwise -> sorry "Please enable the -msse2 flag"
 
-      MO_VF_Extract l W32   | avx       -> vector_float_unpack_avx l W32 x y
+      MO_VF_Extract l W32   | avx       -> vector_float_unpack l W32 x y
                             | sse       -> vector_float_unpack_sse l W32 x y
                             | otherwise
                               -> sorry "Please enable the -mavx or -msse flag"
 
-      MO_VF_Extract l W64   | sse2      -> vector_float_unpack_sse l W64 x y
+      MO_VF_Extract l W64   | sse2      -> vector_float_unpack l W64 x y
                             | otherwise -> sorry "Please enable the -msse2 flag"
 
       MO_VF_Add l w         | avx              -> vector_float_op_avx VA_Add l w x y
@@ -1160,12 +1160,12 @@ getRegister' _ is32Bit (CmmMachOp mop [x, y]) = do -- dyadic MachOps
                   (instr format (OpReg reg2) (OpReg dst))
       return (Any format code)
     --------------------
-    vector_float_unpack_avx :: Length
-                            -> Width
-                            -> CmmExpr
-                            -> CmmExpr
-                            -> NatM Register
-    vector_float_unpack_avx l W32 expr (CmmLit lit)
+    vector_float_unpack :: Length
+                        -> Width
+                        -> CmmExpr
+                        -> CmmExpr
+                        -> NatM Register
+    vector_float_unpack l W32 expr (CmmLit lit)
       = do
       (r, exp) <- getSomeReg expr
       let format   = VecFormat l FmtFloat W32
@@ -1176,7 +1176,7 @@ getRegister' _ is32Bit (CmmMachOp mop [x, y]) = do -- dyadic MachOps
                 CmmInt _ _ -> exp `snocOL` (VPSHUFD format (OpImm imm) (OpReg r) dst)
                 _          -> panic "Error in offset while unpacking"
       return (Any format code)
-    vector_float_unpack_avx l W64 expr (CmmLit lit)
+    vector_float_unpack l W64 expr (CmmLit lit)
       = do
       dflags <- getDynFlags
       (r, exp) <- getSomeReg expr
@@ -1192,7 +1192,7 @@ getRegister' _ is32Bit (CmmMachOp mop [x, y]) = do -- dyadic MachOps
                               (MOV FF64 (OpAddr addr) (OpReg dst))
                 _          -> panic "Error in offset while unpacking"
       return (Any format code)
-    vector_float_unpack_avx _ w c e
+    vector_float_unpack _ w c e
       = pprPanic "Unpack not supported for : " (ppr c $$ ppr e $$ ppr w)
     -----------------------
 
