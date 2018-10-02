@@ -215,10 +215,10 @@ realArgRegsCover dflags
     | passFloatArgsInXmm dflags
       = map ($VGcPtr) (realVanillaRegs dflags) ++
         realLongRegs dflags ++
-        map (\x -> XmmReg x 1 W128 Integer) (realXmmRegNos dflags)
+        map (\x -> XmmReg x 2 W64 Integer) (realXmmRegNos dflags)
     | otherwise
       = map ($VGcPtr) (realVanillaRegs dflags) ++
         realFloatRegs dflags ++
         realDoubleRegs dflags ++
         realLongRegs dflags ++
-        map (\x -> XmmReg x 1 W128 Integer) (realXmmRegNos dflags)
+        map (\x -> XmmReg x 2 W64 Integer) (realXmmRegNos dflags)
