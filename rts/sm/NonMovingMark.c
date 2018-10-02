@@ -167,15 +167,14 @@ void nonmoving_flush_cap_upd_rem_set_blocks(Capability *cap)
 /* Request that all capabilities flush their update remembered sets and suspend
  * execution until the further notice.
  */
-void nonmoving_begin_flush(Capability **cap, Task *task)
+void nonmoving_begin_flush(Task *task)
 {
     debugTrace(DEBUG_nonmoving_gc, "Starting update remembered set flush...");
     for (unsigned int i = 0; i < n_capabilities; i++) {
         capabilities[i]->upd_rem_set_syncd = false;
     }
     upd_rem_set_flush_count = 0;
-    nonmoving_flush_cap_upd_rem_set_blocks(*cap);
-    stopAllCapabilitiesWith(cap, task, SYNC_FLUSH_UPD_REM_SET);
+    stopAllCapabilitiesWith(NULL, task, SYNC_FLUSH_UPD_REM_SET);
 
     // XXX: We may have been given a capability via releaseCapability (i.e. a
     // task suspended due to a foreign call) in which case our requestSync
@@ -211,10 +210,10 @@ void nonmoving_shutting_down()
 /* Notify capabilities that the synchronisation is finished; they may resume
  * execution.
  */
-void nonmoving_finish_flush(Capability *cap, Task *task)
+void nonmoving_finish_flush(Task *task)
 {
     debugTrace(DEBUG_nonmoving_gc, "Finished update remembered set flush...");
-    releaseAllCapabilities(n_capabilities, cap, task);
+    releaseAllCapabilities(n_capabilities, NULL, task);
 }
 #else
 void nonmoving_shutting_down() {}
