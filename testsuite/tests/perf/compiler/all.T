@@ -344,8 +344,8 @@ test('T13719',
      [ collect_compiler_stats('bytes allocated',10),
        pre_cmd('./genT13719'),
        extra_files(['genT13719']),
-       compile_timeout_multiplier(2)
-       # 2 is _a lot_ (timeout after 600s, to build 600 modules),
+       compile_timeout_multiplier(3)
+       # 3 is _a lot_ (timeout after 900s, to build 600 modules),
        # but this test has been failing every now and then,
        # especially on i386. Let's just give it some room
        # to complete successfully reliably everywhere.
