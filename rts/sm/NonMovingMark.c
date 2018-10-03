@@ -236,11 +236,11 @@ push (MarkQueue *q, const MarkQueueEnt *ent)
             // allocate a fresh block.
             ACQUIRE_SM_LOCK;
             bdescr *bd = allocGroup(1);
-            RELEASE_SM_LOCK;
             bd->link = q->blocks;
             q->blocks = bd;
             q->top = (MarkQueueBlock *) bd->start;
             q->top->head = 0;
+            RELEASE_SM_LOCK;
         }
     }
 
