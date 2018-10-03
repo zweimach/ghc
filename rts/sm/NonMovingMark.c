@@ -1230,8 +1230,8 @@ mark_closure (MarkQueue *queue, StgClosure *p)
     }
 
     case WHITEHOLE:
-        while (get_itbl(p)->type == WHITEHOLE)
-            busy_wait_nop();
+        while (get_itbl(p)->type == WHITEHOLE);
+            // busy_wait_nop(); // FIXME
         goto try_again;
 
     default:
