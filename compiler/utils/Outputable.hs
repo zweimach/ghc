@@ -97,13 +97,13 @@ import {-# SOURCE #-}   DynFlags( DynFlags, hasPprDebug, hasNoDebugOutput,
 import {-# SOURCE #-}   Module( UnitId, Module, ModuleName, moduleName )
 import {-# SOURCE #-}   OccName( OccName )
 
-import BufWrite (BufHandle)
+import BufWrite (BufHandle, bPutChar)
 import FastString
 import qualified Pretty
 import Util
 import Platform
 import qualified PprColour as Col
-import Pretty           ( Doc, Mode(..) )
+import Pretty           ( Doc )
 import Panic
 import GHC.Serialized
 import GHC.LanguageExtensions (Extension)
@@ -122,7 +122,7 @@ import Data.Word
 import System.IO        ( Handle )
 import System.FilePath
 import Text.Printf
-import Numeric (showFFloat)
+import Numeric (showFFloat, showHex)
 import Data.Graph (SCC(..))
 import Data.List (intersperse)
 
@@ -316,7 +316,7 @@ code (either C or assembly), or generating interface files.
 -- To display an 'SDoc', use 'printSDoc', 'printSDocLn', 'bufLeftRenderSDoc',
 -- or 'renderWithStyle'.  Avoid calling 'runSDoc' directly as it breaks the
 -- abstraction layer.
-newtype SDoc = SDoc { runSDoc :: SDocContext -> Doc }
+newtype SDoc = SDoc { runSDoc :: SDocContext -> Doc () () }
 
 data SDocContext = SDC
   { sdocStyle      :: !PprStyle
@@ -341,7 +341,7 @@ withPprStyle sty d = SDoc $ \ctxt -> runSDoc d ctxt{sdocStyle=sty}
 -- | This is not a recommended way to render 'SDoc', since it breaks the
 -- abstraction layer of 'SDoc'.  Prefer to use 'printSDoc', 'printSDocLn',
 -- 'bufLeftRenderSDoc', or 'renderWithStyle' instead.
-withPprStyleDoc :: DynFlags -> PprStyle -> SDoc -> Doc
+withPprStyleDoc :: DynFlags -> PprStyle -> SDoc -> Doc () ()
 withPprStyleDoc dflags sty d = runSDoc d (initSDocContext dflags sty)
 
 pprDeeper :: SDoc -> SDoc
@@ -442,43 +442,49 @@ whenPprDebug d = ifPprDebug d empty
 -- | The analog of 'Pretty.printDoc_' for 'SDoc', which tries to make sure the
 --   terminal doesn't get screwed up by the ANSI color codes if an exception
 --   is thrown during pretty-printing.
-printSDoc :: Mode -> DynFlags -> Handle -> PprStyle -> SDoc -> IO ()
-printSDoc mode dflags handle sty doc =
-  Pretty.printDoc_ mode cols handle (runSDoc doc ctx)
+printSDoc :: DynFlags -> Handle -> PprStyle -> SDoc -> IO ()
+printSDoc dflags handle sty doc =
+  Pretty.displayIO handle (Pretty.renderPretty 0.4 cols (runSDoc doc ctx))
     `finally`
-      Pretty.printDoc_ mode cols handle
-        (runSDoc (coloured Col.colReset empty) ctx)
+      Pretty.displayIO handle (Pretty.renderPretty 0.4 cols
+        (runSDoc (coloured Col.colReset empty) ctx))
   where
     cols = pprCols dflags
     ctx = initSDocContext dflags sty
 
 -- | Like 'printSDoc' but appends an extra newline.
-printSDocLn :: Mode -> DynFlags -> Handle -> PprStyle -> SDoc -> IO ()
-printSDocLn mode dflags handle sty doc =
-  printSDoc mode dflags handle sty (doc $$ text "")
+printSDocLn :: DynFlags -> Handle -> PprStyle -> SDoc -> IO ()
+printSDocLn dflags handle sty doc =
+  printSDoc dflags handle sty (doc $$ docToSDoc Pretty.hardline)
 
 printForUser :: DynFlags -> Handle -> PrintUnqualified -> SDoc -> IO ()
 printForUser dflags handle unqual doc
-  = printSDocLn PageMode dflags handle
+  = printSDocLn dflags handle
                (mkUserStyle dflags unqual AllTheWay) doc
 
 printForUserPartWay :: DynFlags -> Handle -> Int -> PrintUnqualified -> SDoc
                     -> IO ()
 printForUserPartWay dflags handle d unqual doc
-  = printSDocLn PageMode dflags handle
+  = printSDocLn dflags handle
                 (mkUserStyle dflags unqual (PartWay d)) doc
 
 -- | Like 'printSDocLn' but specialized with 'LeftMode' and
 -- @'PprCode' 'CStyle'@.  This is typically used to output C-- code.
 printForC :: DynFlags -> Handle -> SDoc -> IO ()
-printForC dflags handle doc =
-  printSDocLn LeftMode dflags handle (PprCode CStyle) doc
+printForC dflags handle doc
+  = Pretty.displayIO handle
+    $ Pretty.renderCompact
+    $ runSDoc doc (initSDocContext dflags (PprCode CStyle))
 
 -- | An efficient variant of 'printSDoc' specialized for 'LeftMode' that
 -- outputs to a 'BufHandle'.
 bufLeftRenderSDoc :: DynFlags -> BufHandle -> PprStyle -> SDoc -> IO ()
-bufLeftRenderSDoc dflags bufHandle sty doc =
-  Pretty.bufLeftRender bufHandle (runSDoc doc (initSDocContext dflags sty))
+bufLeftRenderSDoc dflags bufHandle sty doc
+  = mapM_ (bPutChar bufHandle)
+    $ showSimpleDoc
+    $ Pretty.renderCompact
+    $ runSDoc (doc <> docToSDoc Pretty.hardline)
+              (initSDocContext dflags sty)
 
 pprCode :: CodeStyle -> SDoc -> SDoc
 pprCode cs d = withPprStyle (PprCode cs) d
@@ -517,36 +523,30 @@ showSDocDebug dflags d = renderWithStyle dflags d PprDebug
 
 renderWithStyle :: DynFlags -> SDoc -> PprStyle -> String
 renderWithStyle dflags sdoc sty
-  = let s = Pretty.style{ Pretty.mode = PageMode,
-                          Pretty.lineLength = pprCols dflags }
-    in Pretty.renderStyle s $ runSDoc sdoc (initSDocContext dflags sty)
+  = showSimpleDoc $ Pretty.renderPretty 0.4 (pprCols dflags)
+    $ runSDoc sdoc (initSDocContext dflags sty)
 
 -- This shows an SDoc, but on one line only. It's cheaper than a full
 -- showSDoc, designed for when we're getting results like "Foo.bar"
 -- and "foo{uniq strictness}" so we don't want fancy layout anyway.
 showSDocOneLine :: DynFlags -> SDoc -> String
 showSDocOneLine dflags d
- = let s = Pretty.style{ Pretty.mode = OneLineMode,
-                         Pretty.lineLength = pprCols dflags } in
-   Pretty.renderStyle s $
+ = showSimpleDoc $ Pretty.renderCompact $
       runSDoc d (initSDocContext dflags (defaultUserStyle dflags))
 
 showSDocDumpOneLine :: DynFlags -> SDoc -> String
 showSDocDumpOneLine dflags d
- = let s = Pretty.style{ Pretty.mode = OneLineMode,
-                         Pretty.lineLength = irrelevantNCols } in
-   Pretty.renderStyle s $
+ = showSimpleDoc $ Pretty.renderCompact $
       runSDoc d (initSDocContext dflags (defaultDumpStyle dflags))
 
-irrelevantNCols :: Int
--- Used for OneLineMode and LeftMode when number of cols isn't used
-irrelevantNCols = 1
+showSimpleDoc :: Pretty.SimpleDoc a e -> String
+showSimpleDoc doc = Pretty.displayS doc ""
 
 isEmpty :: DynFlags -> SDoc -> Bool
 isEmpty dflags sdoc = Pretty.isEmpty $ runSDoc sdoc dummySDocContext
    where dummySDocContext = initSDocContext dflags PprDebug
 
-docToSDoc :: Doc -> SDoc
+docToSDoc :: Doc () () -> SDoc
 docToSDoc d = SDoc (\_ -> d)
 
 empty    :: SDoc
@@ -568,19 +568,19 @@ char c      = docToSDoc $ Pretty.char c
 text s      = docToSDoc $ Pretty.text s
 {-# INLINE text #-}   -- Inline so that the RULE Pretty.text will fire
 
-ftext s     = docToSDoc $ Pretty.ftext s
-ptext s     = docToSDoc $ Pretty.ptext s
-ztext s     = docToSDoc $ Pretty.ztext s
-int n       = docToSDoc $ Pretty.int n
-integer n   = docToSDoc $ Pretty.integer n
-float n     = docToSDoc $ Pretty.float n
-double n    = docToSDoc $ Pretty.double n
-rational n  = docToSDoc $ Pretty.rational n
+ftext s     = docToSDoc $ Pretty.sizedText (lengthFS s) (unpackFS s)
+ptext s     = docToSDoc $ Pretty.sizedText (lengthLS s) (unpackLitString s)
+ztext s     = docToSDoc $ Pretty.sizedText (lengthFZS s) (zString s)
+int n       = docToSDoc $ Pretty.text $ show n
+integer n   = docToSDoc $ Pretty.text $ show n
+float n     = docToSDoc $ Pretty.text $ show n
+double n    = docToSDoc $ Pretty.text $ show n
+rational n  = docToSDoc $ Pretty.text $ show n
 word n      = sdocWithDynFlags $ \dflags ->
     -- See Note [Print Hexadecimal Literals] in Pretty.hs
     if shouldUseHexWordLiterals dflags
-        then docToSDoc $ Pretty.hex n
-        else docToSDoc $ Pretty.integer n
+        then docToSDoc $ Pretty.text $ showHex n ""
+        else docToSDoc $ Pretty.text $ show n
 
 -- | @doublePrec p n@ shows a floating point number @n@ with @p@
 -- digits of precision after the decimal point.
@@ -593,12 +593,13 @@ parens, braces, brackets, quotes, quote,
 parens d        = SDoc $ Pretty.parens . runSDoc d
 braces d        = SDoc $ Pretty.braces . runSDoc d
 brackets d      = SDoc $ Pretty.brackets . runSDoc d
-quote d         = SDoc $ Pretty.quote . runSDoc d
-doubleQuotes d  = SDoc $ Pretty.doubleQuotes . runSDoc d
+quote d         = SDoc $ Pretty.squotes . runSDoc d
+doubleQuotes d  = SDoc $ Pretty.dquotes . runSDoc d
 angleBrackets d = char '<' <> d <> char '>'
 
 cparen :: Bool -> SDoc -> SDoc
-cparen b d = SDoc $ Pretty.maybeParens b . runSDoc d
+cparen True d = SDoc $ Pretty.parens . runSDoc d
+cparen False d = SDoc $ runSDoc d
 
 -- 'quotes' encloses something in single quotes...
 -- but it omits them if the thing begins or ends in a single quote
@@ -613,7 +614,8 @@ quotes d =
            in case (str, snocView str) of
              (_, Just (_, '\'')) -> pp_d
              ('\'' : _, _)       -> pp_d
-             _other              -> Pretty.quotes pp_d
+             _other              ->
+                 Pretty.char '\'' Pretty.<> pp_d Pretty.<> Pretty.char '\''
 
 semi, comma, colon, equals, space, dcolon, underscore, dot, vbar :: SDoc
 arrow, larrow, darrow, arrowt, larrowt, arrowtt, larrowtt :: SDoc
@@ -638,8 +640,8 @@ dot        = char '.'
 vbar       = char '|'
 lparen     = docToSDoc $ Pretty.lparen
 rparen     = docToSDoc $ Pretty.rparen
-lbrack     = docToSDoc $ Pretty.lbrack
-rbrack     = docToSDoc $ Pretty.rbrack
+lbrack     = docToSDoc $ Pretty.lbracket
+rbrack     = docToSDoc $ Pretty.rbracket
 lbrace     = docToSDoc $ Pretty.lbrace
 rbrace     = docToSDoc $ Pretty.rbrace
 
@@ -682,8 +684,9 @@ nest :: Int -> SDoc -> SDoc
 nest n d    = SDoc $ Pretty.nest n . runSDoc d
 (<>) d1 d2  = SDoc $ \sty -> (Pretty.<>)  (runSDoc d1 sty) (runSDoc d2 sty)
 (<+>) d1 d2 = SDoc $ \sty -> (Pretty.<+>) (runSDoc d1 sty) (runSDoc d2 sty)
-($$) d1 d2  = SDoc $ \sty -> (Pretty.$$)  (runSDoc d1 sty) (runSDoc d2 sty)
-($+$) d1 d2 = SDoc $ \sty -> (Pretty.$+$) (runSDoc d1 sty) (runSDoc d2 sty)
+($$) d1 d2  = SDoc $ \sty -> Pretty.above (runSDoc d1 sty) (runSDoc d2 sty)
+($+$) d1 d2 = SDoc $ \sty -> Pretty.above (runSDoc d1 sty) (runSDoc d2 sty)
+    -- TODO: Is the above right?
 
 hcat :: [SDoc] -> SDoc
 -- ^ Concatenate 'SDoc' horizontally
@@ -702,25 +705,32 @@ fcat :: [SDoc] -> SDoc
 -- ^ This behaves like 'fsep', but it uses '<>' for horizontal conposition rather than '<+>'
 
 
-hcat ds = SDoc $ \sty -> Pretty.hcat [runSDoc d sty | d <- ds]
-hsep ds = SDoc $ \sty -> Pretty.hsep [runSDoc d sty | d <- ds]
-vcat ds = SDoc $ \sty -> Pretty.vcat [runSDoc d sty | d <- ds]
-sep ds  = SDoc $ \sty -> Pretty.sep  [runSDoc d sty | d <- ds]
-cat ds  = SDoc $ \sty -> Pretty.cat  [runSDoc d sty | d <- ds]
-fsep ds = SDoc $ \sty -> Pretty.fsep [runSDoc d sty | d <- ds]
-fcat ds = SDoc $ \sty -> Pretty.fcat [runSDoc d sty | d <- ds]
+hcat ds = SDoc $ \sty -> Pretty.hcat    [runSDoc d sty | d <- ds]
+hsep ds = SDoc $ \sty -> Pretty.hsep    [runSDoc d sty | d <- ds]
+vcat ds = SDoc $ \sty -> Pretty.vcat    [runSDoc d sty | d <- ds]
+sep ds  = SDoc $ \sty -> Pretty.sep     [runSDoc d sty | d <- ds]
+cat ds  = SDoc $ \sty -> Pretty.cat     [runSDoc d sty | d <- ds]
+fsep ds = SDoc $ \sty -> Pretty.fillSep [runSDoc d sty | d <- ds]
+fcat ds = SDoc $ \sty -> Pretty.fillCat [runSDoc d sty | d <- ds]
 
 hang :: SDoc  -- ^ The header
       -> Int  -- ^ Amount to indent the hung body
       -> SDoc -- ^ The hung body, indented and placed below the header
       -> SDoc
-hang d1 n d2   = SDoc $ \sty -> Pretty.hang (runSDoc d1 sty) n (runSDoc d2 sty)
+hang d1 n d2   = SDoc $ \sty ->
+  Pretty.sep [runSDoc d1 sty, Pretty.hang n (runSDoc d2 sty)]
+  -- TODO: Is this right?
 
 -- | This behaves like 'hang', but does not indent the second document
 -- when the header is empty.
 hangNotEmpty :: SDoc -> Int -> SDoc -> SDoc
 hangNotEmpty d1 n d2 =
-    SDoc $ \sty -> Pretty.hangNotEmpty (runSDoc d1 sty) n (runSDoc d2 sty)
+    SDoc $ \sty ->
+             let d1' = runSDoc d1 sty
+                 d2' = runSDoc d2 sty
+             in if Pretty.isEmpty d1'
+                then d2'
+                else Pretty.sep [d1', Pretty.hang n d2']
 
 punctuate :: SDoc   -- ^ The punctuation
           -> [SDoc] -- ^ The list that will have punctuation added between every adjacent pair of elements

@@ -196,7 +196,6 @@ import qualified PprColour as Col
 import Util
 import Maybes
 import MonadUtils
-import qualified Pretty
 import SrcLoc
 import BasicTypes       ( IntWithInf, treatZeroAsInf )
 import FastString
@@ -2066,7 +2065,7 @@ defaultLogActionHPutStrDoc :: DynFlags -> Handle -> SDoc -> PprStyle -> IO ()
 defaultLogActionHPutStrDoc dflags h d sty
   -- Don't add a newline at the end, so that successive
   -- calls to this log-action can output all on the same line
-  = printSDoc Pretty.PageMode dflags h sty d
+  = printSDoc dflags h sty d
 
 newtype FlushOut = FlushOut (IO ())
 

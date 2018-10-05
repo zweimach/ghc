@@ -67,12 +67,15 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 
 -----------------------------------------------------------
-module Text.PrettyPrint.Free.Internal (
+module Pretty (
   -- * Documents
     Doc(..), putDoc, hPutDoc
 
+  , isEmpty
+
   -- * Basic combinators
-  , char, text, nest, line, linebreak, group, softline
+  , char, text, sizedText, zeroWidthText
+  , nest, line, linebreak, group, softline
   , softbreak, hardline, flatAlt, flatten
 
   -- * Annotations
@@ -108,9 +111,6 @@ module Text.PrettyPrint.Free.Internal (
   , lparen, rparen, langle, rangle, lbrace, rbrace, lbracket, rbracket
   , squote, dquote, semi, colon, comma, space, dot, backslash, equals
 
-  -- * Pretty class
-  , Pretty(..)
-
   -- * Rendering
   , SimpleDoc(..), renderPretty, renderCompact, renderSmart
   , displayS, displayIO, displayDecorated
@@ -129,22 +129,9 @@ import Data.String
 import Data.Foldable hiding (fold)
 import Data.Traversable
 import Data.Bifunctor
-import Data.Functor.Apply
-import Data.Functor.Bind
-import Data.Functor.Plus
 import Data.Int
-import Data.Word
-import qualified Data.ByteString.UTF8 as B
-import qualified Data.ByteString.Lazy.UTF8 as BL
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
-import qualified Data.Text.Lazy as TL
-import qualified Data.Text.Lazy.Encoding as TL
-import Data.List.NonEmpty (NonEmpty)
-import Numeric.Natural (Natural)
 import Control.Applicative
 import Control.Monad
-import Data.Sequence (Seq)
 import Data.Semigroup
 import System.IO (Handle,hPutStr,stdout)
 import Prelude hiding (foldr1)
@@ -156,6 +143,11 @@ infixr 6 <+>
 -- list, tupled and semiBraces pretty print a list of
 -- documents either horizontally or vertically aligned.
 -----------------------------------------------------------
+
+-- XXX: I believe this will break under monadic composition.
+isEmpty :: Doc a e -> Bool
+isEmpty Empty = True
+isEmpty _ = False
 
 -- | The document @(list xs)@ comma separates the documents @xs@ and
 -- encloses them in square brackets. The documents are rendered
@@ -346,7 +338,7 @@ instance Semigroup (Doc a e) where
   (<>) = Cat
 
 instance Monoid (Doc a e) where
-  mappend = Cat
+  mappend = (<>)
   mempty = empty
   mconcat = hcat
 
@@ -493,113 +485,6 @@ backslash = char '\\'
 -- | The document @equals@ contains an equal sign, \"=\".
 equals :: Doc a e
 equals = char '='
-
-instance IsString (Doc a e) where
-  fromString = pretty
-
------------------------------------------------------------
--- overloading "pretty"
------------------------------------------------------------
-
--- | The member @prettyList@ is only used to define the @instance Pretty
--- a => Pretty [a]@. In normal circumstances only the @pretty@ function
--- is used.
-class Pretty a where
-  pretty     :: a   -> Doc an e
-  prettyList :: [a] -> Doc an e
-  prettyList = list . map pretty
-
-instance Pretty a => Pretty [a] where
-  pretty = prettyList
-
-instance Pretty (Doc a' e') where
-  pretty = docLeafyRec (\_ -> Empty) (\_ -> id)
-
-instance Pretty B.ByteString where
-  pretty = pretty . B.toString
-
-instance Pretty BL.ByteString where
-  pretty = pretty . BL.toString
-
-instance Pretty T.Text where
-  pretty = pretty . T.encodeUtf8
-
-instance Pretty TL.Text where
-  pretty = pretty . TL.encodeUtf8
-
-instance Pretty () where
-  pretty () = text "()"
-
-instance Pretty Bool where
-  pretty = text . show
-
-instance Pretty Char where
-  pretty = char
-  prettyList "" = empty
-  prettyList ('\n':s) = line <> prettyList s
-  prettyList s = case span (/='\n') s of
-             (xs,ys) -> text xs <> prettyList ys
-
-instance Pretty a => Pretty (Seq a) where
-  pretty = prettyList . toList
-
-instance Pretty a => Pretty (NonEmpty a) where
-  pretty = prettyList . toList
-
-instance Pretty Int where
-  pretty = text . show
-
-instance Pretty Int8 where
-  pretty = text . show
-
-instance Pretty Int16 where
-  pretty = text . show
-
-instance Pretty Int32 where
-  pretty = text . show
-
-instance Pretty Int64 where
-  pretty = text . show
-
-instance Pretty Word where
-  pretty = text . show
-
-instance Pretty Word8 where
-  pretty = text . show
-
-instance Pretty Word16 where
-  pretty = text . show
-
-instance Pretty Word32 where
-  pretty = text . show
-
-instance Pretty Word64 where
-  pretty = text . show
-
-instance Pretty Integer where
-  pretty = text . show
-
-instance Pretty Natural where
-  pretty = text . show
-
-instance Pretty Float where
-  pretty = text . show
-
-instance Pretty Double where
-  pretty = text . show
-
-instance (Pretty a,Pretty b) => Pretty (a,b) where
-  pretty (x,y) = tupled [pretty x, pretty y]
-
-instance (Pretty a,Pretty b,Pretty c) => Pretty (a,b,c) where
-  pretty (x,y,z)= tupled [pretty x, pretty y, pretty z]
-
-instance Pretty a => Pretty (Maybe a) where
-  pretty Nothing = empty
-  pretty (Just x) = pretty x
-
-instance Pretty Rational where
-  pretty = text . show
 
 -----------------------------------------------------------
 -- semi primitive: fill and fillBreak
@@ -786,9 +671,6 @@ instance Functor (Doc a) where
 instance Bifunctor Doc where
   bimap f g = docLeafyRec (Effect . g) (Annotate . f)
 
-instance Apply (Doc a) where
-  (<.>) = ap
-
 instance Applicative (Doc a) where
   pure = Effect
   (<*>) = ap
@@ -796,19 +678,9 @@ instance Applicative (Doc a) where
 annotate :: a -> Doc a e -> Doc a e
 annotate = Annotate
 
-instance Bind (Doc a) where
-  (>>-) = (>>=)
-
 instance Monad (Doc a) where
   return = pure
   d >>= k = docLeafyRec (\e -> k e) Annotate d
-  fail _ = empty
-
-instance Alt (Doc a) where
-  (<!>) = (<>)
-
-instance Plus (Doc a) where
-  zero = empty
 
 instance Alternative (Doc a) where
   (<|>) = (<>)
@@ -883,6 +755,13 @@ char c = Char c
 text :: String -> Doc a e
 text "" = Empty
 text s  = Text (length s) s
+
+sizedText :: Int -> String -> Doc a e
+sizedText 0 _ = Empty
+sizedText l s = Text l s
+
+zeroWidthText :: String -> Doc a e
+zeroWidthText s = Text 0 s
 
 -- | The @line@ document advances to the next line and indents to the
 -- current nesting level. Document @line@ behaves like @(text \" \")@

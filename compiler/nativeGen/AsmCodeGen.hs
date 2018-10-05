@@ -83,7 +83,6 @@ import Unique
 
 import BasicTypes       ( Alignment )
 import Digraph
-import qualified Pretty
 import BufWrite
 import Outputable
 import FastString
@@ -388,7 +387,7 @@ finishNativeGen dflags modLoc bufh@(BufHandle _ _ h) us ngs
           dump_stats (Linear.pprStats (concat (ngs_natives ngs)) linearStats)
 
         -- write out the imports
-        printSDocLn Pretty.LeftMode dflags h (mkCodeStyle AsmStyle)
+        printSDocLn dflags h (mkCodeStyle AsmStyle)
                 $ makeImportsDoc dflags (concat (ngs_imports ngs))
         return us'
   where
