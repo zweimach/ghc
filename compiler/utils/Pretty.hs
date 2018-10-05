@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE DeriveFunctor #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -215,15 +216,25 @@ infixl 5 $$, $+$
 -- | The abstract type of documents.
 -- A Doc represents a *set* of layouts. A Doc with
 -- no occurrences of Union or NoDoc represents just one layout.
-data Doc
-  = Empty                                            -- empty
-  | NilAbove Doc                                     -- text "" $$ x
-  | TextBeside !TextDetails {-# UNPACK #-} !Int Doc  -- text s <> x
-  | Nest {-# UNPACK #-} !Int Doc                     -- nest k x
-  | Union Doc Doc                                    -- ul `union` ur
-  | NoDoc                                            -- The empty set of documents
-  | Beside Doc Bool Doc                              -- True <=> space between
-  | Above Doc Bool Doc                               -- True <=> never overlap
+data Doc a
+  = Empty
+    -- ^ @empty@
+  | NilAbove (Doc a)
+    -- ^ @text "" $$ x@
+  | TextBeside !TextDetails {-# UNPACK #-} !Int (Doc a)
+    -- ^ @text s <> x@
+  | Nest {-# UNPACK #-} !Int (Doc a)
+    -- ^ @nest k x@
+  | Union (Doc a) (Doc a)
+    -- ^ @ul `union` ur@
+  | NoDoc
+    -- ^ The empty set of documents
+  | Beside (Doc a) Bool (Doc a)
+    -- ^ @True@ <=> space between
+  | Above (Doc a) Bool (Doc a)
+    -- ^ @True@ <=> never overlap
+  | Ann a
+  deriving (Functor)
 
 {-
 Here are the invariants:
@@ -275,7 +286,7 @@ data TextDetails = Chr  {-# UNPACK #-} !Char -- ^ A single Char fragment
                  | RStr {-# UNPACK #-} !Int {-# UNPACK #-} !Char
                    -- a repeated character (e.g., ' ')
 
-instance Show Doc where
+instance Show a => Show (Doc a) where
   showsPrec _ doc cont = fullRender (mode style) (lineLength style)
                                     (ribbonsPerLine style)
                                     txtPrinter cont doc
@@ -285,7 +296,7 @@ instance Show Doc where
 -- Values and Predicates on GDocs and TextDetails
 
 -- | A document of height and width 1, containing a literal character.
-char :: Char -> Doc
+char :: Char -> Doc a
 char c = textBeside_ (Chr c) 1 Empty
 
 -- | A document of height 1 containing a literal string.
@@ -297,7 +308,7 @@ char c = textBeside_ (Chr c) 1 Empty
 --
 -- The side condition on the last law is necessary because @'text' \"\"@
 -- has height 1, while 'empty' has no height.
-text :: String -> Doc
+text :: String -> Doc a
 text s = textBeside_ (Str s) (length s) Empty
 {-# NOINLINE [0] text #-}   -- Give the RULE a chance to fire
                             -- It must wait till after phase 1 when
@@ -312,32 +323,32 @@ text s = textBeside_ (Str s) (length s) Empty
     forall p n. text (unpackNBytes# p n) = ptext (LitString (Ptr p) (I# n))
   #-}
 
-ftext :: FastString -> Doc
+ftext :: FastString -> Doc a
 ftext s = textBeside_ (PStr s) (lengthFS s) Empty
 
-ptext :: LitString -> Doc
+ptext :: LitString -> Doc a
 ptext s = textBeside_ (LStr s) (lengthLS s) Empty
 
-ztext :: FastZString -> Doc
+ztext :: FastZString -> Doc a
 ztext s = textBeside_ (ZStr s) (lengthFZS s) Empty
 
 -- | Some text with any width. (@text s = sizedText (length s) s@)
-sizedText :: Int -> String -> Doc
+sizedText :: Int -> String -> Doc a
 sizedText l s = textBeside_ (Str s) l Empty
 
 -- | Some text, but without any width. Use for non-printing text
 -- such as a HTML or Latex tags
-zeroWidthText :: String -> Doc
+zeroWidthText :: String -> Doc a
 zeroWidthText = sizedText 0
 
 -- | The empty document, with no height and no width.
 -- 'empty' is the identity for '<>', '<+>', '$$' and '$+$', and anywhere
 -- in the argument list for 'sep', 'hcat', 'hsep', 'vcat', 'fcat' etc.
-empty :: Doc
+empty :: Doc a
 empty = Empty
 
 -- | Returns 'True' if the document is empty
-isEmpty :: Doc -> Bool
+isEmpty :: Doc a -> Bool
 isEmpty Empty = True
 isEmpty _     = False
 
@@ -372,17 +383,17 @@ indentation k0 < (k-s), it is translated out-of-page, causing
 -}
 
 
-semi   :: Doc -- ^ A ';' character
-comma  :: Doc -- ^ A ',' character
-colon  :: Doc -- ^ A ':' character
-space  :: Doc -- ^ A space character
-equals :: Doc -- ^ A '=' character
-lparen :: Doc -- ^ A '(' character
-rparen :: Doc -- ^ A ')' character
-lbrack :: Doc -- ^ A '[' character
-rbrack :: Doc -- ^ A ']' character
-lbrace :: Doc -- ^ A '{' character
-rbrace :: Doc -- ^ A '}' character
+semi   :: Doc a -- ^ A ';' character
+comma  :: Doc a -- ^ A ',' character
+colon  :: Doc a -- ^ A ':' character
+space  :: Doc a -- ^ A space character
+equals :: Doc a -- ^ A '=' character
+lparen :: Doc a -- ^ A '(' character
+rparen :: Doc a -- ^ A ')' character
+lbrack :: Doc a -- ^ A '[' character
+rbrack :: Doc a -- ^ A ']' character
+lbrace :: Doc a -- ^ A '{' character
+rbrace :: Doc a -- ^ A '}' character
 semi   = char ';'
 comma  = char ','
 colon  = char ':'
@@ -399,12 +410,12 @@ spaceText, nlText :: TextDetails
 spaceText = Chr ' '
 nlText    = Chr '\n'
 
-int      :: Int      -> Doc -- ^ @int n = text (show n)@
-integer  :: Integer  -> Doc -- ^ @integer n = text (show n)@
-float    :: Float    -> Doc -- ^ @float n = text (show n)@
-double   :: Double   -> Doc -- ^ @double n = text (show n)@
-rational :: Rational -> Doc -- ^ @rational n = text (show n)@
-hex      :: Integer  -> Doc -- ^ See Note [Print Hexadecimal Literals]
+int      :: Int      -> Doc a -- ^ @int n = text (show n)@
+integer  :: Integer  -> Doc a -- ^ @integer n = text (show n)@
+float    :: Float    -> Doc a -- ^ @float n = text (show n)@
+double   :: Double   -> Doc a -- ^ @double n = text (show n)@
+rational :: Rational -> Doc a -- ^ @rational n = text (show n)@
+hex      :: Integer  -> Doc a -- ^ See Note [Print Hexadecimal Literals]
 int      n = text (show n)
 integer  n = text (show n)
 float    n = text (show n)
@@ -417,12 +428,12 @@ hex      n = text ('0' : 'x' : padded)
     len = 2 ^ (ceiling (logBase 2 (fromIntegral strLen :: Double)) :: Int)
     padded = replicate (len - strLen) '0' ++ str
 
-parens       :: Doc -> Doc -- ^ Wrap document in @(...)@
-brackets     :: Doc -> Doc -- ^ Wrap document in @[...]@
-braces       :: Doc -> Doc -- ^ Wrap document in @{...}@
-quotes       :: Doc -> Doc -- ^ Wrap document in @\'...\'@
-quote        :: Doc -> Doc
-doubleQuotes :: Doc -> Doc -- ^ Wrap document in @\"...\"@
+parens       :: Doc a -> Doc a -- ^ Wrap document in @(...)@
+brackets     :: Doc a -> Doc a -- ^ Wrap document in @[...]@
+braces       :: Doc a -> Doc a -- ^ Wrap document in @{...}@
+quotes       :: Doc a -> Doc a -- ^ Wrap document in @\'...\'@
+quote        :: Doc a -> Doc a
+doubleQuotes :: Doc a -> Doc a -- ^ Wrap document in @\"...\"@
 quotes p       = char '`' <> p <> char '\''
 quote p        = char '\'' <> p
 doubleQuotes p = char '"' <> p <> char '"'
@@ -482,7 +493,7 @@ been padded with zeroes so that their lengths are 16, 8, and 4, respectively.
 -}
 
 -- | Apply 'parens' to 'Doc' if boolean is true.
-maybeParens :: Bool -> Doc -> Doc
+maybeParens :: Bool -> Doc a -> Doc a
 maybeParens False = id
 maybeParens True = parens
 
@@ -490,7 +501,7 @@ maybeParens True = parens
 -- Structural operations on GDocs
 
 -- | Perform some simplification of a built up @GDoc@.
-reduceDoc :: Doc -> RDoc
+reduceDoc :: Doc a -> RDoc a
 reduceDoc (Beside p g q) = p `seq` g `seq` (beside p g $! reduceDoc q)
 reduceDoc (Above  p g q) = p `seq` g `seq` (above  p g $! reduceDoc q)
 reduceDoc p              = p
@@ -545,7 +556,7 @@ punctuate p (x:xs) = go x xs
                          go y (z:zs) = (y <> p) : go z zs
 
 -- mkNest checks for Nest's invariant that it doesn't have an Empty inside it
-mkNest :: Int -> Doc -> Doc
+mkNest :: Int -> Doc a -> Doc a
 mkNest k _ | k `seq` False = undefined
 mkNest k (Nest k1 p)       = mkNest (k + k1) p
 mkNest _ NoDoc             = NoDoc
@@ -554,34 +565,34 @@ mkNest 0 p                 = p
 mkNest k p                 = nest_ k p
 
 -- mkUnion checks for an empty document
-mkUnion :: Doc -> Doc -> Doc
+mkUnion :: Doc a -> Doc a -> Doc a
 mkUnion Empty _ = Empty
 mkUnion p q     = p `union_` q
 
-beside_' :: Bool -> Doc -> Doc -> Doc
+beside_' :: Bool -> Doc a -> Doc a -> Doc a
 beside_' _ p Empty = p
 beside_' g p q     = Beside p g q
 
-above_' :: Bool -> Doc -> Doc -> Doc
+above_' :: Bool -> Doc a -> Doc a -> Doc a
 above_' _ p Empty = p
 above_' g p q     = Above p g q
 
-reduceAB :: Doc -> Doc
+reduceAB :: Doc a -> Doc a
 reduceAB (Above  Empty _ q) = q
 reduceAB (Beside Empty _ q) = q
 reduceAB doc                = doc
 
-nilAbove_ :: RDoc -> RDoc
+nilAbove_ :: RDoc a -> RDoc a
 nilAbove_ = NilAbove
 
 -- Arg of a TextBeside is always an RDoc
-textBeside_ :: TextDetails -> Int -> RDoc -> RDoc
+textBeside_ :: TextDetails -> Int -> RDoc a -> RDoc a
 textBeside_ = TextBeside
 
-nest_ :: Int -> RDoc -> RDoc
+nest_ :: Int -> RDoc a -> RDoc a
 nest_ = Nest
 
-union_ :: RDoc -> RDoc -> RDoc
+union_ :: RDoc a -> RDoc a -> RDoc a
 union_ = Union
 
 
@@ -607,26 +618,26 @@ union_ = Union
 --
 -- * @(x '$$' y) '<>' z = x '$$' (y '<>' z)@, if @y@ non-empty.
 --
-($$) :: Doc -> Doc -> Doc
+($$) :: Doc a -> Doc a -> Doc a
 p $$  q = above_ p False q
 
 -- | Above, with no overlapping.
 -- '$+$' is associative, with identity 'empty'.
-($+$) :: Doc -> Doc -> Doc
+($+$) :: Doc a -> Doc a -> Doc a
 p $+$ q = above_ p True q
 
-above_ :: Doc -> Bool -> Doc -> Doc
+above_ :: Doc a -> Bool -> Doc a -> Doc a
 above_ p _ Empty = p
 above_ Empty _ q = q
 above_ p g q     = Above p g q
 
-above :: Doc -> Bool -> RDoc -> RDoc
+above :: Doc a -> Bool -> RDoc a -> RDoc a
 above (Above p g1 q1)  g2 q2 = above p g1 (above q1 g2 q2)
 above p@(Beside{})     g  q  = aboveNest (reduceDoc p) g 0 (reduceDoc q)
 above p g q                  = aboveNest p             g 0 (reduceDoc q)
 
 -- Specification: aboveNest p g k q = p $g$ (nest k q)
-aboveNest :: RDoc -> Bool -> Int -> RDoc -> RDoc
+aboveNest :: RDoc a -> Bool -> Int -> RDoc a -> RDoc a
 aboveNest _                   _ k _ | k `seq` False = undefined
 aboveNest NoDoc               _ _ _ = NoDoc
 aboveNest (p1 `Union` p2)     g k q = aboveNest p1 g k q `union_`
@@ -643,12 +654,13 @@ aboveNest (TextBeside s sl p) g k q = textBeside_ s sl rest
                                       rest = case p of
                                                 Empty -> nilAboveNest g k1 q
                                                 _     -> aboveNest  p g k1 q
+aboveNest (Ann x)             _ _ _ = Ann x
 aboveNest (Above {})          _ _ _ = error "aboveNest Above"
 aboveNest (Beside {})         _ _ _ = error "aboveNest Beside"
 
 -- Specification: text s <> nilaboveNest g k q
 --              = text s <> (text "" $g$ nest k q)
-nilAboveNest :: Bool -> Int -> RDoc -> RDoc
+nilAboveNest :: Bool -> Int -> RDoc a -> RDoc a
 nilAboveNest _ k _           | k `seq` False = undefined
 nilAboveNest _ _ Empty       = Empty
                                -- Here's why the "text s <>" is in the spec!
@@ -668,21 +680,21 @@ nilAboveNest g k q           | not g && k > 0      -- No newline if no overlap
 
 -- | Beside.
 -- '<>' is associative, with identity 'empty'.
-(<>) :: Doc -> Doc -> Doc
+(<>) :: Doc a -> Doc a -> Doc a
 p <>  q = beside_ p False q
 
 -- | Beside, separated by space, unless one of the arguments is 'empty'.
 -- '<+>' is associative, with identity 'empty'.
-(<+>) :: Doc -> Doc -> Doc
+(<+>) :: Doc a -> Doc a -> Doc a
 p <+> q = beside_ p True  q
 
-beside_ :: Doc -> Bool -> Doc -> Doc
+beside_ :: Doc a -> Bool -> Doc a -> Doc a
 beside_ p _ Empty = p
 beside_ Empty _ q = q
 beside_ p g q     = Beside p g q
 
 -- Specification: beside g p q = p <g> q
-beside :: Doc -> Bool -> RDoc -> RDoc
+beside :: Doc a -> Bool -> RDoc a -> RDoc a
 beside NoDoc               _ _   = NoDoc
 beside (p1 `Union` p2)     g q   = beside p1 g q `union_` beside p2 g q
 beside Empty               _ q   = q
@@ -700,7 +712,7 @@ beside (TextBeside s sl p) g q   = textBeside_ s sl rest
 
 -- Specification: text "" <> nilBeside g p
 --              = text "" <g> p
-nilBeside :: Bool -> RDoc -> RDoc
+nilBeside :: Bool -> RDoc a -> RDoc a
 nilBeside _ Empty         = Empty -- Hence the text "" in the spec
 nilBeside g (Nest _ p)    = nilBeside g p
 nilBeside g p | g         = textBeside_ spaceText 1 p
@@ -715,14 +727,14 @@ nilBeside g p | g         = textBeside_ spaceText 1 p
 --                          vcat ps
 
 -- | Either 'hsep' or 'vcat'.
-sep  :: [Doc] -> Doc
+sep  :: [Doc a] -> Doc a
 sep = sepX True   -- Separate with spaces
 
 -- | Either 'hcat' or 'vcat'.
-cat :: [Doc] -> Doc
+cat :: [Doc a] -> Doc a
 cat = sepX False  -- Don't
 
-sepX :: Bool -> [Doc] -> Doc
+sepX :: Bool -> [Doc a] -> Doc a
 sepX _ []     = empty
 sepX x (p:ps) = sep1 x (reduceDoc p) 0 ps
 
@@ -730,7 +742,7 @@ sepX x (p:ps) = sep1 x (reduceDoc p) 0 ps
 -- Specification: sep1 g k ys = sep (x : map (nest k) ys)
 --                            = oneLiner (x <g> nest k (hsep ys))
 --                              `union` x $$ nest k (vcat ys)
-sep1 :: Bool -> RDoc -> Int -> [Doc] -> RDoc
+sep1 :: Bool -> RDoc a -> Int -> [Doc a] -> RDoc a
 sep1 _ _                   k _  | k `seq` False = undefined
 sep1 _ NoDoc               _ _  = NoDoc
 sep1 g (p `Union` q)       k ys = sep1 g p k ys `union_`
@@ -748,7 +760,7 @@ sep1 _ (Beside {})         _ _  = error "sep1 Beside"
 -- Specification: sepNB p k ys = sep1 (text "" <> p) k ys
 -- Called when we have already found some text in the first item
 -- We have to eat up nests
-sepNB :: Bool -> Doc -> Int -> [Doc] -> Doc
+sepNB :: Bool -> Doc a -> Int -> [Doc a] -> Doc a
 sepNB g (Nest _ p) k ys
   = sepNB g p k ys -- Never triggered, because of invariant (2)
 sepNB g Empty k ys
@@ -766,11 +778,11 @@ sepNB g p k ys
 -- @fill@
 
 -- | \"Paragraph fill\" version of 'cat'.
-fcat :: [Doc] -> Doc
+fcat :: [Doc a] -> Doc a
 fcat = fill False
 
 -- | \"Paragraph fill\" version of 'sep'.
-fsep :: [Doc] -> Doc
+fsep :: [Doc a] -> Doc a
 fsep = fill True
 
 -- Specification:
@@ -789,11 +801,11 @@ fsep = fill True
 -- layout1 $*$ layout2 | hasMoreThanOneLine layout1 = layout1 $$ layout2
 --                     | otherwise                  = layout1 $+$ layout2
 
-fill :: Bool -> [Doc] -> RDoc
+fill :: Bool -> [Doc a] -> RDoc a
 fill _ []     = empty
 fill g (p:ps) = fill1 g (reduceDoc p) 0 ps
 
-fill1 :: Bool -> RDoc -> Int -> [Doc] -> Doc
+fill1 :: Bool -> RDoc a -> Int -> [Doc a] -> Doc a
 fill1 _ _                   k _  | k `seq` False = undefined
 fill1 _ NoDoc               _ _  = NoDoc
 fill1 g (p `Union` q)       k ys = fill1 g p k ys `union_`
@@ -805,7 +817,7 @@ fill1 g (TextBeside s sl p) k ys = textBeside_ s sl (fillNB g p (k - sl) ys)
 fill1 _ (Above {})          _ _  = error "fill1 Above"
 fill1 _ (Beside {})         _ _  = error "fill1 Beside"
 
-fillNB :: Bool -> Doc -> Int -> [Doc] -> Doc
+fillNB :: Bool -> Doc a -> Int -> [Doc a] -> Doc a
 fillNB _ _           k _  | k `seq` False = undefined
 fillNB g (Nest _ p)  k ys   = fillNB g p k ys
                               -- Never triggered, because of invariant (2)
@@ -815,28 +827,28 @@ fillNB g Empty k (y:ys)     = fillNBE g k y ys
 fillNB g p k ys             = fill1 g p k ys
 
 
-fillNBE :: Bool -> Int -> Doc -> [Doc] -> Doc
+fillNBE :: Bool -> Int -> Doc a -> [Doc a] -> Doc a
 fillNBE g k y ys
   = nilBeside g (fill1 g ((elideNest . oneLiner . reduceDoc) y) k' ys)
     -- XXX: TODO: PRETTY: Used to use True here (but GHC used False...)
     `mkUnion` nilAboveNest False k (fill g (y:ys))
   where k' = if g then k - 1 else k
 
-elideNest :: Doc -> Doc
+elideNest :: Doc a -> Doc a
 elideNest (Nest _ d) = d
 elideNest d          = d
 
 -- ---------------------------------------------------------------------------
 -- Selecting the best layout
 
-best :: Int   -- Line length
-     -> Int   -- Ribbon length
-     -> RDoc
-     -> RDoc  -- No unions in here!
+best :: Int    -- Line length
+     -> Int    -- Ribbon length
+     -> RDoc a
+     -> RDoc a -- No unions in here!
 best w0 r = get w0
   where
     get :: Int          -- (Remaining) width of line
-        -> Doc -> Doc
+        -> Doc a -> Doc a
     get w _ | w == 0 && False = undefined
     get _ Empty               = Empty
     get _ NoDoc               = NoDoc
@@ -849,8 +861,8 @@ best w0 r = get w0
 
     get1 :: Int         -- (Remaining) width of line
          -> Int         -- Amount of first line already eaten up
-         -> Doc         -- This is an argument to TextBeside => eat Nests
-         -> Doc         -- No unions in here!
+         -> Doc a       -- This is an argument to TextBeside => eat Nests
+         -> Doc a       -- No unions in here!
 
     get1 w _ _ | w == 0 && False  = undefined
     get1 _ _  Empty               = Empty
@@ -863,15 +875,15 @@ best w0 r = get w0
     get1 _ _  (Above {})          = error "best get1 Above"
     get1 _ _  (Beside {})         = error "best get1 Beside"
 
-nicest :: Int -> Int -> Doc -> Doc -> Doc
+nicest :: Int -> Int -> Doc a -> Doc a -> Doc a
 nicest !w !r = nicest1 w r 0
 
-nicest1 :: Int -> Int -> Int -> Doc -> Doc -> Doc
+nicest1 :: Int -> Int -> Int -> Doc a -> Doc a -> Doc a
 nicest1 !w !r !sl p q | fits ((w `min` r) - sl) p = p
                       | otherwise                 = q
 
 fits :: Int  -- Space available
-     -> Doc
+     -> Doc a
      -> Bool -- True if *first line* of Doc fits in space available
 fits n _ | n < 0           = False
 fits _ NoDoc               = False
@@ -884,11 +896,11 @@ fits _ (Union {})          = error "fits Union"
 fits _ (Nest {})           = error "fits Nest"
 
 -- | @first@ returns its first argument if it is non-empty, otherwise its second.
-first :: Doc -> Doc -> Doc
+first :: Doc a -> Doc a -> Doc a
 first p q | nonEmptySet p = p -- unused, because (get OneLineMode) is unused
           | otherwise     = q
 
-nonEmptySet :: Doc -> Bool
+nonEmptySet :: Doc a -> Bool
 nonEmptySet NoDoc              = False
 nonEmptySet (_ `Union` _)      = True
 nonEmptySet Empty              = True
@@ -899,7 +911,7 @@ nonEmptySet (Above {})         = error "nonEmptySet Above"
 nonEmptySet (Beside {})        = error "nonEmptySet Beside"
 
 -- @oneLiner@ returns the one-line members of the given set of @GDoc@s.
-oneLiner :: Doc -> Doc
+oneLiner :: Doc a -> Doc a
 oneLiner NoDoc               = NoDoc
 oneLiner Empty               = Empty
 oneLiner (NilAbove _)        = NoDoc
@@ -931,7 +943,7 @@ data Mode = PageMode     -- ^ Normal
           | OneLineMode  -- ^ All on one line
 
 -- | Render the @Doc@ to a String using the given @Style@.
-renderStyle :: Style -> Doc -> String
+renderStyle :: Style -> Doc a -> String
 renderStyle s = fullRender (mode s) (lineLength s) (ribbonsPerLine s)
                 txtPrinter ""
 
@@ -950,7 +962,7 @@ fullRender :: Mode                     -- ^ Rendering mode
            -> Float                    -- ^ Ribbons per line
            -> (TextDetails -> a -> a)  -- ^ What to do with text
            -> a                        -- ^ What to do at the end
-           -> Doc                      -- ^ The document
+           -> Doc a                    -- ^ The document
            -> a                        -- ^ Result
 fullRender OneLineMode _ _ txt end doc
   = easyDisplay spaceText (\_ y -> y) txt end (reduceDoc doc)
@@ -969,11 +981,11 @@ fullRender m lineLen ribbons txt rest doc
                       _          -> lineLen
 
 easyDisplay :: TextDetails
-             -> (Doc -> Doc -> Doc)
-             -> (TextDetails -> a -> a)
-             -> a
-             -> Doc
-             -> a
+             -> (Doc a -> Doc a -> Doc a)
+             -> (TextDetails -> b -> b)
+             -> b
+             -> Doc a
+             -> b
 easyDisplay nlSpaceText choose txt end
   = lay
   where
@@ -986,7 +998,7 @@ easyDisplay nlSpaceText choose txt end
     lay (Above {})         = error "easyDisplay Above"
     lay (Beside {})        = error "easyDisplay Beside"
 
-display :: Mode -> Int -> Int -> (TextDetails -> a -> a) -> a -> Doc -> a
+display :: Mode -> Int -> Int -> (TextDetails -> b -> b) -> b -> Doc a -> b
 display m !page_width !ribbon_width txt end doc
   = case page_width - ribbon_width of { gap_width ->
     case gap_width `quot` 2 of { shift ->
@@ -1033,11 +1045,11 @@ display m !page_width !ribbon_width txt end doc
     lay 0 doc
     }}
 
-printDoc :: Mode -> Int -> Handle -> Doc -> IO ()
+printDoc :: Mode -> Int -> Handle -> Doc a -> IO ()
 -- printDoc adds a newline to the end
 printDoc mode cols hdl doc = printDoc_ mode cols hdl (doc $$ text "")
 
-printDoc_ :: Mode -> Int -> Handle -> Doc -> IO ()
+printDoc_ :: Mode -> Int -> Handle -> Doc a -> IO ()
 -- printDoc_ does not add a newline at the end, so that
 -- successive calls can output stuff on the same line
 -- Rather like putStr vs putStrLn
@@ -1076,16 +1088,16 @@ hPutLitString handle  (LitString a l) = hPutBuf handle a l
 --     care about exceptions, so we add a layer of fast buffering
 --     over the Handle interface.
 
-printLeftRender :: Handle -> Doc -> IO ()
+printLeftRender :: Handle -> Doc a -> IO ()
 printLeftRender hdl doc = do
   b <- newBufHandle hdl
   bufLeftRender b doc
   bFlush b
 
-bufLeftRender :: BufHandle -> Doc -> IO ()
+bufLeftRender :: BufHandle -> Doc a -> IO ()
 bufLeftRender b doc = layLeft b (reduceDoc doc)
 
-layLeft :: BufHandle -> Doc -> IO ()
+layLeft :: BufHandle -> Doc a -> IO ()
 layLeft b _ | b `seq` False  = undefined -- make it strict in b
 layLeft _ NoDoc              = error "layLeft: NoDoc"
 layLeft b (Union p q)        = layLeft b $! first p q
