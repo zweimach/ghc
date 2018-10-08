@@ -172,25 +172,6 @@ GNUC_ATTR_HOT void nonmoving_sweep(void)
     }
 }
 
-/* N.B. This happens during the pause so we own all capabilities. */
-void nonmoving_sweep_mut_lists()
-{
-    for (uint32_t n = 0; n < n_capabilities; n++) {
-        Capability *cap = capabilities[n];
-        bdescr *old_mut_list = cap->mut_lists[oldest_gen->no];
-        cap->mut_lists[oldest_gen->no] = allocBlockOnNode_sync(cap->node);
-        for (bdescr *bd = old_mut_list; bd; bd = bd->link) {
-            for (StgPtr p = bd->start; p < bd->free; p++) {
-                StgClosure **q = (StgClosure**)p;
-                if (nonmoving_is_alive(*q)) {
-                    recordMutableCap(*q, cap, oldest_gen->no);
-                }
-            }
-        }
-        freeChain(old_mut_list);
-    }
-}
-
 void nonmoving_sweep_large_objects()
 {
     freeChain(nonmoving_large_objects);
@@ -198,6 +179,24 @@ void nonmoving_sweep_large_objects()
     n_nonmoving_large_blocks = n_nonmoving_marked_large_blocks;
     nonmoving_marked_large_objects = NULL;
     n_nonmoving_marked_large_blocks = 0;
+}
+
+// Runs in a STW phase
+void nonmoving_sweep_array_list()
+{
+    bdescr *old_array_list = nonmoving_array_list;
+    nonmoving_array_list = allocBlock();
+
+    for (bdescr *bd = old_array_list; bd; bd = bd->link) {
+        for (StgPtr p = bd->start; p < bd->free; p++) {
+            StgClosure **q = (StgClosure**)p;
+            if (nonmoving_is_alive(*q)) {
+                recordArrayMutable(*q);
+            }
+        }
+    }
+
+    freeChain(old_array_list);
 }
 
 // Essentially nonmoving_is_alive, but works when the object died in moving

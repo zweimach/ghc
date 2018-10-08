@@ -17,6 +17,8 @@ nonmoving_scavenge_one(StgClosure *q)
     StgPtr p = (StgPtr)q;
     const StgInfoTable *info = get_itbl(q);
 
+    bool is_array = false;
+
     switch (info->type) {
 
     case MVAR_CLEAN:
@@ -213,6 +215,7 @@ nonmoving_scavenge_one(StgClosure *q)
             ((StgClosure *)q)->header.info = &stg_MUT_ARR_PTRS_CLEAN_info;
         }
         gct->failed_to_evac = true; // always put it on the mutable list.
+        is_array = true;
         break;
     }
 
@@ -248,6 +251,7 @@ nonmoving_scavenge_one(StgClosure *q)
             ((StgClosure *)q)->header.info = &stg_SMALL_MUT_ARR_PTRS_CLEAN_info;
         }
         gct->failed_to_evac = true; // always put it on the mutable list.
+        is_array = true;
         break;
     }
 
@@ -327,7 +331,11 @@ nonmoving_scavenge_one(StgClosure *q)
         // Mutable object or points to a younger object, add to the mut_list
         gct->failed_to_evac = false;
         if (oldest_gen->no > 0) {
-            recordMutableGen_GC(q, oldest_gen->no);
+            if (is_array) {
+                recordArrayMutable(q);
+            } else {
+                recordMutableGen_GC(q, oldest_gen->no);
+            }
         }
     }
 }

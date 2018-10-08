@@ -83,10 +83,14 @@ struct nonmoving_heap {
 
 extern struct nonmoving_heap nonmoving_heap;
 
+// mut_list for mutable arrays
+extern bdescr *nonmoving_array_list;
+
 void nonmoving_init(void);
 void nonmoving_collect(void);
 void *nonmoving_allocate(Capability *cap, StgWord sz);
 void nonmoving_add_capabilities(uint32_t new_n_caps);
+void recordArrayMutable(StgClosure *p);
 
 // Add a segment to the free list.
 INLINE_HEADER void nonmoving_push_free_segment(struct nonmoving_segment *seg)

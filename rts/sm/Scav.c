@@ -1675,6 +1675,10 @@ scavenge_capability_mut_lists (Capability *cap)
         uint32_t g = oldest_gen->no;
         scavenge_mutable_list(cap->saved_mut_lists[g], oldest_gen);
         freeChain_sync(cap->saved_mut_lists[g]);
+        scavenge_mutable_list(nonmoving_array_list, oldest_gen);
+        // Do not free the array list: mutable arrays need to be in the list
+        // while mutators run, otherwise a mutator may update an array and do a
+        // minor GC, and collect a young objects pointed by the array.
         cap->saved_mut_lists[g] = NULL;
         return;
     }

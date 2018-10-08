@@ -28,6 +28,15 @@
 
 struct nonmoving_heap nonmoving_heap;
 
+// A mut_list but for pointer arrays (MUT_ARR_PTRS and SMALL_MUT_ARR_PTRS)
+// Unlike other mut_lists objects are added to this only by the GC (and not by
+// mutators). So we don't have one list per capability.
+bdescr *nonmoving_array_list;
+// Length of the array list
+int n_array_list;
+// Snapshot pointer
+int array_list_snapshot;
+
 uint8_t nonmoving_mark_epoch = 1;
 
 static void nonmoving_bump_epoch(void) {
@@ -233,6 +242,21 @@ void *nonmoving_allocate(Capability *cap, StgWord sz)
     return ret;
 }
 
+// Called by scavenge threads, concurrently
+void recordArrayMutable(StgClosure *p)
+{
+    ACQUIRE_SPIN_LOCK(&gc_alloc_block_sync);
+
+    if (nonmoving_array_list->free >= nonmoving_array_list->start + BLOCK_SIZE_W) {
+        bdescr *new_bd = allocBlock();
+        new_bd->link = nonmoving_array_list;
+        nonmoving_array_list = new_bd;
+    }
+    *nonmoving_array_list->free++ = (StgWord)p;
+
+    RELEASE_SPIN_LOCK(&gc_alloc_block_sync);
+}
+
 /* Allocate a nonmoving_allocator */
 static struct nonmoving_allocator *alloc_nonmoving_allocator(uint32_t n_caps)
 {
@@ -258,6 +282,9 @@ void nonmoving_init(void)
         nonmoving_heap.allocators[i] = alloc_nonmoving_allocator(n_capabilities);
     }
     nonmoving_mark_init_upd_rem_set();
+    nonmoving_array_list = allocBlock();
+    n_array_list = 0;
+    array_list_snapshot = 0;
 }
 
 /*
@@ -323,6 +350,19 @@ static void nonmoving_clear_all_bitmaps(void)
 /* Prepare the heap bitmaps and snapshot metadata for a mark */
 static void nonmoving_prepare_mark(void)
 {
+#if defined(DEBUG)
+    // At this point all mut_lists should be empty, because we never fail to
+    // evacuate in a major GC, and arrays in the non-moving should be in
+    // nonmoving_array_list. (remember that we reset mut_lists of collected
+    // generations in prepare_collected_gen)
+    for (uint32_t cap_n = 0; cap_n < n_capabilities; ++cap_n) {
+        Capability *cap = capabilities[cap_n];
+        bdescr *mut_list = cap->mut_lists[oldest_gen->no];
+        ASSERT(mut_list->start == mut_list->free);
+        ASSERT(mut_list->link == NULL);
+    }
+#endif
+
     nonmoving_clear_all_bitmaps();
     nonmoving_bump_epoch();
     for (int alloca_idx = 0; alloca_idx < NONMOVING_ALLOCA_CNT; ++alloca_idx) {
@@ -345,6 +385,9 @@ static void nonmoving_prepare_mark(void)
         // they were set after they were swept and haven't seen any allocation
         // since.
     }
+
+    // Take array list snapshot
+    array_list_snapshot = n_array_list;
 
     ASSERT(oldest_gen->scavenged_large_objects == NULL);
     bdescr *next;
@@ -547,10 +590,6 @@ static void* nonmoving_concurrent_mark(void *data)
     // Propagate marks
     nonmoving_mark(mark_queue);
 
-    // Now remove all dead objects from the mut_list to ensure that a younger
-    // generation collection doesn't attempt to look at them after we've swept.
-    nonmoving_sweep_mut_lists();
-
     debugTrace(DEBUG_nonmoving_gc, "Done marking");
 
 #if defined(DEBUG)
@@ -563,6 +602,11 @@ static void* nonmoving_concurrent_mark(void *data)
     current_mark_queue = NULL;
     free_mark_queue(mark_queue);
     stgFree(mark_queue);
+
+    // Sweep the array list before allowing the mutators to proceed, so that
+    // dead arrays will be removed from the list but mutators will scavenge the
+    // live arrays when they do a minor gc
+    nonmoving_sweep_array_list();
 
     // Everything has been marked; allow the mutators to proceed
 #if defined(CONCURRENT_MARK)
