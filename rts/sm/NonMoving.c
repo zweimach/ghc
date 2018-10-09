@@ -598,6 +598,13 @@ void assert_in_nonmoving_heap(StgPtr p)
         return;
     }
 
+    // Search snapshot segments
+    for (struct nonmoving_segment *seg = nonmoving_heap.sweep_list; seg; seg = seg->link) {
+        if (p >= (P_)seg && p < (((P_)seg) + NONMOVING_SEGMENT_SIZE_W)) {
+            return;
+        }
+    }
+
     for (int alloca_idx = 0; alloca_idx < NONMOVING_ALLOCA_CNT; ++alloca_idx) {
         struct nonmoving_allocator *alloca = nonmoving_heap.allocators[alloca_idx];
         // Search current segments
