@@ -663,8 +663,8 @@ void assert_in_nonmoving_heap(StgPtr p)
         return;
 
     bdescr *bd = Bdescr(p);
+    ASSERT(bd->flags & BF_NONMOVING);
     if (bd->flags & BF_LARGE) {
-        ASSERT(bd->flags & BF_NONMOVING);
         return;
     }
 
