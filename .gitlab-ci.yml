@@ -18,6 +18,10 @@ before_script:
 validate:
   script:
     - |
+      echo 'HADDOCK_DOCS       = NO' >> mk/build.mk
+      echo 'BUILD_SPHINX_HTML  = NO' >> mk/build.mk
+      echo 'BUILD_SPHINX_PDF   = NO' >> mk/build.mk
+    - |
       make V=0 -j$THREADS HADDOCK_DOCS=NO
     # posix009 is broken in nonmoving_thr
     - |
