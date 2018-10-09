@@ -283,7 +283,7 @@ stg_unsafeThawArrayzh ( gcptr arr )
     if (StgHeader_info(arr) != stg_MUT_ARR_PTRS_FROZEN_DIRTY_info) {
         SET_INFO(arr,stg_MUT_ARR_PTRS_DIRTY_info);
         // must be done after SET_INFO, because it ASSERTs closure_MUTABLE():
-        recordMutable(arr);
+        recordArray(arr);
         return (arr);
     } else {
         SET_INFO(arr,stg_MUT_ARR_PTRS_DIRTY_info);
@@ -438,7 +438,7 @@ stg_unsafeThawSmallArrayzh ( gcptr arr )
     // See stg_unsafeThawArrayzh
     if (StgHeader_info(arr) != stg_SMALL_MUT_ARR_PTRS_FROZEN_DIRTY_info) {
         SET_INFO(arr, stg_SMALL_MUT_ARR_PTRS_DIRTY_info);
-        recordMutable(arr);
+        recordArray(arr);
         // must be done after SET_INFO, because it ASSERTs closure_MUTABLE()
         return (arr);
     } else {

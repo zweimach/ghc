@@ -664,6 +664,10 @@ checkMutableLists (void)
     for (i = 0; i < n_capabilities; i++) {
         checkLocalMutableLists(i);
     }
+
+    if (RtsFlags.GcFlags.useNonmoving) {
+        checkMutableList(nonmoving_array_list, oldest_gen->no);
+    }
 }
 
 /*
@@ -1022,8 +1026,10 @@ memInventory (bool show)
       }
       nonmoving_blocks += countNonMovingSegments(nonmoving_heap.sweep_list);
       nonmoving_blocks += countNonMovingSegments(nonmoving_heap.free);
-      if (current_mark_queue)
+      if (current_mark_queue) {
           nonmoving_blocks += countBlocks(current_mark_queue->blocks);
+      }
+      nonmoving_blocks += countBlocks(nonmoving_array_list);
   }
 
   live_blocks = 0;

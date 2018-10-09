@@ -801,10 +801,8 @@
 #define END_TSO_QUEUE             stg_END_TSO_QUEUE_closure
 #define STM_AWOKEN                stg_STM_AWOKEN_closure
 
-#define recordMutableCap(p, gen)                                        \
+#define recordMutableList(p, mut_list)                                  \
   W_ __bd;                                                              \
-  W_ mut_list;                                                          \
-  mut_list = Capability_mut_lists(MyCapability()) + WDS(gen);           \
  __bd = W_[mut_list];                                                   \
   if (bdescr_free(__bd) >= bdescr_start(__bd) + BLOCK_SIZE) {           \
       W_ __new_bd;                                                      \
@@ -818,6 +816,11 @@
   W_[free] = p;                                                         \
   bdescr_free(__bd) = free + WDS(1);
 
+#define recordMutableCap(p, gen)                                        \
+  W_ mut_list;                                                          \
+  mut_list = Capability_mut_lists(MyCapability()) + WDS(gen);           \
+  recordMutableList(p, mut_list);
+
 #define recordMutable(p)                                        \
       P_ __p;                                                   \
       W_ __bd;                                                  \
@@ -826,6 +829,26 @@
       __bd = Bdescr(__p);                                       \
       __gen = TO_W_(bdescr_gen_no(__bd));                       \
       if (__gen > 0) { recordMutableCap(__p, __gen); }
+
+#define recordArray(p)                                          \
+    W_ mut_list;                                                \
+    mut_list = nonmoving_array_list;                            \
+    recordMutableList(p, mut_list);
+
+#define recordMutableArray(p)                                   \
+      P_ __p;                                                   \
+      W_ __bd;                                                  \
+      W_ __gen;                                                 \
+      __p = p;                                                  \
+      __bd = Bdescr(__p);                                       \
+      __gen = TO_W_(bdescr_gen_no(__bd));                       \
+      if (__gen > 0) {                                          \
+          if (__gen == RtsFlags_GcFlags_generations - 1) {      \
+              recordArray(__p);                                 \
+          } else {                                              \
+              recordMutableCap(__p, __gen);                     \
+          }                                                     \
+      }
 
 /* -----------------------------------------------------------------------------
    Update remembered set write barrier

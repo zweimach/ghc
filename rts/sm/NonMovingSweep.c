@@ -190,7 +190,26 @@ void nonmoving_sweep_array_list()
     for (bdescr *bd = old_array_list; bd; bd = bd->link) {
         for (StgPtr p = bd->start; p < bd->free; p++) {
             StgClosure **q = (StgClosure**)p;
-            if (nonmoving_is_alive(*q)) {
+            // Drop dead and frozen arrays
+            const StgInfoTable *info = get_itbl(*q);
+            StgHalfWord type = info->type;
+
+            ASSERT(type == MUT_ARR_PTRS_DIRTY ||
+                   type == MUT_ARR_PTRS_CLEAN ||
+                   type == MUT_ARR_PTRS_FROZEN_DIRTY ||
+                   type == MUT_ARR_PTRS_FROZEN_CLEAN ||
+                   type == SMALL_MUT_ARR_PTRS_DIRTY ||
+                   type == SMALL_MUT_ARR_PTRS_CLEAN ||
+                   type == SMALL_MUT_ARR_PTRS_FROZEN_DIRTY ||
+                   type == SMALL_MUT_ARR_PTRS_FROZEN_CLEAN);
+
+            bool frozen = type == MUT_ARR_PTRS_FROZEN_DIRTY ||
+                          type == MUT_ARR_PTRS_FROZEN_CLEAN ||
+                          type == SMALL_MUT_ARR_PTRS_FROZEN_DIRTY ||
+                          type == SMALL_MUT_ARR_PTRS_FROZEN_CLEAN;
+            bool alive = nonmoving_is_alive(*q);
+
+            if (!frozen && alive) {
                 recordArrayMutable(*q);
             }
         }

@@ -1630,7 +1630,11 @@ scavenge_mutable_list(bdescr *bd, generation *gen)
             switch (get_itbl((StgClosure *)p)->type) {
             case MUT_ARR_PTRS_CLEAN:
             case SMALL_MUT_ARR_PTRS_CLEAN:
-                recordMutableGen_GC((StgClosure *)p,gen_no);
+                if (RtsFlags.GcFlags.useNonmoving && major_gc && gen == oldest_gen) {
+                    recordArrayMutable((StgClosure*)p);
+                } else {
+                    recordMutableGen_GC((StgClosure *)p,gen_no);
+                }
                 continue;
             case MUT_ARR_PTRS_DIRTY:
             {
@@ -1648,7 +1652,11 @@ scavenge_mutable_list(bdescr *bd, generation *gen)
 
                 gct->eager_promotion = saved_eager_promotion;
                 gct->failed_to_evac = false;
-                recordMutableGen_GC((StgClosure *)p,gen_no);
+                if (RtsFlags.GcFlags.useNonmoving && major_gc && gen == oldest_gen) {
+                    recordArrayMutable((StgClosure*)p);
+                } else {
+                    recordMutableGen_GC((StgClosure *)p,gen_no);
+                }
                 continue;
             }
             default:

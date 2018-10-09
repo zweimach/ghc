@@ -584,6 +584,8 @@ wanteds os = concat
                           "RTS_FLAGS" "DebugFlags.weak"
           ,structField_ C "RtsFlags_GcFlags_initialStkSize"
                           "RTS_FLAGS" "GcFlags.initialStkSize"
+          ,structField_ C "RtsFlags_GcFlags_generations"
+                          "RTS_FLAGS" "GcFlags.generations"
           ,structField_ C "RtsFlags_MiscFlags_tickInterval"
                           "RTS_FLAGS" "MiscFlags.tickInterval"
 

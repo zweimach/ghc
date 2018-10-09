@@ -352,9 +352,10 @@ static void nonmoving_prepare_mark(void)
 {
 #if defined(DEBUG)
     // At this point all mut_lists should be empty, because we never fail to
-    // evacuate in a major GC, and arrays in the non-moving should be in
-    // nonmoving_array_list. (remember that we reset mut_lists of collected
-    // generations in prepare_collected_gen)
+    // evacuate in preparation (where everything is promoted to the non-moving
+    // heap), and arrays in the non-moving should be in nonmoving_array_list.
+    // (remember that we reset mut_lists of collected generations in
+    // prepare_collected_gen)
     for (uint32_t cap_n = 0; cap_n < n_capabilities; ++cap_n) {
         Capability *cap = capabilities[cap_n];
         bdescr *mut_list = cap->mut_lists[oldest_gen->no];
