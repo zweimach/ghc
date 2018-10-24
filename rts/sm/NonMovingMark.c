@@ -69,6 +69,11 @@ memcount n_nonmoving_marked_large_blocks = 0;
 static Mutex nonmoving_large_objects_mutex;
 #endif
 
+#if defined(DEBUG)
+// TODO (osa): Document
+StgIndStatic *debug_caf_list_snapshot = (StgIndStatic*)END_OF_CAF_LIST;
+#endif
+
 /* Note [Update remembered set]
  * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
  * The concurrent non-moving collector uses a remembered set to ensure
