@@ -354,6 +354,11 @@ static void nonmoving_prepare_mark(void)
     oldest_gen->large_objects = NULL;
     oldest_gen->n_large_words = 0;
     oldest_gen->n_large_blocks = 0;
+
+#if defined(DEBUG)
+    debug_caf_list_snapshot = debug_caf_list;
+    debug_caf_list = (StgIndStatic*)END_OF_CAF_LIST;
+#endif
 }
 
 // Mark weak pointers in the non-moving heap. They'll either end up in

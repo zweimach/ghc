@@ -96,30 +96,33 @@ nonmoving_sweep_segment(struct nonmoving_segment *seg)
 void nonmoving_gc_cafs(struct MarkQueue_ *queue)
 {
     uint32_t i = 0;
-    StgIndStatic *prev = NULL;
+    StgIndStatic *next;
 
-    for (StgIndStatic *p = debug_caf_list;
-         p != (StgIndStatic*) END_OF_CAF_LIST;
-         p = (StgIndStatic*) p->saved_info)
+    for (StgIndStatic *caf = debug_caf_list_snapshot;
+         caf != (StgIndStatic*) END_OF_CAF_LIST;
+         caf = next)
     {
-        const StgInfoTable *info = get_itbl((StgClosure*)p);
+        next = (StgIndStatic*)caf->saved_info;
+
+        const StgInfoTable *info = get_itbl((StgClosure*)caf);
         ASSERT(info->type == IND_STATIC);
 
-        if (lookupHashTable(queue->marked_objects, (StgWord) p) == 0) {
-            debugTrace(DEBUG_gccafs, "CAF gc'd at 0x%p", p);
-            SET_INFO((StgClosure*)p,&stg_GCD_CAF_info); // stub it
-            if (prev == NULL) {
-                debug_caf_list = (StgIndStatic*)p->saved_info;
-            } else {
-                prev->saved_info = p->saved_info;
-            }
+        if (lookupHashTable(queue->marked_objects, (StgWord) caf) == NULL) {
+            debugTrace(DEBUG_gccafs, "CAF gc'd at 0x%p", caf);
+            SET_INFO((StgClosure*)caf, &stg_GCD_CAF_info); // stub it
         } else {
-            prev = p;
-            i++;
+            // CAF is alive, move it back to the debug_caf_list
+            ++i;
+            debugTrace(DEBUG_gccafs, "CAF alive at 0x%p", caf);
+            ACQUIRE_SM_LOCK; // debug_caf_list is global, locked by sm_mutex
+            caf->saved_info = (const StgInfoTable*)debug_caf_list;
+            debug_caf_list = caf;
+            RELEASE_SM_LOCK;
         }
     }
 
     debugTrace(DEBUG_gccafs, "%d CAFs live", i);
+    debug_caf_list_snapshot = (StgIndStatic*)END_OF_CAF_LIST;
 }
 
 static void

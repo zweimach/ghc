@@ -92,6 +92,10 @@ typedef struct {
 extern bdescr *nonmoving_large_objects, *nonmoving_marked_large_objects;
 extern memcount n_nonmoving_large_blocks, n_nonmoving_marked_large_blocks;
 
+#if defined(DEBUG)
+extern StgIndStatic *debug_caf_list_snapshot;
+#endif
+
 extern MarkQueue *current_mark_queue;
 extern bdescr *upd_rem_set_block_list;
 extern bool nonmoving_write_barrier_enabled;
