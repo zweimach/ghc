@@ -2193,6 +2193,8 @@ emitCopyArray copy src0 src_off dst0 dst_off0 n = do
         dst     <- assignTempE dst0
         dst_off <- assignTempE dst_off0
 
+        -- TODO: snapshot write barrier
+
         -- Set the dirty bit in the header.
         emit (setInfo dst (CmmLit (CmmLabel mkMAP_DIRTY_infoLabel)))
 
