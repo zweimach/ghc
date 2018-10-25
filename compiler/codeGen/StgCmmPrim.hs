@@ -37,6 +37,7 @@ import BlockId
 import MkGraph
 import StgSyn
 import Cmm
+import Module   ( rtsUnitId )
 import Type     ( Type, tyConAppTyCon )
 import TyCon
 import CLabel
@@ -1619,17 +1620,20 @@ doWritePtrArrayOp :: CmmExpr
 doWritePtrArrayOp addr idx val
   = do dflags <- getDynFlags
        let ty = cmmExprType dflags val
+           hdr_size = arrPtrsHdrSize dflags
+       -- Update remembered set for non-moving collector
+       emitUpdRemSet dflags (cmmLoadIndexOffExpr dflags hdr_size ty addr ty idx)
        -- This write barrier is to ensure that the heap writes to the object
        -- referred to by val have happened before we write val into the array.
        -- See #12469 for details.
        emitPrimCall [] MO_WriteBarrier []
-       mkBasicIndexedWrite (arrPtrsHdrSize dflags) Nothing addr ty idx val
+       mkBasicIndexedWrite hdr_size Nothing addr ty idx val
        emit (setInfo addr (CmmLit (CmmLabel mkMAP_DIRTY_infoLabel)))
-  -- the write barrier.  We must write a byte into the mark table:
-  -- bits8[a + header_size + StgMutArrPtrs_size(a) + x >> N]
+       -- the write barrier.  We must write a byte into the mark table:
+       -- bits8[a + header_size + StgMutArrPtrs_size(a) + x >> N]
        emit $ mkStore (
          cmmOffsetExpr dflags
-          (cmmOffsetExprW dflags (cmmOffsetB dflags addr (arrPtrsHdrSize dflags))
+          (cmmOffsetExprW dflags (cmmOffsetB dflags addr hdr_size)
                          (loadArrPtrsSize dflags addr))
           (CmmMachOp (mo_wordUShr dflags) [idx,
                                            mkIntExpr dflags (mUT_ARR_PTRS_CARD_BITS dflags)])
@@ -2550,3 +2554,21 @@ emitCtzCall res x width = do
         [ res ]
         (MO_Ctz width)
         [ x ]
+
+-- | Emit code to add an entry to a now-overwritten pointer to the update
+-- remembered set.
+emitUpdRemSet :: DynFlags
+              -> CmmExpr   -- ^ value of pointer which was overwritten
+              -> FCode ()
+emitUpdRemSet dflags ptr = do
+    emitRtsCall
+      rtsUnitId
+      (fsLit "upd_rem_set_push_closure_")
+      [(CmmReg (CmmGlobal BaseReg), AddrHint),
+       (ptr, AddrHint),
+       (origin, AddrHint),
+       (origin_field, AddrHint)]
+      False
+  where
+    origin = zeroExpr dflags
+    origin_field = zeroExpr dflags
