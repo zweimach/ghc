@@ -1622,7 +1622,8 @@ doWritePtrArrayOp addr idx val
        let ty = cmmExprType dflags val
            hdr_size = arrPtrsHdrSize dflags
        -- Update remembered set for non-moving collector
-       emitUpdRemSet dflags (cmmLoadIndexOffExpr dflags hdr_size ty addr ty idx)
+       whenUpdRemSetEnabled
+           $ emitUpdRemSetPush dflags (cmmLoadIndexOffExpr dflags hdr_size ty addr ty idx)
        -- This write barrier is to ensure that the heap writes to the object
        -- referred to by val have happened before we write val into the array.
        -- See #12469 for details.
@@ -2193,7 +2194,7 @@ emitCopyArray copy src0 src_off dst0 dst_off0 n = do
         dst     <- assignTempE dst0
         dst_off <- assignTempE dst_off0
 
-        -- TODO: snapshot write barrier
+        emitCopyUpdRemSetPush dflags (arrPtrsHdrSize dflags) dst dst_off n
 
         -- Set the dirty bit in the header.
         emit (setInfo dst (CmmLit (CmmLabel mkMAP_DIRTY_infoLabel)))
@@ -2255,6 +2256,8 @@ emitCopySmallArray copy src0 src_off dst0 dst_off n = do
     -- Passed as arguments (be careful)
     src     <- assignTempE src0
     dst     <- assignTempE dst0
+
+    emitCopyUpdRemSetPush dflags (smallArrPtrsHdrSize dflags) dst dst_off n
 
     -- Set the dirty bit in the header.
     emit (setInfo dst (CmmLit (CmmLabel mkSMAP_DIRTY_infoLabel)))
@@ -2557,12 +2560,19 @@ emitCtzCall res x width = do
         (MO_Ctz width)
         [ x ]
 
+---------------------------------------------------------------------------
+-- Pushing to the update remembered set
+---------------------------------------------------------------------------
+
+whenUpdRemSetEnabled :: FCode a -> FCode a
+whenUpdRemSetEnabled = id -- TODO
+
 -- | Emit code to add an entry to a now-overwritten pointer to the update
 -- remembered set.
-emitUpdRemSet :: DynFlags
-              -> CmmExpr   -- ^ value of pointer which was overwritten
-              -> FCode ()
-emitUpdRemSet dflags ptr = do
+emitUpdRemSetPush :: DynFlags
+                  -> CmmExpr   -- ^ value of pointer which was overwritten
+                  -> FCode ()
+emitUpdRemSetPush dflags ptr = do
     emitRtsCall
       rtsUnitId
       (fsLit "upd_rem_set_push_closure_")
@@ -2574,3 +2584,22 @@ emitUpdRemSet dflags ptr = do
   where
     origin = zeroExpr dflags
     origin_field = zeroExpr dflags
+
+-- | Push a range of array elements that are about to be copied over
+-- to the update remembered set.
+emitCopyUpdRemSetPush :: DynFlags
+                      -> WordOff    -- ^ array header size
+                      -> CmmExpr    -- ^ destination array
+                      -> CmmExpr    -- ^ offset in destination array
+                      -> WordOff    -- ^ number of elements to copy
+                      -> FCode ()
+emitCopyUpdRemSetPush dflags hdr_size dst dst_off n = whenUpdRemSetEnabled $ do
+    emitRtsCall
+      rtsUnitId
+      (fsLit "stg_copyArray_barrier")
+      [ (mkIntExpr dflags hdr_size, NoHint)
+      , (dst, AddrHint)
+      , (dst_off, NoHint)
+      , (mkIntExpr dflags n, NoHint)
+      ]
+      False
