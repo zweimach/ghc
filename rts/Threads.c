@@ -755,7 +755,7 @@ loop:
     if (q == (StgMVarTSOQueue*)&stg_END_TSO_QUEUE_closure) {
         /* No further takes, the MVar is now full. */
         if (info == &stg_MVAR_CLEAN_info) {
-            dirty_MVAR(&cap->r, (StgClosure*)mvar);
+            dirty_MVAR(&cap->r, (StgClosure*)mvar, mvar->value);
         }
 
         mvar->value = value;

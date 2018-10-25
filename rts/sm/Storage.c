@@ -1117,6 +1117,12 @@ dirty_MUT_VAR(StgRegTable *reg, StgMutVar *mvar, StgClosure *old)
     if (mvar->header.info == &stg_MUT_VAR_CLEAN_info) {
         mvar->header.info = &stg_MUT_VAR_DIRTY_info;
         recordClosureMutated(cap, (StgClosure *) mvar);
+        if (nonmoving_write_barrier_enabled != 0) {
+            upd_rem_set_push_closure_(reg,
+                                      old,
+                                      (StgClosure *) mvar,
+                                      &mvar->var - (StgClosure **) mvar);
+        }
     }
 }
 
@@ -1126,7 +1132,7 @@ dirty_TVAR(Capability *cap, StgTVar *p)
     if (p->header.info == &stg_TVAR_CLEAN_info) {
         p->header.info = &stg_TVAR_DIRTY_info;
         recordClosureMutated(cap,(StgClosure*)p);
-        // TODO: snapshot write barrier
+        // TODO: Snapshot write barrier (#93)
     }
 }
 
@@ -1195,12 +1201,12 @@ dirty_STACK (Capability *cap, StgStack *stack)
    such as Chaneneos and cheap-concurrency.
 */
 void
-dirty_MVAR(StgRegTable *reg, StgClosure *p)
+dirty_MVAR(StgRegTable *reg, StgClosure *p, StgClosure *old_val)
 {
     Capability *cap = regTableToCapability(reg);
     if (nonmoving_write_barrier_enabled) {
         StgMVar *mvar = (StgMVar *) p;
-        upd_rem_set_push_closure(cap, mvar->value, NULL, 0);
+        upd_rem_set_push_closure(cap, old_val, NULL, 0);
         upd_rem_set_push_closure(cap, (StgClosure *) mvar->head, NULL, 0);
         upd_rem_set_push_closure(cap, (StgClosure *) mvar->tail, NULL, 0);
     }
