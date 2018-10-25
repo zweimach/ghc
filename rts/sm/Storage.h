@@ -47,7 +47,7 @@ extern Mutex sm_mutex;
    The write barrier for MVARs and TVARs
    -------------------------------------------------------------------------- */
 
-void dirty_MVAR(StgRegTable *reg, StgClosure *p);
+void dirty_MVAR(StgRegTable *reg, StgClosure *p, StgClosure *old);
 void dirty_TVAR(Capability *cap, StgTVar *p);
 
 /* -----------------------------------------------------------------------------

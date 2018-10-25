@@ -589,7 +589,6 @@ stg_casMutVarzh ( gcptr mv, gcptr old, gcptr new )
         if (GET_INFO(mv) == stg_MUT_VAR_CLEAN_info) {
             ccall dirty_MUT_VAR(BaseReg "ptr", mv "ptr", old);
         }
-        recordMutatedPtr(old, mv, OFFSET_StgMutVar_var);
         return (0,new);
     }
 #else
@@ -603,7 +602,6 @@ stg_casMutVarzh ( gcptr mv, gcptr old, gcptr new )
         if (GET_INFO(mv) == stg_MUT_VAR_CLEAN_info) {
             ccall dirty_MUT_VAR(BaseReg "ptr", mv "ptr", old);
         }
-        recordMutatedPtr(old, mv, OFFSET_StgMutVar_var);
         return (0,new);
     }
 #endif
@@ -668,7 +666,6 @@ stg_atomicModifyMutVar2zh ( gcptr mv, gcptr f )
 #if defined(THREADED_RTS)
     (h) = prim %cmpxchgW(mv + SIZEOF_StgHeader + OFFSET_StgMutVar_var, x, y);
     if (h != x) { goto retry; }
-    recordMutatedPtr(h, mv, OFFSET_StgMutVar_var);
 #else
     h = StgMutVar_var(mv);
     StgMutVar_var(mv) = y;
@@ -722,7 +719,6 @@ stg_atomicModifyMutVarzuzh ( gcptr mv, gcptr f )
 #if defined(THREADED_RTS)
     (h) = prim %cmpxchgW(mv + SIZEOF_StgHeader + OFFSET_StgMutVar_var, x, z);
     if (h != x) { goto retry; }
-    recordMutatedPtr(h, mv, OFFSET_StgMutVar_var);
 #else
     StgMutVar_var(mv) = z;
 #endif
@@ -1540,7 +1536,7 @@ stg_takeMVarzh ( P_ mvar /* :: MVar a */ )
      */
     if (StgMVar_value(mvar) == stg_END_TSO_QUEUE_closure) {
         if (info == stg_MVAR_CLEAN_info) {
-            ccall dirty_MVAR(BaseReg "ptr", mvar "ptr");
+            ccall dirty_MVAR(BaseReg "ptr", mvar "ptr", StgMVar_value(mvar) "ptr");
         }
 
         // We want to put the heap check down here in the slow path,
@@ -1575,9 +1571,6 @@ stg_takeMVarzh ( P_ mvar /* :: MVar a */ )
     /* we got the value... */
     val = StgMVar_value(mvar);
 
-    // Add val to upd_rem_set
-    recordMutatedPtr(val, mvar, BYTES_TO_WDS(OFFSET_StgMVar_value));
-
     q = StgMVar_head(mvar);
 loop:
     if (q == stg_END_TSO_QUEUE_closure) {
@@ -1597,7 +1590,7 @@ loop:
     // There are putMVar(s) waiting... wake up the first thread on the queue
 
     if (info == stg_MVAR_CLEAN_info) {
-        ccall dirty_MVAR(BaseReg "ptr", mvar "ptr");
+        ccall dirty_MVAR(BaseReg "ptr", mvar "ptr", val "ptr");
     }
 
     tso = StgMVarTSOQueue_tso(q);
@@ -1645,9 +1638,6 @@ stg_tryTakeMVarzh ( P_ mvar /* :: MVar a */ )
     /* we got the value... */
     val = StgMVar_value(mvar);
 
-    // Add val to upd_rem_set
-    recordMutatedPtr(val, mvar, BYTES_TO_WDS(OFFSET_StgMVar_value));
-
     q = StgMVar_head(mvar);
 loop:
     if (q == stg_END_TSO_QUEUE_closure) {
@@ -1666,7 +1656,7 @@ loop:
     // There are putMVar(s) waiting... wake up the first thread on the queue
 
     if (info == stg_MVAR_CLEAN_info) {
-        ccall dirty_MVAR(BaseReg "ptr", mvar "ptr");
+        ccall dirty_MVAR(BaseReg "ptr", mvar "ptr", val "ptr");
     }
 
     tso = StgMVarTSOQueue_tso(q);
@@ -1704,7 +1694,7 @@ stg_putMVarzh ( P_ mvar, /* :: MVar a */
     if (StgMVar_value(mvar) != stg_END_TSO_QUEUE_closure) {
 
         if (info == stg_MVAR_CLEAN_info) {
-            ccall dirty_MVAR(BaseReg "ptr", mvar "ptr");
+            ccall dirty_MVAR(BaseReg "ptr", mvar "ptr", StgMVar_value(mvar) "ptr");
         }
 
         // We want to put the heap check down here in the slow path,
@@ -1740,9 +1730,8 @@ stg_putMVarzh ( P_ mvar, /* :: MVar a */
 loop:
     if (q == stg_END_TSO_QUEUE_closure) {
         /* No further takes, the MVar is now full. */
-        recordMutatedPtr(StgMVar_value(mvar), mvar, OFFSET_StgMVar_value);
         if (info == stg_MVAR_CLEAN_info) {
-            ccall dirty_MVAR(BaseReg "ptr", mvar "ptr");
+            ccall dirty_MVAR(BaseReg "ptr", mvar "ptr", StgMVar_value(mvar) "ptr");
         }
         StgMVar_value(mvar) = val;
         unlockClosure(mvar, stg_MVAR_DIRTY_info);
@@ -1821,9 +1810,8 @@ stg_tryPutMVarzh ( P_ mvar, /* :: MVar a */
 loop:
     if (q == stg_END_TSO_QUEUE_closure) {
         /* No further takes, the MVar is now full. */
-        recordMutatedPtr(StgMVar_value(mvar), mvar, OFFSET_StgMVar_value);
         if (info == stg_MVAR_CLEAN_info) {
-            ccall dirty_MVAR(BaseReg "ptr", mvar "ptr");
+            ccall dirty_MVAR(BaseReg "ptr", mvar "ptr", StgMVar_value(mvar) "ptr");
         }
 
         StgMVar_value(mvar) = val;
@@ -1890,7 +1878,7 @@ stg_readMVarzh ( P_ mvar, /* :: MVar a */ )
     if (StgMVar_value(mvar) == stg_END_TSO_QUEUE_closure) {
 
         if (info == stg_MVAR_CLEAN_info) {
-            ccall dirty_MVAR(BaseReg "ptr", mvar "ptr");
+            ccall dirty_MVAR(BaseReg "ptr", mvar "ptr", StgMVar_value(mvar));
         }
 
         ALLOC_PRIM_WITH_CUSTOM_FAILURE
