@@ -315,12 +315,15 @@ emitPrimOp dflags [res] ReadMutVarOp [mutv]
    = emitAssign (CmmLocal res) (cmmLoadIndexW dflags mutv (fixedHdrSizeW dflags) (gcWord dflags))
 
 emitPrimOp dflags res@[] WriteMutVarOp [mutv,var]
-   = do -- Without this write barrier, other CPUs may see this pointer before
-        -- the writes for the closure it points to have occurred.
-        emitPrimCall res MO_WriteBarrier []
-
-        old_val <- CmmLocal <$> newTemp (cmmExprType dflags var)
+   = do old_val <- CmmLocal <$> newTemp (cmmExprType dflags var)
         emitAssign old_val (cmmLoadIndexW dflags mutv (fixedHdrSizeW dflags) (gcWord dflags))
+
+        -- Without this write barrier, other CPUs may see this pointer before
+        -- the writes for the closure it points to have occurred.
+        -- Note that this also must come after we read the old value to ensure
+        -- that the read of old_val comes before another core's write to the
+        -- MutVar's value.
+        emitPrimCall res MO_WriteBarrier []
 
         emitStore (cmmOffsetW dflags mutv (fixedHdrSizeW dflags)) var
         emitCCall
