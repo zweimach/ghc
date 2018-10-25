@@ -1102,6 +1102,12 @@ allocatePinned (Capability *cap, W_ n)
  * by way of either the info pointer or a dedicated "dirty" flag. The GC will
  * clear this flag and remove the object from mut_list (or rather, not re-add it)
  * to if it finds the object contains no references into any younger generation.
+ *
+ * Note that all dirty objects will be marked as clean during preparation for a
+ * concurrent collection. Consequently, we can use the dirtiness flag to determine
+ * whether or not we need to add overwritten pointers to the update remembered
+ * set (since we need only write the value prior to the first update to maintain
+ * the snapshot invariant).
  */
 
 /*
