@@ -394,8 +394,11 @@ static void nonmoving_mark_weak_ptr_list(MarkQueue *mark_queue)
 
 void nonmoving_collect()
 {
-    // We can't start a new collection until the old one has finished
 #if defined(CONCURRENT_MARK)
+    // Don't even try to collect during shutdown; doing so is a nightmare.
+    if (sched_state != SCHED_RUNNING) return;
+
+    // We can't start a new collection until the old one has finished
     if (concurrent_coll_running) {
         if (sched_state == SCHED_RUNNING) return;
         ACQUIRE_LOCK(&concurrent_coll_finished_lock);
@@ -497,9 +500,6 @@ static void* nonmoving_concurrent_mark(void *data)
     nonmoving_mark_threads_weaks(mark_queue);
 
 #if defined(CONCURRENT_MARK)
-    if (sched_state != SCHED_RUNNING)
-        goto skip_sync;
-
     Task *task = newBoundTask();
 
     // Gather final remembered sets from mutators and mark them
@@ -555,7 +555,6 @@ static void* nonmoving_concurrent_mark(void *data)
     debugTrace(DEBUG_nonmoving_gc, "Finished mutator sync; sweeping...");
 #endif
 
- skip_sync:
     current_mark_queue = NULL;
     free_mark_queue(mark_queue);
     stgFree(mark_queue);
