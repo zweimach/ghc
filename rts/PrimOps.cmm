@@ -589,6 +589,7 @@ stg_casMutVarzh ( gcptr mv, gcptr old, gcptr new )
         if (GET_INFO(mv) == stg_MUT_VAR_CLEAN_info) {
             ccall dirty_MUT_VAR(BaseReg "ptr", mv "ptr", old);
         }
+        recordMutatedPtr(old, mv, OFFSET_StgMutVar_var);
         return (0,new);
     }
 #else
@@ -721,6 +722,7 @@ stg_atomicModifyMutVarzuzh ( gcptr mv, gcptr f )
 #if defined(THREADED_RTS)
     (h) = prim %cmpxchgW(mv + SIZEOF_StgHeader + OFFSET_StgMutVar_var, x, z);
     if (h != x) { goto retry; }
+    recordMutatedPtr(h, mv, OFFSET_StgMutVar_var);
 #else
     StgMutVar_var(mv) = z;
 #endif
