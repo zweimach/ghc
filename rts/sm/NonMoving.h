@@ -211,6 +211,35 @@ INLINE_HEADER bool nonmoving_closure_marked(StgPtr p)
     return nonmoving_get_mark(seg, blk_idx) == nonmoving_mark_epoch;
 }
 
+// Can be called during a major collection to determine whether a particular
+// segment is in the set of segments that will be swept this collection cycle.
+INLINE_HEADER bool nonmoving_segment_being_swept(struct nonmoving_segment *seg)
+{
+    int n = nonmoving_segment_block_count(seg);
+    return seg->next_free_snap >= n;
+}
+
+// Can be called during a major collection to determine whether a particular
+// closure lives in a segment that will be swept this collection cycle.
+INLINE_HEADER bool nonmoving_closure_being_swept(StgClosure *p)
+{
+    bdescr *bd = Bdescr((StgPtr) p);
+    if (HEAP_ALLOCED_GC(p)) {
+        if (bd->flags & (BF_NONMOVING | BF_LARGE)) {
+            // TODO: improve this
+        } else if (bd->flags & BF_NONMOVING) {
+            struct nonmoving_segment *seg = nonmoving_get_segment((StgPtr) p);
+            return nonmoving_segment_being_swept(seg);
+        } else {
+            // outside of the nonmoving heap
+            return false;
+        }
+    } else {
+        // a static object
+        return true;
+    }
+}
+
 #if defined(DEBUG)
 
 void nonmoving_print_segment(struct nonmoving_segment *seg);

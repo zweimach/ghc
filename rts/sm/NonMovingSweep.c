@@ -203,18 +203,21 @@ void nonmoving_sweep_large_objects()
     n_nonmoving_marked_large_blocks = 0;
 }
 
-// Essentially nonmoving_is_alive, but works when the object died in moving
-// heap, see nonmoving_sweep_stable_name_table
+// Helper for nonmoving_sweep_stable_name_table. Essentially nonmoving_is_alive,
+// but works when the object died in moving heap, see
+// nonmoving_sweep_stable_name_table
 static bool is_alive(StgClosure *p)
 {
     if (!HEAP_ALLOCED_GC(p)) {
         return true;
     }
 
-    bdescr *bd = Bdescr((P_)p);
-    if (bd->flags & BF_NONMOVING) {
+    if (nonmoving_closure_being_swept(p)) {
         return nonmoving_is_alive(p);
     } else {
+        // We don't want to sweep any stable names which weren't in the
+        // set of segments that we swept.
+        // See Note [Sweeping stable names in the concurrent collector]
         return true;
     }
 }
@@ -223,13 +226,25 @@ void nonmoving_sweep_stable_name_table()
 {
     // See comments in gcStableTables
 
+    /* Note [Sweeping stable names in the concurrent collector]
+     * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     *
+     * When collecting concurrently we need to take care to avoid freeing
+     * stable names the we didn't sweep this collection cycle. For instance,
+     * consider the following situation:
+     *
+     *  1. We take a snapshot and start collection
+     *  2. A mutator allocates a new object, then makes a stable name for it
+     *  3. The mutator performs a minor GC and promotes the new object to the nonmoving heap
+     *  4. The GC thread gets to the sweep phase and, when traversing the stable
+     *     name table, finds the new object unmarked. It then assumes that the
+     *     object is dead and removes the stable name from the stable name table.
+     *
+     */
+
     // FIXME: We can't use nonmoving_is_alive here without first using isAlive:
     // a stable name can die during moving heap collection and we can't use
     // nonmoving_is_alive on those objects. Inefficient.
-
-    // TODO: This won't work in concurrent implementation because (1) because
-    // the old heap may be reused by the time we reach here (2) concurrent table
-    // modifications
 
     stableNameLock();
     FOR_EACH_STABLE_NAME(
