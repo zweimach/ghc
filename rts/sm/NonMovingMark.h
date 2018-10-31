@@ -140,6 +140,9 @@ void mark_queue_push_closure_(MarkQueue *q, StgClosure *p);
 void mark_queue_push_thunk_srt(MarkQueue *q, const StgInfoTable *info);
 void mark_queue_push_fun_srt(MarkQueue *q, const StgInfoTable *info);
 void mark_queue_push_array(MarkQueue *q, const StgMutArrPtrs *array, StgWord start_index);
+void upd_rem_set_push_thunk_eager(Capability *cap,
+                                  const StgThunkInfoTable *orig_info,
+                                  const StgThunk *thunk);
 
 INLINE_HEADER bool mark_queue_is_empty(MarkQueue *q)
 {

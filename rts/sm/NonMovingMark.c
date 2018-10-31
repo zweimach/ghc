@@ -354,8 +354,15 @@ void upd_rem_set_push_thunk(Capability *cap, StgThunk *origin)
 {
     // TODO: Eliminate this conditional once it's folded into codegen
     if (!nonmoving_write_barrier_enabled) return;
-    const StgInfoTable *info = get_itbl((StgClosure*)origin);
-    switch (info->type) {
+    const StgThunkInfoTable *info = get_thunk_itbl((StgClosure*)origin);
+    upd_rem_set_push_thunk_eager(cap, info, origin);
+}
+
+void upd_rem_set_push_thunk_eager(Capability *cap,
+                                  const StgThunkInfoTable *info,
+                                  const StgThunk *thunk)
+{
+    switch (info->i.type) {
     case THUNK:
     case THUNK_1_0:
     case THUNK_0_1:
@@ -364,18 +371,18 @@ void upd_rem_set_push_thunk(Capability *cap, StgThunk *origin)
     case THUNK_0_2:
     {
         MarkQueue *queue = &cap->upd_rem_set.queue;
-        push_thunk_srt(queue, info);
+        push_thunk_srt(queue, &info->i);
 
         // Don't record the origin of objects living outside of the nonmoving
         // heap; we can't perform the selector optimisation on them anyways.
-        bool origin_in_nonmoving = check_in_nonmoving_heap((StgClosure*)origin);
+        bool thunk_in_nonmoving = check_in_nonmoving_heap((StgClosure*)thunk);
 
-        for (StgWord i = 0; i < info->layout.payload.ptrs; i++) {
-            if (check_in_nonmoving_heap(origin->payload[i])) {
+        for (StgWord i = 0; i < info->i.layout.payload.ptrs; i++) {
+            if (check_in_nonmoving_heap(thunk->payload[i])) {
                 push_closure(queue,
-                             origin->payload[i],
-                             origin_in_nonmoving ? (StgClosure*)origin : NULL,
-                             origin_in_nonmoving ? 0 : i);
+                             thunk->payload[i],
+                             thunk_in_nonmoving ? (StgClosure*)thunk : NULL,
+                             thunk_in_nonmoving ? 0 : i);
             }
         }
         break;
@@ -385,9 +392,9 @@ void upd_rem_set_push_thunk(Capability *cap, StgThunk *origin)
         // TODO: This is right, right?
         break;
     default:
-        barf("upd_rem_set_push_thunk: invalid thunk pushed: p=%p, type=%d", origin, info->type);
+        barf("upd_rem_set_push_thunk: invalid thunk pushed: p=%p, type=%d",
+             thunk, info->i.type);
     }
-
 }
 
 void upd_rem_set_push_thunk_(StgRegTable *reg, StgThunk *origin)
