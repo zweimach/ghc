@@ -1358,7 +1358,18 @@ bool nonmoving_is_alive(StgClosure *p)
             || (bd->flags & BF_MARKED) != 0;
                    // The object was marked
     } else {
-        return nonmoving_closure_marked((P_)p);
+        struct nonmoving_segment *seg = nonmoving_get_segment((StgPtr) p);
+        nonmoving_block_idx i = nonmoving_get_block_idx((StgPtr) p);
+        if (i >= seg->next_free_snap) {
+            // If the object is allocated after next_free_snap then it must have
+            // been allocated after we took the snapshot and consequently we
+            // have no guarantee that it is marked, even if it is still reachable.
+            // This is because the snapshot invariant only guarantees that things in
+            // the nonmoving heap at the time that the snapshot is taken are marked.
+            return true;
+        } else {
+            return nonmoving_closure_marked((P_)p);
+        }
     }
 }
 
