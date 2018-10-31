@@ -196,7 +196,7 @@ void nonmoving_sweep_mut_lists()
 
 void nonmoving_sweep_large_objects()
 {
-    freeChain(nonmoving_large_objects);
+    freeChain_lock(nonmoving_large_objects);
     nonmoving_large_objects = nonmoving_marked_large_objects;
     n_nonmoving_large_blocks = n_nonmoving_marked_large_blocks;
     nonmoving_marked_large_objects = NULL;
