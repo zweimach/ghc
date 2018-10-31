@@ -690,6 +690,12 @@ void assert_in_nonmoving_heap(StgPtr p)
 
     bdescr *bd = Bdescr(p);
     if (bd->flags & BF_LARGE) {
+        // It should be in a capability (if it's not filled yet) or in non-moving heap
+        for (uint32_t cap = 0; cap < n_capabilities; ++cap) {
+            if (bd == capabilities[cap]->pinned_object_block) {
+                return;
+            }
+        }
         ASSERT(bd->flags & BF_NONMOVING);
         return;
     }

@@ -1564,31 +1564,48 @@ collect_gct_blocks (void)
 }
 
 /* -----------------------------------------------------------------------------
-   During mutation, any blocks that are filled by allocatePinned() are
-   stashed on the local pinned_object_blocks list, to avoid needing to
-   take a global lock.  Here we collect those blocks from the
-   cap->pinned_object_blocks lists and put them on the
-   main g0->large_object list.
+   During mutation, any blocks that are filled by allocatePinned() are stashed
+   on the local pinned_object_blocks list, to avoid needing to take a global
+   lock.  Here we collect those blocks from the cap->pinned_object_blocks lists
+   and put them on the g0->large_object or oldest_gen->large_objects.
+
+   How to decide which list to put them on?
+
+   - When non-moving heap is enabled and this is a major GC, we put them on
+     oldest_gen. This is because after preparation we really want no
+     old-to-young references, and we want to be able to reset mut_lists. For
+     this we need to promote every potentially live object to the oldest gen.
+
+   - Otherwise we put them on g0.
    -------------------------------------------------------------------------- */
 
 static void
 collect_pinned_object_blocks (void)
 {
-    uint32_t n;
-    bdescr *bd, *prev;
+    generation *gen;
+    if (RtsFlags.GcFlags.useNonmoving && major_gc) {
+        gen = oldest_gen;
+    } else {
+        gen = g0;
+    }
 
-    for (n = 0; n < n_capabilities; n++) {
-        prev = NULL;
-        for (bd = capabilities[n]->pinned_object_blocks; bd != NULL; bd = bd->link) {
-            prev = bd;
-        }
-        if (prev != NULL) {
-            prev->link = g0->large_objects;
-            if (g0->large_objects != NULL) {
-                g0->large_objects->u.back = prev;
+    for (uint32_t n = 0; n < n_capabilities; n++) {
+        bdescr *last = NULL;
+        for (bdescr *bd = capabilities[n]->pinned_object_blocks; bd != NULL; bd = bd->link) {
+            if (gen == oldest_gen) {
+                bd->flags |= BF_NONMOVING;
+                oldest_gen->n_large_words += bd->free - bd->start;
+                oldest_gen->n_large_blocks += bd->blocks;
             }
-            g0->large_objects = capabilities[n]->pinned_object_blocks;
-            capabilities[n]->pinned_object_blocks = 0;
+            last = bd;
+        }
+        if (last != NULL) {
+            last->link = gen->large_objects;
+            if (gen->large_objects != NULL) {
+                gen->large_objects->u.back = last;
+            }
+            gen->large_objects = capabilities[n]->pinned_object_blocks;
+            capabilities[n]->pinned_object_blocks = NULL;
         }
     }
 }
