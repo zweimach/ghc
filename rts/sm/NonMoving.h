@@ -221,12 +221,13 @@ INLINE_HEADER bool nonmoving_segment_being_swept(struct nonmoving_segment *seg)
 
 // Can be called during a major collection to determine whether a particular
 // closure lives in a segment that will be swept this collection cycle.
+// Note that this returns true for both large and normal objects.
 INLINE_HEADER bool nonmoving_closure_being_swept(StgClosure *p)
 {
     bdescr *bd = Bdescr((StgPtr) p);
     if (HEAP_ALLOCED_GC(p)) {
         if (bd->flags & (BF_NONMOVING | BF_LARGE)) {
-            // TODO: improve this
+            return true;
         } else if (bd->flags & BF_NONMOVING) {
             struct nonmoving_segment *seg = nonmoving_get_segment((StgPtr) p);
             return nonmoving_segment_being_swept(seg);
