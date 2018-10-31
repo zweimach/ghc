@@ -215,7 +215,7 @@ static bool is_alive(StgClosure *p)
     if (bd->flags & BF_NONMOVING) {
         return nonmoving_is_alive(p);
     } else {
-        return isAlive(p);
+        return true;
     }
 }
 
