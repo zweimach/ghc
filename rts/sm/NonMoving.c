@@ -552,7 +552,6 @@ static void* nonmoving_concurrent_mark(void *data)
 #if defined(CONCURRENT_MARK)
     nonmoving_write_barrier_enabled = false;
     nonmoving_finish_flush(task);
-    debugTrace(DEBUG_nonmoving_gc, "Finished mutator sync; sweeping...");
 #endif
 
     current_mark_queue = NULL;
@@ -563,6 +562,8 @@ static void* nonmoving_concurrent_mark(void *data)
      * Sweep
      ****************************************************/
 
+    traceConcSweepBegin();
+
     // Because we can't mark large object blocks (no room for mark bit) we
     // collect them in a map in mark_queue and we pass it here to sweep large
     // objects
@@ -572,6 +573,7 @@ static void* nonmoving_concurrent_mark(void *data)
     nonmoving_sweep();
     ASSERT(nonmoving_heap.sweep_list == NULL);
     debugTrace(DEBUG_nonmoving_gc, "Finished sweeping.");
+    traceConcSweepEnd();
 
     // TODO: Remainder of things done by GarbageCollect
 

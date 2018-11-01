@@ -15,6 +15,7 @@
 #include "BlockAlloc.h"  /* for countBlocks */
 #include "HeapAlloc.h"
 #include "Task.h"
+#include "Trace.h"
 #include "HeapUtils.h"
 #include "Printer.h"
 #include "Schedule.h"
@@ -160,6 +161,7 @@ void nonmoving_flush_cap_upd_rem_set_blocks(Capability *cap)
 {
     if (! cap->upd_rem_set_syncd) {
         debugTrace(DEBUG_nonmoving_gc, "Capability %d flushing update remembered set", cap->no);
+        traceConcUpdRemSetFlush(cap);
         nonmoving_add_upd_rem_set_blocks(&cap->upd_rem_set.queue);
         atomic_inc(&upd_rem_set_flush_count, 1);
         cap->upd_rem_set_syncd = true;
@@ -175,6 +177,7 @@ void nonmoving_flush_cap_upd_rem_set_blocks(Capability *cap)
 void nonmoving_begin_flush(Task *task)
 {
     debugTrace(DEBUG_nonmoving_gc, "Starting update remembered set flush...");
+    traceConcSyncBegin();
     for (unsigned int i = 0; i < n_capabilities; i++) {
         capabilities[i]->upd_rem_set_syncd = false;
     }
@@ -218,6 +221,7 @@ void nonmoving_shutting_down()
 void nonmoving_finish_flush(Task *task)
 {
     debugTrace(DEBUG_nonmoving_gc, "Finished update remembered set flush...");
+    traceConcSyncEnd();
     releaseAllCapabilities(n_capabilities, NULL, task);
 }
 #else
@@ -1291,6 +1295,7 @@ mark_closure (MarkQueue *queue, StgClosure *p)
  */
 GNUC_ATTR_HOT void nonmoving_mark(MarkQueue *queue)
 {
+    traceConcMarkBegin();
     while (true) {
         MarkQueueEnt ent = mark_queue_pop(queue);
 
@@ -1327,6 +1332,7 @@ GNUC_ATTR_HOT void nonmoving_mark(MarkQueue *queue)
                 RELEASE_SM_LOCK;
             } else {
                 // Nothing more to do
+                traceConcMarkEnd();
                 return;
             }
         }
