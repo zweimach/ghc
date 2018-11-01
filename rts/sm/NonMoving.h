@@ -201,14 +201,14 @@ INLINE_HEADER bool nonmoving_closure_marked_this_cycle(StgPtr p)
 {
     struct nonmoving_segment *seg = nonmoving_get_segment(p);
     nonmoving_block_idx blk_idx = nonmoving_get_block_idx(p);
-    return nonmoving_get_mark(seg, blk_idx) != 0;
+    return nonmoving_get_mark(seg, blk_idx) == nonmoving_mark_epoch;
 }
 
 INLINE_HEADER bool nonmoving_closure_marked(StgPtr p)
 {
     struct nonmoving_segment *seg = nonmoving_get_segment(p);
     nonmoving_block_idx blk_idx = nonmoving_get_block_idx(p);
-    return nonmoving_get_mark(seg, blk_idx) == nonmoving_mark_epoch;
+    return nonmoving_get_mark(seg, blk_idx) != 0;
 }
 
 // Can be called during a major collection to determine whether a particular
