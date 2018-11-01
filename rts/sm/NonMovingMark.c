@@ -271,9 +271,10 @@ void push_closure (MarkQueue *q,
     if (origin_closure) {
         LOOKS_LIKE_CLOSURE_PTR(origin_closure);
     }
-    assert_in_nonmoving_heap((P_)p);
-    if (origin_closure) {
-        assert_in_nonmoving_heap((P_)origin_closure);
+    if (RtsFlags.DebugFlags.sanity) {
+        assert_in_nonmoving_heap((P_)p);
+        if (origin_closure)
+            assert_in_nonmoving_heap((P_)origin_closure);
     }
 #endif
 
