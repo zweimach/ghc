@@ -380,14 +380,16 @@ void upd_rem_set_push_thunk_eager(Capability *cap,
 
         // Don't record the origin of objects living outside of the nonmoving
         // heap; we can't perform the selector optimisation on them anyways.
-        bool thunk_in_nonmoving = check_in_nonmoving_heap((StgClosure*)thunk);
+        StgClosure *origin = NULL;
+        if (check_in_nonmoving_heap((StgClosure*)thunk))
+            origin = (StgClosure *) thunk;
 
         for (StgWord i = 0; i < info->i.layout.payload.ptrs; i++) {
             if (check_in_nonmoving_heap(thunk->payload[i])) {
                 push_closure(queue,
                              thunk->payload[i],
-                             thunk_in_nonmoving ? (StgClosure*)thunk : NULL,
-                             thunk_in_nonmoving ? 0 : i);
+                             origin,
+                             i /* ignored if origin == NULL */);
             }
         }
         break;
