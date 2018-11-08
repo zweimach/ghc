@@ -1132,13 +1132,22 @@ dirty_MUT_VAR(StgRegTable *reg, StgMutVar *mvar, StgClosure *old)
     }
 }
 
+/*
+ * old is the pointer that we overwrote, which is required by the concurrent
+ * garbage collector. Note that we, while StgTVars contain multiple pointers,
+ * only overwrite one per dirty_TVAR call so we only need to take one old
+ * pointer argument.
+ */
 void
-dirty_TVAR(Capability *cap, StgTVar *p)
+dirty_TVAR(Capability *cap, StgTVar *p,
+           StgClosure *old)
 {
     if (p->header.info == &stg_TVAR_CLEAN_info) {
         p->header.info = &stg_TVAR_DIRTY_info;
         recordClosureMutated(cap,(StgClosure*)p);
-        // TODO: Snapshot write barrier (#93)
+        if (nonmoving_write_barrier_enabled != 0) {
+            upd_rem_set_push_closure(cap, old, NULL, NULL);
+        }
     }
 }
 
