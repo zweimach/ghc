@@ -25,6 +25,10 @@
 
 static void mark_tso (MarkQueue *queue, StgTSO *tso);
 static void mark_stack (MarkQueue *queue, StgStack *stack);
+static void mark_PAP_payload (MarkQueue *queue,
+                              StgClosure *fun,
+                              StgClosure **payload,
+                              StgWord size);
 
 // How many Array# entries to add to the mark queue at once?
 #define MARK_ARRAY_CHUNK_LENGTH 128
@@ -392,6 +396,14 @@ void upd_rem_set_push_thunk_eager(Capability *cap,
                              i /* ignored if origin == NULL */);
             }
         }
+        break;
+    }
+    case AP:
+    {
+        MarkQueue *queue = &cap->upd_rem_set.queue;
+        StgAP *ap = (StgAP *) thunk;
+        push_closure(queue, ap->fun, (StgClosure *)thunk, &ap->fun - (StgClosure **) ap);
+        mark_PAP_payload(queue, ap->fun, ap->payload, ap->n_args);
         break;
     }
     case THUNK_SELECTOR:
