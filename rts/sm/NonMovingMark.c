@@ -1210,7 +1210,8 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
 
     case THUNK_SELECTOR:
         PUSH_FIELD((StgSelector *) p, selectee);
-        nonmoving_eval_thunk_selector(queue, (StgSelector*)p, origin);
+        if (origin)
+            nonmoving_eval_thunk_selector(queue, (StgSelector*)p, origin);
         break;
 
     case AP_STACK: {

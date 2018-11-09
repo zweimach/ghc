@@ -9,6 +9,7 @@
 
 #include "Rts.h"
 #include "GC.h"
+#include "Printer.h"
 #include "SMPClosureOps.h"
 #include "NonMovingMark.h"
 #include "NonMovingShortcut.h"
@@ -53,8 +54,11 @@ print_selector_chain(void)
 #endif
 
 void
-nonmoving_eval_thunk_selector(MarkQueue *queue, StgSelector *p, StgClosure **origin)
+nonmoving_eval_thunk_selector(MarkQueue *queue, StgSelector *p,
+                              StgClosure **origin)
 {
+    const StgSelector *orig_p = p;
+
     // Idea: `origin` will be updated with the value of this selector. When
     // looking for the value if the selectee is also a selector thunk we
     // recurse.
@@ -217,13 +221,13 @@ selector_loop:
 
 bale_out:
     if (val) {
-        debugBelch("Updating selector chain: ");
+        //debugBelch("Updating selector chain: ");
         nonmoving_unchain_thunk_selectors(val);
         ASSERT(LOOKS_LIKE_CLOSURE_PTR(val));
         if (origin) {
             ASSERT(LOOKS_LIKE_CLOSURE_PTR(*origin));
-            debugBelch("%p -> %p\n", origin, val);
-            // *origin = val; // TODO: this should be a cas()
+            //debugBelch("%p -> %p", origin, val);
+            cas((StgWord*) origin, (StgWord) orig_p, (StgWord) val);
         }
     } else {
         //debugBelch("val is NULL -- skipping selector chain\n");
