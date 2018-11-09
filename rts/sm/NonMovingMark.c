@@ -858,7 +858,7 @@ mark_stack (MarkQueue *queue, StgStack *stack)
 }
 
 static GNUC_ATTR_HOT void
-mark_closure (MarkQueue *queue, StgClosure *p)
+mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
 {
  try_again:
     p = UNTAG_CLOSURE(p);
@@ -1304,7 +1304,7 @@ GNUC_ATTR_HOT void nonmoving_mark(MarkQueue *queue)
 
         switch (ent.type) {
         case MARK_CLOSURE:
-            mark_closure(queue, ent.mark_closure.p);
+            mark_closure(queue, ent.mark_closure.p, ent.mark_closure.origin);
             break;
         case MARK_ARRAY: {
             const StgMutArrPtrs *arr = ent.mark_array.array;
