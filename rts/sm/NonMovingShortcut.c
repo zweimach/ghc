@@ -217,12 +217,15 @@ selector_loop:
 
 bale_out:
     if (val) {
-        // debugBelch("Updating selector chain\n");
+        debugBelch("Updating selector chain: ");
         nonmoving_unchain_thunk_selectors(val);
+        ASSERT(LOOKS_LIKE_CLOSURE_PTR(val));
         if (origin) {
-            *origin = val; // TODO: this should be a cas()
+            ASSERT(LOOKS_LIKE_CLOSURE_PTR(*origin));
+            debugBelch("%p -> %p\n", origin, val);
+            // *origin = val; // TODO: this should be a cas()
         }
     } else {
-        // debugBelch("val is NULL -- skipping selector chain\n");
+        //debugBelch("val is NULL -- skipping selector chain\n");
     }
 }
