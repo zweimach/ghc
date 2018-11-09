@@ -357,8 +357,7 @@ stg_casArrayzh ( gcptr arr, W_ ind, gcptr old, gcptr new )
         if (nonmoving_write_barrier_enabled != 0) (likely: False) {
             ccall upd_rem_set_push_closure_(BaseReg "ptr",
                                             old "ptr",
-                                            arr "ptr",
-                                            BYTES_TO_WDS(SIZEOF_StgMutArrPtrs) + WDS(ind));
+                                            p "ptr");
         }
 
         return (0,new);
@@ -480,8 +479,7 @@ stg_copyArray_barrier ( W_ hdr_size, gcptr dst, W_ dst_off, W_ n)
 again:
     ccall upd_rem_set_push_closure_(BaseReg "ptr",
                                     W_[p] "ptr",
-                                    dst "ptr",
-                                    hdr_size + WDS(i));
+                                    p "ptr");
     i = i + 1;
     p = p + WDS(1);
     if (i < n) {
@@ -551,7 +549,7 @@ stg_casSmallArrayzh ( gcptr arr, W_ ind, gcptr old, gcptr new )
         SET_HDR(arr, stg_SMALL_MUT_ARR_PTRS_DIRTY_info, CCCS);
 
         // Concurrent GC write barrier
-        recordMutatedPtr(old, arr, BYTES_TO_WDS(SIZEOF_StgSmallMutArrPtrs) + ind);
+        recordMutatedPtr(old, p);
 
         return (0,new);
     }
@@ -1586,7 +1584,7 @@ loop:
         // However, we do need to ensure that the nonmoving collector
         // knows about the reference to the value that we just removed...
         ccall upd_rem_set_push_closure(MyCapability() "ptr",
-                                       val "ptr", NULL, 0);
+                                       val "ptr", NULL);
         return (val);
     }
     if (StgHeader_info(q) == stg_IND_info ||
@@ -1963,8 +1961,7 @@ stg_makeStableNamezh ( P_ obj )
             // since we know that sn_obj will be on the nursery anyways.
             ccall upd_rem_set_push_closure_(BaseReg "ptr",
                                             obj "ptr",
-                                            0 "ptr",
-                                            0);
+                                            NULL "ptr");
         }
     } else {
         sn_obj = snEntry_sn_obj(W_[stable_name_table] + index*SIZEOF_snEntry);

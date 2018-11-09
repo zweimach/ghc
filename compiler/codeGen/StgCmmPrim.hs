@@ -2501,12 +2501,10 @@ emitUpdRemSetPush dflags ptr = do
       (fsLit "upd_rem_set_push_closure_")
       [(CmmReg (CmmGlobal BaseReg), AddrHint),
        (ptr, AddrHint),
-       (origin, AddrHint),
-       (origin_field, AddrHint)]
+       (origin, AddrHint)]
       False
   where
     origin = zeroExpr dflags
-    origin_field = zeroExpr dflags
 
 -- | Push a range of pointer-array elements that are about to be copied over to
 -- the update remembered set.
