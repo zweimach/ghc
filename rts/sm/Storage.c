@@ -1146,7 +1146,7 @@ dirty_TVAR(Capability *cap, StgTVar *p,
         p->header.info = &stg_TVAR_DIRTY_info;
         recordClosureMutated(cap,(StgClosure*)p);
         if (nonmoving_write_barrier_enabled != 0) {
-            upd_rem_set_push_closure(cap, old, NULL, NULL);
+            upd_rem_set_push_closure(cap, old, NULL, 0);
         }
     }
 }
