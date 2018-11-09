@@ -717,8 +717,7 @@ threadStackUnderflow (Capability *cap, StgTSO *tso)
             for (unsigned int i = 0; i < retvals; i++) {
                 upd_rem_set_push_closure(cap,
                                          (StgClosure *) old_stack->sp[i],
-                                         NULL,
-                                         0);
+                                         NULL);
             }
         }
 

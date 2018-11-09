@@ -263,8 +263,7 @@ push (MarkQueue *q, const MarkQueueEnt *ent)
 static
 void push_closure (MarkQueue *q,
                    StgClosure *p,
-                   StgClosure *origin_closure,
-                   StgWord origin_field)
+                   StgClosure **origin)
 {
     // TODO: Push this into callers where they already have the Bdescr
     if (HEAP_ALLOCED_GC(p) && (Bdescr((StgPtr) p)->gen != oldest_gen))
@@ -272,13 +271,10 @@ void push_closure (MarkQueue *q,
 
 #if defined(DEBUG)
     ASSERT(LOOKS_LIKE_CLOSURE_PTR(p));
-    if (origin_closure) {
-        ASSERT(LOOKS_LIKE_CLOSURE_PTR(origin_closure));
-    }
     if (RtsFlags.DebugFlags.sanity) {
         assert_in_nonmoving_heap((P_)p);
-        if (origin_closure)
-            assert_in_nonmoving_heap((P_)origin_closure);
+        if (origin)
+            assert_in_nonmoving_heap((P_)origin);
     }
 #endif
 
@@ -286,9 +282,7 @@ void push_closure (MarkQueue *q,
         .type = MARK_CLOSURE,
         .mark_closure = {
             .p = UNTAG_CLOSURE(p),
-            .origin = UNTAG_CLOSURE(origin_closure),
-            .origin_field = origin_field,
-            .origin_value = UNTAG_CLOSURE(p)
+            .origin = origin,
         }
     };
     push(q, &ent);
@@ -318,7 +312,7 @@ void push_thunk_srt (MarkQueue *q, const StgInfoTable *info)
 {
     const StgThunkInfoTable *thunk_info = itbl_to_thunk_itbl(info);
     if (thunk_info->i.srt) {
-        push_closure(q, (StgClosure*)GET_SRT(thunk_info), NULL, 0);
+        push_closure(q, (StgClosure*)GET_SRT(thunk_info), NULL);
     }
 }
 
@@ -327,7 +321,7 @@ void push_fun_srt (MarkQueue *q, const StgInfoTable *info)
 {
     const StgFunInfoTable *fun_info = itbl_to_fun_itbl(info);
     if (fun_info->i.srt) {
-        push_closure(q, (StgClosure*)GET_FUN_SRT(fun_info), NULL, 0);
+        push_closure(q, (StgClosure*)GET_FUN_SRT(fun_info), NULL);
     }
 }
 
@@ -369,7 +363,7 @@ void upd_rem_set_push_thunk(Capability *cap, StgThunk *origin)
 
 void upd_rem_set_push_thunk_eager(Capability *cap,
                                   const StgThunkInfoTable *info,
-                                  const StgThunk *thunk)
+                                  StgThunk *thunk)
 {
     switch (info->i.type) {
     case THUNK:
@@ -384,16 +378,13 @@ void upd_rem_set_push_thunk_eager(Capability *cap,
 
         // Don't record the origin of objects living outside of the nonmoving
         // heap; we can't perform the selector optimisation on them anyways.
-        StgClosure *origin = NULL;
-        if (check_in_nonmoving_heap((StgClosure*)thunk))
-            origin = (StgClosure *) thunk;
+        bool record_origin = check_in_nonmoving_heap((StgClosure*)thunk);
 
         for (StgWord i = 0; i < info->i.layout.payload.ptrs; i++) {
             if (check_in_nonmoving_heap(thunk->payload[i])) {
                 push_closure(queue,
                              thunk->payload[i],
-                             origin,
-                             i /* ignored if origin == NULL */);
+                             record_origin ? &thunk->payload[i] : NULL);
             }
         }
         break;
@@ -402,7 +393,7 @@ void upd_rem_set_push_thunk_eager(Capability *cap,
     {
         MarkQueue *queue = &cap->upd_rem_set.queue;
         StgAP *ap = (StgAP *) thunk;
-        push_closure(queue, ap->fun, (StgClosure *)thunk, &ap->fun - (StgClosure **) ap);
+        push_closure(queue, ap->fun, &ap->fun);
         mark_PAP_payload(queue, ap->fun, ap->payload, ap->n_args);
         break;
     }
@@ -425,25 +416,23 @@ void upd_rem_set_push_thunk_(StgRegTable *reg, StgThunk *origin)
 
 void upd_rem_set_push_closure(Capability *cap,
                               StgClosure *p,
-                              StgClosure *origin_closure,
-                              StgWord origin_field)
+                              StgClosure **origin)
 {
     if (!nonmoving_write_barrier_enabled) return;
     if (!check_in_nonmoving_heap(p)) return;
     MarkQueue *queue = &cap->upd_rem_set.queue;
-    if (check_in_nonmoving_heap(origin_closure)) {
-        push_closure(queue, p, origin_closure, origin_field);
-    } else {
-        push_closure(queue, p, NULL, 0);
-    }
+    // We only shortcut things living in the nonmoving heap.
+    if (! check_in_nonmoving_heap((StgClosure *) origin))
+        origin = NULL;
+
+    push_closure(queue, p, origin);
 }
 
 void upd_rem_set_push_closure_(StgRegTable *reg,
                                StgClosure *p,
-                               StgClosure *origin_closure,
-                               StgWord origin_field)
+                               StgClosure **origin)
 {
-    upd_rem_set_push_closure(regTableToCapability(reg), p, origin_closure, origin_field);
+    upd_rem_set_push_closure(regTableToCapability(reg), p, origin);
 }
 
 STATIC_INLINE bool needs_upd_rem_set_mark(StgClosure *p)
@@ -544,22 +533,21 @@ void mark_queue_push (MarkQueue *q, const MarkQueueEnt *ent)
 
 void mark_queue_push_closure (MarkQueue *q,
                               StgClosure *p,
-                              StgClosure *origin_closure,
-                              StgWord origin_field)
+                              StgClosure **origin)
 {
-    push_closure(q, p, origin_closure, origin_field);
+    push_closure(q, p, origin);
 }
 
 /* TODO: Do we really never want to specify the origin here? */
 void mark_queue_add_root(MarkQueue* q, StgClosure** root)
 {
-    mark_queue_push_closure(q, *root, NULL, 0);
+    mark_queue_push_closure(q, *root, NULL);
 }
 
 /* Push a closure to the mark queue without origin information */
 void mark_queue_push_closure_ (MarkQueue *q, StgClosure *p)
 {
-    mark_queue_push_closure(q, p, NULL, 0);
+    mark_queue_push_closure(q, p, NULL);
 }
 
 void mark_queue_push_fun_srt (MarkQueue *q, const StgInfoTable *info)
@@ -715,7 +703,7 @@ mark_small_bitmap (MarkQueue *queue, StgClosure **p, StgWord size, StgWord bitma
     while (size > 0) {
         if ((bitmap & 1) == 0) {
             // TODO: Origin?
-            mark_queue_push_closure(queue, *p, NULL, 0);
+            mark_queue_push_closure(queue, *p, NULL);
         }
         p++;
         bitmap = bitmap >> 1;
@@ -878,8 +866,7 @@ mark_closure (MarkQueue *queue, StgClosure *p)
 #   define PUSH_FIELD(obj, field)                                \
         mark_queue_push_closure(queue,                           \
                                 (StgClosure *) (obj)->field,     \
-                                p,                               \
-                                ((StgClosure **) &(obj)->field) - (StgClosure **) (obj))
+                                (StgClosure **) &(obj)->field)
 
     if (!HEAP_ALLOCED_GC(p)) {
         const StgInfoTable *info = get_itbl(p);
@@ -1117,8 +1104,8 @@ mark_closure (MarkQueue *queue, StgClosure *p)
     case THUNK: {
         mark_queue_push_thunk_srt(queue, info);
         for (StgWord i = 0; i < info->layout.payload.ptrs; i++) {
-            StgClosure *field = ((StgThunk *) p)->payload[i];
-            mark_queue_push_closure(queue, field, p, i);
+            StgClosure **field = &((StgThunk *) p)->payload[i];
+            mark_queue_push_closure(queue, *field, field);
         }
         break;
     }
@@ -1130,8 +1117,8 @@ mark_closure (MarkQueue *queue, StgClosure *p)
     case PRIM:
     {
         for (StgWord i = 0; i < info->layout.payload.ptrs; i++) {
-            StgClosure *field = ((StgClosure *) p)->payload[i];
-            mark_queue_push_closure(queue, field, p, i);
+            StgClosure **field = &((StgClosure *) p)->payload[i];
+            mark_queue_push_closure(queue, *field, field);
         }
         break;
     }
@@ -1208,8 +1195,8 @@ mark_closure (MarkQueue *queue, StgClosure *p)
     case SMALL_MUT_ARR_PTRS_FROZEN_DIRTY: {
         StgSmallMutArrPtrs *arr = (StgSmallMutArrPtrs *) p;
         for (StgWord i = 0; i < arr->ptrs; i++) {
-            StgClosure *field = arr->payload[i];
-            mark_queue_push_closure(queue, field, p, i);
+            StgClosure **field = &arr->payload[i];
+            mark_queue_push_closure(queue, *field, field);
         }
         break;
     }
@@ -1242,7 +1229,8 @@ mark_closure (MarkQueue *queue, StgClosure *p)
 
     case MUT_PRIM: {
         for (StgHalfWord p_idx = 0; p_idx < info->layout.payload.ptrs; ++p_idx) {
-            mark_queue_push_closure(queue, p->payload[p_idx], p, p_idx);
+            StgClosure **field = &p->payload[p_idx];
+            mark_queue_push_closure(queue, *field, field);
         }
         break;
     }

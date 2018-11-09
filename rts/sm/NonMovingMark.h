@@ -22,15 +22,34 @@ enum EntryType {
     MARK_ARRAY
 };
 
+/* Note [Origin references in the nonmoving collector]
+ * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ *
+ * To implement indirection short-cutting and the selector optimisation the
+ * collector needs to know where it found references, so it can update the
+ * reference if it later turns out that points to an indirection. For this
+ * reason, each mark queue entry contains two things:
+ *
+ * - a pointer to the object to be marked (p), and
+ *
+ * - a pointer to the field where we found the reference (origin)
+ *
+ * Note that the origin pointer is an interior pointer: it points not to a
+ * valid closure (with info table pointer) but rather to a field inside a closure.
+ * Since such references can't be safely scavenged we establish the invariant
+ * that the origin pointer may only point to a field of an object living in the
+ * nonmoving heap, where no scavenging is needed.
+ *
+ */
+
 typedef struct {
     enum EntryType type;
     // All pointers should be untagged
     union {
         struct {
             StgClosure *p;        // the object to be marked
-            StgClosure *origin;   // the object where this reference was found
-            StgWord origin_field; // field index where the reference was found
-            StgClosure *origin_value;
+            StgClosure **origin;  // field where this reference was found.
+                                  // See Note [Origin references in the nonmoving collector]
         } mark_closure;
         struct {
             const StgMutArrPtrs *array;
@@ -134,15 +153,14 @@ void nonmoving_mark_live_weak(struct MarkQueue_ *queue, StgWeak *w);
 void mark_queue_push(MarkQueue *q, const MarkQueueEnt *ent);
 void mark_queue_push_closure(MarkQueue *q,
                              StgClosure *p,
-                             StgClosure *origin_closure,
-                             StgWord origin_field);
+                             StgClosure **origin);
 void mark_queue_push_closure_(MarkQueue *q, StgClosure *p);
 void mark_queue_push_thunk_srt(MarkQueue *q, const StgInfoTable *info);
 void mark_queue_push_fun_srt(MarkQueue *q, const StgInfoTable *info);
 void mark_queue_push_array(MarkQueue *q, const StgMutArrPtrs *array, StgWord start_index);
 void upd_rem_set_push_thunk_eager(Capability *cap,
                                   const StgThunkInfoTable *orig_info,
-                                  const StgThunk *thunk);
+                                  StgThunk *thunk);
 
 INLINE_HEADER bool mark_queue_is_empty(MarkQueue *q)
 {
