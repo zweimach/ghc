@@ -146,7 +146,7 @@ selector_loop:
 
         val_loop:
             // TODO: does it have to be a heap-allocated object?
-            if (!HEAP_ALLOCED(val) || !(Bdescr((P_)val)->flags & BF_NONMOVING)) {
+            if (HEAP_ALLOCED(val) && !(Bdescr((P_)val)->flags & BF_NONMOVING)) {
                 // A moving object, stop
                 goto bale_out;
             }
