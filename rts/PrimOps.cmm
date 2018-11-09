@@ -469,17 +469,19 @@ stg_thawSmallArrayzh ( gcptr src, W_ offset, W_ n )
 }
 
 // Concurrent GC write barrier for pointer array copies
+//
+// hdr_size in words. dst_off in words.
 stg_copyArray_barrier ( W_ hdr_size, gcptr dst, W_ dst_off, W_ n)
 {
     W_ i, p;
     i = dst_off;
-    p = dst + hdr_size + WDS(dst_off);
+    p = dst + WDS(hdr_size) + WDS(dst_off);
 
 again:
     ccall upd_rem_set_push_closure_(BaseReg "ptr",
                                     W_[p] "ptr",
                                     dst "ptr",
-                                    BYTES_TO_WDS(hdr_size) + WDS(i));
+                                    hdr_size + WDS(i));
     i = i + 1;
     p = p + WDS(1);
     if (i < n) {
@@ -494,7 +496,8 @@ stg_copySmallArrayzh ( gcptr src, W_ src_off, gcptr dst, W_ dst_off, W_ n)
     W_ dst_p, src_p, bytes;
 
     if (nonmoving_write_barrier_enabled != 0) {
-        call stg_copyArray_barrier(SIZEOF_StgSmallMutArrPtrs, dst, dst_off, n);
+        call stg_copyArray_barrier(BYTES_TO_WDS(SIZEOF_StgSmallMutArrPtrs),
+                                   dst, dst_off, n);
     }
 
     SET_INFO(dst, stg_SMALL_MUT_ARR_PTRS_DIRTY_info);
@@ -512,7 +515,8 @@ stg_copySmallMutableArrayzh ( gcptr src, W_ src_off, gcptr dst, W_ dst_off, W_ n
     W_ dst_p, src_p, bytes;
 
     if (nonmoving_write_barrier_enabled != 0) {
-        call stg_copyArray_barrier(SIZEOF_StgSmallMutArrPtrs, dst, dst_off, n);
+        call stg_copyArray_barrier(BYTES_TO_WDS(SIZEOF_StgSmallMutArrPtrs),
+                                   dst, dst_off, n);
     }
 
     SET_INFO(dst, stg_SMALL_MUT_ARR_PTRS_DIRTY_info);
