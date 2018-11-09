@@ -2118,7 +2118,7 @@ emitCopyArray copy src0 src_off dst0 dst_off0 n = do
         dst     <- assignTempE dst0
         dst_off <- assignTempE dst_off0
 
-        emitCopyUpdRemSetPush dflags (arrPtrsHdrSize dflags) dst dst_off n
+        emitCopyUpdRemSetPush dflags (arrPtrsHdrSizeW dflags) dst dst_off n
 
         -- Set the dirty bit in the header.
         emit (setInfo dst (CmmLit (CmmLabel mkMAP_DIRTY_infoLabel)))
@@ -2181,7 +2181,7 @@ emitCopySmallArray copy src0 src_off dst0 dst_off n = do
     src     <- assignTempE src0
     dst     <- assignTempE dst0
 
-    emitCopyUpdRemSetPush dflags (smallArrPtrsHdrSize dflags) dst dst_off n
+    emitCopyUpdRemSetPush dflags (smallArrPtrsHdrSizeW dflags) dst dst_off n
 
     -- Set the dirty bit in the header.
     emit (setInfo dst (CmmLit (CmmLabel mkSMAP_DIRTY_infoLabel)))
@@ -2508,21 +2508,24 @@ emitUpdRemSetPush dflags ptr = do
     origin = zeroExpr dflags
     origin_field = zeroExpr dflags
 
--- | Push a range of array elements that are about to be copied over
--- to the update remembered set.
+-- | Push a range of pointer-array elements that are about to be copied over to
+-- the update remembered set.
 emitCopyUpdRemSetPush :: DynFlags
                       -> WordOff    -- ^ array header size
                       -> CmmExpr    -- ^ destination array
-                      -> CmmExpr    -- ^ offset in destination array
-                      -> WordOff    -- ^ number of elements to copy
+                      -> CmmExpr    -- ^ offset in destination array (in words)
+                      -> Int        -- ^ number of elements to copy
                       -> FCode ()
 emitCopyUpdRemSetPush dflags hdr_size dst dst_off n = whenUpdRemSetEnabled $ do
-    emitRtsCall
-      rtsUnitId
-      (fsLit "stg_copyArray_barrier")
-      [ (mkIntExpr dflags hdr_size, NoHint)
-      , (dst, AddrHint)
-      , (dst_off, NoHint)
-      , (mkIntExpr dflags n, NoHint)
+    updfr_off <- getUpdFrameOff
+    graph <- mkCall lbl (NativeNodeCall,NativeReturn) [] args updfr_off []
+    emit graph
+  where
+    lbl = mkLblExpr $ mkPrimCallLabel
+          $ PrimCall (fsLit "stg_copyArray_barrier") rtsUnitId
+    args =
+      [ mkIntExpr dflags hdr_size
+      , dst
+      , dst_off
+      , mkIntExpr dflags n
       ]
-      False
