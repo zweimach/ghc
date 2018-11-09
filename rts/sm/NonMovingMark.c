@@ -860,7 +860,15 @@ mark_stack (MarkQueue *queue, StgStack *stack)
 static GNUC_ATTR_HOT void
 mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
 {
+    StgWord tag;
+    const StgClosure *orig_p = p;
+    // Indicates that we want to return to try_again since we want to follow an
+    // indirection.
+    bool keep_going;
+
  try_again:
+    keep_going = false;
+    tag = GET_CLOSURE_TAG(p);
     p = UNTAG_CLOSURE(p);
 
 #   define PUSH_FIELD(obj, field)                                \
@@ -891,7 +899,7 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
             if (info->srt != 0) {
                 mark_queue_push_thunk_srt(queue, info); // TODO this function repeats the check above
             }
-            return;
+            goto update_origin_and_finish;
 
         case FUN_STATIC:
             if (info->srt != 0 || info->layout.payload.ptrs != 0) {
@@ -905,11 +913,11 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
                     PUSH_FIELD(p, payload[i]);
                 }
             }
-            return;
+            goto update_origin_and_finish;
 
         case IND_STATIC:
             PUSH_FIELD((StgInd *) p, indirectee);
-            return;
+            goto update_origin_and_finish;
 
         case CONSTR:
         case CONSTR_1_0:
@@ -918,7 +926,7 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
             for (StgHalfWord i = 0; i < info->layout.payload.ptrs; ++i) {
                 PUSH_FIELD(p, payload[i]);
             }
-            return;
+            goto update_origin_and_finish;
 
         default:
             barf("mark_closure(static): strange closure type %d", (int)(info->type));
@@ -1132,10 +1140,58 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
     }
 
 
-    case IND:
-    case BLACKHOLE:
-        PUSH_FIELD((StgInd *) p, indirectee);
+    case IND: {
+        // Follow the indirection
+        StgClosure *r = ((StgInd *) p)->indirectee;
+        // Don't follow indirections into the moving heap
+        // TODO: Allow static objects
+        if (HEAP_ALLOCED(r) && Bdescr((StgPtr) r)->gen == oldest_gen) {
+            p = r;
+            keep_going = true;
+        } else {
+            PUSH_FIELD((StgInd *)p, indirectee);
+        }
         break;
+    }
+
+    case BLACKHOLE:
+    {
+        StgInd *ind = (StgInd *) p;
+        StgClosure *r;
+    bh_loop:
+        r = ind->indirectee;
+        // TODO: Allow static objects
+        if (!HEAP_ALLOCED(r) || Bdescr((StgPtr) r)->gen != oldest_gen) {
+            // Don't follow indirections into the moving heap
+            PUSH_FIELD(ind, indirectee);
+            break;
+        }
+
+        if (GET_CLOSURE_TAG(r) == 0) {
+            const StgInfoTable *i = r->header.info;
+            if (i == &stg_IND_info) {
+                // Caught BH in a temporary state, see Note [BLACKHOLE pointing
+                // to IND] in Evac.c. Loop until it's updated.
+                // debugBelch("Non-moving busy loop\n");
+                goto bh_loop;
+            } else if (i == &stg_TSO_info
+                       || i == &stg_WHITEHOLE_info
+                       || i == &stg_BLOCKING_QUEUE_CLEAN_info
+                       || i == &stg_BLOCKING_QUEUE_DIRTY_info) {
+                // Can't short-out, just push the indirectee
+                // The BLACKHOLE may be updated as we mark, but we won't short
+                // it until the next GC.
+                // debugBelch("Non-moving can't short indirection\n");
+                PUSH_FIELD(ind, indirectee);
+                break;
+            }
+        }
+        // Otherwise follow the indirection
+        p = r;
+        //debugBelch("Non-moving mark following an indirection\n");
+        keep_going = true;
+        break;
+    }
 
     case MUT_VAR_CLEAN:
     case MUT_VAR_DIRTY:
@@ -1285,6 +1341,18 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
         struct nonmoving_segment *seg = nonmoving_get_segment((StgPtr) p);
         nonmoving_block_idx block_idx = nonmoving_get_block_idx((StgPtr) p);
         nonmoving_set_mark(seg, block_idx);
+    }
+
+    if (keep_going)
+        goto try_again;
+
+ update_origin_and_finish:
+    // If we have followed any indirections update the origin pointer...
+    if (origin && orig_p != p) {
+        ASSERT(LOOKS_LIKE_CLOSURE_PTR(p));
+        debugBelch("update origin %p: %p -> %p\n", origin, orig_p, p);
+        //cas((StgWord*) origin, (StgWord) orig_p, (StgWord) TAG_CLOSURE(tag, p));
+        (void) tag;
     }
 }
 
