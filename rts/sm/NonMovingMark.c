@@ -1259,9 +1259,9 @@ mark_closure (MarkQueue *queue, StgClosure *p)
 
 #   undef PUSH_FIELD
 
-    /* Set the mark bit: it's important that we do this only after we actually mark
-     * the object since in the case of marking stacks there may be a mutator waiting
-     * for us to finish so it can start execution.
+    /* Set the mark bit: it's important that we do this only after we actually push
+     * the object's pointers since in the case of marking stacks there may be a
+     * mutator waiting for us to finish so it can start execution.
      */
     if (bd->flags & BF_LARGE) {
         /* Marking a large object isn't idempotent since we move it to
