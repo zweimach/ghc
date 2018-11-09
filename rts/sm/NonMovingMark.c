@@ -131,6 +131,8 @@ void nonmoving_mark_init_upd_rem_set() {
 #endif
 }
 
+static uint32_t mark_queue_length(MarkQueue *q);
+
 /* Transfers the given capability's update-remembered set to the global
  * remembered set.
  */
@@ -165,7 +167,9 @@ static void nonmoving_add_upd_rem_set_blocks(MarkQueue *rset)
 void nonmoving_flush_cap_upd_rem_set_blocks(Capability *cap)
 {
     if (! cap->upd_rem_set_syncd) {
-        debugTrace(DEBUG_nonmoving_gc, "Capability %d flushing update remembered set", cap->no);
+        debugTrace(DEBUG_nonmoving_gc,
+                   "Capability %d flushing update remembered set: %d",
+                   cap->no, mark_queue_length(&cap->upd_rem_set.queue));
         traceConcUpdRemSetFlush(cap);
         nonmoving_add_upd_rem_set_blocks(&cap->upd_rem_set.queue);
         atomic_inc(&upd_rem_set_flush_count, 1);
@@ -483,7 +487,7 @@ void upd_rem_set_push_tso(Capability *cap, StgTSO *tso)
     if (!nonmoving_write_barrier_enabled) return;
     if (!check_in_nonmoving_heap((StgClosure*)tso)) return;
     if (needs_upd_rem_set_mark((StgClosure *) tso)) {
-        debugTrace(DEBUG_nonmoving_gc, "upd_rem_set: TSO %p\n", tso);
+        debugTrace(DEBUG_nonmoving_gc, "upd_rem_set: TSO %p", tso);
         mark_tso(&cap->upd_rem_set.queue, tso);
         finish_upd_rem_set_mark((StgClosure *) tso);
     }
@@ -514,7 +518,7 @@ void upd_rem_set_push_stack(Capability *cap, StgStack *stack)
             }
         }
 
-        debugTrace(DEBUG_nonmoving_gc, "upd_rem_set: STACK %p\n", stack->sp);
+        debugTrace(DEBUG_nonmoving_gc, "upd_rem_set: STACK %p", stack->sp);
         mark_stack(&cap->upd_rem_set.queue, stack);
         finish_upd_rem_set_mark((StgClosure *) stack);}
 }
@@ -653,6 +657,17 @@ void free_mark_queue(MarkQueue *queue)
     RELEASE_SM_LOCK;
     freeHashTable(queue->marked_objects, NULL);
 }
+
+static uint32_t mark_queue_length(MarkQueue *q)
+{
+    uint32_t n = 0;
+    for (bdescr *block = q->blocks; block; block = block->link) {
+        MarkQueueBlock *queue = (MarkQueueBlock*)block->start;
+        n += queue->head;
+    }
+    return n;
+}
+
 
 /*********************************************************
  * Marking
@@ -1300,6 +1315,7 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
 GNUC_ATTR_HOT void nonmoving_mark(MarkQueue *queue)
 {
     traceConcMarkBegin();
+    debugTrace(DEBUG_nonmoving_gc, "Starting mark pass");
     unsigned int count = 0;
     while (true) {
         count++;
@@ -1338,6 +1354,7 @@ GNUC_ATTR_HOT void nonmoving_mark(MarkQueue *queue)
                 RELEASE_SM_LOCK;
             } else {
                 // Nothing more to do
+                debugTrace(DEBUG_nonmoving_gc, "Finished mark pass: %d", count);
                 traceConcMarkEnd(count);
                 return;
             }
