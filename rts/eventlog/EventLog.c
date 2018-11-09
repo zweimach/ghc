@@ -450,12 +450,15 @@ postHeaderEvents(void)
             break;
 
         case EVENT_CONC_MARK_BEGIN:
-        case EVENT_CONC_MARK_END:
         case EVENT_CONC_SYNC_BEGIN:
         case EVENT_CONC_SYNC_END:
         case EVENT_CONC_SWEEP_BEGIN:
         case EVENT_CONC_SWEEP_END:
             eventTypes[t].size = 0;
+            break;
+
+        case EVENT_CONC_MARK_END:
+            eventTypes[t].size = 4;
             break;
 
         case EVENT_CONC_UPD_REM_SET_FLUSH: // (cap)
@@ -1147,6 +1150,15 @@ void postConcUpdRemSetFlush(Capability *cap)
     ensureRoomForEvent(eb, EVENT_CONC_UPD_REM_SET_FLUSH);
     postEventHeader(eb, EVENT_CONC_UPD_REM_SET_FLUSH);
     postCapNo(eb, cap->no);
+}
+
+void postConcMarkEnd(StgWord32 marked_obj_count)
+{
+    ACQUIRE_LOCK(&eventBufMutex);
+    ensureRoomForEvent(&eventBuf, EVENT_CONC_MARK_END);
+    postEventHeader(&eventBuf, EVENT_CONC_MARK_END);
+    postWord32(&eventBuf, marked_obj_count);
+    RELEASE_LOCK(&eventBufMutex);
 }
 
 void closeBlockMarker (EventsBuf *ebuf)

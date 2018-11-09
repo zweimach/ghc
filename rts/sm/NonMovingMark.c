@@ -1299,7 +1299,9 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
 GNUC_ATTR_HOT void nonmoving_mark(MarkQueue *queue)
 {
     traceConcMarkBegin();
+    unsigned int count = 0;
     while (true) {
+        count++;
         MarkQueueEnt ent = mark_queue_pop(queue);
 
         switch (ent.type) {
@@ -1335,7 +1337,7 @@ GNUC_ATTR_HOT void nonmoving_mark(MarkQueue *queue)
                 RELEASE_SM_LOCK;
             } else {
                 // Nothing more to do
-                traceConcMarkEnd();
+                traceConcMarkEnd(count);
                 return;
             }
         }

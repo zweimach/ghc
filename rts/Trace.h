@@ -302,7 +302,7 @@ void traceHeapProfSampleCostCentre(StgWord8 profile_id,
 #endif /* PROFILING */
 
 void traceConcMarkBegin(void);
-void traceConcMarkEnd(void);
+void traceConcMarkEnd(StgWord32 marked_obj_count);
 void traceConcSyncBegin(void);
 void traceConcSyncEnd(void);
 void traceConcSweepBegin(void);
@@ -348,7 +348,7 @@ void flushTrace(void);
 #define traceHeapProfSampleString(profile_id, label, residency) /* nothing */
 
 #define traceConcMarkBegin() /* nothing */
-#define traceConcMarkEnd() /* nothing */
+#define traceConcMarkEnd(marked_obj_count) /* nothing */
 #define traceConcSyncBegin() /* nothing */
 #define traceConcSyncEnd() /* nothing */
 #define traceConcSweepBegin() /* nothing */
