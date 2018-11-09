@@ -1397,9 +1397,12 @@ prepare_collected_gen (generation *gen)
     gen->old_blocks   = gen->blocks;
     gen->n_old_blocks = gen->n_blocks;
     gen->blocks       = NULL;
-    gen->n_blocks     = 0;
-    gen->n_words      = 0;
-    gen->live_estimate = 0;
+
+    if (!(RtsFlags.GcFlags.useNonmoving && g == oldest_gen->no)) {
+        gen->n_blocks     = 0;
+        gen->n_words      = 0;
+        gen->live_estimate = 0;
+    }
 
     // initialise the large object queues.
     ASSERT(gen->scavenged_large_objects == NULL);
