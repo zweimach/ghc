@@ -123,7 +123,11 @@ static struct nonmoving_segment *nonmoving_alloc_segment(uint32_t node)
         // generation and call `todo_block_full`
         ACQUIRE_SPIN_LOCK(&gc_alloc_block_sync);
         bdescr *bd = allocAlignedGroupOnNode(node, NONMOVING_SEGMENT_BLOCKS);
+        // Approximate accounting
+        oldest_gen->n_blocks += bd->blocks;
+        oldest_gen->n_words  += BLOCK_SIZE_W * bd->blocks;
         RELEASE_SPIN_LOCK(&gc_alloc_block_sync);
+
         for (StgWord32 i = 0; i < bd->blocks; ++i) {
             initBdescr(&bd[i], oldest_gen, oldest_gen);
             bd[i].flags = BF_NONMOVING;
