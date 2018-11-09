@@ -800,10 +800,10 @@ void traceConcMarkBegin()
         postEventNoCap(EVENT_CONC_MARK_BEGIN);
 }
 
-void traceConcMarkEnd()
+void traceConcMarkEnd(StgWord32 marked_obj_count)
 {
     if (eventlog_enabled)
-        postEventNoCap(EVENT_CONC_MARK_END);
+        postConcMarkEnd(marked_obj_count);
 }
 
 void traceConcSyncBegin()

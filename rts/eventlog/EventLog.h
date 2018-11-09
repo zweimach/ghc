@@ -159,6 +159,7 @@ void postHeapProfSampleCostCentre(StgWord8 profile_id,
 #endif /* PROFILING */
 
 void postConcUpdRemSetFlush(Capability *cap);
+void postConcMarkEnd(StgWord32 marked_obj_count);
 
 #else /* !TRACING */
 
