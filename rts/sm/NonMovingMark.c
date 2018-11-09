@@ -153,6 +153,7 @@ static void nonmoving_add_upd_rem_set_blocks(MarkQueue *rset)
     // Reset remembered set
     ACQUIRE_SM_LOCK;
     init_mark_queue(rset);
+    rset->is_upd_rem_set = true;
     RELEASE_SM_LOCK;
 }
 
