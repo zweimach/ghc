@@ -346,17 +346,21 @@ scavenge_nonmoving_segment(struct nonmoving_segment *seg)
     ASSERT(seg_block->u.scan >= (P_)nonmoving_segment_get_block(seg, 0));
     ASSERT(seg_block->u.scan <= (P_)nonmoving_segment_get_block(seg, seg->next_free));
 
-    while (seg_block->u.scan < (P_)nonmoving_segment_get_block(seg, seg->next_free)) {
+    StgPtr scan_end = (P_)nonmoving_segment_get_block(seg, seg->next_free);
+    if (seg_block->u.scan == scan_end)
+        return;
+
+    nonmoving_block_idx p_idx = nonmoving_get_block_idx(seg_block->u.scan);
+    while (seg_block->u.scan < scan_end) {
         StgClosure *p = (StgClosure*)seg_block->u.scan;
-        // TODO: No need to calculate block index of each object; calculate
-        // block index of `scan`, then increment by one after each iteration.
-        nonmoving_block_idx p_idx = nonmoving_get_block_idx((StgPtr)p);
+
         // bit set = was allocated in a previous GC, no need to scavenge
         // bit not set = new allocation, so scavenge
         if (nonmoving_get_mark(seg, p_idx) == 0) {
             nonmoving_scavenge_one(p);
         }
 
+        p_idx++;
         seg_block->u.scan = (P_)(((uint8_t*)seg_block->u.scan) + blk_size);
     }
 }
