@@ -271,9 +271,9 @@ void push_closure (MarkQueue *q,
         return;
 
 #if defined(DEBUG)
-    LOOKS_LIKE_CLOSURE_PTR(p);
+    ASSERT(LOOKS_LIKE_CLOSURE_PTR(p));
     if (origin_closure) {
-        LOOKS_LIKE_CLOSURE_PTR(origin_closure);
+        ASSERT(LOOKS_LIKE_CLOSURE_PTR(origin_closure));
     }
     if (RtsFlags.DebugFlags.sanity) {
         assert_in_nonmoving_heap((P_)p);
