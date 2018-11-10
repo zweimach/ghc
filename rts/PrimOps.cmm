@@ -473,7 +473,7 @@ stg_thawSmallArrayzh ( gcptr src, W_ offset, W_ n )
 stg_copyArray_barrier ( W_ hdr_size, gcptr dst, W_ dst_off, W_ n)
 {
     W_ i, p;
-    i = dst_off;
+    i = 0;
     p = dst + WDS(hdr_size) + WDS(dst_off);
 
 again:
