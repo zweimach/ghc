@@ -261,6 +261,23 @@ void nonmoving_init(void)
     nonmoving_mark_init_upd_rem_set();
 }
 
+void nonmoving_exit(void)
+{
+#if defined(CONCURRENT_MARK)
+    if (mark_thread) {
+        debugTrace(DEBUG_nonmoving_gc,
+                   "waiting for nonmoving collector thread to terminate");
+        ACQUIRE_LOCK(&concurrent_coll_finished_lock);
+        waitCondition(&concurrent_coll_finished, &concurrent_coll_finished_lock);
+    }
+    closeMutex(&concurrent_coll_finished_lock);
+    closeCondition(&concurrent_coll_finished);
+#endif
+#if defined(THREADED_RTS)
+    closeMutex(&nonmoving_collection_mutex);
+#endif
+}
+
 /*
  * Assumes that no garbage collector or mutator threads are running to safely
  * resize the nonmoving_allocators.
@@ -582,6 +599,9 @@ static void* nonmoving_concurrent_mark(void *data)
     // TODO: Remainder of things done by GarbageCollect
 
 #if defined(CONCURRENT_MARK)
+    // We are done...
+    mark_thread = 0;
+
     // Signal that the concurrent collection is finished, allowing the next
     // non-moving collection to proceed
     concurrent_coll_running = false;
