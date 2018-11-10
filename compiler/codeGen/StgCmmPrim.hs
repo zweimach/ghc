@@ -2514,6 +2514,7 @@ emitCopyUpdRemSetPush :: DynFlags
                       -> CmmExpr    -- ^ offset in destination array (in words)
                       -> Int        -- ^ number of elements to copy
                       -> FCode ()
+emitCopyUpdRemSetPush _dflags _hdr_size _dst _dst_off 0 = return ()
 emitCopyUpdRemSetPush dflags hdr_size dst dst_off n = whenUpdRemSetEnabled $ do
     updfr_off <- getUpdFrameOff
     graph <- mkCall lbl (NativeNodeCall,NativeReturn) [] args updfr_off []
