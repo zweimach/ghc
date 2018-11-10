@@ -65,8 +65,6 @@ typedef struct {
     MarkQueueEnt entries[];
 } MarkQueueBlock;
 
-#define MARK_PREFETCH_QUEUE_DEPTH 0 // TODO: 8
-
 /* The mark queue is not capable of concurrent read or write.
  *
  * invariants:
@@ -88,12 +86,6 @@ typedef struct MarkQueue_ {
     // Marked objects outside of nonmoving heap, namely large and static
     // objects.
     HashTable *marked_objects;
-
-#if MARK_PREFETCH_QUEUE_DEPTH > 0
-    // Prefetch queue ring buffer
-    int prefetch_head;
-    MarkQueueEnt prefetch_queue[MARK_PREFETCH_QUEUE_DEPTH];
-#endif
 } MarkQueue;
 
 /* While it shares its representation with MarkQueue, UpdRemSet differs in
