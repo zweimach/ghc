@@ -485,7 +485,6 @@ void upd_rem_set_push_tso(Capability *cap, StgTSO *tso)
 {
     // TODO: Eliminate this conditional once it's folded into codegen
     if (!nonmoving_write_barrier_enabled) return;
-    if (!check_in_nonmoving_heap((StgClosure*)tso)) return;
     if (needs_upd_rem_set_mark((StgClosure *) tso)) {
         debugTrace(DEBUG_nonmoving_gc, "upd_rem_set: TSO %p", tso);
         mark_tso(&cap->upd_rem_set.queue, tso);
@@ -497,30 +496,30 @@ void upd_rem_set_push_stack(Capability *cap, StgStack *stack)
 {
     // TODO: Eliminate this conditional once it's folded into codegen
     if (!nonmoving_write_barrier_enabled) return;
-    if (!check_in_nonmoving_heap((StgClosure*)stack)) return;
     if (needs_upd_rem_set_mark((StgClosure *) stack)) {
         // See Note [StgStack dirtiness flags and concurrent marking]
         while (1) {
-            StgWord dirty = stack->dirty;
-            StgWord res = cas(&stack->dirty, dirty, dirty | MUTATOR_MARKING_STACK);
-            if (res & CONCURRENT_GC_MARKING_STACK) {
-                // The concurrent GC has claimed the right to mark the stack. Wait until it finishes
-                // marking before proceeding with mutation.
+            StgWord old_dirty = stack->dirty;
+            StgWord res = cas(&stack->dirty, old_dirty,
+                              old_dirty | MUTATOR_MARKING_STACK);
+            if (res == old_dirty) {
+                // We have claimed the right to mark the stack.
+                debugTrace(DEBUG_nonmoving_gc, "upd_rem_set: STACK %p", stack->sp);
+                mark_stack(&cap->upd_rem_set.queue, stack);
+                finish_upd_rem_set_mark((StgClosure *) stack);
+                return;
+            } else if (res & CONCURRENT_GC_MARKING_STACK) {
+                // The concurrent GC has claimed the right to mark the stack.
+                // Wait until it finishes marking before proceeding with
+                // mutation.
                 while (needs_upd_rem_set_mark((StgClosure *) stack))
 #if defined(PARALLEL_GC)
                     busy_wait_nop(); // TODO: Spinning here is unfortunate
 #endif
                 return;
-
-            } else if (!(res & MUTATOR_MARKING_STACK)) {
-                // We have claimed the right to mark the stack.
-                break;
             }
         }
-
-        debugTrace(DEBUG_nonmoving_gc, "upd_rem_set: STACK %p", stack->sp);
-        mark_stack(&cap->upd_rem_set.queue, stack);
-        finish_upd_rem_set_mark((StgClosure *) stack);}
+    }
 }
 
 int count_global_upd_rem_set_blocks()
