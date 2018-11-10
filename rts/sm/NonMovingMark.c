@@ -494,30 +494,26 @@ void upd_rem_set_push_tso(Capability *cap, StgTSO *tso)
 
 void upd_rem_set_push_stack(Capability *cap, StgStack *stack)
 {
-    // TODO: Eliminate this conditional once it's folded into codegen
-    if (!nonmoving_write_barrier_enabled) return;
+    // N.B. caller responsible for checking nonmoving_write_barrier_enabled
     if (needs_upd_rem_set_mark((StgClosure *) stack)) {
+        StgWord marking = stack->marking;
         // See Note [StgStack dirtiness flags and concurrent marking]
-        while (1) {
-            StgWord old_dirty = stack->dirty;
-            StgWord res = cas(&stack->dirty, old_dirty,
-                              old_dirty | MUTATOR_MARKING_STACK);
-            if (res == old_dirty) {
-                // We have claimed the right to mark the stack.
-                debugTrace(DEBUG_nonmoving_gc, "upd_rem_set: STACK %p", stack->sp);
-                mark_stack(&cap->upd_rem_set.queue, stack);
-                finish_upd_rem_set_mark((StgClosure *) stack);
-                return;
-            } else if (res & CONCURRENT_GC_MARKING_STACK) {
-                // The concurrent GC has claimed the right to mark the stack.
-                // Wait until it finishes marking before proceeding with
-                // mutation.
-                while (needs_upd_rem_set_mark((StgClosure *) stack))
+        if (cas(&stack->marking, marking, nonmoving_mark_epoch)
+              != nonmoving_mark_epoch) {
+            // We have claimed the right to mark the stack.
+            debugTrace(DEBUG_nonmoving_gc, "upd_rem_set: STACK %p", stack->sp);
+            mark_stack(&cap->upd_rem_set.queue, stack);
+            finish_upd_rem_set_mark((StgClosure *) stack);
+            return;
+        } else {
+            // The concurrent GC has claimed the right to mark the stack.
+            // Wait until it finishes marking before proceeding with
+            // mutation.
+            while (needs_upd_rem_set_mark((StgClosure *) stack))
 #if defined(PARALLEL_GC)
-                    busy_wait_nop(); // TODO: Spinning here is unfortunate
+                busy_wait_nop(); // TODO: Spinning here is unfortunate
 #endif
-                return;
-            }
+            return;
         }
     }
 }
@@ -1226,25 +1222,25 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
         break;
 
     case STACK: {
-      StgStack *stack = (StgStack *) p;
-      // See Note [StgStack dirtiness flags and concurrent marking]
-      StgWord dirty = stack->dirty;
-      while (1) {
-          if (dirty & MUTATOR_MARKING_STACK) {
-              // A mutator has already started marking the stack; we just let it
-              // do its thing and move on. There's no reason to wait; we know that
-              // the stack will be fully marked before we sweep due to the final
-              // post-mark synchronization.
-              return;
-          } else if (dirty & CONCURRENT_GC_MARKING_STACK) {
-              mark_stack(queue, stack);
-              break;
-          } else {
-              StgWord old_dirty = cas(&stack->dirty, dirty, dirty | CONCURRENT_GC_MARKING_STACK);
-              dirty = stack->dirty;
-          }
-      }
-      break;
+        // See Note [StgStack dirtiness flags and concurrent marking]
+        StgStack *stack = (StgStack *) p;
+        StgWord marking = stack->marking;
+
+        // N.B. stack->marking must be != nonmoving_mark_epoch unless
+        // someone has already marked it.
+        if (cas(&stack->marking, marking, nonmoving_mark_epoch)
+              != nonmoving_mark_epoch) {
+            // We have claimed the right to mark the stack.
+            mark_stack(queue, stack);
+        } else {
+            // A mutator has already started marking the stack; we just let it
+            // do its thing and move on. There's no reason to wait; we know that
+            // the stack will be fully marked before we sweep due to the final
+            // post-mark synchronization. Most importantly, we do not set its
+            // mark bit, the mutator is responsible for this.
+            return;
+        }
+        break;
     }
 
     case MUT_PRIM: {
