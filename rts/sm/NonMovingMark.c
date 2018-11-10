@@ -132,9 +132,13 @@ void nonmoving_mark_init_upd_rem_set() {
 }
 
 static uint32_t mark_queue_length(MarkQueue *q);
+static void init_mark_queue_(MarkQueue *queue);
 
 /* Transfers the given capability's update-remembered set to the global
  * remembered set.
+ *
+ * Really the argument type should be UpdRemSet* but this would be rather
+ * inconvenient without polymorphism.
  */
 static void nonmoving_add_upd_rem_set_blocks(MarkQueue *rset)
 {
@@ -154,7 +158,7 @@ static void nonmoving_add_upd_rem_set_blocks(MarkQueue *rset)
 
     // Reset remembered set
     ACQUIRE_SM_LOCK;
-    init_mark_queue(rset);
+    init_mark_queue_(rset);
     rset->is_upd_rem_set = true;
     RELEASE_SM_LOCK;
 }
@@ -616,14 +620,12 @@ again:
  *********************************************************/
 
 /* Must hold sm_mutex. */
-void init_mark_queue(MarkQueue *queue)
+static void init_mark_queue_(MarkQueue *queue)
 {
     bdescr *bd = allocGroup(1);
     queue->blocks = bd;
     queue->top = (MarkQueueBlock *) bd->start;
     queue->top->head = 0;
-    queue->is_upd_rem_set = false;
-    queue->marked_objects = allocHashTable();
 
 #if MARK_PREFETCH_QUEUE_DEPTH > 0
     queue->prefetch_head = 0;
@@ -633,9 +635,19 @@ void init_mark_queue(MarkQueue *queue)
 }
 
 /* Must hold sm_mutex. */
+void init_mark_queue(MarkQueue *queue)
+{
+    init_mark_queue_(queue);
+    queue->marked_objects = allocHashTable();
+    queue->is_upd_rem_set = false;
+}
+
+/* Must hold sm_mutex. */
 void init_upd_rem_set(UpdRemSet *rset)
 {
-    init_mark_queue(&rset->queue);
+    init_mark_queue_(&rset->queue);
+    // Update remembered sets don't have to worry about static objects
+    rset->queue.marked_objects = NULL;
     rset->queue.is_upd_rem_set = true;
 }
 
