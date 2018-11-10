@@ -936,6 +936,11 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
             }
             return;
 
+        case WHITEHOLE:
+            while (get_itbl(p)->type == WHITEHOLE);
+                // busy_wait_nop(); // FIXME
+            goto try_again;
+
         default:
             barf("mark_closure(static): strange closure type %d", (int)(info->type));
         }
