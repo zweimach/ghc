@@ -214,9 +214,7 @@ typedef struct StgTSO_ {
  *    no mark is necessary.
  *
  * 3. The entity seeking to mark tries to lock the stack for marking by
- *    atomically setting its ownership flag (CONCURRENT_GC_MARKING_STACK in the
- *    case of the concurrent mark, MUTATOR_MARKING_STACK in the case of the
- *    mutator write barrier; N.B. these are mutually exclusive)
+ *    atomically setting its `marking` flag
  *
  *    a. If the mutator finds the concurrent collector has already locked the
  *       stack then it waits until it is finished (indicated by the mark bit
@@ -231,9 +229,8 @@ typedef struct StgTSO_ {
  *       setting the stack's mark bit.
  *
  */
+
 #define STACK_DIRTY 1
-#define CONCURRENT_GC_MARKING_STACK 4
-#define MUTATOR_MARKING_STACK 8
 // used by sanity checker to verify that all dirty stacks are on the mutable list
 #define STACK_SANE 64
 
@@ -241,6 +238,7 @@ typedef struct StgStack_ {
     StgHeader  header;
     StgWord32  stack_size;     // stack size in *words*
     StgWord    dirty;          // non-zero => dirty
+    StgWord    marking;        // non-zero => someone is currently marking the stack
     StgPtr     sp;             // current stack pointer
     StgWord    stack[];
 } StgStack;
