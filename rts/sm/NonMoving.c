@@ -92,6 +92,23 @@ static void nonmoving_init_segment(struct nonmoving_segment *seg, uint8_t block_
     Bdescr((P_)seg)->u.scan = nonmoving_segment_get_block(seg, 0);
 }
 
+// Add a segment to the free list.
+void nonmoving_push_free_segment(struct nonmoving_segment *seg)
+{
+    if (nonmoving_heap.n_free > NONMOVING_MAX_FREE) {
+        ACQUIRE_SM_LOCK;
+        freeGroup(Bdescr((StgPtr) seg));
+        RELEASE_SM_LOCK;
+        return;
+    }
+
+    while (true) {
+        seg->link = nonmoving_heap.free;
+        if (cas((StgVolatilePtr) &nonmoving_heap.free, (StgWord) seg->link, (StgWord) seg) == (StgWord) seg->link)
+            break;
+    }
+    __sync_add_and_fetch(&nonmoving_heap.n_free, 1);
+}
 
 static struct nonmoving_segment *nonmoving_pop_free_segment(void)
 {
@@ -103,10 +120,12 @@ static struct nonmoving_segment *nonmoving_pop_free_segment(void)
         if (cas((StgVolatilePtr) &nonmoving_heap.free,
                 (StgWord) seg,
                 (StgWord) seg->link) == (StgWord) seg) {
+            __sync_sub_and_fetch(&nonmoving_heap.n_free, 1);
             return seg;
         }
     }
 }
+
 /*
  * Request a fresh segment from the free segment list or allocate one of the
  * given node.
