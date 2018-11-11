@@ -2489,7 +2489,9 @@ resumeThread (void *task_)
     tso = incall->suspended_tso;
     incall->suspended_tso = NULL;
     incall->suspended_cap = NULL;
-    tso->_link = END_TSO_QUEUE; // no write barrier reqd
+    // we will modify tso->_link
+    upd_rem_set_push_closure(cap, tso->_link, NULL);
+    tso->_link = END_TSO_QUEUE;
 
     traceEventRunThread(cap, tso);
 
