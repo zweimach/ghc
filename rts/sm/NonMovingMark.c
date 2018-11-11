@@ -1415,7 +1415,7 @@ bool nonmoving_is_alive(StgClosure *p)
             // the nonmoving heap at the time that the snapshot is taken are marked.
             return true;
         } else {
-            return nonmoving_closure_marked((P_)p);
+            return nonmoving_closure_marked_this_cycle((P_)p);
         }
     }
 }
@@ -1468,7 +1468,7 @@ void nonmoving_mark_dead_weak(struct MarkQueue_ *queue, StgWeak *w)
 
 void nonmoving_mark_live_weak(struct MarkQueue_ *queue, StgWeak *w)
 {
-    ASSERT(nonmoving_closure_marked((P_)w));
+    ASSERT(nonmoving_closure_marked_this_cycle((P_)w));
     mark_queue_push_closure_(queue, w->value);
     mark_queue_push_closure_(queue, w->finalizer);
     mark_queue_push_closure_(queue, w->cfinalizers);
@@ -1478,7 +1478,7 @@ void nonmoving_mark_dead_weaks(struct MarkQueue_ *queue)
 {
     StgWeak *next_w;
     for (StgWeak *w = oldest_gen->old_weak_ptr_list; w; w = next_w) {
-        ASSERT(!nonmoving_closure_marked((P_)(w->key)));
+        ASSERT(!nonmoving_closure_marked_this_cycle((P_)(w->key)));
         nonmoving_mark_dead_weak(queue, w);
         next_w = w ->link;
         w->link = dead_weak_ptr_list;
