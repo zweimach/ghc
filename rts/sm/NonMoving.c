@@ -540,14 +540,14 @@ static void* nonmoving_concurrent_mark(void *data)
     // Do concurrent marking; most of the heap will get marked here.
     nonmoving_mark_threads_weaks(mark_queue);
 
-#if defined(CONCURRENT_MARK)
-    Task *task = newBoundTask();
-
     // FIXME: Avoid deadlock on shutdown; this still races
     if (sched_state == SCHED_SHUTTING_DOWN) {
         debugTrace(DEBUG_nonmoving_gc, "Skipping update remembered set flush...");
         goto finish;
     }
+
+#if defined(CONCURRENT_MARK)
+    Task *task = newBoundTask();
 
     // Gather final remembered sets from mutators and mark them
     nonmoving_begin_flush(task);
@@ -627,8 +627,8 @@ static void* nonmoving_concurrent_mark(void *data)
 
     // TODO: Remainder of things done by GarbageCollect
 
-#if defined(CONCURRENT_MARK)
  finish:
+#if defined(CONCURRENT_MARK)
     // We are done...
     mark_thread = 0;
 
