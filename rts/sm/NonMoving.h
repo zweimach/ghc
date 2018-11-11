@@ -69,9 +69,14 @@ struct nonmoving_allocator {
 // 2^(NONMOVING_ALLOCA0 + NONMOVING_ALLOCA_CNT) (in bytes)
 #define NONMOVING_ALLOCA_CNT 12
 
+// maximum number of free segments to hold on to
+#define NONMOVING_MAX_FREE 16
+
 struct nonmoving_heap {
     struct nonmoving_allocator *allocators[NONMOVING_ALLOCA_CNT];
     struct nonmoving_segment *free; // free segment list
+    // how many segments in free segment list? accessed atomically.
+    unsigned int n_free;
 
     // records the current length of the nonmoving_allocator.current arrays
     unsigned int n_caps;
@@ -88,17 +93,7 @@ void nonmoving_exit(void);
 void nonmoving_collect(void);
 void *nonmoving_allocate(Capability *cap, StgWord sz);
 void nonmoving_add_capabilities(uint32_t new_n_caps);
-
-// Add a segment to the free list.
-INLINE_HEADER void nonmoving_push_free_segment(struct nonmoving_segment *seg)
-{
-    while (true) {
-        seg->link = nonmoving_heap.free;
-        if (cas((StgVolatilePtr) &nonmoving_heap.free, (StgWord) seg->link, (StgWord) seg) == (StgWord) seg->link)
-            break;
-    }
-    // TODO: free excess segments
-}
+void nonmoving_push_free_segment(struct nonmoving_segment *seg);
 
 // Add a segment to the appropriate active list.
 INLINE_HEADER void nonmoving_push_active_segment(struct nonmoving_segment *seg)
