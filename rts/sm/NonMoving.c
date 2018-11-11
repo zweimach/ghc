@@ -299,6 +299,21 @@ void nonmoving_exit(void)
 }
 
 /*
+ * Wait for any concurrent collections to finish. Called during shutdown to
+ * ensure we don't steal capabilities that the nonmoving collector still has yet
+ * to synchronize with.
+ */
+void nonmoving_wait_until_finished(void)
+{
+#if defined(CONCURRENT_MARK)
+    ACQUIRE_LOCK(&concurrent_coll_finished_lock);
+    if (mark_thread)
+        waitCondition(&concurrent_coll_finished, &concurrent_coll_finished_lock);
+    RELEASE_LOCK(&concurrent_coll_finished_lock);
+#endif
+}
+
+/*
  * Assumes that no garbage collector or mutator threads are running to safely
  * resize the nonmoving_allocators.
  *
@@ -540,14 +555,25 @@ static void* nonmoving_concurrent_mark(void *data)
 #if defined(CONCURRENT_MARK)
     Task *task = newBoundTask();
 
-    // Gather final remembered sets from mutators and mark them
-    nonmoving_begin_flush(task);
+    /* Note [Shutting down the nonmoving collector]
+     * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     *
+     * Don't attempt to synchronize if in shutdown: the final collection is
+     * non-concurrent and we already hold all capabilities and have flushed
+     * their update remembered sets.
+     */
 
-    bool all_caps_syncd;
-    do {
-        all_caps_syncd = nonmoving_wait_for_flush();
-        nonmoving_mark_threads_weaks(mark_queue);
-    } while (!all_caps_syncd);
+    // See Note [Shutting down the nonmoving collector]
+    if (sched_state != SCHED_SHUTTING_DOWN) {
+        // Gather final remembered sets from mutators and mark them
+        nonmoving_begin_flush(task);
+
+        bool all_caps_syncd;
+        do {
+            all_caps_syncd = nonmoving_wait_for_flush();
+            nonmoving_mark_threads_weaks(mark_queue);
+        } while (!all_caps_syncd);
+    }
 #else
     nonmoving_mark_threads_weaks(mark_queue);
 #endif
@@ -589,7 +615,10 @@ static void* nonmoving_concurrent_mark(void *data)
     // Everything has been marked; allow the mutators to proceed
 #if defined(CONCURRENT_MARK)
     nonmoving_write_barrier_enabled = false;
-    nonmoving_finish_flush(task);
+
+    // See Note [Shutting down the nonmoving collector]
+    if (sched_state != SCHED_SHUTTING_DOWN)
+        nonmoving_finish_flush(task);
 #endif
 
     current_mark_queue = NULL;
