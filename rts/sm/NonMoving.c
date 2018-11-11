@@ -436,9 +436,6 @@ static void nonmoving_mark_weak_ptr_list(MarkQueue *mark_queue)
 void nonmoving_collect()
 {
 #if defined(CONCURRENT_MARK)
-    // Don't even try to collect during shutdown; doing so is a nightmare.
-    if (sched_state != SCHED_RUNNING) return;
-
     // We can't start a new collection until the old one has finished
     if (concurrent_coll_running) {
         if (sched_state == SCHED_RUNNING) return;
@@ -539,12 +536,6 @@ static void* nonmoving_concurrent_mark(void *data)
 
     // Do concurrent marking; most of the heap will get marked here.
     nonmoving_mark_threads_weaks(mark_queue);
-
-    // FIXME: Avoid deadlock on shutdown; this still races
-    if (sched_state == SCHED_SHUTTING_DOWN) {
-        debugTrace(DEBUG_nonmoving_gc, "Skipping update remembered set flush...");
-        goto finish;
-    }
 
 #if defined(CONCURRENT_MARK)
     Task *task = newBoundTask();

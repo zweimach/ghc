@@ -216,7 +216,8 @@ bool nonmoving_wait_for_flush()
 {
     ACQUIRE_LOCK(&upd_rem_set_lock);
     debugTrace(DEBUG_nonmoving_gc, "Flush count %d", upd_rem_set_flush_count);
-    bool finished = (upd_rem_set_flush_count == n_capabilities) || (sched_state == SCHED_SHUTTING_DOWN);
+    bool finished = (upd_rem_set_flush_count == n_capabilities)
+        || (sched_state == SCHED_SHUTTING_DOWN);
     if (!finished) {
         waitCondition(&upd_rem_set_flushed_cond, &upd_rem_set_lock);
     }
@@ -944,9 +945,6 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
             return;
 
         case WHITEHOLE:
-            // FIXME: Hack for #114
-            if (sched_state >= SCHED_SHUTTING_DOWN)
-                shutdownThread();
             while (get_itbl(p)->type == WHITEHOLE);
                 // busy_wait_nop(); // FIXME
             goto try_again;
@@ -1279,9 +1277,6 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
     }
 
     case WHITEHOLE:
-        // FIXME: Hack for #114
-        if (sched_state >= SCHED_SHUTTING_DOWN)
-            shutdownThread();
         while (get_itbl(p)->type == WHITEHOLE);
             // busy_wait_nop(); // FIXME
         goto try_again;
