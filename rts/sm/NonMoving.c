@@ -448,6 +448,12 @@ static void nonmoving_mark_weak_ptr_list(MarkQueue *mark_queue)
     }
 }
 
+// Various bits of information to pass to nonmoving_concurrent_mark.
+struct concurrent_mark_info {
+    MarkQueue *mark_queue;
+    bool final_gc;
+};
+
 void nonmoving_collect()
 {
 #if defined(CONCURRENT_MARK)
@@ -511,18 +517,24 @@ void nonmoving_collect()
     oldest_gen->weak_ptr_list = NULL;
 
     // We are now safe to start concurrent marking
+    struct concurrent_mark_info *info =
+        stgMallocBytes(sizeof (struct concurrent_mark_info),
+                       "nonmoving_collect");
+    info->mark_queue = mark_queue;
+    info->final_gc = sched_state == SCHED_SHUTTING_DOWN;
+
 #if defined(CONCURRENT_MARK)
-    if (sched_state == SCHED_RUNNING) {
+    if (!info->final_gc) {
         concurrent_coll_running = true;
         nonmoving_write_barrier_enabled = true;
         debugTrace(DEBUG_nonmoving_gc, "Starting concurrent mark thread");
         createOSThread(&mark_thread, "non-moving mark thread",
-                       nonmoving_concurrent_mark, mark_queue);
+                       nonmoving_concurrent_mark, info);
     } else {
-        nonmoving_concurrent_mark(mark_queue);
+        nonmoving_concurrent_mark(info);
     }
 #else
-    nonmoving_concurrent_mark(mark_queue);
+    nonmoving_concurrent_mark(info);
 #endif
 }
 
@@ -545,7 +557,11 @@ static void nonmoving_mark_threads_weaks(MarkQueue *mark_queue)
 
 static void* nonmoving_concurrent_mark(void *data)
 {
-    MarkQueue *mark_queue = (MarkQueue *) data;
+    struct concurrent_mark_info *info = (struct concurrent_mark_info *) data;
+    bool final_gc = info->final_gc;
+    MarkQueue *mark_queue = info->mark_queue;
+    stgFree(info);
+
     ACQUIRE_LOCK(&nonmoving_collection_mutex);
     debugTrace(DEBUG_nonmoving_gc, "Starting mark...");
 
@@ -564,7 +580,7 @@ static void* nonmoving_concurrent_mark(void *data)
      */
 
     // See Note [Shutting down the nonmoving collector]
-    if (sched_state != SCHED_SHUTTING_DOWN) {
+    if (!final_gc) {
         // Gather final remembered sets from mutators and mark them
         nonmoving_begin_flush(task);
 
@@ -617,7 +633,7 @@ static void* nonmoving_concurrent_mark(void *data)
     nonmoving_write_barrier_enabled = false;
 
     // See Note [Shutting down the nonmoving collector]
-    if (sched_state != SCHED_SHUTTING_DOWN)
+    if (!final_gc)
         nonmoving_finish_flush(task);
 #endif
 
