@@ -21,6 +21,7 @@
 #include "NonMoving.h"
 #include "NonMovingMark.h"
 #include "NonMovingSweep.h"
+#include "NonMovingCensus.h"
 #include "StablePtr.h" // markStablePtrTable
 #include "Schedule.h" // markScheduler
 #include "MarkWeak.h" // resurrected_threads
@@ -601,6 +602,9 @@ static void* nonmoving_concurrent_mark(void *data)
     ASSERT(nonmoving_heap.sweep_list == NULL);
     debugTrace(DEBUG_nonmoving_gc, "Finished sweeping.");
     traceConcSweepEnd();
+#if defined(DEBUG)
+    nonmoving_print_allocator_census();
+#endif
 
     // TODO: Remainder of things done by GarbageCollect
 
