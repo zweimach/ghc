@@ -1420,6 +1420,41 @@ bool nonmoving_is_alive(StgClosure *p)
     }
 }
 
+// Check whether a snapshotted object is alive. That is for an object that we
+// know to be in the snapshot, is its mark bit set. It is imperative that the
+// object is in the snapshot (e.g. was in the nonmoving heap at the time that
+// the snapshot was taken) since we assume that its mark bit reflects its
+// reachability.
+//
+// This is used when
+//
+// - Collecting weak pointers; checking key of a weak pointer.
+// - Resurrecting threads; checking if a thread is dead.
+// - Sweeping object lists: large_objects, mut_list, stable_name_table.
+//
+bool nonmoving_is_now_alive(StgClosure *p)
+{
+    // Ignore static closures. See comments in `isAlive`.
+    if (!HEAP_ALLOCED_GC(p)) {
+        return true;
+    }
+
+    bdescr *bd = Bdescr((P_)p);
+
+    // All non-static objects in the non-moving heap should be marked as
+    // BF_NONMOVING
+    ASSERT(bd->flags & BF_NONMOVING);
+
+    if (bd->flags & BF_LARGE) {
+        return (bd->flags & BF_NONMOVING_SWEEPING) == 0
+                   // the large object wasn't in the snapshot and therefore wasn't marked
+            || (bd->flags & BF_MARKED) != 0;
+                   // The object was marked
+    } else {
+        return nonmoving_closure_marked_this_cycle((P_)p);
+    }
+}
+
 // Non-moving heap variant of `tidyWeakList`
 bool nonmoving_mark_weaks(struct MarkQueue_ *queue)
 {
@@ -1438,7 +1473,7 @@ bool nonmoving_mark_weaks(struct MarkQueue_ *queue)
         // Otherwise it's a live weak
         ASSERT(w->header.info == &stg_WEAK_info);
 
-        if (nonmoving_is_alive(w->key)) {
+        if (nonmoving_is_now_alive(w->key)) {
             nonmoving_mark_live_weak(queue, w);
             did_work = true;
 
@@ -1494,7 +1529,10 @@ void nonmoving_tidy_threads()
 
         next = t->global_link;
 
-        if (nonmoving_is_alive((StgClosure*)t)) {
+        // N.B. This thread is in old_threads, consequently we *know* it is in
+        // the snapshot and it is therefore safe to rely on the bitmap to
+        // determine its reachability.
+        if (nonmoving_is_now_alive((StgClosure*)t)) {
             // alive
             *prev = next;
 
