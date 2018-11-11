@@ -77,9 +77,18 @@ void nonmoving_print_allocator_census()
         struct nonmoving_alloc_census census =
             nonmoving_allocator_census(nonmoving_heap.allocators[i]);
 
+        uint32_t blk_size = 1 << (i + NONMOVING_ALLOCA0);
+        // We define occupancy as the fraction of space that is used for useful
+        // data (that is, live and not slop).
+        double occupancy = 100.0 * census.n_live_words * sizeof(W_)
+            / (census.n_live_blocks * blk_size);
+        if (census.n_live_blocks == 0) occupancy = 100;
+        (void) occupancy; // silence warning if !DEBUG
         debugTrace(DEBUG_nonmoving_gc, "Allocator %d (%d bytes - %d bytes): "
-                   "%d active segs, %d filled segs, %d live blocks, %d live words",
-                   i, 1 << (i + NONMOVING_ALLOCA0), 1 << (i + NONMOVING_ALLOCA0 + 1),
-                   census.n_active_segs, census.n_filled_segs, census.n_live_blocks, census.n_live_words);
+                   "%d active segs, %d filled segs, %d live blocks, %d live words "
+                   "(%2.1f%% occupancy)",
+                   i, 1 << (i + NONMOVING_ALLOCA0 - 1), 1 << (i + NONMOVING_ALLOCA0),
+                   census.n_active_segs, census.n_filled_segs, census.n_live_blocks, census.n_live_words,
+                   occupancy);
     }
 }
