@@ -90,6 +90,7 @@ extern struct nonmoving_heap nonmoving_heap;
 
 void nonmoving_init(void);
 void nonmoving_exit(void);
+void nonmoving_wait_until_finished(void);
 void nonmoving_collect(void);
 void *nonmoving_allocate(Capability *cap, StgWord sz);
 void nonmoving_add_capabilities(uint32_t new_n_caps);

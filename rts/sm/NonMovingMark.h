@@ -126,7 +126,6 @@ void nonmoving_begin_flush(Task *task);
 bool nonmoving_wait_for_flush(void);
 void nonmoving_finish_flush(Task *task);
 #endif
-void nonmoving_shutting_down(void);
 
 void mark_queue_add_root(MarkQueue* q, StgClosure** root);
 

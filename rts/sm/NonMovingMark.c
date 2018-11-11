@@ -216,20 +216,12 @@ bool nonmoving_wait_for_flush()
 {
     ACQUIRE_LOCK(&upd_rem_set_lock);
     debugTrace(DEBUG_nonmoving_gc, "Flush count %d", upd_rem_set_flush_count);
-    bool finished = (upd_rem_set_flush_count == n_capabilities)
-        || (sched_state == SCHED_SHUTTING_DOWN);
+    bool finished = upd_rem_set_flush_count == n_capabilities;
     if (!finished) {
         waitCondition(&upd_rem_set_flushed_cond, &upd_rem_set_lock);
     }
     RELEASE_LOCK(&upd_rem_set_lock);
     return finished;
-}
-
-/* Signal to the mark thread that the RTS is shutting down. */
-void nonmoving_shutting_down()
-{
-    ASSERT(sched_state == SCHED_SHUTTING_DOWN);
-    signalCondition(&upd_rem_set_flushed_cond);
 }
 
 /* Notify capabilities that the synchronisation is finished; they may resume
@@ -241,8 +233,6 @@ void nonmoving_finish_flush(Task *task)
     traceConcSyncEnd();
     releaseAllCapabilities(n_capabilities, NULL, task);
 }
-#else
-void nonmoving_shutting_down() {}
 #endif
 
 /*********************************************************
