@@ -68,13 +68,16 @@ nonmoving_sweep_segment(struct nonmoving_segment *seg)
          i < nonmoving_segment_block_count(seg);
          ++i)
     {
-        if (seg->bitmap[i]) {
+        if (seg->bitmap[i] == nonmoving_mark_epoch) {
             found_live = true;
         } else if (!found_free) {
             found_free = true;
             seg->next_free = i;
             seg->next_free_snap = i;
             Bdescr((P_)seg)->u.scan = (P_)nonmoving_segment_get_block(seg, i);
+            seg->bitmap[i] = 0;
+        } else {
+            seg->bitmap[i] = 0;
         }
 
         if (found_free && found_live) {
