@@ -1005,10 +1005,11 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
             StgClosure *snapshot_loc =
               (StgClosure *) nonmoving_segment_get_block(seg, seg->next_free_snap);
             if (p >= snapshot_loc && mark == 0) {
-                /* In this case we are in segment which wasn't filled at the
-                 * time that the snapshot was taken. We mustn't trace things
-                 * above the allocation pointer that aren't marked since they
-                 * may not be valid objects.
+                /*
+                 * In this case we are looking at a block that wasn't allocated
+                 * at the time that the snapshot was taken. We mustn't trace
+                 * things above the allocation pointer that aren't marked since
+                 * they may not be valid objects.
                  */
                 return;
             }
