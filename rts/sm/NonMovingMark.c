@@ -20,9 +20,11 @@
 #include "Printer.h"
 #include "Schedule.h"
 #include "Weak.h"
+#include "STM.h"
 #include "MarkWeak.h"
 #include "sm/Storage.h"
 
+static void mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin);
 static void mark_tso (MarkQueue *queue, StgTSO *tso);
 static void mark_stack (MarkQueue *queue, StgStack *stack);
 static void mark_PAP_payload (MarkQueue *queue,
@@ -680,6 +682,30 @@ static uint32_t mark_queue_length(MarkQueue *q)
  * Marking
  *********************************************************/
 
+/*
+ * N.B. Mutation of TRecHeaders is completely unprotected by any write
+ * barrier. Consequently it's quite important that we deeply mark
+ * any outstanding transactions.
+ */
+static void mark_trec_header (MarkQueue *queue, StgTRecHeader *trec)
+{
+    while (trec != NO_TREC) {
+        StgTRecChunk *chunk = trec->current_chunk;
+        mark_queue_push_closure_(queue, (StgClosure *) trec);
+        mark_queue_push_closure_(queue, (StgClosure *) chunk);
+        while (chunk != END_STM_CHUNK_LIST) {
+            for (int i=0; i < chunk->next_entry_idx; i++) {
+                TRecEntry *ent = &chunk->entries[i];
+                mark_queue_push_closure_(queue, (StgClosure *) ent->tvar);
+                mark_queue_push_closure_(queue, ent->expected_value);
+                mark_queue_push_closure_(queue, ent->new_value);
+            }
+            chunk = chunk->prev_chunk;
+        }
+        trec = trec->enclosing_trec;
+    }
+}
+
 static void mark_tso (MarkQueue *queue, StgTSO *tso)
 {
     // TODO: Clear dirty if contains only old gen objects
@@ -690,7 +716,7 @@ static void mark_tso (MarkQueue *queue, StgTSO *tso)
 
     mark_queue_push_closure_(queue, (StgClosure *) tso->blocked_exceptions);
     mark_queue_push_closure_(queue, (StgClosure *) tso->bq);
-    mark_queue_push_closure_(queue, (StgClosure *) tso->trec);
+    mark_trec_header(queue, tso->trec);
     mark_queue_push_closure_(queue, (StgClosure *) tso->stackobj);
     mark_queue_push_closure_(queue, (StgClosure *) tso->_link);
     if (   tso->why_blocked == BlockedOnMVar
@@ -1265,6 +1291,8 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
     }
 
     case TREC_CHUNK: {
+        // TODO: Should we abort here? This should have already been marked
+        // when we dirtied the TSO
         StgTRecChunk *tc = ((StgTRecChunk *) p);
         PUSH_FIELD(tc, prev_chunk);
         TRecEntry *end = &tc->entries[tc->next_entry_idx];
