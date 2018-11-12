@@ -518,7 +518,7 @@ void upd_rem_set_push_stack(Capability *cap, StgStack *stack)
             // The concurrent GC has claimed the right to mark the stack.
             // Wait until it finishes marking before proceeding with
             // mutation.
-            while (needs_upd_rem_set_mark((StgClosure *) stack))
+            while (needs_upd_rem_set_mark((StgClosure *) stack));
 #if defined(PARALLEL_GC)
                 busy_wait_nop(); // TODO: Spinning here is unfortunate
 #endif
