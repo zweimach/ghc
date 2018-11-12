@@ -506,14 +506,14 @@ void nonmoving_collect()
     // Fine to override old_threads because any live or resurrected threads are
     // moved to threads or resurrected_threads lists.
     ASSERT(oldest_gen->old_threads == END_TSO_QUEUE);
-    oldest_gen->old_threads = oldest_gen->threads;
+    nonmoving_old_threads = oldest_gen->threads;
     oldest_gen->threads = END_TSO_QUEUE;
 
     // Make sure we don't lose any weak ptrs here. Weaks in old_weak_ptr_list
     // will either be moved to `dead_weak_ptr_list` (if dead) or `weak_ptr_list`
     // (if alive).
     ASSERT(oldest_gen->old_weak_ptr_list == NULL);
-    oldest_gen->old_weak_ptr_list = oldest_gen->weak_ptr_list;
+    nonmoving_old_weak_ptr_list = oldest_gen->weak_ptr_list;
     oldest_gen->weak_ptr_list = NULL;
 
     // We are now safe to start concurrent marking

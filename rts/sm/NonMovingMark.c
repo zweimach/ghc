@@ -77,6 +77,15 @@ memcount n_nonmoving_marked_large_blocks = 0;
 static Mutex nonmoving_large_objects_mutex;
 #endif
 
+/*
+ * Where we keep our threads during collection since we must have a snapshot of
+ * the threads that lived in the nonmoving heap at the time that the snapshot
+ * was taken to safely resurrect.
+ */
+StgTSO *nonmoving_old_threads = END_TSO_QUEUE;
+/* Same for weak pointers */
+StgWeak *nonmoving_old_weak_ptr_list = NULL;
+
 #if defined(DEBUG)
 // TODO (osa): Document
 StgIndStatic *debug_caf_list_snapshot = (StgIndStatic*)END_OF_CAF_LIST;
@@ -1445,9 +1454,9 @@ bool nonmoving_mark_weaks(struct MarkQueue_ *queue)
 {
     bool did_work = false;
 
-    StgWeak **last_w = &oldest_gen->old_weak_ptr_list;
+    StgWeak **last_w = &nonmoving_old_weak_ptr_list;
     StgWeak *next_w;
-    for (StgWeak *w = oldest_gen->old_weak_ptr_list; w != NULL; w = next_w) {
+    for (StgWeak *w = nonmoving_old_weak_ptr_list; w != NULL; w = next_w) {
         if (w->header.info == &stg_DEAD_WEAK_info) {
             // finalizeWeak# was called on the weak
             next_w = w->link;
@@ -1497,7 +1506,7 @@ void nonmoving_mark_live_weak(struct MarkQueue_ *queue, StgWeak *w)
 void nonmoving_mark_dead_weaks(struct MarkQueue_ *queue)
 {
     StgWeak *next_w;
-    for (StgWeak *w = oldest_gen->old_weak_ptr_list; w; w = next_w) {
+    for (StgWeak *w = nonmoving_old_weak_ptr_list; w; w = next_w) {
         ASSERT(!nonmoving_closure_marked_this_cycle((P_)(w->key)));
         nonmoving_mark_dead_weak(queue, w);
         next_w = w ->link;
@@ -1509,8 +1518,8 @@ void nonmoving_mark_dead_weaks(struct MarkQueue_ *queue)
 void nonmoving_tidy_threads()
 {
     StgTSO *next;
-    StgTSO **prev = &oldest_gen->old_threads;
-    for (StgTSO *t = oldest_gen->old_threads; t != END_TSO_QUEUE; t = next) {
+    StgTSO **prev = &nonmoving_old_threads;
+    for (StgTSO *t = nonmoving_old_threads; t != END_TSO_QUEUE; t = next) {
 
         next = t->global_link;
 
@@ -1534,7 +1543,7 @@ void nonmoving_tidy_threads()
 void nonmoving_resurrect_threads(struct MarkQueue_ *queue)
 {
     StgTSO *next;
-    for (StgTSO *t = oldest_gen->old_threads; t != END_TSO_QUEUE; t = next) {
+    for (StgTSO *t = nonmoving_old_threads; t != END_TSO_QUEUE; t = next) {
         next = t->global_link;
 
         switch (t->what_next) {

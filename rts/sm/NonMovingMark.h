@@ -103,6 +103,9 @@ typedef struct {
 extern bdescr *nonmoving_large_objects, *nonmoving_marked_large_objects;
 extern memcount n_nonmoving_large_blocks, n_nonmoving_marked_large_blocks;
 
+extern StgTSO *nonmoving_old_threads;
+extern StgWeak *nonmoving_old_weak_ptr_list;
+
 #if defined(DEBUG)
 extern StgIndStatic *debug_caf_list_snapshot;
 #endif
