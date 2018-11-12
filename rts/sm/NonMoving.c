@@ -658,7 +658,8 @@ static void* nonmoving_concurrent_mark(void *data)
     debugTrace(DEBUG_nonmoving_gc, "Finished sweeping.");
     traceConcSweepEnd();
 #if defined(DEBUG)
-    nonmoving_print_allocator_census();
+    if (RtsFlags.DebugFlags.nonmoving_gc)
+        nonmoving_print_allocator_census();
 #endif
 
     // TODO: Remainder of things done by GarbageCollect
