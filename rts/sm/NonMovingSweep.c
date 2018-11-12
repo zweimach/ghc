@@ -81,6 +81,12 @@ nonmoving_sweep_segment(struct nonmoving_segment *seg)
         }
 
         if (found_free && found_live) {
+            // zero the remaining dead object's mark bits
+            for (; i < nonmoving_segment_block_count(seg); ++i) {
+                if (seg->bitmap[i] != nonmoving_mark_epoch) {
+                    seg->bitmap[i] = 0;
+                }
+            }
             return SEGMENT_PARTIAL;
         }
     }
