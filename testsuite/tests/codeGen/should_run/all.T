@@ -175,3 +175,10 @@ test('T14754', normal, compile_and_run, [''])
 test('T14346', only_ways(['threaded1','threaded2']), compile_and_run, ['-O -threaded'])
 test('T14251', [expect_broken_for(14251, ['optllvm'])],
      compile_and_run, [''])
+
+test('T15892',
+     [ ignore_stdout,
+        # we want to do lots of major GC to make the bug more likely to
+        # happen, so -G1 -A32k:
+        extra_run_opts('+RTS -G1 -A32k -RTS') ],
+     compile_and_run, ['-O'])
