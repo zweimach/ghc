@@ -878,6 +878,11 @@ stg_deRefWeakzh ( gcptr w )
     if (info == stg_WEAK_info) {
         code = 1;
         val = StgWeak_value(w);
+        // See Note [Concurrent read barrier on deRefWeak#] in NonMovingMark.c
+        if (nonmoving_write_barrier_enabled != 0) (likely: False) {
+            ccall upd_rem_set_push_closure(MyCapability() "ptr",
+                                           val "ptr", NULL);
+        }
     } else {
         code = 0;
         val = w;
