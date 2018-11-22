@@ -121,6 +121,35 @@ StgIndStatic *debug_caf_list_snapshot = (StgIndStatic*)END_OF_CAF_LIST;
  * The mark phase is responsible for freeing update remembered set block
  * allocations.
  *
+ *
+ * Note [Concurrent read barrier on deRefWeak#]
+ * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ *
+ * In general the non-moving GC assumes that all pointers reachable from a
+ * marked object are themselves marked (or in the mark queue). However,
+ * weak pointers are an obvious exception to this rule. In particular,
+ * deRefWeakPtr# allows the mutator to turn a weak reference into a strong
+ * reference. This interacts badly with concurrent collection. For
+ * instance, consider this program:
+ *
+ *     f :: a -> b -> IO b
+ *     f k v = do
+ *         -- assume that k and v are the only references to the
+ *         -- closures to which they refer.
+ *         weak <- mkWeakPtr k v Nothing
+ *
+ *         -- N.B. k is now technically dead since the only reference to it is
+ *         -- weak, but we've not yet had a chance to tombstone the WeakPtr
+ *         -- (which will happen in the course of major GC).
+ *         performMajorGC
+ *         -- Now we are running concurrently with the mark...
+
+ *         Just x <- deRefWeak weak
+ *         -- We have now introduced a reference to `v`, which will
+ *         -- not be marked as the only reference to `v` when the snapshot was
+ *         -- taken is via a WeakPtr.
+ *         return x
+ *
  */
 static Mutex upd_rem_set_lock;
 bdescr *upd_rem_set_block_list = NULL;
