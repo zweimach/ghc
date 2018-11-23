@@ -1539,7 +1539,6 @@ void releaseAllCapabilities(uint32_t n, Capability *keep_cap, Task *task)
         }
     }
     task->cap = keep_cap;
-    signalCondition(&sync_finished_cond);
 }
 #endif
 
@@ -1841,6 +1840,7 @@ delete_threads_and_gc:
     // reset pending_sync *before* GC, so that when the GC threads
     // emerge they don't immediately re-enter the GC.
     pending_sync = 0;
+    signalCondition(&sync_finished_cond);
     GarbageCollect(collect_gen, heap_census, gc_type, cap, idle_cap);
 #else
     GarbageCollect(collect_gen, heap_census, 0, cap, NULL);
@@ -2490,7 +2490,7 @@ resumeThread (void *task_)
     incall->suspended_tso = NULL;
     incall->suspended_cap = NULL;
     // we will modify tso->_link
-    upd_rem_set_push_closure(cap, tso->_link, NULL);
+    upd_rem_set_push_closure(cap, (StgClosure *)tso->_link, NULL);
     tso->_link = END_TSO_QUEUE;
 
     traceEventRunThread(cap, tso);
