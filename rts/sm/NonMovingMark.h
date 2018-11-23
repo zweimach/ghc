@@ -101,6 +101,7 @@ typedef struct {
 #define MARK_QUEUE_BLOCK_ENTRIES ((BLOCK_SIZE - sizeof(MarkQueueBlock)) / sizeof(MarkQueueEnt))
 
 extern bdescr *nonmoving_large_objects, *nonmoving_marked_large_objects;
+extern StgTSO *nonmoving_resurrected_threads;
 extern memcount n_nonmoving_large_blocks, n_nonmoving_marked_large_blocks;
 
 extern StgTSO *nonmoving_old_threads;
