@@ -411,6 +411,8 @@ static void nonmoving_prepare_mark(void)
     oldest_gen->n_large_words = 0;
     oldest_gen->n_large_blocks = 0;
 
+    nonmoving_resurrected_threads = END_TSO_QUEUE;
+
 #if defined(DEBUG)
     debug_caf_list_snapshot = debug_caf_list;
     debug_caf_list = (StgIndStatic*)END_OF_CAF_LIST;
@@ -489,6 +491,8 @@ void nonmoving_collect()
     markStablePtrTable((evac_fn)mark_queue_add_root, mark_queue);
 
     // Mark threads resurrected during moving heap scavenging
+    // Note: this list is only used by minor GC/preparation. Threads resurrected
+    // during mark are added to nonmoving_resurrect_threads to avoid races.
     for (StgTSO *tso = resurrected_threads; tso != END_TSO_QUEUE; tso = tso->global_link) {
         mark_queue_push_closure_(mark_queue, (StgClosure*)tso);
     }
@@ -611,7 +615,10 @@ static void* nonmoving_concurrent_mark(void *data)
     // generation collection doesn't attempt to look at them after we've swept.
     nonmoving_sweep_mut_lists();
 
-    debugTrace(DEBUG_nonmoving_gc, "Done marking");
+    debugTrace(DEBUG_nonmoving_gc,
+               "Done marking, resurrecting threads before releasing capabilities");
+
+    resurrectThreads(nonmoving_resurrected_threads);
 
 #if defined(DEBUG)
     // Zap CAFs that we will sweep

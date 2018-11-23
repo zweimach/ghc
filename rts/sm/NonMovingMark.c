@@ -68,6 +68,7 @@ static void mark_PAP_payload (MarkQueue *queue,
 
 bdescr *nonmoving_large_objects = NULL;
 bdescr *nonmoving_marked_large_objects = NULL;
+StgTSO *nonmoving_resurrected_threads = END_TSO_QUEUE;
 memcount n_nonmoving_large_blocks = 0;
 memcount n_nonmoving_marked_large_blocks = 0;
 #if defined(THREADED_RTS)
@@ -1581,8 +1582,8 @@ void nonmoving_resurrect_threads(struct MarkQueue_ *queue)
             continue;
         default:
             mark_queue_push_closure_(queue, (StgClosure*)t);
-            t->global_link = resurrected_threads;
-            resurrected_threads = t;
+            t->global_link = nonmoving_resurrected_threads;
+            nonmoving_resurrected_threads = t;
         }
     }
 }
