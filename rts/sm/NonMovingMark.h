@@ -102,7 +102,12 @@ typedef struct {
 
 extern bdescr *nonmoving_large_objects, *nonmoving_marked_large_objects;
 extern StgTSO *nonmoving_resurrected_threads;
+#if defined(THREADED_RTS)
+// This list is only necessary in threaded runtime to avoid races when modifying
+// the list. In non-threaded runtime we use dead_weak_ptr_list in both moving
+// and non-moving collectors.
 extern StgWeak *nonmoving_dead_weak_ptr_list;
+#endif
 extern memcount n_nonmoving_large_blocks, n_nonmoving_marked_large_blocks;
 
 extern StgTSO *nonmoving_old_threads;
