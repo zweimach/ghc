@@ -69,7 +69,9 @@ static void mark_PAP_payload (MarkQueue *queue,
 bdescr *nonmoving_large_objects = NULL;
 bdescr *nonmoving_marked_large_objects = NULL;
 StgTSO *nonmoving_resurrected_threads = END_TSO_QUEUE;
+#if defined(THREADED_RTS)
 StgWeak *nonmoving_dead_weak_ptr_list = NULL;
+#endif
 memcount n_nonmoving_large_blocks = 0;
 memcount n_nonmoving_marked_large_blocks = 0;
 #if defined(THREADED_RTS)
@@ -1551,8 +1553,13 @@ void nonmoving_mark_dead_weaks(struct MarkQueue_ *queue)
         ASSERT(!nonmoving_closure_marked_this_cycle((P_)(w->key)));
         nonmoving_mark_dead_weak(queue, w);
         next_w = w ->link;
+#if defined(THREADED_RTS)
         w->link = nonmoving_dead_weak_ptr_list;
         nonmoving_dead_weak_ptr_list = w;
+#else
+        w->link = dead_weak_ptr_list;
+        dead_weak_ptr_list = w;
+#endif
     }
 }
 
