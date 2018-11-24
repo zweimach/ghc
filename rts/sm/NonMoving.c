@@ -411,8 +411,8 @@ static void nonmoving_prepare_mark(void)
     oldest_gen->n_large_words = 0;
     oldest_gen->n_large_blocks = 0;
 
-    nonmoving_resurrected_threads = END_TSO_QUEUE;
 #if defined(THREADED_RTS)
+    nonmoving_resurrected_threads = END_TSO_QUEUE;
     nonmoving_dead_weak_ptr_list = NULL;
 #endif
 
@@ -625,8 +625,8 @@ static void* nonmoving_concurrent_mark(void *data)
     // Just pick a random capability. Not sure if this is a good idea -- we use
     // only one capability for all finalizers.
     scheduleFinalizers(capabilities[0], nonmoving_dead_weak_ptr_list);
-#endif
     resurrectThreads(nonmoving_resurrected_threads);
+#endif
 
 #if defined(DEBUG)
     // Zap CAFs that we will sweep
