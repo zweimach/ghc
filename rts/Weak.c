@@ -91,7 +91,10 @@ scheduleFinalizers(Capability *cap, StgWeak *list)
     StgWord size;
     uint32_t n, i;
 
-    ASSERT(n_finalizers == 0);
+    // This assertion no longer holds with non-moving collection because
+    // non-moving collector does not wait for the list to be consumed (by
+    // doIdleGcWork()) before appending the list with more finalizers.
+    // ASSERT(n_finalizers == 0);
 
     finalizer_list = list;
 
@@ -128,7 +131,7 @@ scheduleFinalizers(Capability *cap, StgWeak *list)
         SET_HDR(w, &stg_DEAD_WEAK_info, w->header.prof.ccs);
     }
 
-    n_finalizers = i;
+    n_finalizers += i;
 
     // No Haskell finalizers to run?
     if (n == 0) return;
