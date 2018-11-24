@@ -69,6 +69,7 @@ static void mark_PAP_payload (MarkQueue *queue,
 bdescr *nonmoving_large_objects = NULL;
 bdescr *nonmoving_marked_large_objects = NULL;
 StgTSO *nonmoving_resurrected_threads = END_TSO_QUEUE;
+StgWeak *nonmoving_dead_weak_ptr_list = NULL;
 memcount n_nonmoving_large_blocks = 0;
 memcount n_nonmoving_marked_large_blocks = 0;
 #if defined(THREADED_RTS)
@@ -146,7 +147,9 @@ void nonmoving_mark_init_upd_rem_set() {
 #endif
 }
 
+#if defined(CONCURRENT_MARK) && defined(DEBUG)
 static uint32_t mark_queue_length(MarkQueue *q);
+#endif
 static void init_mark_queue_(MarkQueue *queue);
 
 /* Transfers the given capability's update-remembered set to the global
@@ -668,6 +671,7 @@ void free_mark_queue(MarkQueue *queue)
     freeHashTable(queue->marked_objects, NULL);
 }
 
+#if defined(CONCURRENT_MARK) && defined(DEBUG)
 static uint32_t mark_queue_length(MarkQueue *q)
 {
     uint32_t n = 0;
@@ -677,6 +681,7 @@ static uint32_t mark_queue_length(MarkQueue *q)
     }
     return n;
 }
+#endif
 
 
 /*********************************************************
@@ -695,7 +700,7 @@ static void mark_trec_header (MarkQueue *queue, StgTRecHeader *trec)
         mark_queue_push_closure_(queue, (StgClosure *) trec);
         mark_queue_push_closure_(queue, (StgClosure *) chunk);
         while (chunk != END_STM_CHUNK_LIST) {
-            for (int i=0; i < chunk->next_entry_idx; i++) {
+            for (StgWord i=0; i < chunk->next_entry_idx; i++) {
                 TRecEntry *ent = &chunk->entries[i];
                 mark_queue_push_closure_(queue, (StgClosure *) ent->tvar);
                 mark_queue_push_closure_(queue, ent->expected_value);
@@ -910,6 +915,8 @@ mark_stack (MarkQueue *queue, StgStack *stack)
 static GNUC_ATTR_HOT void
 mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
 {
+    (void)origin; // TODO: should be used for selector/thunk optimisations
+
  try_again:
     p = UNTAG_CLOSURE(p);
 
@@ -1456,7 +1463,7 @@ bool nonmoving_is_alive(StgClosure *p)
 // - Resurrecting threads; checking if a thread is dead.
 // - Sweeping object lists: large_objects, mut_list, stable_name_table.
 //
-bool nonmoving_is_now_alive(StgClosure *p)
+static bool nonmoving_is_now_alive(StgClosure *p)
 {
     // Ignore static closures. See comments in `isAlive`.
     if (!HEAP_ALLOCED_GC(p)) {
@@ -1533,6 +1540,10 @@ void nonmoving_mark_live_weak(struct MarkQueue_ *queue, StgWeak *w)
     mark_queue_push_closure_(queue, w->cfinalizers);
 }
 
+// When we're done with marking, any weak pointers with non-marked keys will be
+// considered "dead". We mark values and finalizers of such weaks, and then
+// schedule them for finalization in `scheduleFinalizers` (which we run during
+// synchronization).
 void nonmoving_mark_dead_weaks(struct MarkQueue_ *queue)
 {
     StgWeak *next_w;
@@ -1540,8 +1551,8 @@ void nonmoving_mark_dead_weaks(struct MarkQueue_ *queue)
         ASSERT(!nonmoving_closure_marked_this_cycle((P_)(w->key)));
         nonmoving_mark_dead_weak(queue, w);
         next_w = w ->link;
-        w->link = dead_weak_ptr_list;
-        dead_weak_ptr_list = w;
+        w->link = nonmoving_dead_weak_ptr_list;
+        nonmoving_dead_weak_ptr_list = w;
     }
 }
 
