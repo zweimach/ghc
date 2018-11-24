@@ -412,7 +412,9 @@ static void nonmoving_prepare_mark(void)
     oldest_gen->n_large_blocks = 0;
 
     nonmoving_resurrected_threads = END_TSO_QUEUE;
+#if defined(THREADED_RTS)
     nonmoving_dead_weak_ptr_list = NULL;
+#endif
 
 #if defined(DEBUG)
     debug_caf_list_snapshot = debug_caf_list;
@@ -619,9 +621,11 @@ static void* nonmoving_concurrent_mark(void *data)
     debugTrace(DEBUG_nonmoving_gc,
                "Done marking, resurrecting threads before releasing capabilities");
 
-    // Just pick a random capability to schedule finalizers. Not sure if this is
-    // a good idea -- we use only one capability for all finalizers.
+#if defined(THREADED_RTS)
+    // Just pick a random capability. Not sure if this is a good idea -- we use
+    // only one capability for all finalizers.
     scheduleFinalizers(capabilities[0], nonmoving_dead_weak_ptr_list);
+#endif
     resurrectThreads(nonmoving_resurrected_threads);
 
 #if defined(DEBUG)
