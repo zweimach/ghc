@@ -96,7 +96,14 @@ scheduleFinalizers(Capability *cap, StgWeak *list)
     // doIdleGcWork()) before appending the list with more finalizers.
     // ASSERT(n_finalizers == 0);
 
-    finalizer_list = list;
+    // Append finalizer_list with the new list. TODO: Perhaps cache tail of the
+    // list for faster append. NOTE: We can't append `list` here! Otherwise we
+    // end up traversing already visited weaks in the loops below.
+    StgWeak **tl = &finalizer_list;
+    while (*tl) {
+        tl = &(*tl)->link;
+    }
+    *tl = list;
 
     // Traverse the list and
     //  * count the number of Haskell finalizers
