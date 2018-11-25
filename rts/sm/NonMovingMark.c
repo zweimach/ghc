@@ -1546,20 +1546,15 @@ void nonmoving_mark_live_weak(struct MarkQueue_ *queue, StgWeak *w)
 // considered "dead". We mark values and finalizers of such weaks, and then
 // schedule them for finalization in `scheduleFinalizers` (which we run during
 // synchronization).
-void nonmoving_mark_dead_weaks(struct MarkQueue_ *queue)
+void nonmoving_mark_dead_weaks(struct MarkQueue_ *queue, StgWeak **dead_weak_ptr_list)
 {
     StgWeak *next_w;
     for (StgWeak *w = nonmoving_old_weak_ptr_list; w; w = next_w) {
         ASSERT(!nonmoving_closure_marked_this_cycle((P_)(w->key)));
         nonmoving_mark_dead_weak(queue, w);
         next_w = w ->link;
-#if defined(THREADED_RTS)
-        w->link = nonmoving_dead_weak_ptr_list;
-        nonmoving_dead_weak_ptr_list = w;
-#else
-        w->link = dead_weak_ptr_list;
-        dead_weak_ptr_list = w;
-#endif
+        w->link = *dead_weak_ptr_list;
+        *dead_weak_ptr_list = w;
     }
 }
 
@@ -1588,7 +1583,7 @@ void nonmoving_tidy_threads()
     }
 }
 
-void nonmoving_resurrect_threads(struct MarkQueue_ *queue)
+void nonmoving_resurrect_threads(struct MarkQueue_ *queue, StgTSO **resurrected_threads)
 {
     StgTSO *next;
     for (StgTSO *t = nonmoving_old_threads; t != END_TSO_QUEUE; t = next) {
@@ -1600,13 +1595,8 @@ void nonmoving_resurrect_threads(struct MarkQueue_ *queue)
             continue;
         default:
             mark_queue_push_closure_(queue, (StgClosure*)t);
-#if defined(THREADED_RTS)
-            t->global_link = nonmoving_resurrected_threads;
-            nonmoving_resurrected_threads = t;
-#else
-            t->global_link = resurrected_threads;
-            resurrected_threads = t;
-#endif
+            t->global_link = *resurrected_threads;
+            *resurrected_threads = t;
         }
     }
 }

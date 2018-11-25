@@ -24,7 +24,6 @@
 #include "NonMovingCensus.h"
 #include "StablePtr.h" // markStablePtrTable
 #include "Schedule.h" // markScheduler
-#include "MarkWeak.h" // resurrected_threads
 #include "Weak.h" // dead_weak_ptr_list
 
 struct nonmoving_heap nonmoving_heap;
@@ -426,7 +425,7 @@ static void nonmoving_prepare_mark(void)
 // dead_weak_ptr_list or stay in weak_ptr_list. Either way they need to be kept
 // during sweep. See `MarkWeak.c:markWeakPtrList` for the moving heap variant
 // of this.
-static void nonmoving_mark_weak_ptr_list(MarkQueue *mark_queue)
+static void nonmoving_mark_weak_ptr_list(MarkQueue *mark_queue, StgWeak *dead_weak_ptr_list)
 {
     for (StgWeak *w = oldest_gen->weak_ptr_list; w; w = w->link) {
         mark_queue_push_closure_(mark_queue, (StgClosure*)w);
@@ -458,7 +457,8 @@ struct concurrent_mark_info {
     MarkQueue *mark_queue;
 };
 
-void nonmoving_collect()
+
+void nonmoving_collect(StgWeak *dead_weak_ptr_list, StgTSO *resurrected_threads)
 {
 #if defined(CONCURRENT_MARK)
     // We can't start a new collection until the old one has finished
@@ -490,12 +490,10 @@ void nonmoving_collect()
                 capabilities[n], true/*don't mark sparks*/);
     }
     markScheduler((evac_fn)mark_queue_add_root, mark_queue);
-    nonmoving_mark_weak_ptr_list(mark_queue);
+    nonmoving_mark_weak_ptr_list(mark_queue, dead_weak_ptr_list);
     markStablePtrTable((evac_fn)mark_queue_add_root, mark_queue);
 
     // Mark threads resurrected during moving heap scavenging
-    // Note: this list is only used by minor GC/preparation. Threads resurrected
-    // during mark are added to nonmoving_resurrect_threads to avoid races.
     for (StgTSO *tso = resurrected_threads; tso != END_TSO_QUEUE; tso = tso->global_link) {
         mark_queue_push_closure_(mark_queue, (StgClosure*)tso);
     }
@@ -596,7 +594,8 @@ static void* nonmoving_concurrent_mark(void *data)
 
     // NOTE: This should be called only once otherwise it corrupts lists
     // (hard to debug)
-    nonmoving_resurrect_threads(mark_queue);
+    StgTSO *resurrected_threads = END_TSO_QUEUE;
+    nonmoving_resurrect_threads(mark_queue, &resurrected_threads);
 
     // No more resurrecting threads after this point
 
@@ -609,7 +608,8 @@ static void* nonmoving_concurrent_mark(void *data)
             break;
     }
 
-    nonmoving_mark_dead_weaks(mark_queue);
+    StgWeak *dead_weak_ptr_list = NULL;
+    nonmoving_mark_dead_weaks(mark_queue, &dead_weak_ptr_list);
 
     // Propagate marks
     nonmoving_mark(mark_queue);
@@ -624,8 +624,8 @@ static void* nonmoving_concurrent_mark(void *data)
 #if defined(THREADED_RTS)
     // Just pick a random capability. Not sure if this is a good idea -- we use
     // only one capability for all finalizers.
-    scheduleFinalizers(capabilities[0], nonmoving_dead_weak_ptr_list);
-    resurrectThreads(nonmoving_resurrected_threads);
+    scheduleFinalizers(capabilities[0], dead_weak_ptr_list);
+    resurrectThreads(resurrected_threads);
 #endif
 
 #if defined(DEBUG)
