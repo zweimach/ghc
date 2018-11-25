@@ -91,7 +91,11 @@ extern struct nonmoving_heap nonmoving_heap;
 void nonmoving_init(void);
 void nonmoving_exit(void);
 void nonmoving_wait_until_finished(void);
-void nonmoving_collect(void);
+
+// TODO: Document the lists
+void nonmoving_collect(StgWeak *dead_weak_ptr_list,
+                       StgTSO *resurrected_threads);
+
 void *nonmoving_allocate(Capability *cap, StgWord sz);
 void nonmoving_add_capabilities(uint32_t new_n_caps);
 void nonmoving_push_free_segment(struct nonmoving_segment *seg);

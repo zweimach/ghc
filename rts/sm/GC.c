@@ -422,6 +422,9 @@ GarbageCollect (uint32_t collect_gen,
    * more scavenging to be done.
    */
 
+  StgWeak *dead_weak_ptr_list = NULL;
+  StgTSO *resurrected_threads = END_TSO_QUEUE;
+
   for (;;)
   {
       scavenge_until_all_done();
@@ -431,7 +434,7 @@ GarbageCollect (uint32_t collect_gen,
 
       // must be last...  invariant is that everything is fully
       // scavenged at this point.
-      if (traverseWeakPtrList()) { // returns true if evaced something
+      if (traverseWeakPtrList(&dead_weak_ptr_list, &resurrected_threads)) { // returns true if evaced something
           inc_running();
           continue;
       }
@@ -730,7 +733,7 @@ GarbageCollect (uint32_t collect_gen,
   if (RtsFlags.GcFlags.useNonmoving && major_gc) {
       // we may need to take the lock to allocate mark queue blocks
       RELEASE_SM_LOCK;
-      nonmoving_collect();
+      nonmoving_collect(dead_weak_ptr_list, resurrected_threads);
       ACQUIRE_SM_LOCK;
   }
 
