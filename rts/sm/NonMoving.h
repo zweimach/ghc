@@ -92,7 +92,12 @@ void nonmoving_init(void);
 void nonmoving_exit(void);
 void nonmoving_wait_until_finished(void);
 
-// TODO: Document the lists
+// dead_weak_ptr_list: Weaks with keys found to be dead during preparation.
+// Those need to be marked becuase by the time we're going to schedule
+// finalizers for them in finalizeSchedulers().
+//
+// resurrected_threads: Threads found to be dead during preparation. Those will
+// be scheduled again in resurrectThreads() so we should keep them alive.
 void nonmoving_collect(StgWeak *dead_weak_ptr_list,
                        StgTSO *resurrected_threads);
 

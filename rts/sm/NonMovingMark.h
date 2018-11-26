@@ -101,13 +101,6 @@ typedef struct {
 #define MARK_QUEUE_BLOCK_ENTRIES ((BLOCK_SIZE - sizeof(MarkQueueBlock)) / sizeof(MarkQueueEnt))
 
 extern bdescr *nonmoving_large_objects, *nonmoving_marked_large_objects;
-#if defined(THREADED_RTS)
-// These lists are only necessary for threaded runtime, to avoid races between
-// concurrent mark and minor GCs. In non-threaded runtime we reuse
-// resurrected_threads and dead_weak_ptr_list in non-moving collector.
-extern StgTSO *nonmoving_resurrected_threads;
-extern StgWeak *nonmoving_dead_weak_ptr_list;
-#endif
 extern memcount n_nonmoving_large_blocks, n_nonmoving_marked_large_blocks;
 
 extern StgTSO *nonmoving_old_threads;

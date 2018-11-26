@@ -410,11 +410,6 @@ static void nonmoving_prepare_mark(void)
     oldest_gen->n_large_words = 0;
     oldest_gen->n_large_blocks = 0;
 
-#if defined(THREADED_RTS)
-    nonmoving_resurrected_threads = END_TSO_QUEUE;
-    nonmoving_dead_weak_ptr_list = NULL;
-#endif
-
 #if defined(DEBUG)
     debug_caf_list_snapshot = debug_caf_list;
     debug_caf_list = (StgIndStatic*)END_OF_CAF_LIST;
