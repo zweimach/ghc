@@ -730,9 +730,27 @@ GarbageCollect (uint32_t collect_gen,
   // Mark and sweep the oldest generation.
   // N.B. This can only happen after we've moved
   // oldest_gen->scavenged_large_objects back to oldest_gen->large_objects.
+  ASSERT(oldest_gen->scavenged_large_objects == NULL);
   if (RtsFlags.GcFlags.useNonmoving && major_gc) {
+      // All threads in non-moving heap should be found to be alive, becuase
+      // threads in the non-moving generation's list should live in the
+      // non-moving heap, and we consider non-moving objects alive during
+      // preparation.
+      ASSERT(oldest_gen->old_threads == END_TSO_QUEUE);
+      // For weaks, remember that we evacuated all weaks to the non-moving heap
+      // in markWeakPtrList(), and then moved the weak_ptr_list list to
+      // old_weak_ptr_list. We then moved weaks with live keys to the
+      // weak_ptr_list again. Then, in collectDeadWeakPtrs() we moved weaks in
+      // old_weak_ptr_list to dead_weak_ptr_list. So at this point
+      // old_weak_ptr_list should be empty.
+      ASSERT(oldest_gen->old_weak_ptr_list == NULL);
+
       // we may need to take the lock to allocate mark queue blocks
       RELEASE_SM_LOCK;
+      // dead_weak_ptr_list contains weak pointers with dead keys. Those need to
+      // be kept alive because we'll use them in finalizeSchedulers(). Similarly
+      // resurrected_threads are also going to be used in resurrectedThreads()
+      // so we need to mark those too.
       nonmoving_collect(dead_weak_ptr_list, resurrected_threads);
       ACQUIRE_SM_LOCK;
   }
