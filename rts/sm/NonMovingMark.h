@@ -105,6 +105,8 @@ extern memcount n_nonmoving_large_blocks, n_nonmoving_marked_large_blocks;
 
 extern StgTSO *nonmoving_old_threads;
 extern StgWeak *nonmoving_old_weak_ptr_list;
+extern StgTSO *nonmoving_threads;
+extern StgWeak *nonmoving_weak_ptr_list;
 
 #if defined(DEBUG)
 extern StgIndStatic *debug_caf_list_snapshot;
@@ -136,10 +138,10 @@ void init_mark_queue(MarkQueue *queue);
 void free_mark_queue(MarkQueue *queue);
 void nonmoving_mark(struct MarkQueue_ *restrict queue);
 
-bool nonmoving_mark_weaks(struct MarkQueue_ *queue);
+bool nonmoving_tidy_weaks(struct MarkQueue_ *queue);
 void nonmoving_tidy_threads(void);
-void nonmoving_mark_dead_weaks(struct MarkQueue_ *queue);
-void nonmoving_resurrect_threads(struct MarkQueue_ *queue);
+void nonmoving_mark_dead_weaks(struct MarkQueue_ *queue, StgWeak **dead_weak_ptr_list);
+void nonmoving_resurrect_threads(struct MarkQueue_ *queue, StgTSO **resurrected_threads);
 bool nonmoving_is_alive(StgClosure *p);
 void nonmoving_mark_dead_weak(struct MarkQueue_ *queue, StgWeak *w);
 void nonmoving_mark_live_weak(struct MarkQueue_ *queue, StgWeak *w);

@@ -87,6 +87,11 @@ static Mutex nonmoving_large_objects_mutex;
 StgTSO *nonmoving_old_threads = END_TSO_QUEUE;
 /* Same for weak pointers */
 StgWeak *nonmoving_old_weak_ptr_list = NULL;
+/* Because we can "tidy" thread and weak lists concurrently with a minor GC we
+ * need to move marked threads and weaks to these lists until we pause for sync.
+ * Then we move them to oldest_gen lists. */
+StgTSO *nonmoving_threads = END_TSO_QUEUE;
+StgWeak *nonmoving_weak_ptr_list = NULL;
 
 #if defined(DEBUG)
 // TODO (osa): Document
@@ -145,7 +150,9 @@ void nonmoving_mark_init_upd_rem_set() {
 #endif
 }
 
+#if defined(CONCURRENT_MARK) && defined(DEBUG)
 static uint32_t mark_queue_length(MarkQueue *q);
+#endif
 static void init_mark_queue_(MarkQueue *queue);
 
 /* Transfers the given capability's update-remembered set to the global
@@ -667,6 +674,7 @@ void free_mark_queue(MarkQueue *queue)
     freeHashTable(queue->marked_objects, NULL);
 }
 
+#if defined(CONCURRENT_MARK) && defined(DEBUG)
 static uint32_t mark_queue_length(MarkQueue *q)
 {
     uint32_t n = 0;
@@ -676,6 +684,7 @@ static uint32_t mark_queue_length(MarkQueue *q)
     }
     return n;
 }
+#endif
 
 
 /*********************************************************
@@ -694,7 +703,7 @@ static void mark_trec_header (MarkQueue *queue, StgTRecHeader *trec)
         mark_queue_push_closure_(queue, (StgClosure *) trec);
         mark_queue_push_closure_(queue, (StgClosure *) chunk);
         while (chunk != END_STM_CHUNK_LIST) {
-            for (int i=0; i < chunk->next_entry_idx; i++) {
+            for (StgWord i=0; i < chunk->next_entry_idx; i++) {
                 TRecEntry *ent = &chunk->entries[i];
                 mark_queue_push_closure_(queue, (StgClosure *) ent->tvar);
                 mark_queue_push_closure_(queue, ent->expected_value);
@@ -909,6 +918,8 @@ mark_stack (MarkQueue *queue, StgStack *stack)
 static GNUC_ATTR_HOT void
 mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
 {
+    (void)origin; // TODO: should be used for selector/thunk optimisations
+
  try_again:
     p = UNTAG_CLOSURE(p);
 
@@ -1455,7 +1466,7 @@ bool nonmoving_is_alive(StgClosure *p)
 // - Resurrecting threads; checking if a thread is dead.
 // - Sweeping object lists: large_objects, mut_list, stable_name_table.
 //
-bool nonmoving_is_now_alive(StgClosure *p)
+static bool nonmoving_is_now_alive(StgClosure *p)
 {
     // Ignore static closures. See comments in `isAlive`.
     if (!HEAP_ALLOCED_GC(p)) {
@@ -1479,7 +1490,7 @@ bool nonmoving_is_now_alive(StgClosure *p)
 }
 
 // Non-moving heap variant of `tidyWeakList`
-bool nonmoving_mark_weaks(struct MarkQueue_ *queue)
+bool nonmoving_tidy_weaks(struct MarkQueue_ *queue)
 {
     bool did_work = false;
 
@@ -1505,8 +1516,8 @@ bool nonmoving_mark_weaks(struct MarkQueue_ *queue)
             next_w = w->link;
 
             // and put it on the weak ptr list
-            w->link = oldest_gen->weak_ptr_list;
-            oldest_gen->weak_ptr_list = w;
+            w->link = nonmoving_weak_ptr_list;
+            nonmoving_weak_ptr_list = w;
         } else {
             last_w = &(w->link);
             next_w = w->link;
@@ -1532,18 +1543,23 @@ void nonmoving_mark_live_weak(struct MarkQueue_ *queue, StgWeak *w)
     mark_queue_push_closure_(queue, w->cfinalizers);
 }
 
-void nonmoving_mark_dead_weaks(struct MarkQueue_ *queue)
+// When we're done with marking, any weak pointers with non-marked keys will be
+// considered "dead". We mark values and finalizers of such weaks, and then
+// schedule them for finalization in `scheduleFinalizers` (which we run during
+// synchronization).
+void nonmoving_mark_dead_weaks(struct MarkQueue_ *queue, StgWeak **dead_weak_ptr_list)
 {
     StgWeak *next_w;
     for (StgWeak *w = nonmoving_old_weak_ptr_list; w; w = next_w) {
         ASSERT(!nonmoving_closure_marked_this_cycle((P_)(w->key)));
         nonmoving_mark_dead_weak(queue, w);
         next_w = w ->link;
-        w->link = dead_weak_ptr_list;
-        dead_weak_ptr_list = w;
+        w->link = *dead_weak_ptr_list;
+        *dead_weak_ptr_list = w;
     }
 }
 
+// Non-moving heap variant of of `tidyThreadList`
 void nonmoving_tidy_threads()
 {
     StgTSO *next;
@@ -1560,8 +1576,8 @@ void nonmoving_tidy_threads()
             *prev = next;
 
             // move this thread onto threads list
-            t->global_link = oldest_gen->threads;
-            oldest_gen->threads = t;
+            t->global_link = nonmoving_threads;
+            nonmoving_threads = t;
         } else {
             // not alive (yet): leave this thread on the old_threads list
             prev = &(t->global_link);
@@ -1569,7 +1585,7 @@ void nonmoving_tidy_threads()
     }
 }
 
-void nonmoving_resurrect_threads(struct MarkQueue_ *queue)
+void nonmoving_resurrect_threads(struct MarkQueue_ *queue, StgTSO **resurrected_threads)
 {
     StgTSO *next;
     for (StgTSO *t = nonmoving_old_threads; t != END_TSO_QUEUE; t = next) {
@@ -1581,8 +1597,8 @@ void nonmoving_resurrect_threads(struct MarkQueue_ *queue)
             continue;
         default:
             mark_queue_push_closure_(queue, (StgClosure*)t);
-            t->global_link = resurrected_threads;
-            resurrected_threads = t;
+            t->global_link = *resurrected_threads;
+            *resurrected_threads = t;
         }
     }
 }

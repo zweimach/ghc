@@ -91,7 +91,16 @@ extern struct nonmoving_heap nonmoving_heap;
 void nonmoving_init(void);
 void nonmoving_exit(void);
 void nonmoving_wait_until_finished(void);
-void nonmoving_collect(void);
+
+// dead_weak_ptr_list: Weaks with keys found to be dead during preparation.
+// Those need to be marked becuase by the time we're going to schedule
+// finalizers for them in finalizeSchedulers().
+//
+// resurrected_threads: Threads found to be dead during preparation. Those will
+// be scheduled again in resurrectThreads() so we should keep them alive.
+void nonmoving_collect(StgWeak *dead_weak_ptr_list,
+                       StgTSO *resurrected_threads);
+
 void *nonmoving_allocate(Capability *cap, StgWord sz);
 void nonmoving_add_capabilities(uint32_t new_n_caps);
 void nonmoving_push_free_segment(struct nonmoving_segment *seg);
@@ -129,16 +138,14 @@ INLINE_HEADER void nonmoving_push_filled_segment(struct nonmoving_segment *seg)
 //
 void assert_in_nonmoving_heap(StgPtr p);
 
-#define ALWAYS_INLINE __attribute__((always_inline))
-
 // The block size of a given segment in bytes.
-ALWAYS_INLINE INLINE_HEADER unsigned int nonmoving_segment_block_size(struct nonmoving_segment *seg)
+INLINE_HEADER unsigned int nonmoving_segment_block_size(struct nonmoving_segment *seg)
 {
     return 1 << seg->block_size;
 }
 
 // How many blocks does the given segment contain? Also the size of the bitmap.
-ALWAYS_INLINE INLINE_HEADER unsigned int nonmoving_segment_block_count(struct nonmoving_segment *seg)
+INLINE_HEADER unsigned int nonmoving_segment_block_count(struct nonmoving_segment *seg)
 {
   unsigned int sz = nonmoving_segment_block_size(seg);
   unsigned int segment_data_size = NONMOVING_SEGMENT_SIZE - sizeof(struct nonmoving_segment);
@@ -147,7 +154,7 @@ ALWAYS_INLINE INLINE_HEADER unsigned int nonmoving_segment_block_count(struct no
 }
 
 // Get a pointer to the given block index
-ALWAYS_INLINE INLINE_HEADER void *nonmoving_segment_get_block(struct nonmoving_segment *seg, nonmoving_block_idx i)
+INLINE_HEADER void *nonmoving_segment_get_block(struct nonmoving_segment *seg, nonmoving_block_idx i)
 {
   int blk_size = nonmoving_segment_block_size(seg);
   unsigned int bitmap_size = nonmoving_segment_block_count(seg);
@@ -159,14 +166,14 @@ ALWAYS_INLINE INLINE_HEADER void *nonmoving_segment_get_block(struct nonmoving_s
 
 // Get the segment which a closure resides in. Assumes that pointer points into
 // non-moving heap.
-ALWAYS_INLINE INLINE_HEADER struct nonmoving_segment *nonmoving_get_segment(StgPtr p)
+INLINE_HEADER struct nonmoving_segment *nonmoving_get_segment(StgPtr p)
 {
     ASSERT(HEAP_ALLOCED_GC(p) && (Bdescr(p)->flags & BF_NONMOVING));
     const uintptr_t mask = ~NONMOVING_SEGMENT_MASK;
     return (struct nonmoving_segment *) (((uintptr_t) p) & mask);
 }
 
-ALWAYS_INLINE INLINE_HEADER nonmoving_block_idx nonmoving_get_block_idx(StgPtr p)
+INLINE_HEADER nonmoving_block_idx nonmoving_get_block_idx(StgPtr p)
 {
     ASSERT(HEAP_ALLOCED_GC(p) && (Bdescr(p)->flags & BF_NONMOVING));
     struct nonmoving_segment *seg = nonmoving_get_segment(p);
@@ -179,31 +186,31 @@ ALWAYS_INLINE INLINE_HEADER nonmoving_block_idx nonmoving_get_block_idx(StgPtr p
 // TODO: Eliminate this
 extern uint8_t nonmoving_mark_epoch;
 
-ALWAYS_INLINE INLINE_HEADER void nonmoving_set_mark(struct nonmoving_segment *seg, nonmoving_block_idx i)
+INLINE_HEADER void nonmoving_set_mark(struct nonmoving_segment *seg, nonmoving_block_idx i)
 {
     seg->bitmap[i] = nonmoving_mark_epoch;
 }
 
-ALWAYS_INLINE INLINE_HEADER uint8_t nonmoving_get_mark(struct nonmoving_segment *seg, nonmoving_block_idx i)
+INLINE_HEADER uint8_t nonmoving_get_mark(struct nonmoving_segment *seg, nonmoving_block_idx i)
 {
     return seg->bitmap[i];
 }
 
-ALWAYS_INLINE INLINE_HEADER void nonmoving_set_closure_mark(StgPtr p)
+INLINE_HEADER void nonmoving_set_closure_mark(StgPtr p)
 {
     nonmoving_set_mark(nonmoving_get_segment(p), nonmoving_get_block_idx(p));
 }
 
 // TODO: Audit the uses of these
 /* Was the given closure marked this major GC cycle? */
-ALWAYS_INLINE INLINE_HEADER bool nonmoving_closure_marked_this_cycle(StgPtr p)
+INLINE_HEADER bool nonmoving_closure_marked_this_cycle(StgPtr p)
 {
     struct nonmoving_segment *seg = nonmoving_get_segment(p);
     nonmoving_block_idx blk_idx = nonmoving_get_block_idx(p);
     return nonmoving_get_mark(seg, blk_idx) == nonmoving_mark_epoch;
 }
 
-ALWAYS_INLINE INLINE_HEADER bool nonmoving_closure_marked(StgPtr p)
+INLINE_HEADER bool nonmoving_closure_marked(StgPtr p)
 {
     struct nonmoving_segment *seg = nonmoving_get_segment(p);
     nonmoving_block_idx blk_idx = nonmoving_get_block_idx(p);
@@ -212,7 +219,7 @@ ALWAYS_INLINE INLINE_HEADER bool nonmoving_closure_marked(StgPtr p)
 
 // Can be called during a major collection to determine whether a particular
 // segment is in the set of segments that will be swept this collection cycle.
-ALWAYS_INLINE INLINE_HEADER bool nonmoving_segment_being_swept(struct nonmoving_segment *seg)
+INLINE_HEADER bool nonmoving_segment_being_swept(struct nonmoving_segment *seg)
 {
     int n = nonmoving_segment_block_count(seg);
     return seg->next_free_snap >= n;
