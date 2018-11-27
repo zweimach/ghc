@@ -1615,6 +1615,8 @@ collect_pinned_object_blocks (void)
         for (bdescr *bd = capabilities[n]->pinned_object_blocks; bd != NULL; bd = bd->link) {
             if (gen == oldest_gen) {
                 bd->flags |= BF_NONMOVING;
+                bd->gen = oldest_gen;
+                bd->gen_no = oldest_gen->no;
                 oldest_gen->n_large_words += bd->free - bd->start;
                 oldest_gen->n_large_blocks += bd->blocks;
             }
