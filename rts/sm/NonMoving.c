@@ -24,7 +24,6 @@
 #include "NonMovingCensus.h"
 #include "StablePtr.h" // markStablePtrTable
 #include "Schedule.h" // markScheduler
-#include "MarkWeak.h" // resurrected_threads
 #include "Weak.h" // dead_weak_ptr_list
 
 struct nonmoving_heap nonmoving_heap;
@@ -411,11 +410,6 @@ static void nonmoving_prepare_mark(void)
     oldest_gen->n_large_words = 0;
     oldest_gen->n_large_blocks = 0;
 
-#if defined(THREADED_RTS)
-    nonmoving_resurrected_threads = END_TSO_QUEUE;
-    nonmoving_dead_weak_ptr_list = NULL;
-#endif
-
 #if defined(DEBUG)
     debug_caf_list_snapshot = debug_caf_list;
     debug_caf_list = (StgIndStatic*)END_OF_CAF_LIST;
@@ -426,13 +420,13 @@ static void nonmoving_prepare_mark(void)
 // dead_weak_ptr_list or stay in weak_ptr_list. Either way they need to be kept
 // during sweep. See `MarkWeak.c:markWeakPtrList` for the moving heap variant
 // of this.
-static void nonmoving_mark_weak_ptr_list(MarkQueue *mark_queue)
+static void nonmoving_mark_weak_ptr_list(MarkQueue *mark_queue, StgWeak *dead_weak_ptr_list)
 {
     for (StgWeak *w = oldest_gen->weak_ptr_list; w; w = w->link) {
         mark_queue_push_closure_(mark_queue, (StgClosure*)w);
         // Do not mark finalizers and values here, those fields will be marked
         // in `nonmoving_mark_dead_weaks` (for dead weaks) or
-        // `nonmoving_mark_weaks` (for live weaks)
+        // `nonmoving_tidy_weaks` (for live weaks)
     }
 
     // We need to mark dead_weak_ptr_list too. This is subtle:
@@ -458,7 +452,8 @@ struct concurrent_mark_info {
     MarkQueue *mark_queue;
 };
 
-void nonmoving_collect()
+
+void nonmoving_collect(StgWeak *dead_weak_ptr_list, StgTSO *resurrected_threads)
 {
 #if defined(CONCURRENT_MARK)
     // We can't start a new collection until the old one has finished
@@ -490,12 +485,10 @@ void nonmoving_collect()
                 capabilities[n], true/*don't mark sparks*/);
     }
     markScheduler((evac_fn)mark_queue_add_root, mark_queue);
-    nonmoving_mark_weak_ptr_list(mark_queue);
+    nonmoving_mark_weak_ptr_list(mark_queue, dead_weak_ptr_list);
     markStablePtrTable((evac_fn)mark_queue_add_root, mark_queue);
 
     // Mark threads resurrected during moving heap scavenging
-    // Note: this list is only used by minor GC/preparation. Threads resurrected
-    // during mark are added to nonmoving_resurrect_threads to avoid races.
     for (StgTSO *tso = resurrected_threads; tso != END_TSO_QUEUE; tso = tso->global_link) {
         mark_queue_push_closure_(mark_queue, (StgClosure*)tso);
     }
@@ -510,6 +503,7 @@ void nonmoving_collect()
     // Fine to override old_threads because any live or resurrected threads are
     // moved to threads or resurrected_threads lists.
     ASSERT(oldest_gen->old_threads == END_TSO_QUEUE);
+    ASSERT(nonmoving_old_threads == END_TSO_QUEUE);
     nonmoving_old_threads = oldest_gen->threads;
     oldest_gen->threads = END_TSO_QUEUE;
 
@@ -517,6 +511,7 @@ void nonmoving_collect()
     // will either be moved to `dead_weak_ptr_list` (if dead) or `weak_ptr_list`
     // (if alive).
     ASSERT(oldest_gen->old_weak_ptr_list == NULL);
+    ASSERT(nonmoving_old_weak_ptr_list == NULL);
     nonmoving_old_weak_ptr_list = oldest_gen->weak_ptr_list;
     oldest_gen->weak_ptr_list = NULL;
 
@@ -554,7 +549,7 @@ static void nonmoving_mark_threads_weaks(MarkQueue *mark_queue)
         // Tidy threads and weaks
         nonmoving_tidy_threads();
 
-        if (! nonmoving_mark_weaks(mark_queue))
+        if (! nonmoving_tidy_weaks(mark_queue))
             return;
     }
 }
@@ -596,7 +591,8 @@ static void* nonmoving_concurrent_mark(void *data)
 
     // NOTE: This should be called only once otherwise it corrupts lists
     // (hard to debug)
-    nonmoving_resurrect_threads(mark_queue);
+    StgTSO *resurrected_threads = END_TSO_QUEUE;
+    nonmoving_resurrect_threads(mark_queue, &resurrected_threads);
 
     // No more resurrecting threads after this point
 
@@ -605,11 +601,12 @@ static void* nonmoving_concurrent_mark(void *data)
         // Propagate marks
         nonmoving_mark(mark_queue);
 
-        if (!nonmoving_mark_weaks(mark_queue))
+        if (!nonmoving_tidy_weaks(mark_queue))
             break;
     }
 
-    nonmoving_mark_dead_weaks(mark_queue);
+    StgWeak *dead_weak_ptr_list = NULL;
+    nonmoving_mark_dead_weaks(mark_queue, &dead_weak_ptr_list);
 
     // Propagate marks
     nonmoving_mark(mark_queue);
@@ -624,8 +621,8 @@ static void* nonmoving_concurrent_mark(void *data)
 #if defined(THREADED_RTS)
     // Just pick a random capability. Not sure if this is a good idea -- we use
     // only one capability for all finalizers.
-    scheduleFinalizers(capabilities[0], nonmoving_dead_weak_ptr_list);
-    resurrectThreads(nonmoving_resurrected_threads);
+    scheduleFinalizers(capabilities[0], dead_weak_ptr_list);
+    resurrectThreads(resurrected_threads);
 #endif
 
 #if defined(DEBUG)
@@ -635,6 +632,15 @@ static void* nonmoving_concurrent_mark(void *data)
 
     ASSERT(mark_queue->top->head == 0);
     ASSERT(mark_queue->blocks->link == NULL);
+
+    // Update oldest_gen thread and weak lists
+    oldest_gen->threads = nonmoving_threads;
+    nonmoving_threads = END_TSO_QUEUE;
+    nonmoving_old_threads = END_TSO_QUEUE;
+
+    oldest_gen->weak_ptr_list = nonmoving_weak_ptr_list;
+    nonmoving_weak_ptr_list = NULL;
+    nonmoving_old_weak_ptr_list = NULL;
 
     // Everything has been marked; allow the mutators to proceed
 #if defined(CONCURRENT_MARK)
