@@ -426,7 +426,7 @@ static void nonmoving_mark_weak_ptr_list(MarkQueue *mark_queue, StgWeak *dead_we
         mark_queue_push_closure_(mark_queue, (StgClosure*)w);
         // Do not mark finalizers and values here, those fields will be marked
         // in `nonmoving_mark_dead_weaks` (for dead weaks) or
-        // `nonmoving_mark_weaks` (for live weaks)
+        // `nonmoving_tidy_weaks` (for live weaks)
     }
 
     // We need to mark dead_weak_ptr_list too. This is subtle:
@@ -503,6 +503,7 @@ void nonmoving_collect(StgWeak *dead_weak_ptr_list, StgTSO *resurrected_threads)
     // Fine to override old_threads because any live or resurrected threads are
     // moved to threads or resurrected_threads lists.
     ASSERT(oldest_gen->old_threads == END_TSO_QUEUE);
+    ASSERT(nonmoving_old_threads == END_TSO_QUEUE);
     nonmoving_old_threads = oldest_gen->threads;
     oldest_gen->threads = END_TSO_QUEUE;
 
@@ -510,6 +511,7 @@ void nonmoving_collect(StgWeak *dead_weak_ptr_list, StgTSO *resurrected_threads)
     // will either be moved to `dead_weak_ptr_list` (if dead) or `weak_ptr_list`
     // (if alive).
     ASSERT(oldest_gen->old_weak_ptr_list == NULL);
+    ASSERT(nonmoving_old_weak_ptr_list == NULL);
     nonmoving_old_weak_ptr_list = oldest_gen->weak_ptr_list;
     oldest_gen->weak_ptr_list = NULL;
 
@@ -547,7 +549,7 @@ static void nonmoving_mark_threads_weaks(MarkQueue *mark_queue)
         // Tidy threads and weaks
         nonmoving_tidy_threads();
 
-        if (! nonmoving_mark_weaks(mark_queue))
+        if (! nonmoving_tidy_weaks(mark_queue))
             return;
     }
 }
@@ -599,7 +601,7 @@ static void* nonmoving_concurrent_mark(void *data)
         // Propagate marks
         nonmoving_mark(mark_queue);
 
-        if (!nonmoving_mark_weaks(mark_queue))
+        if (!nonmoving_tidy_weaks(mark_queue))
             break;
     }
 
@@ -630,6 +632,15 @@ static void* nonmoving_concurrent_mark(void *data)
 
     ASSERT(mark_queue->top->head == 0);
     ASSERT(mark_queue->blocks->link == NULL);
+
+    // Update oldest_gen thread and weak lists
+    oldest_gen->threads = nonmoving_threads;
+    nonmoving_threads = END_TSO_QUEUE;
+    nonmoving_old_threads = END_TSO_QUEUE;
+
+    oldest_gen->weak_ptr_list = nonmoving_weak_ptr_list;
+    nonmoving_weak_ptr_list = NULL;
+    nonmoving_old_weak_ptr_list = NULL;
 
     // Everything has been marked; allow the mutators to proceed
 #if defined(CONCURRENT_MARK)
