@@ -68,10 +68,6 @@ static void mark_PAP_payload (MarkQueue *queue,
 
 bdescr *nonmoving_large_objects = NULL;
 bdescr *nonmoving_marked_large_objects = NULL;
-#if defined(THREADED_RTS)
-StgTSO *nonmoving_resurrected_threads = END_TSO_QUEUE;
-StgWeak *nonmoving_dead_weak_ptr_list = NULL;
-#endif
 memcount n_nonmoving_large_blocks = 0;
 memcount n_nonmoving_marked_large_blocks = 0;
 #if defined(THREADED_RTS)
@@ -91,6 +87,11 @@ static Mutex nonmoving_large_objects_mutex;
 StgTSO *nonmoving_old_threads = END_TSO_QUEUE;
 /* Same for weak pointers */
 StgWeak *nonmoving_old_weak_ptr_list = NULL;
+/* Because we can "tidy" thread and weak lists concurrently with a minor GC we
+ * need to move marked threads and weaks to these lists until we pause for sync.
+ * Then we move them to oldest_gen lists. */
+StgTSO *nonmoving_threads = END_TSO_QUEUE;
+StgWeak *nonmoving_weak_ptr_list = NULL;
 
 #if defined(DEBUG)
 // TODO (osa): Document
@@ -1489,7 +1490,7 @@ static bool nonmoving_is_now_alive(StgClosure *p)
 }
 
 // Non-moving heap variant of `tidyWeakList`
-bool nonmoving_mark_weaks(struct MarkQueue_ *queue)
+bool nonmoving_tidy_weaks(struct MarkQueue_ *queue)
 {
     bool did_work = false;
 
@@ -1515,8 +1516,8 @@ bool nonmoving_mark_weaks(struct MarkQueue_ *queue)
             next_w = w->link;
 
             // and put it on the weak ptr list
-            w->link = oldest_gen->weak_ptr_list;
-            oldest_gen->weak_ptr_list = w;
+            w->link = nonmoving_weak_ptr_list;
+            nonmoving_weak_ptr_list = w;
         } else {
             last_w = &(w->link);
             next_w = w->link;
@@ -1558,6 +1559,7 @@ void nonmoving_mark_dead_weaks(struct MarkQueue_ *queue, StgWeak **dead_weak_ptr
     }
 }
 
+// Non-moving heap variant of of `tidyThreadList`
 void nonmoving_tidy_threads()
 {
     StgTSO *next;
@@ -1574,8 +1576,8 @@ void nonmoving_tidy_threads()
             *prev = next;
 
             // move this thread onto threads list
-            t->global_link = oldest_gen->threads;
-            oldest_gen->threads = t;
+            t->global_link = nonmoving_threads;
+            nonmoving_threads = t;
         } else {
             // not alive (yet): leave this thread on the old_threads list
             prev = &(t->global_link);
