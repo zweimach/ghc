@@ -457,7 +457,8 @@ void nonmoving_collect()
 {
 #if defined(CONCURRENT_MARK)
     // We can't start a new collection until the old one has finished
-    if (concurrent_coll_running) {
+    // We also don't run in final GC
+    if (concurrent_coll_running || sched_state > SCHED_RUNNING) {
         return;
     }
 
@@ -566,12 +567,10 @@ static void* nonmoving_concurrent_mark(void *data)
 
     // If at this point if we've decided to exit then just return
     if (sched_state > SCHED_RUNNING) {
-        // Note that exitScheduler() waits for nonmoving collection before
-        // requesting sync, so in principle we should be able to revert
-        // sched_state, request a sync, and move on with the collection. After
-        // mark finishes revert sched_state to SCHED_INTERRUPTING and release
-        // capabilities. But let's keep things simple here ... (I'm not sure if
-        // finishing the collection is any useful)
+        // Note that we break our invariants here and leave segments in
+        // nonmoving_heap.sweep_list, don't free nonmoving_large_objects etc.
+        // However because we won't be running mark-sweep in the final GC this
+        // is OK.
         goto finish;
     }
 
