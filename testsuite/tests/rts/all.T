@@ -69,8 +69,10 @@ test('outofmem', when(opsys('darwin'), skip),
                  run_command, ['$MAKE -s --no-print-directory outofmem'])
 test('outofmem2', normal, run_command, ['$MAKE -s --no-print-directory outofmem2'])
 
-test('T2047', [ignore_stdout, extra_run_opts('+RTS -c -RTS')],
-              compile_and_run, ['-package containers'])
+# TODO (osa): This is actually testing comapcting (`+RTS -c`), but I removed
+# that parameter because we can't combine -c with -xn, and I still want to run
+# this test.
+test('T2047', [ignore_stdout], compile_and_run, ['-package containers'])
 
 # Blackhole-detection test.
 # Skip GHCi due to #2786
