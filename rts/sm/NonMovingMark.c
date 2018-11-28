@@ -149,7 +149,7 @@ StgIndStatic *debug_caf_list_snapshot = (StgIndStatic*)END_OF_CAF_LIST;
 static Mutex upd_rem_set_lock;
 bdescr *upd_rem_set_block_list = NULL;
 
-#if defined(CONCURRENT_MARK)
+#if defined(THREADED_RTS)
 /* Used during the mark/sweep phase transition to track how many capabilities
  * have pushed their update remembered sets. Protected by upd_rem_set_lock.
  */
@@ -179,7 +179,7 @@ void nonmoving_mark_init_upd_rem_set() {
 #endif
 }
 
-#if defined(CONCURRENT_MARK) && defined(DEBUG)
+#if defined(THREADED_RTS) && defined(DEBUG)
 static uint32_t mark_queue_length(MarkQueue *q);
 #endif
 static void init_mark_queue_(MarkQueue *queue);
@@ -213,7 +213,7 @@ static void nonmoving_add_upd_rem_set_blocks(MarkQueue *rset)
     RELEASE_SM_LOCK;
 }
 
-#if defined(CONCURRENT_MARK)
+#if defined(THREADED_RTS)
 /* Called by capabilities to flush their update remembered sets when
  * synchronising with the non-moving collector as it transitions from mark to
  * sweep phase.
@@ -703,7 +703,7 @@ void free_mark_queue(MarkQueue *queue)
     freeHashTable(queue->marked_objects, NULL);
 }
 
-#if defined(CONCURRENT_MARK) && defined(DEBUG)
+#if defined(THREADED_RTS) && defined(DEBUG)
 static uint32_t mark_queue_length(MarkQueue *q)
 {
     uint32_t n = 0;
@@ -1026,7 +1026,7 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
         // we moved everything to the non-moving heap before starting the major
         // collection, we know that we don't need to trace it: it was allocated
         // after we took our snapshot.
-#if !defined(CONCURRENT_MARK)
+#if !defined(THREADED_RTS)
         // This should never happen in the non-concurrent case
         barf("Closure outside of non-moving heap: %p", p);
 #else
@@ -1035,12 +1035,8 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
     }
 
     ASSERTM(LOOKS_LIKE_CLOSURE_PTR(p), "invalid closure, info=%p", p->header.info);
-#if !defined(CONCURRENT_MARK)
-    // A moving collection running concurrently with the mark may
-    // evacuate a reference living in the nonmoving heap, resulting in a
-    // forwarding pointer.
+
     ASSERT(!IS_FORWARDING_PTR(p->header.info));
-#endif
 
     if (bd->flags & BF_NONMOVING) {
 

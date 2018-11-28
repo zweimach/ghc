@@ -16,10 +16,6 @@
 
 #include "BeginPrivate.h"
 
-#if defined(THREADED_RTS)
-#define CONCURRENT_MARK
-#endif
-
 // Segments
 #define NONMOVING_SEGMENT_BITS 15   // 2^15 = 32kByte
 // Mask to find base of segment
