@@ -132,7 +132,7 @@ void upd_rem_set_push_stack(Capability *cap, StgStack *stack);
 // Debug only -- count number of blocks in global UpdRemSet
 int count_global_upd_rem_set_blocks(void);
 
-#if defined(CONCURRENT_MARK)
+#if defined(THREADED_RTS)
 void nonmoving_flush_cap_upd_rem_set_blocks(Capability *cap);
 void nonmoving_begin_flush(Task *task);
 bool nonmoving_wait_for_flush(void);

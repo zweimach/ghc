@@ -42,9 +42,7 @@ struct nonmoving_segment * const END_NONMOVING_TODO_LIST = (struct nonmoving_seg
  * This mutex ensures that only one non-moving collection is active at a time.
  */
 Mutex nonmoving_collection_mutex;
-#endif
 
-#if defined(CONCURRENT_MARK)
 OSThreadId mark_thread;
 bool concurrent_coll_running = false;
 Condition concurrent_coll_finished;
@@ -270,8 +268,6 @@ void nonmoving_init(void)
 {
 #if defined(THREADED_RTS)
     initMutex(&nonmoving_collection_mutex);
-#endif
-#if defined(CONCURRENT_MARK)
     initCondition(&concurrent_coll_finished);
     initMutex(&concurrent_coll_finished_lock);
 #endif
@@ -283,7 +279,7 @@ void nonmoving_init(void)
 
 void nonmoving_exit(void)
 {
-#if defined(CONCURRENT_MARK)
+#if defined(THREADED_RTS)
     if (mark_thread) {
         debugTrace(DEBUG_nonmoving_gc,
                    "waiting for nonmoving collector thread to terminate");
@@ -292,8 +288,6 @@ void nonmoving_exit(void)
     }
     closeMutex(&concurrent_coll_finished_lock);
     closeCondition(&concurrent_coll_finished);
-#endif
-#if defined(THREADED_RTS)
     closeMutex(&nonmoving_collection_mutex);
 #endif
 }
@@ -305,7 +299,7 @@ void nonmoving_exit(void)
  */
 void nonmoving_wait_until_finished(void)
 {
-#if defined(CONCURRENT_MARK)
+#if defined(THREADED_RTS)
     ACQUIRE_LOCK(&concurrent_coll_finished_lock);
     if (mark_thread)
         waitCondition(&concurrent_coll_finished, &concurrent_coll_finished_lock);
@@ -460,7 +454,7 @@ struct concurrent_mark_info {
 
 void nonmoving_collect()
 {
-#if defined(CONCURRENT_MARK)
+#if defined(THREADED_RTS)
     // We can't start a new collection until the old one has finished
     // We also don't run in final GC
     if (concurrent_coll_running || sched_state > SCHED_RUNNING) {
@@ -524,7 +518,7 @@ void nonmoving_collect()
 
     // We are now safe to start concurrent marking
 
-#if defined(CONCURRENT_MARK)
+#if defined(THREADED_RTS)
     // If we're interrupting or shutting down, do not let this capability go and
     // run a STW collection. Reason: we won't be able to acquire this capability
     // again for the sync if we let it go, because it'll immediately start doing
@@ -571,7 +565,7 @@ static void* nonmoving_concurrent_mark(void *data)
     // Do concurrent marking; most of the heap will get marked here.
     nonmoving_mark_threads_weaks(mark_queue);
 
-#if defined(CONCURRENT_MARK)
+#if defined(THREADED_RTS)
     Task *task = newBoundTask();
 
     // If at this point if we've decided to exit then just return
@@ -648,7 +642,7 @@ static void* nonmoving_concurrent_mark(void *data)
     nonmoving_old_weak_ptr_list = NULL;
 
     // Everything has been marked; allow the mutators to proceed
-#if defined(CONCURRENT_MARK)
+#if defined(THREADED_RTS)
     nonmoving_write_barrier_enabled = false;
     nonmoving_finish_flush(task);
 #endif
@@ -679,7 +673,7 @@ static void* nonmoving_concurrent_mark(void *data)
 
     // TODO: Remainder of things done by GarbageCollect (update stats)
 
-#if defined(CONCURRENT_MARK)
+#if defined(THREADED_RTS)
 finish:
     // We are done...
     mark_thread = 0;
@@ -688,8 +682,8 @@ finish:
     // non-moving collection to proceed
     concurrent_coll_running = false;
     signalCondition(&concurrent_coll_finished);
-#endif
     RELEASE_LOCK(&nonmoving_collection_mutex);
+#endif
 
     return NULL;
 }
