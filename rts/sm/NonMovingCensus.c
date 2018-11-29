@@ -9,10 +9,13 @@
  *
  * ---------------------------------------------------------------------------*/
 
+
 #include "Rts.h"
 #include "NonMoving.h"
 #include "Trace.h"
 #include "NonMovingCensus.h"
+
+#if defined(DEBUG)
 
 struct nonmoving_alloc_census {
     uint32_t n_active_segs;
@@ -84,11 +87,13 @@ void nonmoving_print_allocator_census()
             / (census.n_live_blocks * blk_size);
         if (census.n_live_blocks == 0) occupancy = 100;
         (void) occupancy; // silence warning if !DEBUG
-        debugTrace(DEBUG_nonmoving_gc, "Allocator %d (%d bytes - %d bytes): "
-                   "%d active segs, %d filled segs, %d live blocks, %d live words "
-                   "(%2.1f%% occupancy)",
-                   i, 1 << (i + NONMOVING_ALLOCA0 - 1), 1 << (i + NONMOVING_ALLOCA0),
-                   census.n_active_segs, census.n_filled_segs, census.n_live_blocks, census.n_live_words,
-                   occupancy);
+        trace_("Allocator %d (%d bytes - %d bytes): "
+               "%d active segs, %d filled segs, %d live blocks, %d live words "
+               "(%2.1f%% occupancy)",
+               i, 1 << (i + NONMOVING_ALLOCA0 - 1), 1 << (i + NONMOVING_ALLOCA0),
+               census.n_active_segs, census.n_filled_segs, census.n_live_blocks, census.n_live_words,
+               occupancy);
     }
 }
+
+#endif
