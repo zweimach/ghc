@@ -628,13 +628,27 @@ static void* nonmoving_concurrent_mark(void *data)
     ASSERT(mark_queue->blocks->link == NULL);
 
     // Update oldest_gen thread and weak lists
-    oldest_gen->threads = nonmoving_threads;
-    nonmoving_threads = END_TSO_QUEUE;
-    nonmoving_old_threads = END_TSO_QUEUE;
+    // Note that we need to append these lists as a concurrent minor GC may have
+    // added stuff to them while we're doing mark-sweep concurrently
+    {
+        StgTSO **threads = &oldest_gen->threads;
+        while (*threads != END_TSO_QUEUE) {
+            threads = &(*threads)->_link;
+        }
+        *threads = nonmoving_threads;
+        nonmoving_threads = END_TSO_QUEUE;
+        nonmoving_old_threads = END_TSO_QUEUE;
+    }
 
-    oldest_gen->weak_ptr_list = nonmoving_weak_ptr_list;
-    nonmoving_weak_ptr_list = NULL;
-    nonmoving_old_weak_ptr_list = NULL;
+    {
+        StgWeak **weaks = &oldest_gen->weak_ptr_list;
+        while (*weaks) {
+            weaks = &(*weaks)->link;
+        }
+        *weaks = nonmoving_weak_ptr_list;
+        nonmoving_weak_ptr_list = NULL;
+        nonmoving_old_weak_ptr_list = NULL;
+    }
 
     // Everything has been marked; allow the mutators to proceed
 #if defined(THREADED_RTS)
