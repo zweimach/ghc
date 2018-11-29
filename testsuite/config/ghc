@@ -103,8 +103,8 @@ config.way_flags = {
     'ghci-ext'         : ['--interactive', '-v0', '-ignore-dot-ghci', '-fno-ghci-history', '-fexternal-interpreter', '+RTS', '-I0.1', '-RTS'],
     'ghci-ext-prof'    : ['--interactive', '-v0', '-ignore-dot-ghci', '-fno-ghci-history', '-fexternal-interpreter', '-prof', '+RTS', '-I0.1', '-RTS'],
     'ext-interp' : ['-fexternal-interpreter'],
-    'nonmoving'        : ['-debug'],
-    'nonmoving_thr'    : ['-debug -threaded'],
+    'nonmoving'        : ['-debug', '+RTS -xn -RTS'],
+    'nonmoving_thr'    : ['-debug', '-threaded', '+RTS -xn -RTS'],
    }
 
 config.way_rts_flags = {
