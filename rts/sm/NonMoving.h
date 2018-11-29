@@ -219,7 +219,7 @@ INLINE_HEADER bool nonmoving_closure_being_swept(StgClosure *p)
 {
     bdescr *bd = Bdescr((StgPtr) p);
     if (HEAP_ALLOCED_GC(p)) {
-        if (bd->flags & (BF_NONMOVING | BF_LARGE)) {
+        if (bd->flags & BF_NONMOVING_SWEEPING) {
             return true;
         } else if (bd->flags & BF_NONMOVING) {
             struct nonmoving_segment *seg = nonmoving_get_segment((StgPtr) p);
