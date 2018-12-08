@@ -812,13 +812,15 @@ void locate_object(P_ obj)
     // Search allocators
     for (int alloca_idx = 0; alloca_idx < NONMOVING_ALLOCA_CNT; ++alloca_idx) {
         struct nonmoving_allocator *alloca = nonmoving_heap.allocators[alloca_idx];
-        struct nonmoving_segment *seg = alloca->current[0]; // TODO: only one capability for now
-        if (obj >= (P_)seg && obj < (((P_)seg) + NONMOVING_SEGMENT_SIZE_W)) {
-            debugBelch("%p is in current segment of allocator %d at %p\n", obj, alloca_idx, (void*)seg);
-            return;
+        for (uint32_t cap = 0; cap < n_capabilities; ++cap) {
+            struct nonmoving_segment *seg = alloca->current[cap];
+            if (obj >= (P_)seg && obj < (((P_)seg) + NONMOVING_SEGMENT_SIZE_W)) {
+                debugBelch("%p is in current segment of capability %d of allocator %d at %p\n", obj, cap, alloca_idx, (void*)seg);
+                return;
+            }
         }
         int seg_idx = 0;
-        seg = alloca->active;
+        struct nonmoving_segment *seg = alloca->active;
         while (seg) {
             if (obj >= (P_)seg && obj < (((P_)seg) + NONMOVING_SEGMENT_SIZE_W)) {
                 debugBelch("%p is in active segment %d of allocator %d at %p\n", obj, seg_idx, alloca_idx, (void*)seg);
