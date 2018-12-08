@@ -633,7 +633,7 @@ static void* nonmoving_concurrent_mark(void *data)
     {
         StgTSO **threads = &oldest_gen->threads;
         while (*threads != END_TSO_QUEUE) {
-            threads = &(*threads)->_link;
+            threads = &(*threads)->global_link;
         }
         *threads = nonmoving_threads;
         nonmoving_threads = END_TSO_QUEUE;
