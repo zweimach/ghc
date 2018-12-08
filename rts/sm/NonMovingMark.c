@@ -321,11 +321,12 @@ void push_closure (MarkQueue *q,
 
 #if defined(DEBUG)
     ASSERT(LOOKS_LIKE_CLOSURE_PTR(p));
-    if (RtsFlags.DebugFlags.sanity) {
-        assert_in_nonmoving_heap((P_)p);
-        if (origin)
-            assert_in_nonmoving_heap((P_)origin);
-    }
+    // Commenting out: too slow
+    // if (RtsFlags.DebugFlags.sanity) {
+    //     assert_in_nonmoving_heap((P_)p);
+    //     if (origin)
+    //         assert_in_nonmoving_heap((P_)origin);
+    // }
 #endif
 
     MarkQueueEnt ent = {
