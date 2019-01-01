@@ -11,6 +11,7 @@ stages:
   - lint
   - build
   - full-build
+  - hackage
 
 ############################################################
 # Runner Tags
@@ -369,6 +370,25 @@ validate-x86_64-windows:
     key: x86_64-windows
   tags:
     - x86_64-windows
+
+############################################################
+# Validation via Pipelines (Windows)
+############################################################
+
+hackage-testing:
+  stage: hackage
+  script:
+    - |
+      git clone https://gitlab.haskell.org/ghc/head.hackage
+      cd head.hackage
+      export GHC=ghc
+      ./scripts/head.hackage.sh init
+      echo "optional-packages: packages/*/*.cabal" >> cabal.project
+      cabal new-update
+      cabal new-install
+  image: ghcci/x86_64-linux-deb9:0.2
+  tags:
+    - x86_64-linux
 
 ############################################################
 # Validation via CircleCI
