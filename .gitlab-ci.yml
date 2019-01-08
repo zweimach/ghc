@@ -88,8 +88,8 @@ validate-x86_64-linux-deb8-hadrian:
   before_script:
     - git clean -xdf && git submodule foreach git clean -xdf
   script:
-    - ./boot
-    - ./configure $CONFIGURE_ARGS
+#    - ./boot
+#    - ./configure $CONFIGURE_ARGS
     - |
       THREADS=`mk/detect-cpu-count.sh`
       
