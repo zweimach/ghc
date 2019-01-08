@@ -9,15 +9,9 @@ fail() {
 
 GHC_ORIGIN="git@gitlab.haskell.org:ghc/ghc.git"
 
-# Only push git notes when on the official gitlab ghc repo.
-if [ "$CI_REPOSITORY_URL" != "$GHC_ORIGIN" ]; then
-  echo "Not pushing performance git notes: expected repo $GHC_ORIGIN but on repo $CI_REPOSITORY_URL"
-  exit 0
-fi
-
 # Check that private key is available (Set on all GitLab protected branches).
 if [ "$PERF_NOTE_KEY" = "" ]; then
-  echo "Not pushing performance git notes: PERF_NOTE_KEY not set."
+  echo "Not pushing performance git notes: PERF_NOTE_KEY is not set."
   exit 0
 fi
 
