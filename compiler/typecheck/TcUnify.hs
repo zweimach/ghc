@@ -444,7 +444,7 @@ matchExpectedAppTy orig_ty
            ; return (co, (ty1, ty2)) }
 
     orig_kind = tcTypeKind orig_ty
-    kind1 = mkFunKind liftedTypeKind orig_kind
+    kind1 = mkVisFunTy liftedTypeKind orig_kind
     kind2 = liftedTypeKind    -- m :: * -> k
                               -- arg type :: *
 
@@ -2043,7 +2043,7 @@ matchExpectedFunKind hs_ty = go
     defer k
       = do { arg_kind <- newMetaKindVar
            ; res_kind <- newMetaKindVar
-           ; let new_fun = mkFunKind arg_kind res_kind
+           ; let new_fun = mkVisFunTy arg_kind res_kind
                  origin  = TypeEqOrigin { uo_actual   = k
                                         , uo_expected = new_fun
                                         , uo_thing    = Just (ppr hs_ty)

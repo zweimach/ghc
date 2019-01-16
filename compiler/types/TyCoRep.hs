@@ -17,7 +17,7 @@ Note [The Type-related module hierarchy]
 
 -- We expose the relevant stuff from this module via the Type module
 {-# OPTIONS_HADDOCK not-home #-}
-{-# LANGUAGE CPP, DeriveDataTypeable, MultiWayIf, PatternSynonyms #-}
+{-# LANGUAGE CPP, DeriveDataTypeable, MultiWayIf, PatternSynonyms, BangPatterns #-}
 
 module TyCoRep (
         TyThing(..), tyThingCategory, pprTyThingCategory, pprShortTyThing,
@@ -45,7 +45,7 @@ module TyCoRep (
         -- * Functions over types
         mkTyConTy, mkTyVarTy, mkTyVarTys,
         mkTyCoVarTy, mkTyCoVarTys,
-        mkVisFunTy, mkInvisFunTy, mkVisFunTys, mkInvisFunTys,
+        mkFFunTy, mkVisFunTy, mkInvisFunTy, mkVisFunTys, mkInvisFunTys,
         mkTyCoForAllTy, mkForAllTys,
         mkForAllTy,
         mkTyCoPiTy, mkTyCoPiTys,
@@ -337,7 +337,8 @@ data Type
 
   deriving Data.Data
 
-{-# COMPLETE FunTy, TyVarTy, AppTy, TyConApp, ForAllTy, LitTy, CastTy, CoercionTy #-}
+{-# COMPLETE FunTy, TyVarTy, AppTy, TyConApp
+           , ForAllTy, LitTy, CastTy, CoercionTy :: Type #-}
 
 -- | 'FunTy' is a (uni-directional) pattern synonym for the common
 -- case where we want to match on the argument/result type, but
@@ -829,10 +830,14 @@ mkTyCoVarTy v
 mkTyCoVarTys :: [TyCoVar] -> [Type]
 mkTyCoVarTys = map mkTyCoVarTy
 
-infixr 3 `mkVisFunTy`, `mkInvisFunTy`      -- Associates to the right
+infixr 3 `mkFFunTy`, `mkVisFunTy`, `mkInvisFunTy`      -- Associates to the right
+
+mkFFunTy :: AnonArgFlag -> Type -> Type -> Type
+mkFFunTy af arg res = FFunTy { ft_af = af, ft_arg = arg, ft_res = res }
+
 mkVisFunTy, mkInvisFunTy :: Type -> Type -> Type
-mkVisFunTy   arg res = FFunTy { ft_af = VisArg,   ft_arg = arg, ft_res = res }
-mkInvisFunTy arg res = FFunTy { ft_af = InvisArg, ft_arg = arg, ft_res = res }
+mkVisFunTy   = mkFFunTy VisArg
+mkInvisFunTy = mkFFunTy InvisArg
 
 -- | Make nested arrow types
 mkVisFunTys, mkInvisFunTys :: [Type] -> Type -> Type
@@ -2124,10 +2129,10 @@ almost_devoid_co_var_of_types (ty:tys) cv
 injectiveVarsOfBinder :: TyConBinder -> FV
 injectiveVarsOfBinder (Bndr tv vis) =
   case vis of
-    AnonTCB           -> injectiveVarsOfType (varType tv)
+    AnonTCB VisArg    -> injectiveVarsOfType (varType tv)
     NamedTCB Required -> unitFV tv `unionFV`
                          injectiveVarsOfType (varType tv)
-    NamedTCB _        -> emptyFV
+    _                 -> emptyFV
 
 -- | Returns the free variables of a 'Type' that are in injective positions.
 -- (See @Note [Kind annotations on TyConApps]@ in "TcSplice" for an explanation
