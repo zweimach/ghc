@@ -5,9 +5,6 @@
 
 {-# LANGUAGE CPP, TupleSections, ViewPatterns #-}
 
-{-# OPTIONS_GHC -Wno-overlapping-patterns #-}
-    -- Yuk!  Suppresses bogus warnings
-
 module TcValidity (
   Rank, UserTypeCtxt(..), checkValidType, checkValidMonoType,
   checkValidTheta, checkValidFamPats,
@@ -544,7 +541,7 @@ check_syn_tc_app env ctxt rank ty tc tys
 
           else  -- In the liberal case (only for closed syns), expand then check
           case tcView ty of
-             Just ty' -> let syn_tc = fst $ tcRepSplitTyConApp ty
+             Just ty' -> let syn_tc = tcTyConAppTyCon ty
                              err_ctxt = text "In the expansion of type synonym"
                                         <+> quotes (ppr syn_tc)
                          in addErrCtxt err_ctxt $ check_type env ctxt rank ty'
