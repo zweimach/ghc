@@ -393,7 +393,7 @@ cvBindGroup binding
 
 cvBindsAndSigs :: OrdList (LHsDecl GhcPs)
   -> P (LHsBinds GhcPs, [LSig GhcPs], [LFamilyDecl GhcPs]
-          , [LTyFamInstDecl GhcPs], [LDataFamInstDecl GhcPs], [LDocDecl])
+          , [LTyFamInstDecl GhcPs], [LDataFamInstDecl GhcPs], [LDocDecl GhcPs])
 -- Input decls contain just value bindings and signatures
 -- and in case of class or instance declarations also
 -- associated type declarations. They might also contain Haddock comments.
@@ -1376,7 +1376,7 @@ data TyEl = TyElOpr RdrName | TyElOpd (HsType GhcPs)
           | TyElKindApp SrcSpan (LHsType GhcPs)
           | TyElTilde | TyElBang
           | TyElUnpackedness ([AddAnn], SourceText, SrcUnpackedness)
-          | TyElDocPrev HsDocString
+          | TyElDocPrev (HsDoc RdrName)
 
 instance Outputable TyEl where
   ppr (TyElOpr name) = ppr name
@@ -1638,7 +1638,7 @@ pLHsTypeArg (dL->L l (TyElOpd a)) = Just (HsValArg (L l a))
 pLHsTypeArg (dL->L _ (TyElKindApp l a)) = Just (HsTypeArg (l,a))
 pLHsTypeArg _ = Nothing
 
-pDocPrev :: [Located TyEl] -> (Maybe LHsDocString, [Located TyEl])
+pDocPrev :: [Located TyEl] -> (Maybe (LHsDoc RdrName), [Located TyEl])
 pDocPrev = go Nothing
   where
     go mTrailingDoc ((dL->L l (TyElDocPrev doc)):xs) =
@@ -1716,7 +1716,7 @@ mergeDataCon
       :: [Located TyEl]
       -> P ( Located RdrName         -- constructor name
            , HsConDeclDetails GhcPs  -- constructor field information
-           , Maybe LHsDocString      -- docstring to go on the constructor
+           , Maybe (LHsDoc RdrName)  -- docstring to go on the constructor
            )
 mergeDataCon all_xs =
   do { (addAnns, a) <- eitherToP res
@@ -2124,7 +2124,7 @@ parseCImport cconv safety nm str sourceText =
 mkExport :: Located CCallConv
          -> (Located StringLiteral, Located RdrName, LHsSigType GhcPs)
          -> P (HsDecl GhcPs)
-mkExport (dL->L lc cconv) (dL->L le (StringLiteral esrc entity), v, ty)
+mkExport (dL->L lc cconv) (dL->L le sl, v, ty)
  = return $ ForD noExt $
    ForeignExport { fd_e_ext = noExt, fd_name = v, fd_sig_ty = ty
                  , fd_fe = CExport (cL lc (CExportStatic esrc entity' cconv))
@@ -2132,6 +2132,7 @@ mkExport (dL->L lc cconv) (dL->L le (StringLiteral esrc entity), v, ty)
   where
     entity' | nullFS entity = mkExtName (unLoc v)
             | otherwise     = entity
+    StringLiteral esrc entity = sl
 
 -- Supplying the ext_name in a foreign decl is optional; if it
 -- isn't there, the Haskell name is assumed. Note that no transformation
@@ -2326,10 +2327,10 @@ mkLHsOpTy x op y =
   let loc = getLoc x `combineSrcSpans` getLoc op `combineSrcSpans` getLoc y
   in cL loc (mkHsOpTy x op y)
 
-mkLHsDocTy :: LHsType GhcPs -> LHsDocString -> LHsType GhcPs
+mkLHsDocTy :: LHsType GhcPs -> LHsDoc RdrName -> LHsType GhcPs
 mkLHsDocTy t doc =
   let loc = getLoc t `combineSrcSpans` getLoc doc
   in cL loc (HsDocTy noExt t doc)
 
-mkLHsDocTyMaybe :: LHsType GhcPs -> Maybe LHsDocString -> LHsType GhcPs
+mkLHsDocTyMaybe :: LHsType GhcPs -> Maybe (LHsDoc RdrName) -> LHsType GhcPs
 mkLHsDocTyMaybe t = maybe t (mkLHsDocTy t)

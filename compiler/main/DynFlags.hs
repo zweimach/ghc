@@ -184,6 +184,8 @@ module DynFlags (
 
 import GhcPrelude
 
+import Binary (Binary)
+import qualified Binary
 import Platform
 import PlatformConstants
 import Module
@@ -648,6 +650,9 @@ data GeneralFlag
    | Opt_DistrustAllPackages
    | Opt_PackageTrust
 
+   -- TODO: Add a CLI flag for this option.
+   | Opt_SkipIfaceVersionCheck
+
    | Opt_G_NoStateHack
    | Opt_G_NoOptCoercion
    deriving (Eq, Show, Enum)
@@ -840,6 +845,10 @@ data WarningFlag =
 
 data Language = Haskell98 | Haskell2010
    deriving (Eq, Enum, Show)
+
+instance Binary Language where
+  put_ bh = Binary.put_ bh . fromEnum
+  get bh = toEnum <$> Binary.get bh
 
 instance Outputable Language where
     ppr = text . show
