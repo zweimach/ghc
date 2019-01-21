@@ -158,11 +158,9 @@ ifeq "$(LLC)" ""
 RUNTEST_OPTS += -e ghc_with_llvm=0
 else ifeq "$(TargetARCH_CPP)" "powerpc"
 RUNTEST_OPTS += -e ghc_with_llvm=0
-else ifneq "$(LLC)" "llc"
+else
 # If we have a real detected value for LLVM, then it really ought to work
 RUNTEST_OPTS += -e ghc_with_llvm=1
-else
-RUNTEST_OPTS += -e ghc_with_llvm=0
 endif
 
 ifeq "$(WINDOWS)" "YES"
