@@ -2720,7 +2720,6 @@ exitScheduler (bool wait_foreign USED_IF_THREADS)
         releaseCapability(cap);
     }
     ASSERT(sched_state == SCHED_SHUTTING_DOWN);
-    nonmoving_shutting_down();
 
     shutdownCapabilities(task, wait_foreign);
 
