@@ -2,20 +2,20 @@ variables:
   THREADS: 9
 
 before_script:
+  # workaround for docker permissions
+  - sudo chown ghc:ghc -R .
+
   - sed -i -e 's%url *= *\.\./%url = https://git.haskell.org/%' .gitmodules
   - git submodule sync --recursive
   - git submodule update --init --recursive
   - git checkout .gitmodules
 
-  - bash .circleci/prepare-system.sh
-  - sudo apt-get update
-  - sudo apt-get install -qy libffi-dev
-
   - make clean || true
   - ./boot
-  - ./configure --with-system-libffi
+  - ./configure
 
 validate:
+  image: ghcci/x86_64-linux-deb9:0.2
   script:
     - |
       echo 'HADDOCK_DOCS       = NO' >> mk/build.mk
