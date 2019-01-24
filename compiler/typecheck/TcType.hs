@@ -225,7 +225,7 @@ import ErrUtils( Validity(..), MsgDoc, isValid )
 import qualified GHC.LanguageExtensions as LangExt
 
 import Data.List  ( mapAccumL )
-import Data.Functor.Identity( Identity(..) )
+-- import Data.Functor.Identity( Identity(..) )
 import Data.IORef
 import Data.List.NonEmpty( NonEmpty(..) )
 
@@ -1351,6 +1351,21 @@ Notes:
 
 ---------------
 mkNakedAppTys :: Type -> [Type] -> Type
+mkNakedAppTys = mkAppTys
+
+mkNakedAppTy :: Type -> Type -> Type
+mkNakedAppTy = mkAppTy
+
+mkNakedCastTy :: Type -> Coercion -> Type
+mkNakedCastTy = mkCastTy
+ -- Do we need a tc version of mkCastTy?
+
+nakedSubstTy :: HasCallStack => TCvSubst -> TcType  -> TcType
+nakedSubstTy = substTy
+
+
+{-
+mkNakedAppTys :: Type -> [Type] -> Type
 -- See Note [The well-kinded type invariant]
 mkNakedAppTys ty1                []   = ty1
 mkNakedAppTys (TyConApp tc tys1) tys2 = mkTyConApp tc (tys1 ++ tys2)
@@ -1387,6 +1402,7 @@ nakedSubstMapper
                , tcm_hole       = \_ hole   -> return (HoleCo hole)
                , tcm_tycobinder = \subst tv _ -> return (substVarBndr subst tv)
                , tcm_tycon    = return }
+-}
 
 {-
 ************************************************************************

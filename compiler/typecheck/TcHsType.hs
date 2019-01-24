@@ -76,6 +76,7 @@ import TcUnify
 import TcIface
 import TcSimplify
 import TcHsSyn
+import TyCoRep  ( Type(..) )  -- Just for mkAppTyM
 import TcErrors ( reportAllUnsolved )
 import TcType
 import Inst   ( tcInstTyBinders, tcInstTyBinder )
@@ -970,7 +971,7 @@ tcInferApps mode orig_hs_ty fun_ty fun_ki orig_hs_args
   = do { traceTc "tcInferApps {" (ppr orig_hs_ty $$ ppr orig_hs_args $$ ppr fun_ki)
        ; (f_args, res_k) <- go 1 empty_subst fun_ty orig_ki_binders orig_inner_ki orig_hs_args
        ; traceTc "tcInferApps }" empty
-       ; res_k <- zonkTcType res_k  -- Uphold (IT4) of Note [The tcType invariant]
+--       ; res_k <- zonkTcType res_k  -- Uphold (IT4) of Note [The tcType invariant]
        ; return (f_args, res_k) }
   where
     empty_subst                      = mkEmptyTCvSubst $ mkInScopeSet $
@@ -1010,16 +1011,16 @@ tcInferApps mode orig_hs_ty fun_ty fun_ki orig_hs_args
                             tc_lhs_type (kindLevel mode) ki exp_kind
                   ; traceTc "tcInferApps (vis kind app)" (ppr exp_kind)
                   ; let subst' = extendTvSubstBinderAndInScope subst ki_binder arg'
-                  ; go (n+1) subst'
-                       (mkNakedAppTy fun arg')
+                  ; fun' <- mkAppTyM fun arg'
+                  ; go (n+1) subst' fun'
                        ki_binders inner_ki args }
 
       | isInvisibleBinder ki_binder
           -- Instantiate if not specified or if there is no kind application
       = do { traceTc "tcInferApps (invis normal app)" (ppr ki_binder $$ ppr subst $$ ppr (tyCoBinderArgFlag ki_binder))
            ; (subst', arg') <- tcInstTyBinder Nothing subst ki_binder
-           ; go n subst' (mkNakedAppTy fun arg')
-                        ki_binders inner_ki all_args }
+           ; fun' <- mkAppTyM fun arg'
+           ; go n subst' fun' ki_binders inner_ki all_args }
 
       | otherwise -- if binder is visible
          = case arg of
@@ -1035,9 +1036,9 @@ tcInferApps mode orig_hs_ty fun_ty fun_ki orig_hs_args
                                tc_lhs_type mode ty exp_kind
                      ; traceTc "tcInferApps (vis normal app)" (ppr exp_kind)
                      ; let subst' = extendTvSubstBinderAndInScope subst ki_binder arg'
-                     ; go (n+1) subst'
-                          (mkNakedAppTy fun arg')
-                          ki_binders inner_ki args }
+                     ; fun' <- mkAppTyM fun arg'
+                     ; go (n+1) subst' fun' ki_binders inner_ki args }
+
             -- error if the argument is a kind application
              HsTypeArg ki -> do { traceTc "tcInferApps (error)"
                                     (vcat [ ppr ki_binder
@@ -1079,11 +1080,52 @@ tcInferApps mode orig_hs_ty fun_ty fun_ki orig_hs_args
     ty_app_err arg ty = failWith $ text "Cannot apply function of kind" <+> quotes (ppr ty)
                            $$ text "to visible kind argument" <+> quotes (ppr arg)
 
+mkAppTyM :: TcType -> TcType -> TcM TcType
+-- If 'fun' and 'arg' satisfy the Purely Kinded Invariant,
+-- and, if fully-zonked (fun arg) is well-kinded, then
+-- the result satisfies the Purely Kinded Invariant
+-- See Note [mkAppTyM]
+mkAppTyM fun arg
+  | TyConApp tc args <- fun
+  , isTypeSynonymTyCon tc
+  , args `lengthIs` (tyConArity tc - 1)
+  = do { traceTc "mkAppTyM synonym" (ppr fun <+> dcolon <+> ppr (tcTypeKind fun))
+       ; arg'  <- zonkTcType  arg
+       ; args' <- zonkTcTypes args
+       ; return (TyConApp tc (args' ++ [arg'])) }
+
+  | isPiTy (tcTypeKind fun)
+  = do { traceTc "mkAppTyM no zonk 1" (ppr fun)
+       ; traceTc "mkAppTyM no zonk 2" (ppr fun <+> dcolon <+> ppr (tcTypeKind fun))
+       ; traceTc "mkAppTyM no zonk" (vcat [ ppr fun <+> dcolon <+> ppr (tcTypeKind fun)
+                                          , ppr (mkAppTy fun arg) ])
+       ; return (mkAppTy fun arg) }
+
+  | otherwise
+  = do { fun' <- zonkTcType fun
+       ; traceTc "mkAppTyM with zonk" (vcat [ ppr fun' <+> dcolon <+> ppr (tcTypeKind fun')
+                                            , ppr (mkAppTy fun' arg) ])
+       ; return (mkAppTy fun' arg) }
+
+{- Note [mkAppTyM]
+~~~~~~~~~~~~~~~~~~
+
+Nasty case
+  type S f a = f a
+
+The type (S ff aa) may not satisfy the Purely Kinded Invariant because its expansion
+is (ff aa), and that does not satisfy PKI.  E.g. perhaps (ff :: kappa), where
+'kappa' has already been unified with (*->*).
+
+Solution: when building a saturated type synonym, fully zonk it.
+-}
+
+
 appTypeToArg :: LHsType GhcRn -> [LHsTypeArg GhcRn] -> LHsType GhcRn
-appTypeToArg f [] = f
-appTypeToArg f (HsValArg arg : args) = appTypeToArg (mkHsAppTy f arg) args
+appTypeToArg f []                     = f
+appTypeToArg f (HsValArg arg  : args) = appTypeToArg (mkHsAppTy f arg)     args
 appTypeToArg f (HsTypeArg arg : args) = appTypeToArg (mkHsAppKindTy f arg) args
-appTypeToArg f (HsArgPar _ : arg) = appTypeToArg f arg
+appTypeToArg f (HsArgPar _    : args) = appTypeToArg f                     args
 
 -- | Applies a type to a list of arguments.
 -- Always consumes all the arguments, using 'matchExpectedFunKind' as
@@ -1131,7 +1173,8 @@ checkExpectedKind :: HasDebugCallStack
                   -> TcKind         -- ^ the expected kind
                   -> TcM TcType
 checkExpectedKind sat hs_ty ty act exp
-  = do { (new_ty, new_act) <- case splitTyConApp_maybe ty of
+  = do { traceTc "checkExpectedKind" (ppr ty $$ ppr act)
+       ; (new_ty, new_act) <- case splitTyConApp_maybe ty of
            Just (tc, args)
              -- if the family tycon must be saturated and is not yet satured
              -- If we don't do this, we get #11246
