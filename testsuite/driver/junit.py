@@ -12,7 +12,8 @@ def junit(t):
                               timestamp = datetime.now().isoformat())
 
     for res_type, group in [('stat failure', t.unexpected_stat_failures),
-                          ('unexpected failure', t.unexpected_failures)]:
+                            ('unexpected failure', t.unexpected_failures),
+                            ('unexpected_passes', t.unexpected_passes)]:
         for (directory, testname, reason, way) in group:
             testcase = ET.SubElement(testsuite, 'testcase',
                                      classname = way,
