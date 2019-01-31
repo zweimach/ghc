@@ -45,7 +45,7 @@ import TcRnMonad
 import TcEnv
 import TcEvidence
 import InstEnv
-import TysWiredIn  ( heqDataCon, eqDataCon )
+import TysWiredIn  ( heqDataCon, anyTy, eqDataCon )
 import CoreSyn     ( isOrphan )
 import FunDeps
 import TcMType
@@ -97,7 +97,7 @@ newMethodFromName origin name inst_ty
        ; wrap <- ASSERT( not (isForAllTy ty) && isSingleton theta )
                  instCall origin [inst_ty] theta
 
-       ; return (mkHsWrap wrap (HsVar noExt (noLoc id))) }
+       ; return (mkHsWrap wrap (HsVar anyTy (noLoc id))) }
 
 {-
 ************************************************************************
@@ -637,7 +637,7 @@ newNonTrivialOverloadedLit orig
         ; (_, fi') <- tcSyntaxOp orig (mkRnSyntaxExpr meth_name)
                                       [synKnownType lit_ty] res_ty $
                       \_ -> return ()
-        ; let L _ witness = nlHsSyntaxApps fi' [nlHsLit hs_lit]
+        ; let L _ witness = nlHsSyntaxAppsExt lit_ty fi' [nlHsLit hs_lit]
         ; res_ty <- readExpType res_ty
         ; return (lit { ol_witness = witness
                       , ol_ext = OverLitTc rebindable res_ty }) }

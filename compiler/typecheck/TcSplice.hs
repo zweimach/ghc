@@ -182,8 +182,8 @@ tcTypedBracket rn_expr brack@(TExpBr _ expr) res_ty
        ; texpco <- tcLookupId unsafeTExpCoerceName
        ; tcWrapResultO (Shouldn'tHappenOrigin "TExpBr")
                        rn_expr
-                       (unLoc (mkHsApp (nlHsTyApp texpco [expr_ty])
-                                      (noLoc (HsTcBracketOut noExt brack ps'))))
+                       (unLoc (mkHsAppExt expr_ty (nlHsTyApp texpco [expr_ty])
+                                 (noLoc (HsTcBracketOut expr_ty brack ps'))))
                        meta_ty res_ty }
 tcTypedBracket _ other_brack _
   = pprPanic "tcTypedBracket" (ppr other_brack)
@@ -195,7 +195,8 @@ tcUntypedBracket rn_expr brack ps res_ty
        ; meta_ty <- tcBrackTy brack
        ; traceTc "tc_bracket done untyped" (ppr meta_ty)
        ; tcWrapResultO (Shouldn'tHappenOrigin "untyped bracket")
-                       rn_expr (HsTcBracketOut noExt brack ps') meta_ty res_ty }
+                       rn_expr
+                       (HsTcBracketOut meta_ty brack ps') meta_ty res_ty }
 
 ---------------
 tcBrackTy :: HsBracket GhcRn -> TcM TcType
@@ -473,7 +474,7 @@ tcNestedSplice pop_stage (TcPending ps_var lie_var) splice_name expr res_ty
                   setConstraintVar lie_var $
                   tcMonoExpr expr (mkCheckExpType meta_exp_ty)
        ; untypeq <- tcLookupId unTypeQName
-       ; let expr'' = mkHsApp (nlHsTyApp untypeq [res_ty]) expr'
+       ; let expr'' = mkHsAppExt res_ty (nlHsTyApp untypeq [res_ty]) expr'
        ; ps <- readMutVar ps_var
        ; writeMutVar ps_var (PendingTcSplice splice_name expr'' : ps)
 
@@ -585,8 +586,9 @@ runAnnotation target expr = do
               ; wrapper <- instCall AnnOrigin [expr_ty] [mkClassPred data_class [expr_ty]]
               ; let specialised_to_annotation_wrapper_expr
                       = L loc (mkHsWrap wrapper
-                                 (HsVar noExt (L loc to_annotation_wrapper_id)))
-              ; return (L loc (HsApp noExt
+                                 (HsVar (idType to_annotation_wrapper_id)
+                                        (L loc to_annotation_wrapper_id)))
+              ; return (L loc (HsApp expr_ty
                                 specialised_to_annotation_wrapper_expr expr')) }
 
     -- Run the appropriately wrapped expression to get the value of

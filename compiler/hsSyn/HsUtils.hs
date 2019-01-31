@@ -20,7 +20,7 @@ which deal with the instantiated versions are located elsewhere:
 
 module HsUtils(
   -- Terms
-  mkHsPar, mkHsApp, mkHsAppType, mkHsAppTypes, mkHsCaseAlt,
+  mkHsPar, mkHsApp, mkHsAppExt, mkHsAppType, mkHsAppTypes, mkHsCaseAlt,
   mkSimpleMatch, unguardedGRHSs, unguardedRHS,
   mkMatchGroup, mkMatch, mkPrefixFunRhs, mkHsLam, mkHsIf,
   mkHsWrap, mkLHsWrap, mkHsWrapCo, mkHsWrapCoR, mkLHsWrapCo,
@@ -29,7 +29,8 @@ module HsUtils(
   mkLHsPar, mkHsCmdWrap, mkLHsCmdWrap,
 
   nlHsTyApp, nlHsTyApps, nlHsVar, nlHsDataCon,
-  nlHsLit, nlHsApp, nlHsApps, nlHsSyntaxApps,
+  nlHsLit, nlHsApp, nlHsAppExt, nlHsAppAnyTy, nlHsApps,
+  nlHsSyntaxApps, nlHsSyntaxAppsExt,
   nlHsIntLit, nlHsVarApps,
   nlHsDo, nlHsOpApp, nlHsLam, nlHsPar, nlHsIf, nlHsCase, nlList,
   mkLHsTupleExpr, mkLHsVarTuple, missingTupArg,
@@ -105,7 +106,7 @@ import RdrName
 import Var
 import TyCoRep
 import Type   ( filterOutInvisibleTypes )
-import TysWiredIn ( unitTy )
+import TysWiredIn ( unitTy, anyTy )
 import TcType
 import DataCon
 import ConLike
@@ -173,18 +174,24 @@ mkLocatedList ::  [Located a] -> Located [Located a]
 mkLocatedList [] = noLoc []
 mkLocatedList ms = L (combineLocs (head ms) (last ms)) ms
 
-mkHsApp :: LHsExpr (GhcPass id) -> LHsExpr (GhcPass id) -> LHsExpr (GhcPass id)
-mkHsApp e1 e2 = addCLoc e1 e2 (HsApp noExt e1 e2)
+mkHsAppExt :: XApp (GhcPass id) -> LHsExpr (GhcPass id) -> LHsExpr (GhcPass id)
+                -> LHsExpr (GhcPass id)
+mkHsAppExt ext e1 e2 = addCLoc e1 e2 (HsApp ext e1 e2)
 
-mkHsAppType :: (XAppTypeE (GhcPass id) ~ LHsWcType GhcRn)
-            => LHsExpr (GhcPass id) -> LHsWcType GhcRn -> LHsExpr (GhcPass id)
-mkHsAppType e t = addCLoc e t_body (HsAppType paren_wct e)
+mkHsApp :: XApp (GhcPass id) ~ NoExt
+        => LHsExpr (GhcPass id) -> LHsExpr (GhcPass id) -> LHsExpr (GhcPass id)
+mkHsApp = mkHsAppExt noExt
+
+mkHsAppType :: (XAppTypeE (GhcPass id) ~ (LHsWcType GhcRn, a))
+            => LHsExpr (GhcPass id) -> (LHsWcType GhcRn, a)
+                 -> LHsExpr (GhcPass id)
+mkHsAppType e (t,typ) = addCLoc e t_body (HsAppType (paren_wct, typ) e)
   where
     t_body    = hswc_body t
     paren_wct = t { hswc_body = parenthesizeHsType appPrec t_body }
 
 mkHsAppTypes :: LHsExpr GhcRn -> [LHsWcType GhcRn] -> LHsExpr GhcRn
-mkHsAppTypes = foldl mkHsAppType
+mkHsAppTypes f = foldl mkHsAppType f . map (\a -> (a,noExt))
 
 mkHsLam :: [LPat GhcPs] -> LHsExpr GhcPs -> LHsExpr GhcPs
 mkHsLam pats body = mkHsPar (L (getLoc body) (HsLam noExt matches))
@@ -204,11 +211,13 @@ mkHsCaseAlt :: LPat (GhcPass p) -> (Located (body (GhcPass p)))
 mkHsCaseAlt pat expr
   = mkSimpleMatch CaseAlt [pat] expr
 
-nlHsTyApp :: IdP (GhcPass id) -> [Type] -> LHsExpr (GhcPass id)
+nlHsTyApp :: DefaultExt (XVar (GhcPass id))
+          => IdP (GhcPass id) -> [Type] -> LHsExpr (GhcPass id)
 nlHsTyApp fun_id tys
-  = noLoc (mkHsWrap (mkWpTyApps tys) (HsVar noExt (noLoc fun_id)))
+  = noLoc (mkHsWrap (mkWpTyApps tys) (HsVar defExt (noLoc fun_id)))
 
-nlHsTyApps :: IdP (GhcPass id) -> [Type] -> [LHsExpr (GhcPass id)]
+nlHsTyApps :: (XApp (GhcPass id) ~ NoExt, DefaultExt (XVar (GhcPass id)))
+           => IdP (GhcPass id) -> [Type] -> [LHsExpr (GhcPass id)]
            -> LHsExpr (GhcPass id)
 nlHsTyApps fun_id tys xs = foldl nlHsApp (nlHsTyApp fun_id tys) xs
 
@@ -268,8 +277,9 @@ mkHsComp ctxt stmts expr = mkHsDo ctxt (stmts ++ [last_stmt])
   where
     last_stmt = L (getLoc expr) $ mkLastStmt expr
 
-mkHsIf :: LHsExpr (GhcPass p) -> LHsExpr (GhcPass p) -> LHsExpr (GhcPass p)
-       -> HsExpr (GhcPass p)
+mkHsIf :: XIf (GhcPass p) ~ NoExt
+       => LHsExpr (GhcPass p) -> LHsExpr (GhcPass p) -> LHsExpr (GhcPass p)
+            -> HsExpr (GhcPass p)
 mkHsIf c a b = HsIf noExt (Just noSyntaxExpr) c a b
 
 mkNPat lit neg     = NPat noExt lit neg noSyntaxExpr
@@ -389,12 +399,13 @@ userHsTyVarBndrs loc bndrs = [ L loc (UserTyVar noExt (L loc v))
 ************************************************************************
 -}
 
-nlHsVar :: IdP (GhcPass id) -> LHsExpr (GhcPass id)
-nlHsVar n = noLoc (HsVar noExt (noLoc n))
+nlHsVar :: DefaultExt (XVar (GhcPass id))
+        => IdP (GhcPass id) -> LHsExpr (GhcPass id)
+nlHsVar n = noLoc (HsVar defExt (noLoc n))
 
 -- NB: Only for LHsExpr **Id**
 nlHsDataCon :: DataCon -> LHsExpr GhcTc
-nlHsDataCon con = noLoc (HsConLikeOut noExt (RealDataCon con))
+nlHsDataCon con = noLoc (HsConLikeOut anyTy (RealDataCon con))
 
 nlHsLit :: HsLit (GhcPass p) -> LHsExpr (GhcPass p)
 nlHsLit n = noLoc (HsLit noExt n)
@@ -408,26 +419,45 @@ nlVarPat n = noLoc (VarPat noExt (noLoc n))
 nlLitPat :: HsLit GhcPs -> LPat GhcPs
 nlLitPat l = noLoc (LitPat noExt l)
 
-nlHsApp :: LHsExpr (GhcPass id) -> LHsExpr (GhcPass id) -> LHsExpr (GhcPass id)
-nlHsApp f x = noLoc (HsApp noExt f (mkLHsPar x))
+nlHsAppExt :: XApp (GhcPass id) -> LHsExpr (GhcPass id) -> LHsExpr (GhcPass id)
+                -> LHsExpr (GhcPass id)
+nlHsAppExt ext f x = noLoc (HsApp ext f (mkLHsPar x))
 
-nlHsSyntaxApps :: SyntaxExpr (GhcPass id) -> [LHsExpr (GhcPass id)]
-               -> LHsExpr (GhcPass id)
-nlHsSyntaxApps (SyntaxExpr { syn_expr      = fun
-                           , syn_arg_wraps = arg_wraps
-                           , syn_res_wrap  = res_wrap }) args
+
+nlHsApp :: XApp (GhcPass id) ~ NoExt
+        => LHsExpr (GhcPass id) -> LHsExpr (GhcPass id) -> LHsExpr (GhcPass id)
+nlHsApp = nlHsAppExt noExt
+
+nlHsAppAnyTy :: XApp (GhcPass id) ~ Type
+             => LHsExpr (GhcPass id) -> LHsExpr (GhcPass id)
+                  -> LHsExpr (GhcPass id)
+nlHsAppAnyTy = nlHsAppExt anyTy
+
+nlHsSyntaxAppsExt :: XApp (GhcPass id) -> SyntaxExpr (GhcPass id)
+                       -> [LHsExpr (GhcPass id)] -> LHsExpr (GhcPass id)
+nlHsSyntaxAppsExt ext (SyntaxExpr { syn_expr      = fun
+                                  , syn_arg_wraps = arg_wraps
+                                  , syn_res_wrap  = res_wrap }) args
   | [] <- arg_wraps   -- in the noSyntaxExpr case
   = ASSERT( isIdHsWrapper res_wrap )
-    foldl nlHsApp (noLoc fun) args
+    foldl (nlHsAppExt ext) (noLoc fun) args
 
   | otherwise
-  = mkLHsWrap res_wrap (foldl nlHsApp (noLoc fun) (zipWithEqual "nlHsSyntaxApps"
-                                                     mkLHsWrap arg_wraps args))
+  = mkLHsWrap res_wrap (foldl (nlHsAppExt ext) (noLoc fun)
+                              (zipWithEqual "nlHsSyntaxApps"
+                                 mkLHsWrap arg_wraps args))
 
-nlHsApps :: IdP (GhcPass id) -> [LHsExpr (GhcPass id)] -> LHsExpr (GhcPass id)
-nlHsApps f xs = foldl nlHsApp (nlHsVar f) xs
+nlHsSyntaxApps :: XApp (GhcPass id) ~ NoExt
+               => SyntaxExpr (GhcPass id) -> [LHsExpr (GhcPass id)]
+                    -> LHsExpr (GhcPass id)
+nlHsSyntaxApps = nlHsSyntaxAppsExt noExt
 
-nlHsVarApps :: IdP (GhcPass id) -> [IdP (GhcPass id)] -> LHsExpr (GhcPass id)
+nlHsApps :: (DefaultExt (XApp (GhcPass id)), DefaultExt (XVar (GhcPass id)))
+         => IdP (GhcPass id) -> [LHsExpr (GhcPass id)] -> LHsExpr (GhcPass id)
+nlHsApps f xs = foldl (nlHsAppExt defExt) (nlHsVar f) xs
+
+nlHsVarApps :: (XApp (GhcPass id) ~ NoExt, XVar (GhcPass id) ~ NoExt)
+            => IdP (GhcPass id) -> [IdP (GhcPass id)] -> LHsExpr (GhcPass id)
 nlHsVarApps f xs = noLoc (foldl mk (HsVar noExt (noLoc f))
                                                (map ((HsVar noExt) . noLoc) xs))
                  where
@@ -475,7 +505,9 @@ nlHsOpApp e1 op e2 = noLoc (mkHsOpApp e1 op e2)
 
 nlHsLam  :: LMatch GhcPs (LHsExpr GhcPs) -> LHsExpr GhcPs
 nlHsPar  :: LHsExpr (GhcPass id) -> LHsExpr (GhcPass id)
-nlHsIf   :: LHsExpr (GhcPass id) -> LHsExpr (GhcPass id) -> LHsExpr (GhcPass id)
+nlHsIf   :: XIf (GhcPass id) ~ NoExt
+         => LHsExpr (GhcPass id) -> LHsExpr (GhcPass id)
+              -> LHsExpr (GhcPass id)
          -> LHsExpr (GhcPass id)
 nlHsCase :: LHsExpr GhcPs -> [LMatch GhcPs (LHsExpr GhcPs)]
          -> LHsExpr GhcPs
@@ -517,14 +549,17 @@ Tuples.  All these functions are *pre-typechecker* because they lack
 types on the tuple.
 -}
 
-mkLHsTupleExpr :: [LHsExpr (GhcPass a)] -> LHsExpr (GhcPass a)
+mkLHsTupleExpr :: XExplicitTuple (GhcPass a) -> [LHsExpr (GhcPass a)]
+                    -> LHsExpr (GhcPass a)
 -- Makes a pre-typechecker boxed tuple, deals with 1 case
-mkLHsTupleExpr [e] = e
-mkLHsTupleExpr es
-  = noLoc $ ExplicitTuple noExt (map (noLoc . (Present noExt)) es) Boxed
+mkLHsTupleExpr _ [e] = e
+mkLHsTupleExpr ext es
+  = noLoc $ ExplicitTuple ext (map (noLoc . (Present noExt)) es) Boxed
 
-mkLHsVarTuple :: [IdP (GhcPass a)] -> LHsExpr (GhcPass a)
-mkLHsVarTuple ids  = mkLHsTupleExpr (map nlHsVar ids)
+mkLHsVarTuple :: DefaultExt (XVar (GhcPass a))
+              => XExplicitTuple (GhcPass a) -> [IdP (GhcPass a)]
+                   -> LHsExpr (GhcPass a)
+mkLHsVarTuple ext ids  = mkLHsTupleExpr ext (map nlHsVar ids)
 
 nlTuplePat :: [LPat GhcPs] -> Boxity -> LPat GhcPs
 nlTuplePat pats box = noLoc (TuplePat noExt pats box)
@@ -538,11 +573,14 @@ mkLHsPatTup [lpat] = lpat
 mkLHsPatTup lpats  = L (getLoc (head lpats)) $ TuplePat noExt lpats Boxed
 
 -- The Big equivalents for the source tuple expressions
-mkBigLHsVarTup :: [IdP (GhcPass id)] -> LHsExpr (GhcPass id)
-mkBigLHsVarTup ids = mkBigLHsTup (map nlHsVar ids)
+mkBigLHsVarTup :: DefaultExt (XVar (GhcPass id))
+               => XExplicitTuple (GhcPass id) -> [IdP (GhcPass id)]
+                    -> LHsExpr (GhcPass id)
+mkBigLHsVarTup ext ids = mkBigLHsTup ext (map nlHsVar ids)
 
-mkBigLHsTup :: [LHsExpr (GhcPass id)] -> LHsExpr (GhcPass id)
-mkBigLHsTup = mkChunkified mkLHsTupleExpr
+mkBigLHsTup :: XExplicitTuple (GhcPass id) -> [LHsExpr (GhcPass id)]
+                 -> LHsExpr (GhcPass id)
+mkBigLHsTup ext = mkChunkified (mkLHsTupleExpr ext)
 
 -- The Big equivalents for the source tuple patterns
 mkBigLHsVarPatTup :: [IdP GhcRn] -> LPat GhcRn
@@ -1372,3 +1410,13 @@ lPatImplicits = hs_lpat
                                                                      (unLoc fld)
                                                           pat_explicit = maybe True (i<) (rec_dotdot fs)]
     details (InfixCon p1 p2) = hs_lpat p1 `unionNameSet` hs_lpat p2
+
+
+class DefaultExt e where
+  defExt :: e
+
+instance DefaultExt NoExt where
+  defExt = noExt
+
+instance DefaultExt Type where
+  defExt = anyTy

@@ -779,7 +779,7 @@ translatePat fam_insts pat = case pat of
     case all cantFailPattern ps of
       True  -> do
         (xp,xe) <- mkPmId2Forms arg_ty
-        let g = mkGuard ps (HsApp noExt lexpr xe)
+        let g = mkGuard ps (HsApp anyTy lexpr xe)
         return [xp,g]
       False -> mkCanFailPmPat arg_ty
 
@@ -1315,7 +1315,7 @@ mkPmId ty = getUniqueM >>= \unique ->
 mkPmId2Forms :: Type -> DsM (Pattern, LHsExpr GhcTc)
 mkPmId2Forms ty = do
   x <- mkPmId ty
-  return (PmVar x, noLoc (HsVar noExt (noLoc x)))
+  return (PmVar x, noLoc (HsVar (idType x) (noLoc x)))
 
 -- ----------------------------------------------------------------------------
 -- * Converting between Value Abstractions, Patterns and PmExpr

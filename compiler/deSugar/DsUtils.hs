@@ -767,7 +767,7 @@ mkBigLHsVarTupId :: [Id] -> LHsExpr GhcTc
 mkBigLHsVarTupId ids = mkBigLHsTupId (map nlHsVar ids)
 
 mkBigLHsTupId :: [LHsExpr GhcTc] -> LHsExpr GhcTc
-mkBigLHsTupId = mkChunkified mkLHsTupleExpr
+mkBigLHsTupId = mkChunkified (mkLHsTupleExpr [])
 
 -- The Big equivalents for the source tuple patterns
 mkBigLHsVarPatTupId :: [Id] -> LPat GhcTc

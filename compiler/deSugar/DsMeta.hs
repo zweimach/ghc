@@ -1226,7 +1226,7 @@ repE (HsLamCase _ (MG { mg_alts = L _ ms }))
                         ; repLamCase core_ms }
 repE (HsApp _ x y)   = do {a <- repLE x; b <- repLE y; repApp a b}
 repE (HsAppType t e) = do { a <- repLE e
-                          ; s <- repLTy (hswc_body t)
+                          ; s <- repLTy (hswc_body (fst t))
                           ; repAppType a s }
 
 repE (OpApp _ e1 op e2) =

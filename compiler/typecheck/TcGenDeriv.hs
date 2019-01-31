@@ -832,7 +832,7 @@ gen_Ix_binds loc tycon = do
 
         mk_qual a b c = noLoc $ mkBindStmt (nlVarPat c)
                                  (nlHsApp (nlHsVar range_RDR)
-                                          (mkLHsVarTuple [a,b]))
+                                          (mkLHsVarTuple noExt [a,b]))
 
     ----------------
     single_con_index
@@ -854,11 +854,11 @@ gen_Ix_binds loc tycon = do
             ) plus_RDR (
                 genOpApp (
                     (nlHsApp (nlHsVar unsafeRangeSize_RDR)
-                             (mkLHsVarTuple [l,u]))
+                             (mkLHsVarTuple noExt [l,u]))
                 ) times_RDR (mk_index rest)
            )
         mk_one l u i
-          = nlHsApps unsafeIndex_RDR [mkLHsVarTuple [l,u], nlHsVar i]
+          = nlHsApps unsafeIndex_RDR [mkLHsVarTuple noExt [l,u], nlHsVar i]
 
     ------------------
     single_con_inRange
@@ -872,7 +872,8 @@ gen_Ix_binds loc tycon = do
              else foldl1 and_Expr (zipWith3Equal "single_con_inRange" in_range
                     as_needed bs_needed cs_needed)
       where
-        in_range a b c = nlHsApps inRange_RDR [mkLHsVarTuple [a,b], nlHsVar c]
+        in_range a b c = nlHsApps inRange_RDR [mkLHsVarTuple noExt [a,b]
+                                              , nlHsVar c]
 
 {-
 ************************************************************************
@@ -991,8 +992,8 @@ gen_Read_binds get_fixity loc tycon
         -- For nullary constructors we must match Ident s for normal constrs
         -- and   Symbol s   for operators
 
-    mk_pair con = mkLHsTupleExpr [nlHsLit (mkHsString (data_con_str con)),
-                                  result_expr con []]
+    mk_pair con = mkLHsTupleExpr noExt [nlHsLit (mkHsString (data_con_str con)),
+                                                 result_expr con []]
 
     read_non_nullary_con data_con
       | is_infix  = mk_parser infix_prec  infix_stmts  body

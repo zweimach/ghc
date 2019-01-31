@@ -704,37 +704,65 @@ data RecordUpdTc = RecordUpdTc
 
 -- ---------------------------------------------------------------------
 
-type instance XVar           (GhcPass _) = NoExt
+type instance XVar           GhcPs = NoExt
+type instance XVar           GhcRn = NoExt
+type instance XVar           GhcTc = Type
+
 type instance XUnboundVar    (GhcPass _) = NoExt
-type instance XConLikeOut    (GhcPass _) = NoExt
+
+type instance XConLikeOut    GhcPs = NoExt
+type instance XConLikeOut    GhcRn = NoExt
+type instance XConLikeOut    GhcTc = Type
+
 type instance XRecFld        (GhcPass _) = NoExt
 type instance XOverLabel     (GhcPass _) = NoExt
 type instance XIPVar         (GhcPass _) = NoExt
 type instance XOverLitE      (GhcPass _) = NoExt
 type instance XLitE          (GhcPass _) = NoExt
-type instance XLam           (GhcPass _) = NoExt
-type instance XLamCase       (GhcPass _) = NoExt
-type instance XApp           (GhcPass _) = NoExt
+
+type instance XLam           GhcPs = NoExt
+type instance XLam           GhcRn = NoExt
+type instance XLam           GhcTc = Type
+
+type instance XLamCase       GhcPs = NoExt
+type instance XLamCase       GhcRn = NoExt
+type instance XLamCase       GhcTc = Type
+
+type instance XApp           GhcPs = NoExt
+type instance XApp           GhcRn = NoExt
+type instance XApp           GhcTc = Type
 
 type instance XAppTypeE      GhcPs = LHsWcType GhcPs
-type instance XAppTypeE      GhcRn = LHsWcType GhcRn
-type instance XAppTypeE      GhcTc = LHsWcType GhcRn
+type instance XAppTypeE      GhcRn = (LHsWcType GhcRn, NoExt)
+type instance XAppTypeE      GhcTc = (LHsWcType GhcRn, Type)
 
 type instance XOpApp         GhcPs = NoExt
 type instance XOpApp         GhcRn = Fixity
-type instance XOpApp         GhcTc = Fixity
+type instance XOpApp         GhcTc = (Fixity, Type)
 
 type instance XNegApp        (GhcPass _) = NoExt
 type instance XPar           (GhcPass _) = NoExt
-type instance XSectionL      (GhcPass _) = NoExt
-type instance XSectionR      (GhcPass _) = NoExt
-type instance XExplicitTuple (GhcPass _) = NoExt
+
+type instance XSectionL      GhcPs = NoExt
+type instance XSectionL      GhcRn = NoExt
+type instance XSectionL      GhcTc = Type
+
+type instance XSectionR      GhcPs = NoExt
+type instance XSectionR      GhcRn = NoExt
+type instance XSectionR      GhcTc = Type
+
+type instance XExplicitTuple GhcPs = NoExt
+type instance XExplicitTuple GhcRn = NoExt
+type instance XExplicitTuple GhcTc = [Type]
 
 type instance XExplicitSum   GhcPs = NoExt
 type instance XExplicitSum   GhcRn = NoExt
 type instance XExplicitSum   GhcTc = [Type]
 
-type instance XCase          (GhcPass _) = NoExt
+type instance XCase          GhcPs = NoExt
+type instance XCase          GhcRn = NoExt
+type instance XCase          GhcTc = Type
+
 type instance XIf            (GhcPass _) = NoExt
 
 type instance XMultiIf       GhcPs = NoExt
@@ -753,7 +781,7 @@ type instance XExplicitList  GhcTc = Type
 
 type instance XRecordCon     GhcPs = NoExt
 type instance XRecordCon     GhcRn = NoExt
-type instance XRecordCon     GhcTc = RecordConTc
+type instance XRecordCon     GhcTc = (RecordConTc, Type)
 
 type instance XRecordUpd     GhcPs = NoExt
 type instance XRecordUpd     GhcRn = NoExt
@@ -765,17 +793,23 @@ type instance XExprWithTySig GhcTc = (LHsSigWcType GhcRn)
 
 type instance XArithSeq      GhcPs = NoExt
 type instance XArithSeq      GhcRn = NoExt
-type instance XArithSeq      GhcTc = PostTcExpr
+type instance XArithSeq      GhcTc = (PostTcExpr, Type)
 
 type instance XSCC           (GhcPass _) = NoExt
 type instance XCoreAnn       (GhcPass _) = NoExt
 type instance XBracket       (GhcPass _) = NoExt
 
 type instance XRnBracketOut  (GhcPass _) = NoExt
-type instance XTcBracketOut  (GhcPass _) = NoExt
+
+type instance XTcBracketOut  GhcPs = NoExt
+type instance XTcBracketOut  GhcRn = NoExt
+type instance XTcBracketOut  GhcTc = Type
 
 type instance XSpliceE       (GhcPass _) = NoExt
-type instance XProc          (GhcPass _) = NoExt
+
+type instance XProc          GhcPs = NoExt
+type instance XProc          GhcRn = NoExt
+type instance XProc          GhcTc = Type
 
 type instance XStatic        GhcPs = NoExt
 type instance XStatic        GhcRn = NameSet

@@ -15,7 +15,7 @@ checker.
 
 module TcHsSyn (
         -- * Extracting types from HsSyn
-        hsLitType, hsLPatType, hsPatType,
+        hsLitType, hsLPatType, hsPatType, hsExprType,
 
         -- * Other HsSyn functions
         mkHsDictLet, mkHsApp,
@@ -76,6 +76,7 @@ import CoreSyn
 
 import Control.Monad
 import Data.List  ( partition )
+import Data.Data  ( toConstr )
 import Control.Arrow ( second )
 
 {-
@@ -86,6 +87,46 @@ import Control.Arrow ( second )
 ************************************************************************
 
 -}
+
+hsExprType :: HsExpr GhcTc -> Type
+hsExprType (HsVar ty _) = ty -- use the inferred type instead of the
+                             -- more generic type of the variable
+hsExprType (HsConLikeOut ty _) = ty
+hsExprType (HsLit _ lit) = hsLitType lit
+hsExprType (HsOverLit _ lit) = overLitType lit
+hsExprType (HsLam ty _) = ty
+hsExprType (HsLamCase ty _) = ty
+hsExprType (HsApp ty _ _) = ty
+hsExprType (HsAppType (_,ty) _) = ty
+hsExprType (OpApp (_,ty) _ _ _) = ty
+hsExprType (NegApp _ ex _) = hsExprType (unLoc ex)
+hsExprType (HsPar _ ex) = hsExprType (unLoc ex)
+hsExprType (SectionL ty _ _) = ty
+hsExprType (SectionR ty _ _) = ty
+hsExprType (ExplicitTuple tys _ bx) = mkTupleTy bx tys
+hsExprType (ExplicitSum tys _ _ _) = mkSumTy tys
+hsExprType (HsCase ty _ _) = ty
+hsExprType (HsIf _ _ _ exp1 _) = hsExprType (unLoc exp1)
+hsExprType (HsMultiIf ty _) = ty
+hsExprType (HsLet _ _ exp) = hsExprType (unLoc exp)
+hsExprType (HsDo ty _ _) = ty
+hsExprType (ExplicitList elemTy _ _) = mkListTy elemTy
+hsExprType (RecordCon (_, ty) _ _) = ty
+hsExprType (RecordUpd (RecordUpdTc cons _ tys _) _ _)
+  = conLikeResTy (head cons) tys
+hsExprType (ExprWithTySig _ exp) = hsExprType (unLoc exp)
+hsExprType (ArithSeq (_, ty) _ _) = ty
+hsExprType (HsSCC _ _ _ exp) = hsExprType $ unLoc exp
+hsExprType (HsCoreAnn _ _ _ exp) = hsExprType $ unLoc exp
+hsExprType (HsTcBracketOut ty _ _) = ty
+hsExprType (HsTick _ _ exp) = hsExprType $ unLoc exp
+hsExprType (HsBinTick _ _ _ exp) = hsExprType $ unLoc exp
+hsExprType (HsTickPragma _ _ _ _ exp) = hsExprType $ unLoc exp
+hsExprType (HsWrap _ _ exp) = hsExprType exp
+hsExprType (HsStatic _ exp) = hsExprType $ unLoc exp
+hsExprType (HsProc ty _ _) = ty
+hsExprType (HsArrApp ty _ _ _ _) = ty
+hsExprType e = pprPanic ("hsExprType: " ++ show (toConstr e)) (ppr e)
 
 hsLPatType :: OutPat GhcTc -> Type
 hsLPatType (L _ pat) = hsPatType pat
@@ -151,7 +192,7 @@ shortCutLit _ (HsIsString src s) ty
   | otherwise     = Nothing
 
 mkLit :: DataCon -> HsLit GhcTc -> HsExpr GhcTc
-mkLit con lit = HsApp noExt (nlHsDataCon con) (nlHsLit lit)
+mkLit con lit = HsApp (hsLitType lit) (nlHsDataCon con) (nlHsLit lit)
 
 ------------------------------
 hsOverLitName :: OverLitVal -> Name
@@ -790,10 +831,10 @@ zonkExpr env (ExplicitList ty wit exprs)
    where zonkWit env Nothing    = return (env, Nothing)
          zonkWit env (Just fln) = second Just <$> zonkSyntaxExpr env fln
 
-zonkExpr env expr@(RecordCon { rcon_ext = ext, rcon_flds = rbinds })
+zonkExpr env expr@(RecordCon { rcon_ext = (ext, ty), rcon_flds = rbinds })
   = do  { new_con_expr <- zonkExpr env (rcon_con_expr ext)
         ; new_rbinds   <- zonkRecFields env rbinds
-        ; return (expr { rcon_ext  = ext { rcon_con_expr = new_con_expr }
+        ; return (expr { rcon_ext  = (ext { rcon_con_expr = new_con_expr }, ty)
                        , rcon_flds = new_rbinds }) }
 
 zonkExpr env (RecordUpd { rupd_flds = rbinds
@@ -816,11 +857,11 @@ zonkExpr env (ExprWithTySig ty e)
   = do { e' <- zonkLExpr env e
        ; return (ExprWithTySig ty e') }
 
-zonkExpr env (ArithSeq expr wit info)
+zonkExpr env (ArithSeq (expr, ty) wit info)
   = do (env1, new_wit) <- zonkWit env wit
        new_expr <- zonkExpr env expr
        new_info <- zonkArithSeq env1 info
-       return (ArithSeq new_expr new_wit new_info)
+       return (ArithSeq (new_expr, ty) new_wit new_info)
    where zonkWit env Nothing    = return (env, Nothing)
          zonkWit env (Just fln) = second Just <$> zonkSyntaxExpr env fln
 

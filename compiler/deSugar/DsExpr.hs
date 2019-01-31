@@ -459,7 +459,7 @@ ds_expr _ (HsMultiIf res_ty alts)
 ds_expr _ (ExplicitList elt_ty wit xs)
   = dsExplicitList elt_ty wit xs
 
-ds_expr _ (ArithSeq expr witness seq)
+ds_expr _ (ArithSeq (expr,_) witness seq)
   = case witness of
      Nothing -> dsArithSeq expr seq
      Just fl -> do { newArithSeq <- dsArithSeq expr seq
@@ -519,8 +519,9 @@ constructor @C@, setting all of @C@'s fields to bottom.
 -}
 
 ds_expr _ (RecordCon { rcon_flds = rbinds
-                     , rcon_ext = RecordConTc { rcon_con_expr = con_expr
-                                              , rcon_con_like = con_like }})
+                     , rcon_ext = (RecordConTc { rcon_con_expr = con_expr
+                                               , rcon_con_like = con_like }
+                                  , _)})
   = do { con_expr' <- dsExpr con_expr
        ; let
              (arg_tys, _) = tcSplitFunTys (exprType con_expr')
@@ -648,7 +649,7 @@ ds_expr _ expr@(RecordUpd { rupd_expr = record_expr, rupd_flds = fields
                  mk_val_arg fl pat_arg_id
                      = nlHsVar (lookupNameEnv upd_fld_env (flSelector fl) `orElse` pat_arg_id)
 
-                 inst_con = noLoc $ mkHsWrap wrap (HsConLikeOut noExt con)
+                 inst_con = noLoc $ mkHsWrap wrap (HsConLikeOut anyTy con)
                         -- Reconstruct with the WrapId so that unpacking happens
                  -- The order here is because of the order in `TcPatSyn`.
                  wrap = mkWpEvVarApps theta_vars                                <.>
@@ -657,7 +658,7 @@ ds_expr _ expr@(RecordUpd { rupd_expr = record_expr, rupd_flds = fields
                         mkWpTyApps    [ ty
                                       | (tv, ty) <- univ_tvs `zip` out_inst_tys
                                       , not (tv `elemVarEnv` wrap_subst) ]
-                 rhs = foldl (\a b -> nlHsApp a b) inst_con val_args
+                 rhs = foldl (\a b -> nlHsAppExt anyTy a b) inst_con val_args
 
                         -- Tediously wrap the application in a cast
                         -- Note [Update for GADTs]
@@ -923,7 +924,7 @@ dsDo stmts
 
            ; let body' = noLoc $ HsDo body_ty DoExpr (noLoc stmts)
 
-           ; let fun = L noSrcSpan $ HsLam noExt $
+           ; let fun = L noSrcSpan $ HsLam anyTy $ -- no need to type
                    MG { mg_alts = noLoc [mkSimpleMatch LambdaExpr pats
                                                        body']
                       , mg_ext = MatchGroupTc arg_tys body_ty
@@ -954,8 +955,8 @@ dsDo stmts
         rec_tup_pats = map nlVarPat tup_ids
         later_pats   = rec_tup_pats
         rets         = map noLoc rec_rets
-        mfix_app     = nlHsSyntaxApps mfix_op [mfix_arg]
-        mfix_arg     = noLoc $ HsLam noExt
+        mfix_app     = nlHsSyntaxAppsExt anyTy mfix_op [mfix_arg]
+        mfix_arg     = noLoc $ HsLam anyTy -- no need to type
                            (MG { mg_alts = noLoc [mkSimpleMatch
                                                     LambdaExpr
                                                     [mfix_pat] body]
@@ -964,7 +965,7 @@ dsDo stmts
         mfix_pat     = noLoc $ LazyPat noExt $ mkBigLHsPatTupId rec_tup_pats
         body         = noLoc $ HsDo body_ty
                                 DoExpr (noLoc (rec_stmts ++ [ret_stmt]))
-        ret_app      = nlHsSyntaxApps return_op [mkBigLHsTupId rets]
+        ret_app      = nlHsSyntaxAppsExt anyTy return_op [mkBigLHsTupId rets]
         ret_stmt     = noLoc $ mkLastStmt ret_app
                      -- This LastStmt will be desugared with dsDo,
                      -- which ignores the return_op in the LastStmt,

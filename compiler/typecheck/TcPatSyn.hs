@@ -26,7 +26,7 @@ import TcMType
 import TcHsSyn( zonkTyVarBindersX, zonkTcTypeToTypes
               , zonkTcTypeToType, emptyZonkEnv )
 import TysPrim
-import TysWiredIn  ( runtimeRepTy )
+import TysWiredIn  ( runtimeRepTy, anyTy )
 import Name
 import SrcLoc
 import PatSyn
@@ -718,7 +718,8 @@ tcPatSynMatcher (L loc name) lpat
                              -- See Note [Exported LocalIds] in Id
 
              inst_wrap = mkWpEvApps prov_dicts <.> mkWpTyApps ex_tys
-             cont' = foldl nlHsApp (mkLHsWrap inst_wrap (nlHsVar cont)) cont_args
+             cont' = foldl nlHsAppAnyTy (mkLHsWrap inst_wrap (nlHsVar cont))
+                           cont_args
 
              fail' = nlHsApps fail [nlHsVar voidPrimId]
 
@@ -730,13 +731,13 @@ tcPatSynMatcher (L loc name) lpat
                            mkHsCaseAlt lwpat fail']
              body = mkLHsWrap (mkWpLet req_ev_binds) $
                     L (getLoc lpat) $
-                    HsCase noExt (nlHsVar scrutinee) $
+                    HsCase anyTy (nlHsVar scrutinee) $ -- no need to save type
                     MG{ mg_alts = L (getLoc lpat) cases
                       , mg_ext = MatchGroupTc [pat_ty] res_ty
                       , mg_origin = Generated
                       }
              body' = noLoc $
-                     HsLam noExt $
+                     HsLam anyTy $ -- no need to save type
                      MG{ mg_alts = noLoc [mkSimpleMatch LambdaExpr
                                                         args body]
                        , mg_ext = MatchGroupTc [pat_ty, cont_ty, fail_ty] res_ty
@@ -887,7 +888,7 @@ tcPatSynBuilderOcc :: PatSyn -> TcM (HsExpr GhcTcId, TcSigmaType)
 -- monadic only for failure
 tcPatSynBuilderOcc ps
   | Just (builder_id, add_void_arg) <- builder
-  , let builder_expr = HsConLikeOut noExt (PatSynCon ps)
+  , let builder_expr = HsConLikeOut anyTy (PatSynCon ps)
         builder_ty   = idType builder_id
   = return $
     if add_void_arg

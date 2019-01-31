@@ -67,6 +67,7 @@ import SrcLoc
 import Util
 import BooleanFormula ( isUnsatisfied, pprBooleanFormulaNice )
 import qualified GHC.LanguageExtensions as LangExt
+import TysWiredIn
 
 import Control.Monad
 import Maybes
@@ -837,14 +838,14 @@ tcInstDecl2 (InstInfo { iSpec = ispec, iBinds = ibinds })
                      --    con_app_scs  = MkD ty1 ty2 sc1 sc2
                      --    con_app_args = MkD ty1 ty2 sc1 sc2 op1 op2
              con_app_tys  = mkHsWrap (mkWpTyApps inst_tys)
-                                  (HsConLikeOut noExt (RealDataCon dict_constr))
+                                  (HsConLikeOut anyTy (RealDataCon dict_constr))
                        -- NB: We *can* have covars in inst_tys, in the case of
                        -- promoted GADT constructors.
 
              con_app_args = foldl app_to_meth con_app_tys sc_meth_ids
 
              app_to_meth :: HsExpr GhcTc -> Id -> HsExpr GhcTc
-             app_to_meth fun meth_id = HsApp noExt (L loc fun)
+             app_to_meth fun meth_id = HsApp anyTy (L loc fun)
                                             (L loc (wrapId arg_wrapper meth_id))
 
              inst_tv_tys = mkTyVarTys inst_tyvars
@@ -910,8 +911,8 @@ addDFunPrags dfun_id sc_meth_ids
    [dict_con]  = tyConDataCons clas_tc
    is_newtype  = isNewTyCon clas_tc
 
-wrapId :: HsWrapper -> IdP (GhcPass id) -> HsExpr (GhcPass id)
-wrapId wrapper id = mkHsWrap wrapper (HsVar noExt (noLoc id))
+wrapId :: HsWrapper -> IdP GhcTc -> HsExpr GhcTc
+wrapId wrapper id = mkHsWrap wrapper (HsVar anyTy (noLoc id))
 
 {- Note [Typechecking plan for instance declarations]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1310,7 +1311,7 @@ tcMethods dfun_id clas tyvars dfun_ev_vars inst_tys
                              mkLHsWrap lam_wrapper (error_rhs dflags)
            ; return (meth_id, meth_bind, Nothing) }
       where
-        error_rhs dflags = L inst_loc $ HsApp noExt error_fun (error_msg dflags)
+        error_rhs dflags = L inst_loc $ HsApp anyTy error_fun (error_msg dflags)
         error_fun    = L inst_loc $
                        wrapId (mkWpTyApps
                                 [ getRuntimeRep meth_tau, meth_tau])
@@ -1669,7 +1670,8 @@ mkDefMethBind clas inst_tys sel_id dm_name
   where
     mk_vta :: LHsExpr GhcRn -> Type -> LHsExpr GhcRn
     mk_vta fun ty = noLoc (HsAppType (mkEmptyWildCardBndrs $ nlHsParTy
-                                      $ noLoc $ XHsType $ NHsCoreTy ty) fun)
+                                      $ noLoc $ XHsType $ NHsCoreTy ty
+                                     , noExt) fun)
        -- NB: use visible type application
        -- See Note [Default methods in instances]
 

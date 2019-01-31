@@ -155,3 +155,148 @@ test('plugin-recomp-flags',
       pre_cmd('$MAKE -s --no-print-directory -C plugin-recomp package.plugins01 TOP={top}')
       ],
      run_command, ['$MAKE -s --no-print-directory plugin-recomp-flags'])
+
+test('exprtype01',
+     [extra_files(['simple-plugin/', 'exprtype.hs']),
+      pre_cmd('$MAKE -s --no-print-directory -C simple-plugin package.exprtype01 TOP={top}')],
+     run_command, ['$MAKE -s --no-print-directory exprtype01'])
+
+test('exprtype02',
+     [extra_files(['simple-plugin/', 'exprtype.hs']),
+      pre_cmd('$MAKE -s --no-print-directory -C simple-plugin package.exprtype02 TOP={top}')],
+     run_command, ['$MAKE -s --no-print-directory exprtype02'])
+
+test('exprtype03',
+     [extra_files(['simple-plugin/', 'exprtype.hs']),
+      pre_cmd('$MAKE -s --no-print-directory -C simple-plugin package.exprtype03 TOP={top}')],
+     run_command, ['$MAKE -s --no-print-directory exprtype03'])
+
+test('exprtype04',
+     [extra_files(['simple-plugin/', 'exprtype.hs']),
+      pre_cmd('$MAKE -s --no-print-directory -C simple-plugin package.exprtype04 TOP={top}')],
+     run_command, ['$MAKE -s --no-print-directory exprtype04'])
+
+test('exprtype05',
+     [extra_files(['simple-plugin/', 'exprtype.hs']),
+      pre_cmd('$MAKE -s --no-print-directory -C simple-plugin package.exprtype05 TOP={top}')],
+     run_command, ['$MAKE -s --no-print-directory exprtype05'])
+
+test('exprtype06',
+     [extra_files(['simple-plugin/', 'exprtype.hs']),
+      pre_cmd('$MAKE -s --no-print-directory -C simple-plugin package.exprtype06 TOP={top}')],
+     run_command, ['$MAKE -s --no-print-directory exprtype06'])
+
+test('exprtype07',
+     [extra_files(['simple-plugin/', 'exprtype.hs']),
+      pre_cmd('$MAKE -s --no-print-directory -C simple-plugin package.exprtype07 TOP={top}')],
+     run_command, ['$MAKE -s --no-print-directory exprtype07'])
+
+test('exprtype08',
+     [extra_files(['simple-plugin/', 'exprtype.hs']),
+      pre_cmd('$MAKE -s --no-print-directory -C simple-plugin package.exprtype08 TOP={top}')],
+     run_command, ['$MAKE -s --no-print-directory exprtype08'])
+
+test('exprtype09',
+     [extra_files(['simple-plugin/', 'exprtype.hs']),
+      pre_cmd('$MAKE -s --no-print-directory -C simple-plugin package.exprtype09 TOP={top}')],
+     run_command, ['$MAKE -s --no-print-directory exprtype09'])
+
+test('exprtype10',
+     [extra_files(['simple-plugin/', 'exprtype.hs']),
+      pre_cmd('$MAKE -s --no-print-directory -C simple-plugin package.exprtype10 TOP={top}')],
+     run_command, ['$MAKE -s --no-print-directory exprtype10'])
+
+test('exprtype11',
+     [extra_files(['simple-plugin/', 'exprtype.hs']),
+      pre_cmd('$MAKE -s --no-print-directory -C simple-plugin package.exprtype11 TOP={top}')],
+     run_command, ['$MAKE -s --no-print-directory exprtype11'])
+
+test('exprtype12',
+     [extra_files(['simple-plugin/', 'exprtype.hs']),
+      pre_cmd('$MAKE -s --no-print-directory -C simple-plugin package.exprtype12 TOP={top}')],
+     run_command, ['$MAKE -s --no-print-directory exprtype12'])
+
+test('exprtype13',
+     [extra_files(['simple-plugin/', 'exprtype.hs']),
+      pre_cmd('$MAKE -s --no-print-directory -C simple-plugin package.exprtype13 TOP={top}')],
+     run_command, ['$MAKE -s --no-print-directory exprtype13'])
+
+test('exprtype14',
+     [extra_files(['simple-plugin/', 'exprtype.hs']),
+      pre_cmd('$MAKE -s --no-print-directory -C simple-plugin package.exprtype14 TOP={top}')],
+     run_command, ['$MAKE -s --no-print-directory exprtype14'])
+
+test('exprtype15',
+     [extra_files(['simple-plugin/', 'exprtype.hs']),
+      pre_cmd('$MAKE -s --no-print-directory -C simple-plugin package.exprtype15 TOP={top}')],
+     run_command, ['$MAKE -s --no-print-directory exprtype15'])
+
+test('exprtype16',
+     [extra_files(['simple-plugin/', 'exprtype.hs']),
+      pre_cmd('$MAKE -s --no-print-directory -C simple-plugin package.exprtype16 TOP={top}')],
+     run_command, ['$MAKE -s --no-print-directory exprtype16'])
+
+test('exprtype17',
+     [extra_files(['simple-plugin/', 'exprtype.hs']),
+      pre_cmd('$MAKE -s --no-print-directory -C simple-plugin package.exprtype17 TOP={top}')],
+     run_command, ['$MAKE -s --no-print-directory exprtype17'])
+
+test('exprtype18',
+     [extra_files(['simple-plugin/', 'exprtype.hs']),
+      pre_cmd('$MAKE -s --no-print-directory -C simple-plugin package.exprtype18 TOP={top}')],
+     run_command, ['$MAKE -s --no-print-directory exprtype18'])
+
+test('exprtype19',
+     [extra_files(['simple-plugin/', 'exprtype.hs']),
+      pre_cmd('$MAKE -s --no-print-directory -C simple-plugin package.exprtype19 TOP={top}')],
+     run_command, ['$MAKE -s --no-print-directory exprtype19'])
+
+test('exprtype20',
+     [extra_files(['simple-plugin/', 'exprtype.hs']),
+      pre_cmd('$MAKE -s --no-print-directory -C simple-plugin package.exprtype20 TOP={top}')],
+     run_command, ['$MAKE -s --no-print-directory exprtype20'])
+
+test('exprtype21',
+     [extra_files(['simple-plugin/', 'exprtype.hs']),
+      pre_cmd('$MAKE -s --no-print-directory -C simple-plugin package.exprtype21 TOP={top}')],
+     run_command, ['$MAKE -s --no-print-directory exprtype21'])
+
+test('exprtype22',
+     [extra_files(['simple-plugin/', 'exprtype.hs']),
+      pre_cmd('$MAKE -s --no-print-directory -C simple-plugin package.exprtype22 TOP={top}')],
+     run_command, ['$MAKE -s --no-print-directory exprtype22'])
+
+test('exprtype23',
+     [extra_files(['simple-plugin/', 'exprtype.hs']),
+      pre_cmd('$MAKE -s --no-print-directory -C simple-plugin package.exprtype23 TOP={top}')],
+     run_command, ['$MAKE -s --no-print-directory exprtype23'])
+
+test('exprtype24',
+     [extra_files(['simple-plugin/', 'exprtype.hs']),
+      pre_cmd('$MAKE -s --no-print-directory -C simple-plugin package.exprtype24 TOP={top}')],
+     run_command, ['$MAKE -s --no-print-directory exprtype24'])
+
+test('exprtype25',
+     [extra_files(['simple-plugin/', 'exprtype.hs']),
+      pre_cmd('$MAKE -s --no-print-directory -C simple-plugin package.exprtype25 TOP={top}')],
+     run_command, ['$MAKE -s --no-print-directory exprtype25'])
+
+test('exprtype26',
+     [extra_files(['simple-plugin/', 'exprtype.hs']),
+      pre_cmd('$MAKE -s --no-print-directory -C simple-plugin package.exprtype26 TOP={top}')],
+     run_command, ['$MAKE -s --no-print-directory exprtype26'])
+
+test('exprtype27',
+     [extra_files(['simple-plugin/', 'exprtype.hs']),
+      pre_cmd('$MAKE -s --no-print-directory -C simple-plugin package.exprtype27 TOP={top}')],
+     run_command, ['$MAKE -s --no-print-directory exprtype27'])
+
+test('exprtype28',
+     [extra_files(['simple-plugin/', 'exprtype.hs']),
+      pre_cmd('$MAKE -s --no-print-directory -C simple-plugin package.exprtype28 TOP={top}')],
+     run_command, ['$MAKE -s --no-print-directory exprtype28'])
+
+test('exprtype29',
+     [extra_files(['simple-plugin/', 'exprtype.hs']),
+      pre_cmd('$MAKE -s --no-print-directory -C simple-plugin package.exprtype29 TOP={top}')],
+     run_command, ['$MAKE -s --no-print-directory exprtype29'])

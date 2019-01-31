@@ -1693,7 +1693,7 @@ check_main dflags tcg_env explicit_mod_hdr
               -- type error when type of `main` is not `IO a`. The `ev_binds`
               -- must be put inside `runMainIO` to ensure the deferred type
               -- error can be emitted correctly. See Trac #13838.
-              ; rhs = nlHsApp (mkLHsWrap co (nlHsVar run_main_id)) $
+              ; rhs = nlHsAppExt res_ty (mkLHsWrap co (nlHsVar run_main_id)) $
                         mkHsDictLet ev_binds main_expr
               ; main_bind = mkVarBind root_main_id rhs }
 
@@ -2228,13 +2228,14 @@ tcGhciStmts stmts
                 -- then the type checker would instantiate x..z, and we wouldn't
                 -- get their *polymorphic* values.  (And we'd get ambiguity errs
                 -- if they were overloaded, since they aren't applied to anything.)
-            ret_expr = nlHsApp (nlHsTyApp ret_id [ret_ty])
+            ret_expr = nlHsAppExt ret_ty (nlHsTyApp ret_id [ret_ty])
                        (noLoc $ ExplicitList unitTy Nothing
                                                             (map mk_item ids)) ;
             mk_item id = let ty_args = [idType id, unitTy] in
-                         nlHsApp (nlHsTyApp unsafeCoerceId
-                                   (map getRuntimeRep ty_args ++ ty_args))
-                                 (nlHsVar id) ;
+                         nlHsAppExt (idType id)
+                                    (nlHsTyApp unsafeCoerceId
+                                      (map getRuntimeRep ty_args ++ ty_args))
+                                    (nlHsVar id) ;
             stmts = tc_stmts ++ [noLoc (mkLastStmt ret_expr)]
         } ;
         return (ids, mkHsDictLet (EvBinds const_binds) $

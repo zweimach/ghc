@@ -407,7 +407,7 @@ readExpType_maybe (Check ty)                   = return (Just ty)
 readExpType_maybe (Infer (IR { ir_ref = ref})) = readMutVar ref
 
 -- | Extract a type out of an ExpType. Otherwise, panics.
-readExpType :: ExpType -> TcM TcType
+readExpType :: HasCallStack => ExpType -> TcM TcType
 readExpType exp_ty
   = do { mb_ty <- readExpType_maybe exp_ty
        ; case mb_ty of

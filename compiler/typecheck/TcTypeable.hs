@@ -24,7 +24,7 @@ import PrelNames
 import TysPrim ( primTyCons )
 import TysWiredIn ( tupleTyCon, sumTyCon, runtimeRepTyCon
                   , vecCountTyCon, vecElemTyCon
-                  , nilDataCon, consDataCon )
+                  , nilDataCon, consDataCon, listTyCon )
 import Name
 import Id
 import Type
@@ -201,8 +201,8 @@ mkModIdRHS mod
   = do { trModuleDataCon <- tcLookupDataCon trModuleDataConName
        ; trNameLit <- mkTrNameLit
        ; return $ nlHsDataCon trModuleDataCon
-                  `nlHsApp` trNameLit (unitIdFS (moduleUnitId mod))
-                  `nlHsApp` trNameLit (moduleNameFS (moduleName mod))
+                  `nlHsAppAnyTy` trNameLit (unitIdFS (moduleUnitId mod))
+                  `nlHsAppAnyTy` trNameLit (moduleNameFS (moduleName mod))
        }
 
 {- *********************************************************************
@@ -393,7 +393,7 @@ mkTrNameLit = do
     trNameSDataCon <- tcLookupDataCon trNameSDataConName
     let trNameLit :: FastString -> LHsExpr GhcTc
         trNameLit fs = nlHsPar $ nlHsDataCon trNameSDataCon
-                       `nlHsApp` nlHsLit (mkHsStringPrimLit fs)
+                       `nlHsAppAnyTy` nlHsLit (mkHsStringPrimLit fs)
     return trNameLit
 
 -- | Make Typeable bindings for the given 'TyCon'.
@@ -554,12 +554,12 @@ mkKindRepRhs stuff@(Stuff {..}) in_scope = new_kind_rep
         -- (e.g. serializers) that there is a loop here (as
         -- TYPE :: RuntimeRep -> TYPE 'LiftedRep)
       | Just rr <- isTYPEApp k
-      = return $ nlHsDataCon kindRepTYPEDataCon `nlHsApp` nlHsDataCon rr
+      = return $ nlHsDataCon kindRepTYPEDataCon `nlHsAppAnyTy` nlHsDataCon rr
 
     new_kind_rep (TyVarTy v)
       | Just idx <- lookupCME in_scope v
       = return $ nlHsDataCon kindRepVarDataCon
-                 `nlHsApp` nlHsIntLit (fromIntegral idx)
+                 `nlHsAppAnyTy` nlHsIntLit (fromIntegral idx)
       | otherwise
       = pprPanic "mkTyConKindRepBinds.go(tyvar)" (ppr v)
 
@@ -567,15 +567,15 @@ mkKindRepRhs stuff@(Stuff {..}) in_scope = new_kind_rep
       = do rep1 <- getKindRep stuff in_scope t1
            rep2 <- getKindRep stuff in_scope t2
            return $ nlHsDataCon kindRepAppDataCon
-                    `nlHsApp` rep1 `nlHsApp` rep2
+                    `nlHsAppAnyTy` rep1 `nlHsAppAnyTy` rep2
 
     new_kind_rep k@(TyConApp tc tys)
       | Just rep_name <- tyConRepName_maybe tc
       = do rep_id <- liftTc $ lookupId rep_name
            tys' <- mapM (getKindRep stuff in_scope) tys
            return $ nlHsDataCon kindRepTyConAppDataCon
-                    `nlHsApp` nlHsVar rep_id
-                    `nlHsApp` mkList (mkTyConTy kindRepTyCon) tys'
+                    `nlHsAppAnyTy` nlHsVar rep_id
+                    `nlHsAppAnyTy` mkList (mkTyConTy kindRepTyCon) tys'
       | otherwise
       = pprPanic "mkTyConKindRepBinds(TyConApp)" (ppr tc $$ ppr k)
 
@@ -586,17 +586,19 @@ mkKindRepRhs stuff@(Stuff {..}) in_scope = new_kind_rep
       = do rep1 <- getKindRep stuff in_scope t1
            rep2 <- getKindRep stuff in_scope t2
            return $ nlHsDataCon kindRepFunDataCon
-                    `nlHsApp` rep1 `nlHsApp` rep2
+                    `nlHsAppAnyTy` rep1 `nlHsAppAnyTy` rep2
 
     new_kind_rep (LitTy (NumTyLit n))
       = return $ nlHsDataCon kindRepTypeLitSDataCon
-                 `nlHsApp` nlHsDataCon typeLitNatDataCon
-                 `nlHsApp` nlHsLit (mkHsStringPrimLit $ mkFastString $ show n)
+                 `nlHsAppAnyTy` nlHsDataCon typeLitNatDataCon
+                 `nlHsAppAnyTy`
+                    nlHsLit (mkHsStringPrimLit $ mkFastString $ show n)
 
     new_kind_rep (LitTy (StrTyLit s))
       = return $ nlHsDataCon kindRepTypeLitSDataCon
-                 `nlHsApp` nlHsDataCon typeLitSymbolDataCon
-                 `nlHsApp` nlHsLit (mkHsStringPrimLit $ mkFastString $ show s)
+                 `nlHsAppAnyTy` nlHsDataCon typeLitSymbolDataCon
+                 `nlHsAppAnyTy`
+                    nlHsLit (mkHsStringPrimLit $ mkFastString $ show s)
 
     new_kind_rep (CastTy ty co)
       = pprPanic "mkTyConKindRepBinds.go(cast)" (ppr ty $$ ppr co)
@@ -611,12 +613,12 @@ mkTyConRepTyConRHS :: TypeableStuff -> TypeRepTodo
                    -> LHsExpr GhcTc
 mkTyConRepTyConRHS (Stuff {..}) todo tycon kind_rep
   =           nlHsDataCon trTyConDataCon
-    `nlHsApp` nlHsLit (word64 dflags high)
-    `nlHsApp` nlHsLit (word64 dflags low)
-    `nlHsApp` mod_rep_expr todo
-    `nlHsApp` trNameLit (mkFastString tycon_str)
-    `nlHsApp` nlHsLit (int n_kind_vars)
-    `nlHsApp` kind_rep
+    `nlHsAppAnyTy` nlHsLit (word64 dflags high)
+    `nlHsAppAnyTy` nlHsLit (word64 dflags low)
+    `nlHsAppAnyTy` mod_rep_expr todo
+    `nlHsAppAnyTy` trNameLit (mkFastString tycon_str)
+    `nlHsAppAnyTy` nlHsLit (int n_kind_vars)
+    `nlHsAppAnyTy` kind_rep
   where
     n_kind_vars = length $ filter isNamedTyConBinder (tyConBinders tycon)
     tycon_str = add_tick (occNameString (getOccName tycon))
@@ -701,9 +703,12 @@ polymorphic types.  So instead
 mkList :: Type -> [LHsExpr GhcTc] -> LHsExpr GhcTc
 mkList ty = foldr consApp (nilExpr ty)
   where
+    listTy = mkTyConApp listTyCon [ty]
     cons = consExpr ty
+
     consApp :: LHsExpr GhcTc -> LHsExpr GhcTc -> LHsExpr GhcTc
-    consApp x xs = cons `nlHsApp` x `nlHsApp` xs
+    consApp x xs = nlHsAppExt listTy
+                     (nlHsAppExt (mkFunTy listTy listTy) cons x) xs
 
     nilExpr :: Type -> LHsExpr GhcTc
     nilExpr ty = mkLHsWrap (mkWpTyApps [ty]) (nlHsDataCon nilDataCon)

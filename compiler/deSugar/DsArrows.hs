@@ -299,7 +299,7 @@ matchVarStack (param_id:param_ids) stack_id body = do
 
 mkHsEnvStackExpr :: [Id] -> Id -> LHsExpr GhcTc
 mkHsEnvStackExpr env_ids stack_id
-  = mkLHsTupleExpr [mkLHsVarTuple env_ids, nlHsVar stack_id]
+  = mkLHsTupleExpr [] [mkLHsVarTuple [] env_ids, nlHsVar stack_id]
 
 -- Translation of arrow abstraction
 
@@ -578,11 +578,11 @@ dsCmd ids local_vars stack_ty res_ty
     left_con <- dsLookupDataCon leftDataConName
     right_con <- dsLookupDataCon rightDataConName
     let
-        left_id  = HsConLikeOut noExt (RealDataCon left_con)
-        right_id = HsConLikeOut noExt (RealDataCon right_con)
-        left_expr  ty1 ty2 e = noLoc $ HsApp noExt
+        left_id  = HsConLikeOut anyTy (RealDataCon left_con)
+        right_id = HsConLikeOut anyTy (RealDataCon right_con)
+        left_expr  ty1 ty2 e = noLoc $ HsApp anyTy
                            (noLoc $ mkHsWrap (mkWpTyApps [ty1, ty2]) left_id ) e
-        right_expr ty1 ty2 e = noLoc $ HsApp noExt
+        right_expr ty1 ty2 e = noLoc $ HsApp anyTy
                            (noLoc $ mkHsWrap (mkWpTyApps [ty1, ty2]) right_id) e
 
         -- Prefix each tuple with a distinct series of Left's and Right's,
@@ -602,7 +602,8 @@ dsCmd ids local_vars stack_ty res_ty
         (_, matches') = mapAccumL (replaceLeavesMatch res_ty) leaves' matches
         in_ty = envStackType env_ids stack_ty
 
-    core_body <- dsExpr (HsCase noExt exp
+    core_body <- dsExpr (HsCase anyTy exp -- no need to save types after
+                                          -- typecheck phase
                          (MG { mg_alts = L l matches'
                              , mg_ext = MatchGroupTc arg_tys sum_ty
                              , mg_origin = origin }))

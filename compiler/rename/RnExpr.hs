@@ -170,7 +170,7 @@ rnExpr (HsApp x fun arg)
 rnExpr (HsAppType arg fun)
   = do { (fun',fvFun) <- rnLExpr fun
        ; (arg',fvArg) <- rnHsWcType HsTypeCtx arg
-       ; return (HsAppType arg' fun', fvFun `plusFV` fvArg) }
+       ; return (HsAppType (arg', noExt) fun', fvFun `plusFV` fvArg) }
 
 rnExpr (OpApp _ e1 op e2)
   = do  { (e1', fv_e1) <- rnLExpr e1
@@ -1709,7 +1709,7 @@ stmtTreeToStmts monad_names ctxt (StmtTreeApplicative trees) tail tail_fvs = do
          pvars = nameSetElemsStable pvarset
            -- See Note [Deterministic ApplicativeDo and RecursiveDo desugaring]
          pat = mkBigLHsVarPatTup pvars
-         tup = mkBigLHsVarTup pvars
+         tup = mkBigLHsVarTup noExt pvars
      (stmts',fvs2) <- stmtTreeToStmts monad_names ctxt tree [] pvarset
      (mb_ret, fvs1) <-
         if | L _ ApplicativeStmt{} <- last stmts' ->
