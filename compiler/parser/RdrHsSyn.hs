@@ -51,7 +51,6 @@ module   RdrHsSyn (
         bang_RDR,
         checkPatterns,        -- SrcLoc -> [HsExp] -> P [HsPat]
         checkMonadComp,       -- P (HsStmtContext RdrName)
-        checkCommand,         -- LHsExpr RdrName -> P (LHsCmd RdrName)
         checkValDef,          -- (SrcLoc, HsExp, HsRhs, [HsDecl]) -> P HsDecl
         checkValSigLhs,
         checkDoAndIfThenElse,
@@ -75,7 +74,14 @@ module   RdrHsSyn (
         warnStarIsType,
         failOpFewArgs,
 
-        SumOrTuple (..), mkSumOrTuple
+        SumOrTuple (..), mkSumOrTuple,
+
+        -- Expression/command frame
+        ECFrame(..),
+        ExpCmdFrame,
+        LExpCmdFrame,
+        ecfToCommand,
+        ecfToExpr,
 
     ) where
 
@@ -1855,6 +1861,48 @@ checkMonadComp = do
 
 -- We parse arrow syntax as expressions and check for valid syntax below,
 -- converting the expression into a pattern at the same time.
+
+-- | Expression/command frame.
+data ECFrame e c
+  = ECFrameExp e
+  | ECFrameCmd c
+  | ECFrameAmb e c
+
+instance (Outputable e, Outputable c) => Outputable (ECFrame e c) where
+  ppr (ECFrameExp e) = ppr e
+  ppr (ECFrameCmd c) = ppr c
+  ppr (ECFrameAmb e _) = ppr e
+
+type ExpCmdFrame = ECFrame (HsExpr GhcPs) (HsCmd GhcPs)
+type LExpCmdFrame = Located ExpCmdFrame
+{-
+type ExpCmdStmtFrame = ECFrame (ExprStmt GhcPs) (CmdStmt GhcPs)
+type ExpCmdMatchGroupFrame = ECFrame (MatchGroup GhcPs (LHsExpr GhcPs)) (MatchGroup GhcPs (LHsCmd GhcPs))
+-}
+
+ecfToCommand :: LExpCmdFrame -> P (LHsCmd GhcPs)
+ecfToCommand (dL->L l a) =
+  case a of
+    ECFrameCmd c -> return (cL l c)
+    ECFrameAmb _ c -> return (cL l c)
+    ECFrameExp e -> -- checkCommand (cL l e) -- FIXME (int-index)
+      parseErrorSDoc l (text "Parse error in command:" <+> ppr e)
+
+-- TEST="T3822 T3964 T5022 T5283 T5333 T5380 arrowcase1 arrowdo1 arrowdo2 arrowfail001 arrowfail003 arrowfail004 arrowform1 arrowif1 arrowlet1 arrowpat arrowrec1 arrowrun001 arrowrun002 arrowrun003 arrowrun004"
+
+ecfToExpr :: LExpCmdFrame -> P (LHsExpr GhcPs)
+ecfToExpr (dL->L l a) =
+  case a of
+    ECFrameExp e -> return (cL l e)
+    ECFrameAmb e _ -> return (cL l e)
+    ECFrameCmd c -> do
+      addError l $ vcat
+        [ text "Arrow command found where an expression was expected:",
+          nest 2 (ppr c) ]
+      return (cL l hsHoleExpr)
+
+hsHoleExpr :: HsExpr (GhcPass id)
+hsHoleExpr = HsUnboundVar noExt (TrueExprHole (mkVarOcc "_"))
 
 checkCommand :: LHsExpr GhcPs -> P (LHsCmd GhcPs)
 checkCommand lc = locMap checkCmd lc
