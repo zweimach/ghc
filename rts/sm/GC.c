@@ -751,7 +751,9 @@ GarbageCollect (uint32_t collect_gen,
       // be kept alive because we'll use them in finalizeSchedulers(). Similarly
       // resurrected_threads are also going to be used in resurrectedThreads()
       // so we need to mark those too.
-      nonmoving_collect(dead_weak_ptr_list, resurrected_threads);
+      // Note that in sequential case these lists will be appended with more
+      // weaks and threads found to be dead in mark.
+      nonmoving_collect(&dead_weak_ptr_list, &resurrected_threads);
       ACQUIRE_SM_LOCK;
   }
 

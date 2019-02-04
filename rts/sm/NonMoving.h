@@ -88,14 +88,23 @@ void nonmoving_init(void);
 void nonmoving_exit(void);
 void nonmoving_wait_until_finished(void);
 
-// dead_weak_ptr_list: Weaks with keys found to be dead during preparation.
-// Those need to be marked becuase by the time we're going to schedule
-// finalizers for them in finalizeSchedulers().
+
+// dead_weaks and resurrected_threads lists are used for two things:
 //
-// resurrected_threads: Threads found to be dead during preparation. Those will
-// be scheduled again in resurrectThreads() so we should keep them alive.
-void nonmoving_collect(StgWeak *dead_weak_ptr_list,
-                       StgTSO *resurrected_threads);
+// - The weaks and threads in those lists are found to be dead during
+//   preparation, but the weaks will be used for finalization and threads will
+//   be scheduled again (aka. resurrection) so we need to keep them alive in the
+//   non-moving heap as well. So we treat them as roots and mark them.
+//
+// - In non-threaded runtime we add weaks and threads found to be dead in the
+//   non-moving heap to those lists so that they'll be finalized and scheduled
+//   as other weaks and threads. In threaded runtime we can't do this as that'd
+//   cause races between a minor collection and non-moving collection. Instead
+//   in non-moving heap we finalize the weaks and resurrect the threads
+//   directly, but in a pause.
+//
+void nonmoving_collect(StgWeak **dead_weaks,
+                       StgTSO **resurrected_threads);
 
 void *nonmoving_allocate(Capability *cap, StgWord sz);
 void nonmoving_add_capabilities(uint32_t new_n_caps);

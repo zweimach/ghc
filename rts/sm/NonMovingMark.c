@@ -1573,15 +1573,15 @@ void nonmoving_mark_live_weak(struct MarkQueue_ *queue, StgWeak *w)
 // considered "dead". We mark values and finalizers of such weaks, and then
 // schedule them for finalization in `scheduleFinalizers` (which we run during
 // synchronization).
-void nonmoving_mark_dead_weaks(struct MarkQueue_ *queue, StgWeak **dead_weak_ptr_list)
+void nonmoving_mark_dead_weaks(struct MarkQueue_ *queue, StgWeak **dead_weaks)
 {
     StgWeak *next_w;
     for (StgWeak *w = nonmoving_old_weak_ptr_list; w; w = next_w) {
         ASSERT(!nonmoving_closure_marked_this_cycle((P_)(w->key)));
         nonmoving_mark_dead_weak(queue, w);
         next_w = w ->link;
-        w->link = *dead_weak_ptr_list;
-        *dead_weak_ptr_list = w;
+        w->link = *dead_weaks;
+        *dead_weaks = w;
     }
 }
 
