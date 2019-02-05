@@ -77,7 +77,6 @@ test('T2047', [ignore_stdout], compile_and_run, ['-package containers'])
 test('T2783',
      [ omit_ways(['ghci']), exit_code(1)
      , expect_broken_for(2783, ['threaded1'])
-     , expect_broken_for(15241, ['sanity', 'nonmoving', 'nonmoving_thr'])
      ], compile_and_run, [''])
 
 # Test the work-stealing deque implementation.  We run this test in
