@@ -71,8 +71,11 @@ void gcCAFs(void);
  *
  */
 
+#if defined(THREADED_RTS)
 static void* nonmoving_concurrent_mark(void *mark_queue);
+#endif
 static void nonmoving_clear_bitmap(struct nonmoving_segment *seg);
+static void nonmoving_mark_(MarkQueue *mark_queue, StgWeak **dead_weaks, StgTSO **resurrected_threads);
 
 /* Signals to mutators that they should stop to synchronize with the nonmoving
  * collector so it can proceed to sweep phase. */
@@ -441,13 +444,7 @@ static void nonmoving_mark_weak_ptr_list(MarkQueue *mark_queue, StgWeak *dead_we
     }
 }
 
-// Various bits of information to pass to nonmoving_concurrent_mark.
-struct concurrent_mark_info {
-    MarkQueue *mark_queue;
-};
-
-
-void nonmoving_collect(StgWeak *dead_weak_ptr_list, StgTSO *resurrected_threads)
+void nonmoving_collect(StgWeak **dead_weaks, StgTSO **resurrected_threads)
 {
 #if defined(THREADED_RTS)
     // We can't start a new collection until the old one has finished
@@ -479,11 +476,11 @@ void nonmoving_collect(StgWeak *dead_weak_ptr_list, StgTSO *resurrected_threads)
                 capabilities[n], true/*don't mark sparks*/);
     }
     markScheduler((evac_fn)mark_queue_add_root, mark_queue);
-    nonmoving_mark_weak_ptr_list(mark_queue, dead_weak_ptr_list);
+    nonmoving_mark_weak_ptr_list(mark_queue, *dead_weaks);
     markStablePtrTable((evac_fn)mark_queue_add_root, mark_queue);
 
     // Mark threads resurrected during moving heap scavenging
-    for (StgTSO *tso = resurrected_threads; tso != END_TSO_QUEUE; tso = tso->global_link) {
+    for (StgTSO *tso = *resurrected_threads; tso != END_TSO_QUEUE; tso = tso->global_link) {
         mark_queue_push_closure_(mark_queue, (StgClosure*)tso);
     }
 
@@ -502,14 +499,20 @@ void nonmoving_collect(StgWeak *dead_weak_ptr_list, StgTSO *resurrected_threads)
     oldest_gen->threads = END_TSO_QUEUE;
 
     // Make sure we don't lose any weak ptrs here. Weaks in old_weak_ptr_list
-    // will either be moved to `dead_weak_ptr_list` (if dead) or `weak_ptr_list`
-    // (if alive).
+    // will either be moved to `dead_weaks` (if dead) or `weak_ptr_list` (if
+    // alive).
     ASSERT(oldest_gen->old_weak_ptr_list == NULL);
     ASSERT(nonmoving_old_weak_ptr_list == NULL);
     nonmoving_old_weak_ptr_list = oldest_gen->weak_ptr_list;
     oldest_gen->weak_ptr_list = NULL;
 
     // We are now safe to start concurrent marking
+
+    // Note that in concurrent mark we can't use dead_weaks and
+    // resurrected_threads from the preparation to add new weaks and threads as
+    // that would cause races between minor collection and mark. So we only pass
+    // those lists to mark function in sequential case. In concurrent case we
+    // allocate fresh lists.
 
 #if defined(THREADED_RTS)
     // If we're interrupting or shutting down, do not let this capability go and
@@ -527,7 +530,9 @@ void nonmoving_collect(StgWeak *dead_weak_ptr_list, StgTSO *resurrected_threads)
         nonmoving_concurrent_mark(mark_queue);
     }
 #else
-    nonmoving_concurrent_mark(mark_queue);
+    // Use the weak and thread lists from the preparation for any new weaks and
+    // threads found to be dead in mark.
+    nonmoving_mark_(mark_queue, dead_weaks, resurrected_threads);
 #endif
 }
 
@@ -548,10 +553,19 @@ static void nonmoving_mark_threads_weaks(MarkQueue *mark_queue)
     }
 }
 
+#if defined(THREADED_RTS)
 static void* nonmoving_concurrent_mark(void *data)
 {
-    MarkQueue *mark_queue = (MarkQueue *) data;
+    MarkQueue *mark_queue = (MarkQueue*)data;
+    StgWeak *dead_weaks = NULL;
+    StgTSO *resurrected_threads = (StgTSO*)&stg_END_TSO_QUEUE_closure;
+    nonmoving_mark_(mark_queue, &dead_weaks, &resurrected_threads);
+    return NULL;
+}
+#endif
 
+static void nonmoving_mark_(MarkQueue *mark_queue, StgWeak **dead_weaks, StgTSO **resurrected_threads)
+{
     ACQUIRE_LOCK(&nonmoving_collection_mutex);
     debugTrace(DEBUG_nonmoving_gc, "Starting mark...");
 
@@ -583,10 +597,7 @@ static void* nonmoving_concurrent_mark(void *data)
     nonmoving_mark_threads_weaks(mark_queue);
 #endif
 
-    // NOTE: This should be called only once otherwise it corrupts lists
-    // (hard to debug)
-    StgTSO *resurrected_threads = END_TSO_QUEUE;
-    nonmoving_resurrect_threads(mark_queue, &resurrected_threads);
+    nonmoving_resurrect_threads(mark_queue, resurrected_threads);
 
     // No more resurrecting threads after this point
 
@@ -599,8 +610,7 @@ static void* nonmoving_concurrent_mark(void *data)
             break;
     }
 
-    StgWeak *dead_weak_ptr_list = NULL;
-    nonmoving_mark_dead_weaks(mark_queue, &dead_weak_ptr_list);
+    nonmoving_mark_dead_weaks(mark_queue, dead_weaks);
 
     // Propagate marks
     nonmoving_mark(mark_queue);
@@ -612,11 +622,13 @@ static void* nonmoving_concurrent_mark(void *data)
     debugTrace(DEBUG_nonmoving_gc,
                "Done marking, resurrecting threads before releasing capabilities");
 
+
+    // Schedule fianlizers and resurrect 
 #if defined(THREADED_RTS)
     // Just pick a random capability. Not sure if this is a good idea -- we use
     // only one capability for all finalizers.
-    scheduleFinalizers(capabilities[0], dead_weak_ptr_list);
-    resurrectThreads(resurrected_threads);
+    scheduleFinalizers(capabilities[0], *dead_weaks);
+    resurrectThreads(*resurrected_threads);
 #endif
 
 #if defined(DEBUG)
@@ -694,8 +706,6 @@ finish:
     signalCondition(&concurrent_coll_finished);
     RELEASE_LOCK(&nonmoving_collection_mutex);
 #endif
-
-    return NULL;
 }
 
 #if defined(DEBUG)
