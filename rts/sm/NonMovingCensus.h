@@ -8,4 +8,4 @@
 
 #pragma once
 
-void nonmoving_print_allocator_census(void);
+void nonmovingPrintAllocatorCensus(void);

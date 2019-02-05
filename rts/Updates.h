@@ -45,7 +45,7 @@
                                                                 \
     OVERWRITING_CLOSURE(p1);                                    \
     if (nonmoving_write_barrier_enabled != 0) {                 \
-      ccall upd_rem_set_push_thunk_(BaseReg, p1 "ptr");         \
+      ccall updateRemembSetPushThunk_(BaseReg, p1 "ptr");         \
     }                                                           \
     StgInd_indirectee(p1) = p2;                                 \
     prim_write_barrier;                                         \
@@ -74,7 +74,7 @@ INLINE_HEADER void updateWithIndirection (Capability *cap,
     /* occurs in RaiseAsync.c:raiseAsync() */
     OVERWRITING_CLOSURE(p1);
     if (nonmoving_write_barrier_enabled) {
-        upd_rem_set_push_thunk(cap, (StgThunk*)p1);
+        updateRemembSetPushThunk(cap, (StgThunk*)p1);
     }
     ((StgInd *)p1)->indirectee = p2;
     write_barrier();

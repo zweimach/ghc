@@ -47,7 +47,7 @@ static void mark_PAP_payload (MarkQueue *queue,
  *     marking
  *  2. the non-moving collector needs a consistent picture
  *
- * At the beginning of a major collection, nonmoving_collect takes the objects in
+ * At the beginning of a major collection, nonmovingCollect takes the objects in
  * oldest_gen->large_objects (which includes all large objects evacuated by the
  * moving collector) and adds them to nonmoving_large_objects. This is the set
  * of large objects that will being collected in the current major GC cycle.
@@ -171,7 +171,7 @@ bool nonmoving_write_barrier_enabled = false;
 MarkQueue *current_mark_queue = NULL;
 
 /* Initialise update remembered set data structures */
-void nonmoving_mark_init_upd_rem_set() {
+void nonmovingMarkInitUpdRemSet() {
     initMutex(&upd_rem_set_lock);
     initCondition(&upd_rem_set_flushed_cond);
 #if defined(THREADED_RTS)
@@ -180,7 +180,7 @@ void nonmoving_mark_init_upd_rem_set() {
 }
 
 #if defined(THREADED_RTS) && defined(DEBUG)
-static uint32_t mark_queue_length(MarkQueue *q);
+static uint32_t markQueueLength(MarkQueue *q);
 #endif
 static void init_mark_queue_(MarkQueue *queue);
 
@@ -190,9 +190,9 @@ static void init_mark_queue_(MarkQueue *queue);
  * Really the argument type should be UpdRemSet* but this would be rather
  * inconvenient without polymorphism.
  */
-static void nonmoving_add_upd_rem_set_blocks(MarkQueue *rset)
+static void nonmovingAddUpdRemSetBlocks(MarkQueue *rset)
 {
-    if (mark_queue_is_empty(rset)) return;
+    if (markQueueIsEmpty(rset)) return;
 
     // find the tail of the queue
     bdescr *start = rset->blocks;
@@ -218,18 +218,18 @@ static void nonmoving_add_upd_rem_set_blocks(MarkQueue *rset)
  * synchronising with the non-moving collector as it transitions from mark to
  * sweep phase.
  */
-void nonmoving_flush_cap_upd_rem_set_blocks(Capability *cap)
+void nonmovingFlushCapUpdRemSetBlocks(Capability *cap)
 {
     if (! cap->upd_rem_set_syncd) {
         debugTrace(DEBUG_nonmoving_gc,
                    "Capability %d flushing update remembered set: %d",
-                   cap->no, mark_queue_length(&cap->upd_rem_set.queue));
+                   cap->no, markQueueLength(&cap->upd_rem_set.queue));
         traceConcUpdRemSetFlush(cap);
-        nonmoving_add_upd_rem_set_blocks(&cap->upd_rem_set.queue);
+        nonmovingAddUpdRemSetBlocks(&cap->upd_rem_set.queue);
         atomic_inc(&upd_rem_set_flush_count, 1);
         cap->upd_rem_set_syncd = true;
         signalCondition(&upd_rem_set_flushed_cond);
-        // After this mutation will remain suspended until nonmoving_finish_flush
+        // After this mutation will remain suspended until nonmovingFinishFlush
         // releases its capabilities.
     }
 }
@@ -237,7 +237,7 @@ void nonmoving_flush_cap_upd_rem_set_blocks(Capability *cap)
 /* Request that all capabilities flush their update remembered sets and suspend
  * execution until the further notice.
  */
-void nonmoving_begin_flush(Task *task)
+void nonmovingBeginFlush(Task *task)
 {
     debugTrace(DEBUG_nonmoving_gc, "Starting update remembered set flush...");
     traceConcSyncBegin();
@@ -252,14 +252,14 @@ void nonmoving_begin_flush(Task *task)
     // logic won't have been hit. Make sure that everyone so far has flushed.
     // Ideally we want to mark asynchronously with syncing.
     for (unsigned int i = 0; i < n_capabilities; i++) {
-        nonmoving_flush_cap_upd_rem_set_blocks(capabilities[i]);
+        nonmovingFlushCapUpdRemSetBlocks(capabilities[i]);
     }
 }
 
 /* Wait until a capability has flushed its update remembered set. Returns true
  * if all capabilities have flushed.
  */
-bool nonmoving_wait_for_flush()
+bool nonmovingWaitForFlush()
 {
     ACQUIRE_LOCK(&upd_rem_set_lock);
     debugTrace(DEBUG_nonmoving_gc, "Flush count %d", upd_rem_set_flush_count);
@@ -274,7 +274,7 @@ bool nonmoving_wait_for_flush()
 /* Notify capabilities that the synchronisation is finished; they may resume
  * execution.
  */
-void nonmoving_finish_flush(Task *task)
+void nonmovingFinishFlush(Task *task)
 {
     debugTrace(DEBUG_nonmoving_gc, "Finished update remembered set flush...");
     traceConcSyncEnd();
@@ -293,7 +293,7 @@ push (MarkQueue *q, const MarkQueueEnt *ent)
     if (q->top->head == MARK_QUEUE_BLOCK_ENTRIES) {
         // Yes, this block is full.
         if (q->is_upd_rem_set) {
-            nonmoving_add_upd_rem_set_blocks(q);
+            nonmovingAddUpdRemSetBlocks(q);
         } else {
             // allocate a fresh block.
             ACQUIRE_SM_LOCK;
@@ -404,15 +404,15 @@ bool check_in_nonmoving_heap(StgClosure *p) {
 /* Push the free variables of a (now-evaluated) thunk to the
  * update remembered set.
  */
-void upd_rem_set_push_thunk(Capability *cap, StgThunk *origin)
+void updateRemembSetPushThunk(Capability *cap, StgThunk *origin)
 {
     // TODO: Eliminate this conditional once it's folded into codegen
     if (!nonmoving_write_barrier_enabled) return;
     const StgThunkInfoTable *info = get_thunk_itbl((StgClosure*)origin);
-    upd_rem_set_push_thunk_eager(cap, info, origin);
+    updateRemembSetPushThunkEager(cap, info, origin);
 }
 
-void upd_rem_set_push_thunk_eager(Capability *cap,
+void updateRemembSetPushThunkEager(Capability *cap,
                                   const StgThunkInfoTable *info,
                                   StgThunk *thunk)
 {
@@ -453,19 +453,19 @@ void upd_rem_set_push_thunk_eager(Capability *cap,
         // TODO: This is right, right?
         break;
     default:
-        barf("upd_rem_set_push_thunk: invalid thunk pushed: p=%p, type=%d",
+        barf("updateRemembSetPushThunk: invalid thunk pushed: p=%p, type=%d",
              thunk, info->i.type);
     }
 }
 
-void upd_rem_set_push_thunk_(StgRegTable *reg, StgThunk *origin)
+void updateRemembSetPushThunk_(StgRegTable *reg, StgThunk *origin)
 {
     // TODO: Eliminate this conditional once it's folded into codegen
     if (!nonmoving_write_barrier_enabled) return;
-    upd_rem_set_push_thunk(regTableToCapability(reg), origin);
+    updateRemembSetPushThunk(regTableToCapability(reg), origin);
 }
 
-void upd_rem_set_push_closure(Capability *cap,
+void updateRemembSetPushClosure(Capability *cap,
                               StgClosure *p,
                               StgClosure **origin)
 {
@@ -479,11 +479,11 @@ void upd_rem_set_push_closure(Capability *cap,
     push_closure(queue, p, origin);
 }
 
-void upd_rem_set_push_closure_(StgRegTable *reg,
+void updateRemembSetPushClosure_(StgRegTable *reg,
                                StgClosure *p,
                                StgClosure **origin)
 {
-    upd_rem_set_push_closure(regTableToCapability(reg), p, origin);
+    updateRemembSetPushClosure(regTableToCapability(reg), p, origin);
 }
 
 STATIC_INLINE bool needs_upd_rem_set_mark(StgClosure *p)
@@ -499,9 +499,9 @@ STATIC_INLINE bool needs_upd_rem_set_mark(StgClosure *p)
             return ! (bd->flags & BF_MARKED);
         }
     } else {
-        struct nonmoving_segment *seg = nonmoving_get_segment((StgPtr) p);
-        nonmoving_block_idx block_idx = nonmoving_get_block_idx((StgPtr) p);
-        return nonmoving_get_mark(seg, block_idx) != nonmoving_mark_epoch;
+        struct NonmovingSegment *seg = nonmovingGetSegment((StgPtr) p);
+        nonmoving_block_idx block_idx = nonmovingGetBlockIdx((StgPtr) p);
+        return nonmovingGetMark(seg, block_idx) != nonmoving_mark_epoch;
     }
 }
 
@@ -521,13 +521,13 @@ STATIC_INLINE void finish_upd_rem_set_mark(StgClosure *p)
         }
         RELEASE_LOCK(&nonmoving_large_objects_mutex);
     } else {
-        struct nonmoving_segment *seg = nonmoving_get_segment((StgPtr) p);
-        nonmoving_block_idx block_idx = nonmoving_get_block_idx((StgPtr) p);
-        nonmoving_set_mark(seg, block_idx);
+        struct NonmovingSegment *seg = nonmovingGetSegment((StgPtr) p);
+        nonmoving_block_idx block_idx = nonmovingGetBlockIdx((StgPtr) p);
+        nonmovingSetMark(seg, block_idx);
     }
 }
 
-void upd_rem_set_push_tso(Capability *cap, StgTSO *tso)
+void updateRemembSetPushTSO(Capability *cap, StgTSO *tso)
 {
     // TODO: Eliminate this conditional once it's folded into codegen
     if (!nonmoving_write_barrier_enabled) return;
@@ -538,7 +538,7 @@ void upd_rem_set_push_tso(Capability *cap, StgTSO *tso)
     }
 }
 
-void upd_rem_set_push_stack(Capability *cap, StgStack *stack)
+void updateRemembSetPushStack(Capability *cap, StgStack *stack)
 {
     // N.B. caller responsible for checking nonmoving_write_barrier_enabled
     if (needs_upd_rem_set_mark((StgClosure *) stack)) {
@@ -564,7 +564,7 @@ void upd_rem_set_push_stack(Capability *cap, StgStack *stack)
     }
 }
 
-int count_global_upd_rem_set_blocks()
+int countGlobalUpdateRemembSetBlocks()
 {
     return countBlocks(upd_rem_set_block_list);
 }
@@ -572,12 +572,12 @@ int count_global_upd_rem_set_blocks()
  * Pushing to the mark queue
  *********************************************************/
 
-void mark_queue_push (MarkQueue *q, const MarkQueueEnt *ent)
+void markQueuePush (MarkQueue *q, const MarkQueueEnt *ent)
 {
     push(q, ent);
 }
 
-void mark_queue_push_closure (MarkQueue *q,
+void markQueuePushClosure (MarkQueue *q,
                               StgClosure *p,
                               StgClosure **origin)
 {
@@ -585,28 +585,28 @@ void mark_queue_push_closure (MarkQueue *q,
 }
 
 /* TODO: Do we really never want to specify the origin here? */
-void mark_queue_add_root(MarkQueue* q, StgClosure** root)
+void markQueueAddRoot(MarkQueue* q, StgClosure** root)
 {
-    mark_queue_push_closure(q, *root, NULL);
+    markQueuePushClosure(q, *root, NULL);
 }
 
 /* Push a closure to the mark queue without origin information */
-void mark_queue_push_closure_ (MarkQueue *q, StgClosure *p)
+void markQueuePushClosure_ (MarkQueue *q, StgClosure *p)
 {
-    mark_queue_push_closure(q, p, NULL);
+    markQueuePushClosure(q, p, NULL);
 }
 
-void mark_queue_push_fun_srt (MarkQueue *q, const StgInfoTable *info)
+void markQueuePushFunSrt (MarkQueue *q, const StgInfoTable *info)
 {
     push_fun_srt(q, info);
 }
 
-void mark_queue_push_thunk_srt (MarkQueue *q, const StgInfoTable *info)
+void markQueuePushThunkSrt (MarkQueue *q, const StgInfoTable *info)
 {
     push_thunk_srt(q, info);
 }
 
-void mark_queue_push_array (MarkQueue *q,
+void markQueuePushArray (MarkQueue *q,
                             const StgMutArrPtrs *array,
                             StgWord start_index)
 {
@@ -618,7 +618,7 @@ void mark_queue_push_array (MarkQueue *q,
  *********************************************************/
 
 // Returns invalid MarkQueueEnt if queue is empty.
-static MarkQueueEnt mark_queue_pop(MarkQueue *q)
+static MarkQueueEnt markQueuePop(MarkQueue *q)
 {
     MarkQueueBlock *top;
 
@@ -674,7 +674,7 @@ static void init_mark_queue_(MarkQueue *queue)
 }
 
 /* Must hold sm_mutex. */
-void init_mark_queue(MarkQueue *queue)
+void initMarkQueue(MarkQueue *queue)
 {
     init_mark_queue_(queue);
     queue->marked_objects = allocHashTable();
@@ -690,7 +690,7 @@ void init_upd_rem_set(UpdRemSet *rset)
     rset->queue.is_upd_rem_set = true;
 }
 
-void free_mark_queue(MarkQueue *queue)
+void freeMarkQueue(MarkQueue *queue)
 {
     bdescr* b = queue->blocks;
     ACQUIRE_SM_LOCK;
@@ -705,7 +705,7 @@ void free_mark_queue(MarkQueue *queue)
 }
 
 #if defined(THREADED_RTS) && defined(DEBUG)
-static uint32_t mark_queue_length(MarkQueue *q)
+static uint32_t markQueueLength(MarkQueue *q)
 {
     uint32_t n = 0;
     for (bdescr *block = q->blocks; block; block = block->link) {
@@ -730,14 +730,14 @@ static void mark_trec_header (MarkQueue *queue, StgTRecHeader *trec)
 {
     while (trec != NO_TREC) {
         StgTRecChunk *chunk = trec->current_chunk;
-        mark_queue_push_closure_(queue, (StgClosure *) trec);
-        mark_queue_push_closure_(queue, (StgClosure *) chunk);
+        markQueuePushClosure_(queue, (StgClosure *) trec);
+        markQueuePushClosure_(queue, (StgClosure *) chunk);
         while (chunk != END_STM_CHUNK_LIST) {
             for (StgWord i=0; i < chunk->next_entry_idx; i++) {
                 TRecEntry *ent = &chunk->entries[i];
-                mark_queue_push_closure_(queue, (StgClosure *) ent->tvar);
-                mark_queue_push_closure_(queue, ent->expected_value);
-                mark_queue_push_closure_(queue, ent->new_value);
+                markQueuePushClosure_(queue, (StgClosure *) ent->tvar);
+                markQueuePushClosure_(queue, ent->expected_value);
+                markQueuePushClosure_(queue, ent->new_value);
             }
             chunk = chunk->prev_chunk;
         }
@@ -750,21 +750,21 @@ static void mark_tso (MarkQueue *queue, StgTSO *tso)
     // TODO: Clear dirty if contains only old gen objects
 
     if (tso->bound != NULL) {
-        mark_queue_push_closure_(queue, (StgClosure *) tso->bound->tso);
+        markQueuePushClosure_(queue, (StgClosure *) tso->bound->tso);
     }
 
-    mark_queue_push_closure_(queue, (StgClosure *) tso->blocked_exceptions);
-    mark_queue_push_closure_(queue, (StgClosure *) tso->bq);
+    markQueuePushClosure_(queue, (StgClosure *) tso->blocked_exceptions);
+    markQueuePushClosure_(queue, (StgClosure *) tso->bq);
     mark_trec_header(queue, tso->trec);
-    mark_queue_push_closure_(queue, (StgClosure *) tso->stackobj);
-    mark_queue_push_closure_(queue, (StgClosure *) tso->_link);
+    markQueuePushClosure_(queue, (StgClosure *) tso->stackobj);
+    markQueuePushClosure_(queue, (StgClosure *) tso->_link);
     if (   tso->why_blocked == BlockedOnMVar
         || tso->why_blocked == BlockedOnMVarRead
         || tso->why_blocked == BlockedOnBlackHole
         || tso->why_blocked == BlockedOnMsgThrowTo
         || tso->why_blocked == NotBlocked
         ) {
-        mark_queue_push_closure_(queue, tso->block_info.closure);
+        markQueuePushClosure_(queue, tso->block_info.closure);
     }
 }
 
@@ -773,7 +773,7 @@ do_push_closure(StgClosure **p, void *user)
 {
     MarkQueue *queue = (MarkQueue *) user;
     // TODO: Origin? need reference to containing closure
-    mark_queue_push_closure_(queue, *p);
+    markQueuePushClosure_(queue, *p);
 }
 
 static void
@@ -791,7 +791,7 @@ mark_small_bitmap (MarkQueue *queue, StgClosure **p, StgWord size, StgWord bitma
     while (size > 0) {
         if ((bitmap & 1) == 0) {
             // TODO: Origin?
-            mark_queue_push_closure(queue, *p, NULL);
+            markQueuePushClosure(queue, *p, NULL);
         }
         p++;
         bitmap = bitmap >> 1;
@@ -868,7 +868,7 @@ mark_stack_ (MarkQueue *queue, StgPtr sp, StgPtr spBottom)
         {
             // See Note [upd-black-hole] in rts/Scav.c
             StgUpdateFrame *frame = (StgUpdateFrame *) sp;
-            mark_queue_push_closure_(queue, frame->updatee);
+            markQueuePushClosure_(queue, frame->updatee);
             sp += sizeofW(StgUpdateFrame);
             continue;
         }
@@ -892,13 +892,13 @@ mark_stack_ (MarkQueue *queue, StgPtr sp, StgPtr spBottom)
         }
         follow_srt:
             if (info->i.srt) {
-                mark_queue_push_closure_(queue, (StgClosure*)GET_SRT(info));
+                markQueuePushClosure_(queue, (StgClosure*)GET_SRT(info));
             }
             continue;
 
         case RET_BCO: {
             sp++;
-            mark_queue_push_closure_(queue, *(StgClosure**)sp);
+            markQueuePushClosure_(queue, *(StgClosure**)sp);
             StgBCO *bco = (StgBCO *)*sp;
             sp++;
             StgWord size = BCO_BITMAP_SIZE(bco);
@@ -925,7 +925,7 @@ mark_stack_ (MarkQueue *queue, StgPtr sp, StgPtr spBottom)
             StgRetFun *ret_fun = (StgRetFun *)sp;
             const StgFunInfoTable *fun_info;
 
-            mark_queue_push_closure_(queue, ret_fun->fun);
+            markQueuePushClosure_(queue, ret_fun->fun);
             fun_info = get_fun_itbl(UNTAG_CLOSURE(ret_fun->fun));
             sp = mark_arg_block(queue, fun_info, ret_fun->payload);
             goto follow_srt;
@@ -954,7 +954,7 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
     p = UNTAG_CLOSURE(p);
 
 #   define PUSH_FIELD(obj, field)                                \
-        mark_queue_push_closure(queue,                           \
+        markQueuePushClosure(queue,                           \
                                 (StgClosure *) (obj)->field,     \
                                 (StgClosure **) &(obj)->field)
 
@@ -979,13 +979,13 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
 
         case THUNK_STATIC:
             if (info->srt != 0) {
-                mark_queue_push_thunk_srt(queue, info); // TODO this function repeats the check above
+                markQueuePushThunkSrt(queue, info); // TODO this function repeats the check above
             }
             return;
 
         case FUN_STATIC:
             if (info->srt != 0 || info->layout.payload.ptrs != 0) {
-                mark_queue_push_fun_srt(queue, info); // TODO this function repeats the check above
+                markQueuePushFunSrt(queue, info); // TODO this function repeats the check above
 
                 // a FUN_STATIC can also be an SRT, so it may have pointer
                 // fields.  See Note [SRTs] in CmmBuildInfoTables, specifically
@@ -1053,20 +1053,20 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
             // Mark contents
             p = (StgClosure*)bd->start;
         } else {
-            struct nonmoving_segment *seg = nonmoving_get_segment((StgPtr) p);
-            nonmoving_block_idx block_idx = nonmoving_get_block_idx((StgPtr) p);
+            struct NonmovingSegment *seg = nonmovingGetSegment((StgPtr) p);
+            nonmoving_block_idx block_idx = nonmovingGetBlockIdx((StgPtr) p);
 
             /* We don't mark blocks that,
              *  - were not live at the time that the snapshot was taken, or
              *  - we have already marked this cycle
              */
-            uint8_t mark = nonmoving_get_mark(seg, block_idx);
+            uint8_t mark = nonmovingGetMark(seg, block_idx);
             /* Don't mark things we've already marked (since we may loop) */
             if (mark == nonmoving_mark_epoch)
                 return;
 
             StgClosure *snapshot_loc =
-              (StgClosure *) nonmoving_segment_get_block(seg, seg->next_free_snap);
+              (StgClosure *) nonmovingSegmentGetBlock(seg, seg->next_free_snap);
             if (p >= snapshot_loc && mark == 0) {
                 /*
                  * In this case we are looking at a block that wasn't allocated
@@ -1123,14 +1123,14 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
     }
 
     case FUN_2_0:
-        mark_queue_push_fun_srt(queue, info);
+        markQueuePushFunSrt(queue, info);
         PUSH_FIELD(p, payload[1]);
         PUSH_FIELD(p, payload[0]);
         break;
 
     case THUNK_2_0: {
         StgThunk *thunk = (StgThunk *) p;
-        mark_queue_push_thunk_srt(queue, info);
+        markQueuePushThunkSrt(queue, info);
         PUSH_FIELD(thunk, payload[1]);
         PUSH_FIELD(thunk, payload[0]);
         break;
@@ -1142,12 +1142,12 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
         break;
 
     case THUNK_1_0:
-        mark_queue_push_thunk_srt(queue, info);
+        markQueuePushThunkSrt(queue, info);
         PUSH_FIELD((StgThunk *) p, payload[0]);
         break;
 
     case FUN_1_0:
-        mark_queue_push_fun_srt(queue, info);
+        markQueuePushFunSrt(queue, info);
         PUSH_FIELD(p, payload[0]);
         break;
 
@@ -1156,11 +1156,11 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
         break;
 
     case THUNK_0_1:
-        mark_queue_push_thunk_srt(queue, info);
+        markQueuePushThunkSrt(queue, info);
         break;
 
     case FUN_0_1:
-        mark_queue_push_fun_srt(queue, info);
+        markQueuePushFunSrt(queue, info);
         break;
 
     case CONSTR_0_1:
@@ -1168,20 +1168,20 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
         break;
 
     case THUNK_0_2:
-        mark_queue_push_thunk_srt(queue, info);
+        markQueuePushThunkSrt(queue, info);
         break;
 
     case FUN_0_2:
-        mark_queue_push_fun_srt(queue, info);
+        markQueuePushFunSrt(queue, info);
         break;
 
     case THUNK_1_1:
-        mark_queue_push_thunk_srt(queue, info);
+        markQueuePushThunkSrt(queue, info);
         PUSH_FIELD((StgThunk *) p, payload[0]);
         break;
 
     case FUN_1_1:
-        mark_queue_push_fun_srt(queue, info);
+        markQueuePushFunSrt(queue, info);
         PUSH_FIELD(p, payload[0]);
         break;
 
@@ -1190,14 +1190,14 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
         break;
 
     case FUN:
-        mark_queue_push_fun_srt(queue, info);
+        markQueuePushFunSrt(queue, info);
         goto gen_obj;
 
     case THUNK: {
-        mark_queue_push_thunk_srt(queue, info);
+        markQueuePushThunkSrt(queue, info);
         for (StgWord i = 0; i < info->layout.payload.ptrs; i++) {
             StgClosure **field = &((StgThunk *) p)->payload[i];
-            mark_queue_push_closure(queue, *field, field);
+            markQueuePushClosure(queue, *field, field);
         }
         break;
     }
@@ -1210,7 +1210,7 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
     {
         for (StgWord i = 0; i < info->layout.payload.ptrs; i++) {
             StgClosure **field = &((StgClosure *) p)->payload[i];
-            mark_queue_push_closure(queue, *field, field);
+            markQueuePushClosure(queue, *field, field);
         }
         break;
     }
@@ -1278,7 +1278,7 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
     case MUT_ARR_PTRS_FROZEN_CLEAN:
     case MUT_ARR_PTRS_FROZEN_DIRTY:
         // TODO: Check this against Scav.c
-        mark_queue_push_array(queue, (StgMutArrPtrs *) p, 0);
+        markQueuePushArray(queue, (StgMutArrPtrs *) p, 0);
         break;
 
     case SMALL_MUT_ARR_PTRS_CLEAN:
@@ -1288,7 +1288,7 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
         StgSmallMutArrPtrs *arr = (StgSmallMutArrPtrs *) p;
         for (StgWord i = 0; i < arr->ptrs; i++) {
             StgClosure **field = &arr->payload[i];
-            mark_queue_push_closure(queue, *field, field);
+            markQueuePushClosure(queue, *field, field);
         }
         break;
     }
@@ -1322,7 +1322,7 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
     case MUT_PRIM: {
         for (StgHalfWord p_idx = 0; p_idx < info->layout.payload.ptrs; ++p_idx) {
             StgClosure **field = &p->payload[p_idx];
-            mark_queue_push_closure(queue, *field, field);
+            markQueuePushClosure(queue, *field, field);
         }
         break;
     }
@@ -1334,9 +1334,9 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
         PUSH_FIELD(tc, prev_chunk);
         TRecEntry *end = &tc->entries[tc->next_entry_idx];
         for (TRecEntry *e = &tc->entries[0]; e < end; e++) {
-            mark_queue_push_closure_(queue, (StgClosure *) e->tvar);
-            mark_queue_push_closure_(queue, (StgClosure *) e->expected_value);
-            mark_queue_push_closure_(queue, (StgClosure *) e->new_value);
+            markQueuePushClosure_(queue, (StgClosure *) e->tvar);
+            markQueuePushClosure_(queue, (StgClosure *) e->expected_value);
+            markQueuePushClosure_(queue, (StgClosure *) e->new_value);
         }
         break;
     }
@@ -1376,28 +1376,28 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
         RELEASE_LOCK(&nonmoving_large_objects_mutex);
     } else {
         // TODO: Kill repetition
-        struct nonmoving_segment *seg = nonmoving_get_segment((StgPtr) p);
-        nonmoving_block_idx block_idx = nonmoving_get_block_idx((StgPtr) p);
-        nonmoving_set_mark(seg, block_idx);
+        struct NonmovingSegment *seg = nonmovingGetSegment((StgPtr) p);
+        nonmoving_block_idx block_idx = nonmovingGetBlockIdx((StgPtr) p);
+        nonmovingSetMark(seg, block_idx);
     }
 }
 
 /* This is the main mark loop.
  * Invariants:
  *
- *  a. nonmoving_prepare_mark has been called.
+ *  a. nonmovingPrepareMark has been called.
  *  b. the nursery has been fully evacuated into the non-moving generation.
  *  c. the mark queue has been seeded with a set of roots.
  *
  */
-GNUC_ATTR_HOT void nonmoving_mark(MarkQueue *queue)
+GNUC_ATTR_HOT void nonmovingMark(MarkQueue *queue)
 {
     traceConcMarkBegin();
     debugTrace(DEBUG_nonmoving_gc, "Starting mark pass");
     unsigned int count = 0;
     while (true) {
         count++;
-        MarkQueueEnt ent = mark_queue_pop(queue);
+        MarkQueueEnt ent = markQueuePop(queue);
 
         switch (ent.type) {
         case MARK_CLOSURE:
@@ -1408,12 +1408,12 @@ GNUC_ATTR_HOT void nonmoving_mark(MarkQueue *queue)
             StgWord start = ent.mark_array.start_index;
             StgWord end = start + MARK_ARRAY_CHUNK_LENGTH;
             if (end < arr->ptrs) {
-                mark_queue_push_array(queue, ent.mark_array.array, end);
+                markQueuePushArray(queue, ent.mark_array.array, end);
             } else {
                 end = arr->ptrs;
             }
             for (StgWord i = start; i < end; i++) {
-                mark_queue_push_closure_(queue, arr->payload[i]);
+                markQueuePushClosure_(queue, arr->payload[i]);
             }
             break;
         }
@@ -1446,7 +1446,7 @@ GNUC_ATTR_HOT void nonmoving_mark(MarkQueue *queue)
 // - Resurrecting threads; checking if a thread is dead.
 // - Sweeping object lists: large_objects, mut_list, stable_name_table.
 //
-bool nonmoving_is_alive(StgClosure *p)
+bool nonmovingIsAlive(StgClosure *p)
 {
     // Ignore static closures. See comments in `isAlive`.
     if (!HEAP_ALLOCED_GC(p)) {
@@ -1465,8 +1465,8 @@ bool nonmoving_is_alive(StgClosure *p)
             || (bd->flags & BF_MARKED) != 0;
                    // The object was marked
     } else {
-        struct nonmoving_segment *seg = nonmoving_get_segment((StgPtr) p);
-        nonmoving_block_idx i = nonmoving_get_block_idx((StgPtr) p);
+        struct NonmovingSegment *seg = nonmovingGetSegment((StgPtr) p);
+        nonmoving_block_idx i = nonmovingGetBlockIdx((StgPtr) p);
         if (i >= seg->next_free_snap) {
             // If the object is allocated after next_free_snap then it must have
             // been allocated after we took the snapshot and consequently we
@@ -1475,7 +1475,7 @@ bool nonmoving_is_alive(StgClosure *p)
             // the nonmoving heap at the time that the snapshot is taken are marked.
             return true;
         } else {
-            return nonmoving_closure_marked_this_cycle((P_)p);
+            return nonmovingClosureMarkedThisCycle((P_)p);
         }
     }
 }
@@ -1492,7 +1492,7 @@ bool nonmoving_is_alive(StgClosure *p)
 // - Resurrecting threads; checking if a thread is dead.
 // - Sweeping object lists: large_objects, mut_list, stable_name_table.
 //
-static bool nonmoving_is_now_alive(StgClosure *p)
+static bool nonmovingIsNowAlive(StgClosure *p)
 {
     // Ignore static closures. See comments in `isAlive`.
     if (!HEAP_ALLOCED_GC(p)) {
@@ -1511,12 +1511,12 @@ static bool nonmoving_is_now_alive(StgClosure *p)
             || (bd->flags & BF_MARKED) != 0;
                    // The object was marked
     } else {
-        return nonmoving_closure_marked_this_cycle((P_)p);
+        return nonmovingClosureMarkedThisCycle((P_)p);
     }
 }
 
 // Non-moving heap variant of `tidyWeakList`
-bool nonmoving_tidy_weaks(struct MarkQueue_ *queue)
+bool nonmovingTidyWeaks(struct MarkQueue_ *queue)
 {
     bool did_work = false;
 
@@ -1533,8 +1533,8 @@ bool nonmoving_tidy_weaks(struct MarkQueue_ *queue)
         // Otherwise it's a live weak
         ASSERT(w->header.info == &stg_WEAK_info);
 
-        if (nonmoving_is_now_alive(w->key)) {
-            nonmoving_mark_live_weak(queue, w);
+        if (nonmovingIsNowAlive(w->key)) {
+            nonmovingMarkLiveWeak(queue, w);
             did_work = true;
 
             // remove this weak ptr from old_weak_ptr list
@@ -1553,32 +1553,32 @@ bool nonmoving_tidy_weaks(struct MarkQueue_ *queue)
     return did_work;
 }
 
-void nonmoving_mark_dead_weak(struct MarkQueue_ *queue, StgWeak *w)
+void nonmovingMarkDeadWeak(struct MarkQueue_ *queue, StgWeak *w)
 {
     if (w->cfinalizers != &stg_NO_FINALIZER_closure) {
-        mark_queue_push_closure_(queue, w->value);
+        markQueuePushClosure_(queue, w->value);
     }
-    mark_queue_push_closure_(queue, w->finalizer);
+    markQueuePushClosure_(queue, w->finalizer);
 }
 
-void nonmoving_mark_live_weak(struct MarkQueue_ *queue, StgWeak *w)
+void nonmovingMarkLiveWeak(struct MarkQueue_ *queue, StgWeak *w)
 {
-    ASSERT(nonmoving_closure_marked_this_cycle((P_)w));
-    mark_queue_push_closure_(queue, w->value);
-    mark_queue_push_closure_(queue, w->finalizer);
-    mark_queue_push_closure_(queue, w->cfinalizers);
+    ASSERT(nonmovingClosureMarkedThisCycle((P_)w));
+    markQueuePushClosure_(queue, w->value);
+    markQueuePushClosure_(queue, w->finalizer);
+    markQueuePushClosure_(queue, w->cfinalizers);
 }
 
 // When we're done with marking, any weak pointers with non-marked keys will be
 // considered "dead". We mark values and finalizers of such weaks, and then
 // schedule them for finalization in `scheduleFinalizers` (which we run during
 // synchronization).
-void nonmoving_mark_dead_weaks(struct MarkQueue_ *queue, StgWeak **dead_weaks)
+void nonmovingMarkDeadWeaks(struct MarkQueue_ *queue, StgWeak **dead_weaks)
 {
     StgWeak *next_w;
     for (StgWeak *w = nonmoving_old_weak_ptr_list; w; w = next_w) {
-        ASSERT(!nonmoving_closure_marked_this_cycle((P_)(w->key)));
-        nonmoving_mark_dead_weak(queue, w);
+        ASSERT(!nonmovingClosureMarkedThisCycle((P_)(w->key)));
+        nonmovingMarkDeadWeak(queue, w);
         next_w = w ->link;
         w->link = *dead_weaks;
         *dead_weaks = w;
@@ -1586,7 +1586,7 @@ void nonmoving_mark_dead_weaks(struct MarkQueue_ *queue, StgWeak **dead_weaks)
 }
 
 // Non-moving heap variant of of `tidyThreadList`
-void nonmoving_tidy_threads()
+void nonmovingTidyThreads()
 {
     StgTSO *next;
     StgTSO **prev = &nonmoving_old_threads;
@@ -1597,7 +1597,7 @@ void nonmoving_tidy_threads()
         // N.B. This thread is in old_threads, consequently we *know* it is in
         // the snapshot and it is therefore safe to rely on the bitmap to
         // determine its reachability.
-        if (nonmoving_is_now_alive((StgClosure*)t)) {
+        if (nonmovingIsNowAlive((StgClosure*)t)) {
             // alive
             *prev = next;
 
@@ -1611,7 +1611,7 @@ void nonmoving_tidy_threads()
     }
 }
 
-void nonmoving_resurrect_threads(struct MarkQueue_ *queue, StgTSO **resurrected_threads)
+void nonmovingResurrectThreads(struct MarkQueue_ *queue, StgTSO **resurrected_threads)
 {
     StgTSO *next;
     for (StgTSO *t = nonmoving_old_threads; t != END_TSO_QUEUE; t = next) {
@@ -1622,7 +1622,7 @@ void nonmoving_resurrect_threads(struct MarkQueue_ *queue, StgTSO **resurrected_
         case ThreadComplete:
             continue;
         default:
-            mark_queue_push_closure_(queue, (StgClosure*)t);
+            markQueuePushClosure_(queue, (StgClosure*)t);
             t->global_link = *resurrected_threads;
             *resurrected_threads = t;
         }
@@ -1631,7 +1631,7 @@ void nonmoving_resurrect_threads(struct MarkQueue_ *queue, StgTSO **resurrected_
 
 #ifdef DEBUG
 
-void print_queue_ent(MarkQueueEnt *ent)
+void printMarkQueueEntry(MarkQueueEnt *ent)
 {
     if (ent->type == MARK_CLOSURE) {
         debugBelch("Closure: ");
@@ -1643,13 +1643,13 @@ void print_queue_ent(MarkQueueEnt *ent)
     }
 }
 
-void print_mark_queue(MarkQueue *q)
+void printMarkQueue(MarkQueue *q)
 {
     debugBelch("======== MARK QUEUE ========\n");
     for (bdescr *block = q->blocks; block; block = block->link) {
         MarkQueueBlock *queue = (MarkQueueBlock*)block->start;
         for (uint32_t i = 0; i < queue->head; ++i) {
-            print_queue_ent(&queue->entries[i]);
+            printMarkQueueEntry(&queue->entries[i]);
         }
     }
     debugBelch("===== END OF MARK QUEUE ====\n");

@@ -72,7 +72,7 @@ alloc_for_copy (uint32_t size, uint32_t gen_no)
 
     if (RtsFlags.GcFlags.useNonmoving && major_gc) {
         // unconditionally promote to non-moving heap in major gc
-        return nonmoving_allocate(gct->cap, size);
+        return nonmovingAllocate(gct->cap, size);
     }
 
     StgPtr to;
@@ -92,7 +92,7 @@ alloc_for_copy (uint32_t size, uint32_t gen_no)
     }
 
     if (RtsFlags.GcFlags.useNonmoving && gen_no == oldest_gen->no) {
-        return nonmoving_allocate(gct->cap, size);
+        return nonmovingAllocate(gct->cap, size);
     }
 
     ws = &gct->gens[gen_no];  // zero memory references here

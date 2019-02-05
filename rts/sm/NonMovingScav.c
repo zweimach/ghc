@@ -11,7 +11,7 @@
 #include "MarkWeak.h" // scavengeLiveWeak
 
 void
-nonmoving_scavenge_one(StgClosure *q)
+nonmovingScavengeOne(StgClosure *q)
 {
     ASSERT(LOOKS_LIKE_CLOSURE_PTR(q));
     StgPtr p = (StgPtr)q;
@@ -334,30 +334,30 @@ nonmoving_scavenge_one(StgClosure *q)
 
 /* Scavenge objects evacuated into a nonmoving segment by a minor GC */
 void
-scavenge_nonmoving_segment(struct nonmoving_segment *seg)
+scavengeNonmovingSegment(struct NonmovingSegment *seg)
 {
-    const StgWord blk_size = nonmoving_segment_block_size(seg);
+    const StgWord blk_size = nonmovingSegmentBlockSize(seg);
     gct->evac_gen_no = oldest_gen->no;
     gct->failed_to_evac = false;
 
     // scavenge objects between scan and free_ptr whose bitmap bits are 0
     bdescr *seg_block = Bdescr((P_)seg);
 
-    ASSERT(seg_block->u.scan >= (P_)nonmoving_segment_get_block(seg, 0));
-    ASSERT(seg_block->u.scan <= (P_)nonmoving_segment_get_block(seg, seg->next_free));
+    ASSERT(seg_block->u.scan >= (P_)nonmovingSegmentGetBlock(seg, 0));
+    ASSERT(seg_block->u.scan <= (P_)nonmovingSegmentGetBlock(seg, seg->next_free));
 
-    StgPtr scan_end = (P_)nonmoving_segment_get_block(seg, seg->next_free);
+    StgPtr scan_end = (P_)nonmovingSegmentGetBlock(seg, seg->next_free);
     if (seg_block->u.scan == scan_end)
         return;
 
-    nonmoving_block_idx p_idx = nonmoving_get_block_idx(seg_block->u.scan);
+    nonmoving_block_idx p_idx = nonmovingGetBlockIdx(seg_block->u.scan);
     while (seg_block->u.scan < scan_end) {
         StgClosure *p = (StgClosure*)seg_block->u.scan;
 
         // bit set = was allocated in a previous GC, no need to scavenge
         // bit not set = new allocation, so scavenge
-        if (nonmoving_get_mark(seg, p_idx) == 0) {
-            nonmoving_scavenge_one(p);
+        if (nonmovingGetMark(seg, p_idx) == 0) {
+            nonmovingScavengeOne(p);
         }
 
         p_idx++;

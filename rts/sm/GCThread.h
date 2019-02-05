@@ -83,7 +83,7 @@ typedef struct gen_workspace_ {
     bdescr *     todo_bd;
     StgPtr       todo_free;            // free ptr for todo_bd
     StgPtr       todo_lim;             // lim for todo_bd
-    struct nonmoving_segment *todo_seg; // only available for oldest gen workspace
+    struct NonmovingSegment *todo_seg; // only available for oldest gen workspace
 
     WSDeque *    todo_q;
     bdescr *     todo_overflow;

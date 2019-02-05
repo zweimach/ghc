@@ -14,7 +14,7 @@
 #include "Trace.h"
 #include "NonMovingCensus.h"
 
-struct nonmoving_alloc_census {
+struct NonmovingAllocCensus {
     uint32_t n_active_segs;
     uint32_t n_filled_segs;
     uint32_t n_live_blocks;
@@ -23,33 +23,33 @@ struct nonmoving_alloc_census {
 
 // N.B. This may miss segments in the event of concurrent mutation (e.g. if a
 // mutator retires its current segment to the filled list).
-static struct nonmoving_alloc_census
-nonmoving_allocator_census(struct nonmoving_allocator *alloc)
+static struct NonmovingAllocCensus
+nonmovingAllocatorCensus(struct NonmovingAllocator *alloc)
 {
-    struct nonmoving_alloc_census census = {0, 0, 0, 0};
+    struct NonmovingAllocCensus census = {0, 0, 0, 0};
 
-    for (struct nonmoving_segment *seg = alloc->filled;
+    for (struct NonmovingSegment *seg = alloc->filled;
          seg != NULL;
          seg = seg->link)
     {
         census.n_filled_segs++;
-        census.n_live_blocks += nonmoving_segment_block_count(seg);
-        unsigned int n = nonmoving_segment_block_count(seg);
+        census.n_live_blocks += nonmovingSegmentBlockCount(seg);
+        unsigned int n = nonmovingSegmentBlockCount(seg);
         for (unsigned int i=0; i < n; i++) {
-            StgClosure *c = (StgClosure *) nonmoving_segment_get_block(seg, i);
+            StgClosure *c = (StgClosure *) nonmovingSegmentGetBlock(seg, i);
             census.n_live_words += closure_sizeW(c);
         }
     }
 
-    for (struct nonmoving_segment *seg = alloc->active;
+    for (struct NonmovingSegment *seg = alloc->active;
          seg != NULL;
          seg = seg->link)
     {
         census.n_active_segs++;
-        unsigned int n = nonmoving_segment_block_count(seg);
+        unsigned int n = nonmovingSegmentBlockCount(seg);
         for (unsigned int i=0; i < n; i++) {
-            if (nonmoving_get_mark(seg, i)) {
-                StgClosure *c = (StgClosure *) nonmoving_segment_get_block(seg, i);
+            if (nonmovingGetMark(seg, i)) {
+                StgClosure *c = (StgClosure *) nonmovingSegmentGetBlock(seg, i);
                 census.n_live_words += closure_sizeW(c);
                 census.n_live_blocks++;
             }
@@ -58,11 +58,11 @@ nonmoving_allocator_census(struct nonmoving_allocator *alloc)
 
     for (unsigned int cap=0; cap < n_capabilities; cap++)
     {
-        struct nonmoving_segment *seg = alloc->current[cap];
-        unsigned int n = nonmoving_segment_block_count(seg);
+        struct NonmovingSegment *seg = alloc->current[cap];
+        unsigned int n = nonmovingSegmentBlockCount(seg);
         for (unsigned int i=0; i < n; i++) {
-            if (nonmoving_get_mark(seg, i)) {
-                StgClosure *c = (StgClosure *) nonmoving_segment_get_block(seg, i);
+            if (nonmovingGetMark(seg, i)) {
+                StgClosure *c = (StgClosure *) nonmovingSegmentGetBlock(seg, i);
                 census.n_live_words += closure_sizeW(c);
                 census.n_live_blocks++;
             }
@@ -71,11 +71,11 @@ nonmoving_allocator_census(struct nonmoving_allocator *alloc)
     return census;
 }
 
-void nonmoving_print_allocator_census()
+void nonmovingPrintAllocatorCensus()
 {
     for (int i=0; i < NONMOVING_ALLOCA_CNT; i++) {
-        struct nonmoving_alloc_census census =
-            nonmoving_allocator_census(nonmoving_heap.allocators[i]);
+        struct NonmovingAllocCensus census =
+            nonmovingAllocatorCensus(nonmovingHeap.allocators[i]);
 
         uint32_t blk_size = 1 << (i + NONMOVING_ALLOCA0);
         // We define occupancy as the fraction of space that is used for useful

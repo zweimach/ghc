@@ -2575,7 +2575,7 @@ emitUpdRemSetPush :: DynFlags
 emitUpdRemSetPush dflags ptr = do
     emitRtsCall
       rtsUnitId
-      (fsLit "upd_rem_set_push_closure_")
+      (fsLit "updateRemembSetPushClosure_")
       [(CmmReg (CmmGlobal BaseReg), AddrHint),
        (ptr, AddrHint),
        (origin, AddrHint)]

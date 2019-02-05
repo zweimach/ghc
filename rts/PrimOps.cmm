@@ -355,7 +355,7 @@ stg_casArrayzh ( gcptr arr, W_ ind, gcptr old, gcptr new )
 
         // Concurrent GC write barrier
         if (nonmoving_write_barrier_enabled != 0) (likely: False) {
-            ccall upd_rem_set_push_closure_(BaseReg "ptr",
+            ccall updateRemembSetPushClosure_(BaseReg "ptr",
                                             old "ptr",
                                             p "ptr");
         }
@@ -478,7 +478,7 @@ stg_copyArray_barrier ( W_ hdr_size, gcptr dst, W_ dst_off, W_ n)
     end = p + WDS(n);
 
 again:
-    ccall upd_rem_set_push_closure_(BaseReg "ptr",
+    ccall updateRemembSetPushClosure_(BaseReg "ptr",
                                     W_[p] "ptr",
                                     p "ptr");
     p = p + WDS(1);
@@ -880,7 +880,7 @@ stg_deRefWeakzh ( gcptr w )
         val = StgWeak_value(w);
         // See Note [Concurrent read barrier on deRefWeak#] in NonMovingMark.c
         if (nonmoving_write_barrier_enabled != 0) (likely: False) {
-            ccall upd_rem_set_push_closure(MyCapability() "ptr",
+            ccall updateRemembSetPushClosure(MyCapability() "ptr",
                                            val "ptr", NULL);
         }
     } else {
@@ -1592,7 +1592,7 @@ loop:
         unlockClosure(mvar, info);
         // However, we do need to ensure that the nonmoving collector
         // knows about the reference to the value that we just removed...
-        ccall upd_rem_set_push_closure(MyCapability() "ptr",
+        ccall updateRemembSetPushClosure(MyCapability() "ptr",
                                        val "ptr", NULL);
         return (val);
     }
@@ -1979,7 +1979,7 @@ stg_makeStableNamezh ( P_ obj )
         if (nonmoving_write_barrier_enabled != 0) (likely: False) {
             // We only need to push obj itself to the update remembered set
             // since we know that sn_obj will be on the nursery anyways.
-            ccall upd_rem_set_push_closure_(BaseReg "ptr",
+            ccall updateRemembSetPushClosure_(BaseReg "ptr",
                                             obj "ptr",
                                             NULL "ptr");
         }

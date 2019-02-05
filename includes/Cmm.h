@@ -837,7 +837,7 @@
  */
 #define recordMutatedPtr(p, origin)                             \
     if (nonmoving_write_barrier_enabled != 0) (likely: False) { \
-        ccall upd_rem_set_push_closure_(BaseReg "ptr", (p) "ptr", (origin) "ptr"); \
+        ccall updateRemembSetPushClosure_(BaseReg "ptr", (p) "ptr", (origin) "ptr"); \
     }
 
 /* -----------------------------------------------------------------------------

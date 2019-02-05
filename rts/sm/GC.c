@@ -336,7 +336,7 @@ GarbageCollect (uint32_t collect_gen,
       MarkQueue *set = &cap->upd_rem_set;
       debugTrace(true, "%d UpdRemSet blocks freed.", countBlocks(set->blocks));
       freeChain(set->blocks);
-      init_mark_queue(&cap->upd_rem_set);
+      initMarkQueue(&cap->upd_rem_set);
   }
   */
 
@@ -753,7 +753,7 @@ GarbageCollect (uint32_t collect_gen,
       // so we need to mark those too.
       // Note that in sequential case these lists will be appended with more
       // weaks and threads found to be dead in mark.
-      nonmoving_collect(&dead_weak_ptr_list, &resurrected_threads);
+      nonmovingCollect(&dead_weak_ptr_list, &resurrected_threads);
       ACQUIRE_SM_LOCK;
   }
 

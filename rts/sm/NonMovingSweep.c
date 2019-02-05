@@ -9,7 +9,7 @@
 #include "Rts.h"
 #include "NonMovingSweep.h"
 #include "NonMoving.h"
-#include "NonMovingMark.h" // for nonmoving_is_alive
+#include "NonMovingMark.h" // for nonmovingIsAlive
 #include "Capability.h"
 #include "GCThread.h" // for GCUtils.h
 #include "GCUtils.h"
@@ -17,40 +17,40 @@
 #include "Trace.h"
 #include "StableName.h"
 
-static struct nonmoving_segment *pop_all_filled_segments(struct nonmoving_allocator *alloc)
+static struct NonmovingSegment *pop_all_filled_segments(struct NonmovingAllocator *alloc)
 {
     while (true) {
-        struct nonmoving_segment *head = alloc->filled;
+        struct NonmovingSegment *head = alloc->filled;
         if (cas((StgVolatilePtr) &alloc->filled, (StgWord) head, (StgWord) NULL) == (StgWord) head)
             return head;
     }
 }
 
-void nonmoving_prepare_sweep()
+void nonmovingPrepareSweep()
 {
-    ASSERT(nonmoving_heap.sweep_list == NULL);
+    ASSERT(nonmovingHeap.sweep_list == NULL);
 
     // Move blocks in the allocators' filled lists into sweep_list
     for (int alloc_idx = 0; alloc_idx < NONMOVING_ALLOCA_CNT; alloc_idx++)
     {
-        struct nonmoving_allocator *alloc = nonmoving_heap.allocators[alloc_idx];
-        struct nonmoving_segment *filled = pop_all_filled_segments(alloc);
+        struct NonmovingAllocator *alloc = nonmovingHeap.allocators[alloc_idx];
+        struct NonmovingSegment *filled = pop_all_filled_segments(alloc);
 
         // Link filled to sweep_list
         if (filled) {
-            struct nonmoving_segment *filled_head = filled;
+            struct NonmovingSegment *filled_head = filled;
             // Find end of filled list
             while (filled->link) {
                 filled = filled->link;
             }
-            filled->link = nonmoving_heap.sweep_list;
-            nonmoving_heap.sweep_list = filled_head;
+            filled->link = nonmovingHeap.sweep_list;
+            nonmovingHeap.sweep_list = filled_head;
         }
     }
 }
 
 // On which list should a particular segment be placed?
-enum sweep_result {
+enum SweepResult {
     SEGMENT_FREE,     // segment is empty: place on free list
     SEGMENT_PARTIAL,  // segment is partially filled: place on active list
     SEGMENT_FILLED    // segment is full: place on filled list
@@ -58,14 +58,14 @@ enum sweep_result {
 
 // Determine which list a marked segment should be placed on and initialize
 // next_free indices as appropriate.
-GNUC_ATTR_HOT static enum sweep_result
-nonmoving_sweep_segment(struct nonmoving_segment *seg)
+GNUC_ATTR_HOT static enum SweepResult
+nonmovingSweepSegment(struct NonmovingSegment *seg)
 {
     bool found_free = false;
     bool found_live = false;
 
     for (nonmoving_block_idx i = 0;
-         i < nonmoving_segment_block_count(seg);
+         i < nonmovingSegmentBlockCount(seg);
          ++i)
     {
         if (seg->bitmap[i] == nonmoving_mark_epoch) {
@@ -74,7 +74,7 @@ nonmoving_sweep_segment(struct nonmoving_segment *seg)
             found_free = true;
             seg->next_free = i;
             seg->next_free_snap = i;
-            Bdescr((P_)seg)->u.scan = (P_)nonmoving_segment_get_block(seg, i);
+            Bdescr((P_)seg)->u.scan = (P_)nonmovingSegmentGetBlock(seg, i);
             seg->bitmap[i] = 0;
         } else {
             seg->bitmap[i] = 0;
@@ -82,7 +82,7 @@ nonmoving_sweep_segment(struct nonmoving_segment *seg)
 
         if (found_free && found_live) {
             // zero the remaining dead object's mark bits
-            for (; i < nonmoving_segment_block_count(seg); ++i) {
+            for (; i < nonmovingSegmentBlockCount(seg); ++i) {
                 if (seg->bitmap[i] != nonmoving_mark_epoch) {
                     seg->bitmap[i] = 0;
                 }
@@ -102,7 +102,7 @@ nonmoving_sweep_segment(struct nonmoving_segment *seg)
 
 #if defined(DEBUG)
 
-void nonmoving_gc_cafs(struct MarkQueue_ *queue)
+void nonmovingGcCafs(struct MarkQueue_ *queue)
 {
     uint32_t i = 0;
     StgIndStatic *next;
@@ -135,57 +135,57 @@ void nonmoving_gc_cafs(struct MarkQueue_ *queue)
 }
 
 static void
-clear_segment(struct nonmoving_segment* seg)
+clear_segment(struct NonmovingSegment* seg)
 {
     size_t end = ((size_t)seg) + NONMOVING_SEGMENT_SIZE;
     memset(&seg->bitmap, 0, end - (size_t)&seg->bitmap);
 }
 
 static void
-clear_segment_free_blocks(struct nonmoving_segment* seg)
+clear_segment_free_blocks(struct NonmovingSegment* seg)
 {
-    unsigned int block_size = nonmoving_segment_block_size(seg);
-    for (unsigned int p_idx = 0; p_idx < nonmoving_segment_block_count(seg); ++p_idx) {
+    unsigned int block_size = nonmovingSegmentBlockSize(seg);
+    for (unsigned int p_idx = 0; p_idx < nonmovingSegmentBlockCount(seg); ++p_idx) {
         // after mark, so bit not set == dead
-        if (nonmoving_get_mark(seg, p_idx) == 0) {
-            memset(nonmoving_segment_get_block(seg, p_idx), 0, block_size);
+        if (nonmovingGetMark(seg, p_idx) == 0) {
+            memset(nonmovingSegmentGetBlock(seg, p_idx), 0, block_size);
         }
     }
 }
 
 #endif
 
-GNUC_ATTR_HOT void nonmoving_sweep(void)
+GNUC_ATTR_HOT void nonmovingSweep(void)
 {
-    while (nonmoving_heap.sweep_list) {
-        struct nonmoving_segment *seg = nonmoving_heap.sweep_list;
+    while (nonmovingHeap.sweep_list) {
+        struct NonmovingSegment *seg = nonmovingHeap.sweep_list;
 
         // Pushing the segment to one of the free/active/filled segments
         // updates the link field, so update sweep_list here
-        nonmoving_heap.sweep_list = seg->link;
+        nonmovingHeap.sweep_list = seg->link;
 
-        enum sweep_result ret = nonmoving_sweep_segment(seg);
+        enum SweepResult ret = nonmovingSweepSegment(seg);
 
         switch (ret) {
         case SEGMENT_FREE:
             IF_DEBUG(sanity, clear_segment(seg));
-            nonmoving_push_free_segment(seg);
+            nonmovingPushFreeSegment(seg);
             break;
         case SEGMENT_PARTIAL:
             IF_DEBUG(sanity, clear_segment_free_blocks(seg));
-            nonmoving_push_active_segment(seg);
+            nonmovingPushActiveSegment(seg);
             break;
         case SEGMENT_FILLED:
-            nonmoving_push_filled_segment(seg);
+            nonmovingPushFilledSegment(seg);
             break;
         default:
-            barf("nonmoving_sweep: weird sweep return: %d\n", ret);
+            barf("nonmovingSweep: weird sweep return: %d\n", ret);
         }
     }
 }
 
 /* N.B. This happens during the pause so we own all capabilities. */
-void nonmoving_sweep_mut_lists()
+void nonmovingSweepMutLists()
 {
     for (uint32_t n = 0; n < n_capabilities; n++) {
         Capability *cap = capabilities[n];
@@ -194,7 +194,7 @@ void nonmoving_sweep_mut_lists()
         for (bdescr *bd = old_mut_list; bd; bd = bd->link) {
             for (StgPtr p = bd->start; p < bd->free; p++) {
                 StgClosure **q = (StgClosure**)p;
-                if (nonmoving_is_alive(*q)) {
+                if (nonmovingIsAlive(*q)) {
                     recordMutableCap(*q, cap, oldest_gen->no);
                 }
             }
@@ -203,7 +203,7 @@ void nonmoving_sweep_mut_lists()
     }
 }
 
-void nonmoving_sweep_large_objects()
+void nonmovingSweepLargeObjects()
 {
     freeChain_lock(nonmoving_large_objects);
     nonmoving_large_objects = nonmoving_marked_large_objects;
@@ -212,17 +212,17 @@ void nonmoving_sweep_large_objects()
     n_nonmoving_marked_large_blocks = 0;
 }
 
-// Helper for nonmoving_sweep_stable_name_table. Essentially nonmoving_is_alive,
+// Helper for nonmovingSweepStableNameTable. Essentially nonmovingIsAlive,
 // but works when the object died in moving heap, see
-// nonmoving_sweep_stable_name_table
+// nonmovingSweepStableNameTable
 static bool is_alive(StgClosure *p)
 {
     if (!HEAP_ALLOCED_GC(p)) {
         return true;
     }
 
-    if (nonmoving_closure_being_swept(p)) {
-        return nonmoving_is_alive(p);
+    if (nonmovingClosureBeingSwept(p)) {
+        return nonmovingIsAlive(p);
     } else {
         // We don't want to sweep any stable names which weren't in the
         // set of segments that we swept.
@@ -231,7 +231,7 @@ static bool is_alive(StgClosure *p)
     }
 }
 
-void nonmoving_sweep_stable_name_table()
+void nonmovingSweepStableNameTable()
 {
     // See comments in gcStableTables
 
@@ -251,9 +251,9 @@ void nonmoving_sweep_stable_name_table()
      *
      */
 
-    // FIXME: We can't use nonmoving_is_alive here without first using isAlive:
+    // FIXME: We can't use nonmovingIsAlive here without first using isAlive:
     // a stable name can die during moving heap collection and we can't use
-    // nonmoving_is_alive on those objects. Inefficient.
+    // nonmovingIsAlive on those objects. Inefficient.
 
     stableNameLock();
     FOR_EACH_STABLE_NAME(

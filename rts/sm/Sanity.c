@@ -822,7 +822,7 @@ markCompactBlocks(bdescr *bd)
 }
 
 static void
-markNonMovingSegments(struct nonmoving_segment *seg)
+markNonMovingSegments(struct NonmovingSegment *seg)
 {
     while (seg) {
         markBlocks(Bdescr((P_)seg));
@@ -869,15 +869,15 @@ findMemoryLeak (void)
         markBlocks(nonmoving_large_objects);
         markBlocks(nonmoving_marked_large_objects);
         for (i = 0; i < NONMOVING_ALLOCA_CNT; i++) {
-            struct nonmoving_allocator *alloc = nonmoving_heap.allocators[i];
+            struct NonmovingAllocator *alloc = nonmovingHeap.allocators[i];
             markNonMovingSegments(alloc->filled);
             markNonMovingSegments(alloc->active);
             for (j = 0; j < n_capabilities; j++) {
                 markNonMovingSegments(alloc->current[j]);
             }
         }
-        markNonMovingSegments(nonmoving_heap.sweep_list);
-        markNonMovingSegments(nonmoving_heap.free);
+        markNonMovingSegments(nonmovingHeap.sweep_list);
+        markNonMovingSegments(nonmovingHeap.free);
         if (current_mark_queue)
             markBlocks(current_mark_queue->blocks);
     }
@@ -951,7 +951,7 @@ genBlocks (generation *gen)
 }
 
 static W_
-countNonMovingSegments(struct nonmoving_segment *segs)
+countNonMovingSegments(struct NonmovingSegment *segs)
 {
     W_ ret = 0;
     while (segs) {
@@ -962,7 +962,7 @@ countNonMovingSegments(struct nonmoving_segment *segs)
 }
 
 static W_
-countNonMovingAllocator(struct nonmoving_allocator *alloc)
+countNonMovingAllocator(struct NonmovingAllocator *alloc)
 {
     W_ ret = countNonMovingSegments(alloc->filled)
            + countNonMovingSegments(alloc->active);
@@ -1028,17 +1028,17 @@ memInventory (bool show)
   for (i = 0; i < n_capabilities; ++i) {
       upd_rem_set_blocks += countBlocks(capabilities[i]->upd_rem_set.queue.blocks);
   }
-  upd_rem_set_blocks += count_global_upd_rem_set_blocks();
+  upd_rem_set_blocks += countGlobalUpdateRemembSetBlocks();
 
   // count nonmoving blocks
   if (RtsFlags.GcFlags.useNonmoving) {
       nonmoving_blocks += countAllocdBlocks(nonmoving_large_objects);
       nonmoving_blocks += countAllocdBlocks(nonmoving_marked_large_objects);
       for (int alloc_idx = 0; alloc_idx < NONMOVING_ALLOCA_CNT; alloc_idx++) {
-          nonmoving_blocks += countNonMovingAllocator(nonmoving_heap.allocators[alloc_idx]);
+          nonmoving_blocks += countNonMovingAllocator(nonmovingHeap.allocators[alloc_idx]);
       }
-      nonmoving_blocks += countNonMovingSegments(nonmoving_heap.sweep_list);
-      nonmoving_blocks += countNonMovingSegments(nonmoving_heap.free);
+      nonmoving_blocks += countNonMovingSegments(nonmovingHeap.sweep_list);
+      nonmoving_blocks += countNonMovingSegments(nonmovingHeap.free);
       if (current_mark_queue)
           nonmoving_blocks += countBlocks(current_mark_queue->blocks);
   }

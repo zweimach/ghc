@@ -15,11 +15,11 @@
 
 /* This is called by the code generator */
 extern DLL_IMPORT_RTS
-void upd_rem_set_push_closure_(StgRegTable *reg,
+void updateRemembSetPushClosure_(StgRegTable *reg,
                                StgClosure *p,
                                StgClosure **origin);
 
 
-void upd_rem_set_push_closure(Capability *cap,
+void updateRemembSetPushClosure(Capability *cap,
                               StgClosure *p,
                               StgClosure **origin);

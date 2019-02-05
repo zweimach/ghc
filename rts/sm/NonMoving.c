@@ -26,15 +26,15 @@
 #include "Schedule.h" // markScheduler
 #include "Weak.h" // dead_weak_ptr_list
 
-struct nonmoving_heap nonmoving_heap;
+struct NonmovingHeap nonmovingHeap;
 
 uint8_t nonmoving_mark_epoch = 1;
 
-static void nonmoving_bump_epoch(void) {
+static void nonmovingBumpEpoch(void) {
     nonmoving_mark_epoch = nonmoving_mark_epoch == 1 ? 2 : 1;
 }
 
-struct nonmoving_segment * const END_NONMOVING_TODO_LIST = (struct nonmoving_segment*)1;
+struct NonmovingSegment * const END_NONMOVING_TODO_LIST = (struct NonmovingSegment*)1;
 
 #if defined(THREADED_RTS)
 /*
@@ -72,30 +72,30 @@ void gcCAFs(void);
  */
 
 #if defined(THREADED_RTS)
-static void* nonmoving_concurrent_mark(void *mark_queue);
+static void* nonmovingConcurrentMark(void *mark_queue);
 #endif
-static void nonmoving_clear_bitmap(struct nonmoving_segment *seg);
-static void nonmoving_mark_(MarkQueue *mark_queue, StgWeak **dead_weaks, StgTSO **resurrected_threads);
+static void nonmovingClearBitmap(struct NonmovingSegment *seg);
+static void nonmovingMark_(MarkQueue *mark_queue, StgWeak **dead_weaks, StgTSO **resurrected_threads);
 
 /* Signals to mutators that they should stop to synchronize with the nonmoving
  * collector so it can proceed to sweep phase. */
 bool nonmoving_syncing = false;
 
-static void nonmoving_init_segment(struct nonmoving_segment *seg, uint8_t block_size)
+static void nonmovingInitSegment(struct NonmovingSegment *seg, uint8_t block_size)
 {
     seg->link = NULL;
     seg->todo_link = NULL;
     seg->next_free = 0;
     seg->next_free_snap = 0;
     seg->block_size = block_size;
-    nonmoving_clear_bitmap(seg);
-    Bdescr((P_)seg)->u.scan = nonmoving_segment_get_block(seg, 0);
+    nonmovingClearBitmap(seg);
+    Bdescr((P_)seg)->u.scan = nonmovingSegmentGetBlock(seg, 0);
 }
 
 // Add a segment to the free list.
-void nonmoving_push_free_segment(struct nonmoving_segment *seg)
+void nonmovingPushFreeSegment(struct NonmovingSegment *seg)
 {
-    if (nonmoving_heap.n_free > NONMOVING_MAX_FREE) {
+    if (nonmovingHeap.n_free > NONMOVING_MAX_FREE) {
         ACQUIRE_SM_LOCK;
         freeGroup(Bdescr((StgPtr) seg));
         RELEASE_SM_LOCK;
@@ -103,24 +103,24 @@ void nonmoving_push_free_segment(struct nonmoving_segment *seg)
     }
 
     while (true) {
-        seg->link = nonmoving_heap.free;
-        if (cas((StgVolatilePtr) &nonmoving_heap.free, (StgWord) seg->link, (StgWord) seg) == (StgWord) seg->link)
+        seg->link = nonmovingHeap.free;
+        if (cas((StgVolatilePtr) &nonmovingHeap.free, (StgWord) seg->link, (StgWord) seg) == (StgWord) seg->link)
             break;
     }
-    __sync_add_and_fetch(&nonmoving_heap.n_free, 1);
+    __sync_add_and_fetch(&nonmovingHeap.n_free, 1);
 }
 
-static struct nonmoving_segment *nonmoving_pop_free_segment(void)
+static struct NonmovingSegment *nonmovingPopFreeSegment(void)
 {
     while (true) {
-        struct nonmoving_segment *seg = nonmoving_heap.free;
+        struct NonmovingSegment *seg = nonmovingHeap.free;
         if (seg == NULL) {
             return NULL;
         }
-        if (cas((StgVolatilePtr) &nonmoving_heap.free,
+        if (cas((StgVolatilePtr) &nonmovingHeap.free,
                 (StgWord) seg,
                 (StgWord) seg->link) == (StgWord) seg) {
-            __sync_sub_and_fetch(&nonmoving_heap.n_free, 1);
+            __sync_sub_and_fetch(&nonmovingHeap.n_free, 1);
             return seg;
         }
     }
@@ -131,11 +131,11 @@ static struct nonmoving_segment *nonmoving_pop_free_segment(void)
  * given node.
  *
  */
-static struct nonmoving_segment *nonmoving_alloc_segment(uint32_t node)
+static struct NonmovingSegment *nonmovingAllocSegment(uint32_t node)
 {
     // First try taking something off of the free list
-    struct nonmoving_segment *ret;
-    ret = nonmoving_pop_free_segment();
+    struct NonmovingSegment *ret;
+    ret = nonmovingPopFreeSegment();
 
     // Nothing in the free list, allocate a new segment...
     if (ret == NULL) {
@@ -152,7 +152,7 @@ static struct nonmoving_segment *nonmoving_alloc_segment(uint32_t node)
             initBdescr(&bd[i], oldest_gen, oldest_gen);
             bd[i].flags = BF_NONMOVING;
         }
-        ret = (struct nonmoving_segment *)bd->start;
+        ret = (struct NonmovingSegment *)bd->start;
     }
 
     // Check alignment
@@ -172,10 +172,10 @@ static inline unsigned long log2_ceil(unsigned long x)
 }
 
 // Advance a segment's next_free pointer. Returns true if segment if full.
-static bool advance_next_free(struct nonmoving_segment *seg)
+static bool advance_next_free(struct NonmovingSegment *seg)
 {
     uint8_t *bitmap = seg->bitmap;
-    unsigned int blk_count = nonmoving_segment_block_count(seg);
+    unsigned int blk_count = nonmovingSegmentBlockCount(seg);
     for (unsigned int i = seg->next_free+1; i < blk_count; i++) {
         if (!bitmap[i]) {
             seg->next_free = i;
@@ -186,10 +186,10 @@ static bool advance_next_free(struct nonmoving_segment *seg)
     return true;
 }
 
-static struct nonmoving_segment *pop_active_segment(struct nonmoving_allocator *alloca)
+static struct NonmovingSegment *pop_active_segment(struct NonmovingAllocator *alloca)
 {
     while (true) {
-        struct nonmoving_segment *seg = alloca->active;
+        struct NonmovingSegment *seg = alloca->active;
         if (seg == NULL) {
             return NULL;
         }
@@ -202,7 +202,7 @@ static struct nonmoving_segment *pop_active_segment(struct nonmoving_allocator *
 }
 
 /* sz is in words */
-void *nonmoving_allocate(Capability *cap, StgWord sz)
+void *nonmovingAllocate(Capability *cap, StgWord sz)
 {
     int allocator_idx = log2_ceil(sz * sizeof(StgWord)) - NONMOVING_ALLOCA0;
 
@@ -210,12 +210,12 @@ void *nonmoving_allocate(Capability *cap, StgWord sz)
     // object and not moved) which is covered by allocator 9.
     ASSERT(allocator_idx < NONMOVING_ALLOCA_CNT);
 
-    struct nonmoving_allocator *alloca = nonmoving_heap.allocators[allocator_idx];
+    struct NonmovingAllocator *alloca = nonmovingHeap.allocators[allocator_idx];
 
     // Allocate into current segment
-    struct nonmoving_segment *current = alloca->current[cap->no];
+    struct NonmovingSegment *current = alloca->current[cap->no];
     ASSERT(current); // current is never NULL
-    void *ret = nonmoving_segment_get_block(current, current->next_free);
+    void *ret = nonmovingSegmentGetBlock(current, current->next_free);
     ASSERT(GET_CLOSURE_TAG(ret) == 0); // check alignment
 
     // Add segment to the todo list unless it's already there
@@ -234,15 +234,15 @@ void *nonmoving_allocate(Capability *cap, StgWord sz)
         // non-moving heap lock as allocators can be manipulated by scavenge
         // threads concurrently, and in the case where we need to allocate a
         // segment we'll need to modify the free segment list.
-        nonmoving_push_filled_segment(current);
+        nonmovingPushFilledSegment(current);
 
         // first look for a new segment in the active list
-        struct nonmoving_segment *new_current = pop_active_segment(alloca);
+        struct NonmovingSegment *new_current = pop_active_segment(alloca);
 
         // there are no active segments, allocate new segment
         if (new_current == NULL) {
-            new_current = nonmoving_alloc_segment(cap->node);
-            nonmoving_init_segment(new_current, NONMOVING_ALLOCA0 + allocator_idx);
+            new_current = nonmovingAllocSegment(cap->node);
+            nonmovingInitSegment(new_current, NONMOVING_ALLOCA0 + allocator_idx);
             alloca->current[cap->no] = new_current;
         }
 
@@ -254,19 +254,19 @@ void *nonmoving_allocate(Capability *cap, StgWord sz)
     return ret;
 }
 
-/* Allocate a nonmoving_allocator */
-static struct nonmoving_allocator *alloc_nonmoving_allocator(uint32_t n_caps)
+/* Allocate a nonmovingAllocator */
+static struct NonmovingAllocator *alloc_nonmoving_allocator(uint32_t n_caps)
 {
     size_t allocator_sz =
-        sizeof(struct nonmoving_allocator) +
+        sizeof(struct NonmovingAllocator) +
         sizeof(void*) * n_caps; // current segment pointer for each capability
-    struct nonmoving_allocator *alloc =
-        stgMallocBytes(allocator_sz, "nonmoving_init");
+    struct NonmovingAllocator *alloc =
+        stgMallocBytes(allocator_sz, "nonmovingInit");
     memset(alloc, 0, allocator_sz);
     return alloc;
 }
 
-void nonmoving_init(void)
+void nonmovingInit(void)
 {
 #if defined(THREADED_RTS)
     initMutex(&nonmoving_collection_mutex);
@@ -274,12 +274,12 @@ void nonmoving_init(void)
     initMutex(&concurrent_coll_finished_lock);
 #endif
     for (unsigned int i = 0; i < NONMOVING_ALLOCA_CNT; i++) {
-        nonmoving_heap.allocators[i] = alloc_nonmoving_allocator(n_capabilities);
+        nonmovingHeap.allocators[i] = alloc_nonmoving_allocator(n_capabilities);
     }
-    nonmoving_mark_init_upd_rem_set();
+    nonmovingMarkInitUpdRemSet();
 }
 
-void nonmoving_exit(void)
+void nonmovingExit(void)
 {
 #if defined(THREADED_RTS)
     if (mark_thread) {
@@ -299,7 +299,7 @@ void nonmoving_exit(void)
  * ensure we don't steal capabilities that the nonmoving collector still has yet
  * to synchronize with.
  */
-void nonmoving_wait_until_finished(void)
+void nonmovingWaitUntilFinished(void)
 {
 #if defined(THREADED_RTS)
     ACQUIRE_LOCK(&concurrent_coll_finished_lock);
@@ -315,13 +315,13 @@ void nonmoving_wait_until_finished(void)
  *
  * Must hold sm_mutex.
  */
-void nonmoving_add_capabilities(uint32_t new_n_caps)
+void nonmovingAddCapabilities(uint32_t new_n_caps)
 {
-    unsigned int old_n_caps = nonmoving_heap.n_caps;
-    struct nonmoving_allocator **allocs = nonmoving_heap.allocators;
+    unsigned int old_n_caps = nonmovingHeap.n_caps;
+    struct NonmovingAllocator **allocs = nonmovingHeap.allocators;
 
     for (unsigned int i = 0; i < NONMOVING_ALLOCA_CNT; i++) {
-        struct nonmoving_allocator *old = allocs[i];
+        struct NonmovingAllocator *old = allocs[i];
         allocs[i] = alloc_nonmoving_allocator(new_n_caps);
 
         // Copy the old state
@@ -334,33 +334,33 @@ void nonmoving_add_capabilities(uint32_t new_n_caps)
 
         // Initialize current segments for the new capabilities
         for (unsigned int j = old_n_caps; j < new_n_caps; j++) {
-            allocs[i]->current[j] = nonmoving_alloc_segment(capabilities[j]->node);
-            nonmoving_init_segment(allocs[i]->current[j], NONMOVING_ALLOCA0 + i);
+            allocs[i]->current[j] = nonmovingAllocSegment(capabilities[j]->node);
+            nonmovingInitSegment(allocs[i]->current[j], NONMOVING_ALLOCA0 + i);
             allocs[i]->current[j]->link = NULL;
         }
     }
-    nonmoving_heap.n_caps = new_n_caps;
+    nonmovingHeap.n_caps = new_n_caps;
 }
 
-static void nonmoving_clear_bitmap(struct nonmoving_segment *seg)
+static void nonmovingClearBitmap(struct NonmovingSegment *seg)
 {
-    unsigned int n = nonmoving_segment_block_count(seg);
+    unsigned int n = nonmovingSegmentBlockCount(seg);
     memset(seg->bitmap, 0, n);
 }
 
-static void nonmoving_clear_segment_bitmaps(struct nonmoving_segment *seg)
+static void nonmovingClearSegmentBitmaps(struct NonmovingSegment *seg)
 {
     while (seg) {
-        nonmoving_clear_bitmap(seg);
+        nonmovingClearBitmap(seg);
         seg = seg->link;
     }
 }
 
-static void nonmoving_clear_all_bitmaps(void)
+static void nonmovingClearAllBitmaps(void)
 {
     for (int alloca_idx = 0; alloca_idx < NONMOVING_ALLOCA_CNT; ++alloca_idx) {
-        struct nonmoving_allocator *alloca = nonmoving_heap.allocators[alloca_idx];
-        nonmoving_clear_segment_bitmaps(alloca->filled);
+        struct NonmovingAllocator *alloca = nonmovingHeap.allocators[alloca_idx];
+        nonmovingClearSegmentBitmaps(alloca->filled);
     }
 
     // Clear large object bits
@@ -370,21 +370,21 @@ static void nonmoving_clear_all_bitmaps(void)
 }
 
 /* Prepare the heap bitmaps and snapshot metadata for a mark */
-static void nonmoving_prepare_mark(void)
+static void nonmovingPrepareMark(void)
 {
-    nonmoving_clear_all_bitmaps();
-    nonmoving_bump_epoch();
+    nonmovingClearAllBitmaps();
+    nonmovingBumpEpoch();
     for (int alloca_idx = 0; alloca_idx < NONMOVING_ALLOCA_CNT; ++alloca_idx) {
-        struct nonmoving_allocator *alloca = nonmoving_heap.allocators[alloca_idx];
+        struct NonmovingAllocator *alloca = nonmovingHeap.allocators[alloca_idx];
 
         // Update current segments' snapshot pointers
         for (uint32_t cap_n = 0; cap_n < n_capabilities; ++cap_n) {
-            struct nonmoving_segment *seg = alloca->current[cap_n];
+            struct NonmovingSegment *seg = alloca->current[cap_n];
             seg->next_free_snap = seg->next_free;
         }
 
         // Update filled segments' snapshot pointers
-        struct nonmoving_segment *seg = alloca->filled;
+        struct NonmovingSegment *seg = alloca->filled;
         while (seg) {
             seg->next_free_snap = seg->next_free;
             seg = seg->link;
@@ -417,13 +417,13 @@ static void nonmoving_prepare_mark(void)
 // dead_weak_ptr_list or stay in weak_ptr_list. Either way they need to be kept
 // during sweep. See `MarkWeak.c:markWeakPtrList` for the moving heap variant
 // of this.
-static void nonmoving_mark_weak_ptr_list(MarkQueue *mark_queue, StgWeak *dead_weak_ptr_list)
+static void nonmovingMarkWeakPtrList(MarkQueue *mark_queue, StgWeak *dead_weak_ptr_list)
 {
     for (StgWeak *w = oldest_gen->weak_ptr_list; w; w = w->link) {
-        mark_queue_push_closure_(mark_queue, (StgClosure*)w);
+        markQueuePushClosure_(mark_queue, (StgClosure*)w);
         // Do not mark finalizers and values here, those fields will be marked
-        // in `nonmoving_mark_dead_weaks` (for dead weaks) or
-        // `nonmoving_tidy_weaks` (for live weaks)
+        // in `nonmovingMarkDeadWeaks` (for dead weaks) or
+        // `nonmovingTidyWeaks` (for live weaks)
     }
 
     // We need to mark dead_weak_ptr_list too. This is subtle:
@@ -439,12 +439,12 @@ static void nonmoving_mark_weak_ptr_list(MarkQueue *mark_queue, StgWeak *dead_we
     // - So, to be able to traverse `dead_weak_ptr_list` and run finalizers we
     //   need to mark it.
     for (StgWeak *w = dead_weak_ptr_list; w; w = w->link) {
-        mark_queue_push_closure_(mark_queue, (StgClosure*)w);
-        nonmoving_mark_dead_weak(mark_queue, w);
+        markQueuePushClosure_(mark_queue, (StgClosure*)w);
+        nonmovingMarkDeadWeak(mark_queue, w);
     }
 }
 
-void nonmoving_collect(StgWeak **dead_weaks, StgTSO **resurrected_threads)
+void nonmovingCollect(StgWeak **dead_weaks, StgTSO **resurrected_threads)
 {
 #if defined(THREADED_RTS)
     // We can't start a new collection until the old one has finished
@@ -458,30 +458,30 @@ void nonmoving_collect(StgWeak **dead_weaks, StgTSO **resurrected_threads)
     }
 #endif
 
-    nonmoving_prepare_mark();
-    nonmoving_prepare_sweep();
+    nonmovingPrepareMark();
+    nonmovingPrepareSweep();
 
     // N.B. These should have been cleared at the end of the last sweep.
     ASSERT(nonmoving_marked_large_objects == NULL);
     ASSERT(n_nonmoving_marked_large_blocks == 0);
 
     MarkQueue *mark_queue = stgMallocBytes(sizeof(MarkQueue), "mark queue");
-    init_mark_queue(mark_queue);
+    initMarkQueue(mark_queue);
     current_mark_queue = mark_queue;
 
     // Mark roots
-    markCAFs((evac_fn)mark_queue_add_root, mark_queue);
+    markCAFs((evac_fn)markQueueAddRoot, mark_queue);
     for (unsigned int n = 0; n < n_capabilities; ++n) {
-        markCapability((evac_fn)mark_queue_add_root, mark_queue,
+        markCapability((evac_fn)markQueueAddRoot, mark_queue,
                 capabilities[n], true/*don't mark sparks*/);
     }
-    markScheduler((evac_fn)mark_queue_add_root, mark_queue);
-    nonmoving_mark_weak_ptr_list(mark_queue, *dead_weaks);
-    markStablePtrTable((evac_fn)mark_queue_add_root, mark_queue);
+    markScheduler((evac_fn)markQueueAddRoot, mark_queue);
+    nonmovingMarkWeakPtrList(mark_queue, *dead_weaks);
+    markStablePtrTable((evac_fn)markQueueAddRoot, mark_queue);
 
     // Mark threads resurrected during moving heap scavenging
     for (StgTSO *tso = *resurrected_threads; tso != END_TSO_QUEUE; tso = tso->global_link) {
-        mark_queue_push_closure_(mark_queue, (StgClosure*)tso);
+        markQueuePushClosure_(mark_queue, (StgClosure*)tso);
     }
 
     // Roots marked, mark threads and weak pointers
@@ -525,52 +525,52 @@ void nonmoving_collect(StgWeak **dead_weaks, StgTSO **resurrected_threads)
         nonmoving_write_barrier_enabled = true;
         debugTrace(DEBUG_nonmoving_gc, "Starting concurrent mark thread");
         createOSThread(&mark_thread, "non-moving mark thread",
-                       nonmoving_concurrent_mark, mark_queue);
+                       nonmovingConcurrentMark, mark_queue);
     } else {
-        nonmoving_concurrent_mark(mark_queue);
+        nonmovingConcurrentMark(mark_queue);
     }
 #else
     // Use the weak and thread lists from the preparation for any new weaks and
     // threads found to be dead in mark.
-    nonmoving_mark_(mark_queue, dead_weaks, resurrected_threads);
+    nonmovingMark_(mark_queue, dead_weaks, resurrected_threads);
 #endif
 }
 
 /* Mark mark queue, threads, and weak pointers until no more weaks have been
  * resuscitated
  */
-static void nonmoving_mark_threads_weaks(MarkQueue *mark_queue)
+static void nonmovingMarkThreadsWeaks(MarkQueue *mark_queue)
 {
     while (true) {
         // Propagate marks
-        nonmoving_mark(mark_queue);
+        nonmovingMark(mark_queue);
 
         // Tidy threads and weaks
-        nonmoving_tidy_threads();
+        nonmovingTidyThreads();
 
-        if (! nonmoving_tidy_weaks(mark_queue))
+        if (! nonmovingTidyWeaks(mark_queue))
             return;
     }
 }
 
 #if defined(THREADED_RTS)
-static void* nonmoving_concurrent_mark(void *data)
+static void* nonmovingConcurrentMark(void *data)
 {
     MarkQueue *mark_queue = (MarkQueue*)data;
     StgWeak *dead_weaks = NULL;
     StgTSO *resurrected_threads = (StgTSO*)&stg_END_TSO_QUEUE_closure;
-    nonmoving_mark_(mark_queue, &dead_weaks, &resurrected_threads);
+    nonmovingMark_(mark_queue, &dead_weaks, &resurrected_threads);
     return NULL;
 }
 #endif
 
-static void nonmoving_mark_(MarkQueue *mark_queue, StgWeak **dead_weaks, StgTSO **resurrected_threads)
+static void nonmovingMark_(MarkQueue *mark_queue, StgWeak **dead_weaks, StgTSO **resurrected_threads)
 {
     ACQUIRE_LOCK(&nonmoving_collection_mutex);
     debugTrace(DEBUG_nonmoving_gc, "Starting mark...");
 
     // Do concurrent marking; most of the heap will get marked here.
-    nonmoving_mark_threads_weaks(mark_queue);
+    nonmovingMarkThreadsWeaks(mark_queue);
 
 #if defined(THREADED_RTS)
     Task *task = newBoundTask();
@@ -578,46 +578,46 @@ static void nonmoving_mark_(MarkQueue *mark_queue, StgWeak **dead_weaks, StgTSO 
     // If at this point if we've decided to exit then just return
     if (sched_state > SCHED_RUNNING) {
         // Note that we break our invariants here and leave segments in
-        // nonmoving_heap.sweep_list, don't free nonmoving_large_objects etc.
+        // nonmovingHeap.sweep_list, don't free nonmoving_large_objects etc.
         // However because we won't be running mark-sweep in the final GC this
         // is OK.
         goto finish;
     }
 
     // We're still running, request a sync
-    nonmoving_begin_flush(task);
+    nonmovingBeginFlush(task);
 
     bool all_caps_syncd;
     do {
-        all_caps_syncd = nonmoving_wait_for_flush();
-        nonmoving_mark_threads_weaks(mark_queue);
+        all_caps_syncd = nonmovingWaitForFlush();
+        nonmovingMarkThreadsWeaks(mark_queue);
     } while (!all_caps_syncd);
 
 #else
-    nonmoving_mark_threads_weaks(mark_queue);
+    nonmovingMarkThreadsWeaks(mark_queue);
 #endif
 
-    nonmoving_resurrect_threads(mark_queue, resurrected_threads);
+    nonmovingResurrectThreads(mark_queue, resurrected_threads);
 
     // No more resurrecting threads after this point
 
     // Do last marking of weak pointers
     while (true) {
         // Propagate marks
-        nonmoving_mark(mark_queue);
+        nonmovingMark(mark_queue);
 
-        if (!nonmoving_tidy_weaks(mark_queue))
+        if (!nonmovingTidyWeaks(mark_queue))
             break;
     }
 
-    nonmoving_mark_dead_weaks(mark_queue, dead_weaks);
+    nonmovingMarkDeadWeaks(mark_queue, dead_weaks);
 
     // Propagate marks
-    nonmoving_mark(mark_queue);
+    nonmovingMark(mark_queue);
 
     // Now remove all dead objects from the mut_list to ensure that a younger
     // generation collection doesn't attempt to look at them after we've swept.
-    nonmoving_sweep_mut_lists();
+    nonmovingSweepMutLists();
 
     debugTrace(DEBUG_nonmoving_gc,
                "Done marking, resurrecting threads before releasing capabilities");
@@ -633,7 +633,7 @@ static void nonmoving_mark_(MarkQueue *mark_queue, StgWeak **dead_weaks, StgTSO 
 
 #if defined(DEBUG)
     // Zap CAFs that we will sweep
-    nonmoving_gc_cafs(mark_queue);
+    nonmovingGcCafs(mark_queue);
 #endif
 
     ASSERT(mark_queue->top->head == 0);
@@ -665,11 +665,11 @@ static void nonmoving_mark_(MarkQueue *mark_queue, StgWeak **dead_weaks, StgTSO 
     // Everything has been marked; allow the mutators to proceed
 #if defined(THREADED_RTS)
     nonmoving_write_barrier_enabled = false;
-    nonmoving_finish_flush(task);
+    nonmovingFinishFlush(task);
 #endif
 
     current_mark_queue = NULL;
-    free_mark_queue(mark_queue);
+    freeMarkQueue(mark_queue);
     stgFree(mark_queue);
 
     /****************************************************
@@ -681,16 +681,16 @@ static void nonmoving_mark_(MarkQueue *mark_queue, StgWeak **dead_weaks, StgTSO 
     // Because we can't mark large object blocks (no room for mark bit) we
     // collect them in a map in mark_queue and we pass it here to sweep large
     // objects
-    nonmoving_sweep_large_objects();
-    nonmoving_sweep_stable_name_table();
+    nonmovingSweepLargeObjects();
+    nonmovingSweepStableNameTable();
 
-    nonmoving_sweep();
-    ASSERT(nonmoving_heap.sweep_list == NULL);
+    nonmovingSweep();
+    ASSERT(nonmovingHeap.sweep_list == NULL);
     debugTrace(DEBUG_nonmoving_gc, "Finished sweeping.");
     traceConcSweepEnd();
 #if defined(DEBUG)
     if (RtsFlags.DebugFlags.nonmoving_gc)
-        nonmoving_print_allocator_census();
+        nonmovingPrintAllocatorCensus();
 #endif
 
     // TODO: Remainder of things done by GarbageCollect (update stats)
@@ -731,17 +731,17 @@ void assert_in_nonmoving_heap(StgPtr p)
     }
 
     // Search snapshot segments
-    for (struct nonmoving_segment *seg = nonmoving_heap.sweep_list; seg; seg = seg->link) {
+    for (struct NonmovingSegment *seg = nonmovingHeap.sweep_list; seg; seg = seg->link) {
         if (p >= (P_)seg && p < (((P_)seg) + NONMOVING_SEGMENT_SIZE_W)) {
             return;
         }
     }
 
     for (int alloca_idx = 0; alloca_idx < NONMOVING_ALLOCA_CNT; ++alloca_idx) {
-        struct nonmoving_allocator *alloca = nonmoving_heap.allocators[alloca_idx];
+        struct NonmovingAllocator *alloca = nonmovingHeap.allocators[alloca_idx];
         // Search current segments
         for (uint32_t cap_idx = 0; cap_idx < n_capabilities; ++cap_idx) {
-            struct nonmoving_segment *seg = alloca->current[cap_idx];
+            struct NonmovingSegment *seg = alloca->current[cap_idx];
             if (p >= (P_)seg && p < (((P_)seg) + NONMOVING_SEGMENT_SIZE_W)) {
                 return;
             }
@@ -749,7 +749,7 @@ void assert_in_nonmoving_heap(StgPtr p)
 
         // Search active segments
         int seg_idx = 0;
-        struct nonmoving_segment *seg = alloca->active;
+        struct NonmovingSegment *seg = alloca->active;
         while (seg) {
             if (p >= (P_)seg && p < (((P_)seg) + NONMOVING_SEGMENT_SIZE_W)) {
                 return;
@@ -775,9 +775,9 @@ void assert_in_nonmoving_heap(StgPtr p)
     barf("%p is not in nonmoving heap\n", (void*)p);
 }
 
-void nonmoving_print_segment(struct nonmoving_segment *seg)
+void nonmovingPrintSegment(struct NonmovingSegment *seg)
 {
-    int num_blocks = nonmoving_segment_block_count(seg);
+    int num_blocks = nonmovingSegmentBlockCount(seg);
 
     debugBelch("Segment with %d blocks of size 2^%d (%d bytes, %lu words, scan: %p)\n",
                num_blocks,
@@ -787,8 +787,8 @@ void nonmoving_print_segment(struct nonmoving_segment *seg)
                (void*)Bdescr((P_)seg)->u.scan);
 
     for (nonmoving_block_idx p_idx = 0; p_idx < seg->next_free; ++p_idx) {
-        StgClosure *p = (StgClosure*)nonmoving_segment_get_block(seg, p_idx);
-        if (nonmoving_get_mark(seg, p_idx) != 0) {
+        StgClosure *p = (StgClosure*)nonmovingSegmentGetBlock(seg, p_idx);
+        if (nonmovingGetMark(seg, p_idx) != 0) {
             debugBelch("%d (%p)* :\t", p_idx, (void*)p);
         } else {
             debugBelch("%d (%p)  :\t", p_idx, (void*)p);
@@ -799,15 +799,15 @@ void nonmoving_print_segment(struct nonmoving_segment *seg)
     debugBelch("End of segment\n\n");
 }
 
-void nonmoving_print_allocator(struct nonmoving_allocator *alloc)
+void nonmovingPrintAllocator(struct NonmovingAllocator *alloc)
 {
     debugBelch("Allocator at %p\n", (void*)alloc);
     debugBelch("Filled segments:\n");
-    for (struct nonmoving_segment *seg = alloc->filled; seg != NULL; seg = seg->link) {
+    for (struct NonmovingSegment *seg = alloc->filled; seg != NULL; seg = seg->link) {
         debugBelch("%p ", (void*)seg);
     }
     debugBelch("\nActive segments:\n");
-    for (struct nonmoving_segment *seg = alloc->active; seg != NULL; seg = seg->link) {
+    for (struct NonmovingSegment *seg = alloc->active; seg != NULL; seg = seg->link) {
         debugBelch("%p ", (void*)seg);
     }
     debugBelch("\nCurrent segments:\n");
@@ -821,16 +821,16 @@ void locate_object(P_ obj)
 {
     // Search allocators
     for (int alloca_idx = 0; alloca_idx < NONMOVING_ALLOCA_CNT; ++alloca_idx) {
-        struct nonmoving_allocator *alloca = nonmoving_heap.allocators[alloca_idx];
+        struct NonmovingAllocator *alloca = nonmovingHeap.allocators[alloca_idx];
         for (uint32_t cap = 0; cap < n_capabilities; ++cap) {
-            struct nonmoving_segment *seg = alloca->current[cap];
+            struct NonmovingSegment *seg = alloca->current[cap];
             if (obj >= (P_)seg && obj < (((P_)seg) + NONMOVING_SEGMENT_SIZE_W)) {
                 debugBelch("%p is in current segment of capability %d of allocator %d at %p\n", obj, cap, alloca_idx, (void*)seg);
                 return;
             }
         }
         int seg_idx = 0;
-        struct nonmoving_segment *seg = alloca->active;
+        struct NonmovingSegment *seg = alloca->active;
         while (seg) {
             if (obj >= (P_)seg && obj < (((P_)seg) + NONMOVING_SEGMENT_SIZE_W)) {
                 debugBelch("%p is in active segment %d of allocator %d at %p\n", obj, seg_idx, alloca_idx, (void*)seg);
@@ -852,7 +852,7 @@ void locate_object(P_ obj)
         }
     }
 
-    struct nonmoving_segment *seg = nonmoving_heap.free;
+    struct NonmovingSegment *seg = nonmovingHeap.free;
     int seg_idx = 0;
     while (seg) {
         if (obj >= (P_)seg && obj < (((P_)seg) + NONMOVING_SEGMENT_SIZE_W)) {
@@ -942,11 +942,11 @@ void locate_object(P_ obj)
 #endif
 }
 
-void nonmoving_print_sweep_list()
+void nonmovingPrintSweepList()
 {
     debugBelch("==== SWEEP LIST =====\n");
     int i = 0;
-    for (struct nonmoving_segment *seg = nonmoving_heap.sweep_list; seg; seg = seg->link) {
+    for (struct NonmovingSegment *seg = nonmovingHeap.sweep_list; seg; seg = seg->link) {
         debugBelch("%d: %p\n", i++, (void*)seg);
     }
     debugBelch("= END OF SWEEP LIST =\n");

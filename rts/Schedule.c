@@ -2500,7 +2500,7 @@ resumeThread (void *task_)
     incall->suspended_tso = NULL;
     incall->suspended_cap = NULL;
     // we will modify tso->_link
-    upd_rem_set_push_closure(cap, (StgClosure *)tso->_link, NULL);
+    updateRemembSetPushClosure(cap, (StgClosure *)tso->_link, NULL);
     tso->_link = END_TSO_QUEUE;
 
     traceEventRunThread(cap, tso);
@@ -2712,7 +2712,7 @@ exitScheduler (bool wait_foreign USED_IF_THREADS)
     // If we haven't killed all the threads yet, do it now.
     if (sched_state < SCHED_SHUTTING_DOWN) {
         sched_state = SCHED_INTERRUPTING;
-        nonmoving_wait_until_finished();
+        nonmovingWaitUntilFinished();
         Capability *cap = task->cap;
         waitForCapability(&cap,task);
         scheduleDoGC(&cap,task,true);

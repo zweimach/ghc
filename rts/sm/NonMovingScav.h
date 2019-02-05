@@ -4,7 +4,7 @@
 
 #include "BeginPrivate.h"
 
-void nonmoving_scavenge_one(StgClosure *p);
-void scavenge_nonmoving_segment(struct nonmoving_segment *seg);
+void nonmovingScavengeOne(StgClosure *p);
+void scavengeNonmovingSegment(struct NonmovingSegment *seg);
 
 #include "EndPrivate.h"

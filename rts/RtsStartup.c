@@ -433,7 +433,7 @@ hs_exit_(bool wait_foreign)
     exitHpc();
 
     /* wait for any on-going concurrent GC to finish */
-    nonmoving_exit();
+    nonmovingExit();
 
     // clean up things from the storage manager's point of view.
     // also outputs the stats (+RTS -s) info.

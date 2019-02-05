@@ -115,58 +115,58 @@ extern StgIndStatic *debug_caf_list_snapshot;
 extern MarkQueue *current_mark_queue;
 extern bdescr *upd_rem_set_block_list;
 extern bool nonmoving_write_barrier_enabled;
-void nonmoving_mark_init_upd_rem_set(void);
+void nonmovingMarkInitUpdRemSet(void);
 
 void init_upd_rem_set(UpdRemSet *rset);
-void upd_rem_set_push_thunk(Capability *cap, StgThunk *origin);
-void upd_rem_set_push_thunk_(StgRegTable *reg, StgThunk *origin);
-void upd_rem_set_push_tso(Capability *cap, StgTSO *tso);
-void upd_rem_set_push_stack(Capability *cap, StgStack *stack);
+void updateRemembSetPushThunk(Capability *cap, StgThunk *origin);
+void updateRemembSetPushThunk_(StgRegTable *reg, StgThunk *origin);
+void updateRemembSetPushTSO(Capability *cap, StgTSO *tso);
+void updateRemembSetPushStack(Capability *cap, StgStack *stack);
 // Debug only -- count number of blocks in global UpdRemSet
-int count_global_upd_rem_set_blocks(void);
+int countGlobalUpdateRemembSetBlocks(void);
 
 #if defined(THREADED_RTS)
-void nonmoving_flush_cap_upd_rem_set_blocks(Capability *cap);
-void nonmoving_begin_flush(Task *task);
-bool nonmoving_wait_for_flush(void);
-void nonmoving_finish_flush(Task *task);
+void nonmovingFlushCapUpdRemSetBlocks(Capability *cap);
+void nonmovingBeginFlush(Task *task);
+bool nonmovingWaitForFlush(void);
+void nonmovingFinishFlush(Task *task);
 #endif
 
-void mark_queue_add_root(MarkQueue* q, StgClosure** root);
+void markQueueAddRoot(MarkQueue* q, StgClosure** root);
 
-void init_mark_queue(MarkQueue *queue);
-void free_mark_queue(MarkQueue *queue);
-void nonmoving_mark(struct MarkQueue_ *restrict queue);
+void initMarkQueue(MarkQueue *queue);
+void freeMarkQueue(MarkQueue *queue);
+void nonmovingMark(struct MarkQueue_ *restrict queue);
 
-bool nonmoving_tidy_weaks(struct MarkQueue_ *queue);
-void nonmoving_tidy_threads(void);
-void nonmoving_mark_dead_weaks(struct MarkQueue_ *queue, StgWeak **dead_weak_ptr_list);
-void nonmoving_resurrect_threads(struct MarkQueue_ *queue, StgTSO **resurrected_threads);
-bool nonmoving_is_alive(StgClosure *p);
-void nonmoving_mark_dead_weak(struct MarkQueue_ *queue, StgWeak *w);
-void nonmoving_mark_live_weak(struct MarkQueue_ *queue, StgWeak *w);
+bool nonmovingTidyWeaks(struct MarkQueue_ *queue);
+void nonmovingTidyThreads(void);
+void nonmovingMarkDeadWeaks(struct MarkQueue_ *queue, StgWeak **dead_weak_ptr_list);
+void nonmovingResurrectThreads(struct MarkQueue_ *queue, StgTSO **resurrected_threads);
+bool nonmovingIsAlive(StgClosure *p);
+void nonmovingMarkDeadWeak(struct MarkQueue_ *queue, StgWeak *w);
+void nonmovingMarkLiveWeak(struct MarkQueue_ *queue, StgWeak *w);
 
-void mark_queue_push(MarkQueue *q, const MarkQueueEnt *ent);
-void mark_queue_push_closure(MarkQueue *q,
+void markQueuePush(MarkQueue *q, const MarkQueueEnt *ent);
+void markQueuePushClosure(MarkQueue *q,
                              StgClosure *p,
                              StgClosure **origin);
-void mark_queue_push_closure_(MarkQueue *q, StgClosure *p);
-void mark_queue_push_thunk_srt(MarkQueue *q, const StgInfoTable *info);
-void mark_queue_push_fun_srt(MarkQueue *q, const StgInfoTable *info);
-void mark_queue_push_array(MarkQueue *q, const StgMutArrPtrs *array, StgWord start_index);
-void upd_rem_set_push_thunk_eager(Capability *cap,
+void markQueuePushClosure_(MarkQueue *q, StgClosure *p);
+void markQueuePushThunkSrt(MarkQueue *q, const StgInfoTable *info);
+void markQueuePushFunSrt(MarkQueue *q, const StgInfoTable *info);
+void markQueuePushArray(MarkQueue *q, const StgMutArrPtrs *array, StgWord start_index);
+void updateRemembSetPushThunkEager(Capability *cap,
                                   const StgThunkInfoTable *orig_info,
                                   StgThunk *thunk);
 
-INLINE_HEADER bool mark_queue_is_empty(MarkQueue *q)
+INLINE_HEADER bool markQueueIsEmpty(MarkQueue *q)
 {
     return (q->blocks == NULL) || (q->top->head == 0 && q->blocks->link == NULL);
 }
 
 #if defined(DEBUG)
 
-void print_queue_ent(MarkQueueEnt *ent);
-void print_mark_queue(MarkQueue *q);
+void printMarkQueueEntry(MarkQueueEnt *ent);
+void printMarkQueue(MarkQueue *q);
 
 #endif
 

@@ -715,7 +715,7 @@ threadStackUnderflow (Capability *cap, StgTSO *tso)
             // necessarily form a full closure so we need to handle them
             // specially.
             for (unsigned int i = 0; i < retvals; i++) {
-                upd_rem_set_push_closure(cap,
+                updateRemembSetPushClosure(cap,
                                          (StgClosure *) old_stack->sp[i],
                                          NULL);
             }

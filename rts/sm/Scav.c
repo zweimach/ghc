@@ -1657,7 +1657,7 @@ scavenge_mutable_list(bdescr *bd, generation *gen)
 
             if (RtsFlags.GcFlags.useNonmoving && major_gc && gen == oldest_gen) {
                 // We can't use scavenge_one here as we need to scavenge SRTs
-                nonmoving_scavenge_one((StgClosure *)p);
+                nonmovingScavengeOne((StgClosure *)p);
             } else if (scavenge_one(p)) {
                 // didn't manage to promote everything, so put the
                 // object back on the list.
@@ -2056,11 +2056,11 @@ loop:
         ws = &gct->gens[g];
 
         if (ws->todo_seg != END_NONMOVING_TODO_LIST) {
-            struct nonmoving_segment *seg = ws->todo_seg;
+            struct NonmovingSegment *seg = ws->todo_seg;
             ASSERT(seg->todo_link);
             ws->todo_seg = seg->todo_link;
             seg->todo_link = NULL;
-            scavenge_nonmoving_segment(seg);
+            scavengeNonmovingSegment(seg);
             did_something = true;
             break;
         }
