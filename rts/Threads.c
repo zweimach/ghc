@@ -86,6 +86,7 @@ createThread(Capability *cap, W_ size)
     stack->stack_size   = stack_size - sizeofW(StgStack);
     stack->sp           = stack->stack + stack->stack_size;
     stack->dirty        = STACK_DIRTY;
+    stack->marking      = 0;
 
     tso = (StgTSO *)allocate(cap, sizeofW(StgTSO));
     TICK_ALLOC_TSO();
@@ -601,6 +602,7 @@ threadStackOverflow (Capability *cap, StgTSO *tso)
     TICK_ALLOC_STACK(chunk_size);
 
     new_stack->dirty = 0; // begin clean, we'll mark it dirty below
+    new_stack->marking = 0;
     new_stack->stack_size = chunk_size - sizeofW(StgStack);
     new_stack->sp = new_stack->stack + new_stack->stack_size;
 
