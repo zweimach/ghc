@@ -148,6 +148,8 @@ StgIndStatic *debug_caf_list_snapshot = (StgIndStatic*)END_OF_CAF_LIST;
  */
 static Mutex upd_rem_set_lock;
 bdescr *upd_rem_set_block_list = NULL;
+static HashTable * upd_rem_set_static;
+
 
 #if defined(THREADED_RTS)
 /* Used during the mark/sweep phase transition to track how many capabilities
@@ -172,6 +174,7 @@ MarkQueue *current_mark_queue = NULL;
 
 /* Initialise update remembered set data structures */
 void nonmovingMarkInitUpdRemSet() {
+    upd_rem_set_static = allocHashTable();
     initMutex(&upd_rem_set_lock);
     initCondition(&upd_rem_set_flushed_cond);
 #if defined(THREADED_RTS)
@@ -184,6 +187,12 @@ static uint32_t markQueueLength(MarkQueue *q);
 #endif
 static void init_mark_queue_(MarkQueue *queue);
 
+static void transfer_mark_entry(void *data, StgWord key, const void *value)
+{
+    HashTable *dest = (HashTable *) data;
+    insertHashTable(dest, key, value);
+}
+
 /* Transfers the given capability's update-remembered set to the global
  * remembered set.
  *
@@ -192,25 +201,27 @@ static void init_mark_queue_(MarkQueue *queue);
  */
 static void nonmovingAddUpdRemSetBlocks(MarkQueue *rset)
 {
-    if (markQueueIsEmpty(rset)) return;
+    if (!markQueueIsEmpty(rset)) {
+      // find the tail of the queue
+      bdescr *start = rset->blocks;
+      bdescr *end = start;
+      while (end->link != NULL)
+          end = end->link;
 
-    // find the tail of the queue
-    bdescr *start = rset->blocks;
-    bdescr *end = start;
-    while (end->link != NULL)
-        end = end->link;
+      end->link = upd_rem_set_block_list;
+      upd_rem_set_block_list = start;
+    }
 
     // add the blocks to the global remembered set
     ACQUIRE_LOCK(&upd_rem_set_lock);
-    end->link = upd_rem_set_block_list;
-    upd_rem_set_block_list = start;
-    RELEASE_LOCK(&upd_rem_set_lock);
+    mapHashTable(rset->marked_objects, upd_rem_set_static, transfer_mark_entry);
 
     // Reset remembered set
     ACQUIRE_SM_LOCK;
     init_mark_queue_(rset);
     rset->is_upd_rem_set = true;
     RELEASE_SM_LOCK;
+    RELEASE_LOCK(&upd_rem_set_lock);
 }
 
 #if defined(THREADED_RTS)
@@ -686,7 +697,7 @@ void init_upd_rem_set(UpdRemSet *rset)
 {
     init_mark_queue_(&rset->queue);
     // Update remembered sets don't have to worry about static objects
-    rset->queue.marked_objects = NULL;
+    rset->queue.marked_objects = allocHashTable();
     rset->queue.is_upd_rem_set = true;
 }
 
@@ -1425,6 +1436,10 @@ GNUC_ATTR_HOT void nonmovingMark(MarkQueue *queue)
                 queue->blocks = upd_rem_set_block_list;
                 queue->top = (MarkQueueBlock *) queue->blocks->start;
                 upd_rem_set_block_list = NULL;
+
+                mapHashTable(upd_rem_set_static, queue->marked_objects, transfer_mark_entry);
+                //freeHashTable(upd_rem_set_static);
+                upd_rem_set_static = allocHashTable();
                 RELEASE_LOCK(&upd_rem_set_lock);
 
                 ACQUIRE_SM_LOCK;
