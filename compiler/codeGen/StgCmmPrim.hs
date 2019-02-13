@@ -1622,7 +1622,7 @@ doWritePtrArrayOp addr idx val
        let ty = cmmExprType dflags val
            hdr_size = arrPtrsHdrSize dflags
        -- Update remembered set for non-moving collector
-       whenUpdRemSetEnabled
+       whenUpdRemSetEnabled dflags
            $ emitUpdRemSetPush (cmmLoadIndexOffExpr dflags hdr_size ty addr ty idx)
        -- This write barrier is to ensure that the heap writes to the object
        -- referred to by val have happened before we write val into the array.
@@ -2389,7 +2389,7 @@ doWriteSmallPtrArrayOp addr idx val = do
     let ty = cmmExprType dflags val
         hdr_size = fixedHdrSize dflags
     -- Update remembered set for non-moving collector
-    whenUpdRemSetEnabled
+    whenUpdRemSetEnabled dflags
         $ emitUpdRemSetPush (cmmLoadIndexOffExpr dflags hdr_size ty addr ty idx)
     emitPrimCall [] MO_WriteBarrier [] -- #12469
     mkBasicIndexedWrite (smallArrPtrsHdrSize dflags) Nothing addr ty idx val
@@ -2568,8 +2568,15 @@ emitCtzCall res x width = do
 -- Pushing to the update remembered set
 ---------------------------------------------------------------------------
 
-whenUpdRemSetEnabled :: FCode a -> FCode a
-whenUpdRemSetEnabled = id -- TODO
+whenUpdRemSetEnabled :: DynFlags -> FCode a -> FCode ()
+whenUpdRemSetEnabled dflags code = do
+    do_it <- getCode code
+    the_if <- mkCmmIfThenElse' is_enabled do_it mkNop (Just False)
+    emit the_if
+  where
+    enabled = CmmLoad (CmmLit $ CmmLabel mkNonmovingWriteBarrierEnabledLabel) (bWord dflags)
+    zero = zeroExpr dflags
+    is_enabled = cmmNeWord dflags enabled zero
 
 -- | Emit code to add an entry to a now-overwritten pointer to the update
 -- remembered set.
@@ -2592,10 +2599,11 @@ emitCopyUpdRemSetPush :: DynFlags
                       -> Int        -- ^ number of elements to copy
                       -> FCode ()
 emitCopyUpdRemSetPush _dflags _hdr_size _dst _dst_off 0 = return ()
-emitCopyUpdRemSetPush dflags hdr_size dst dst_off n = whenUpdRemSetEnabled $ do
-    updfr_off <- getUpdFrameOff
-    graph <- mkCall lbl (NativeNodeCall,NativeReturn) [] args updfr_off []
-    emit graph
+emitCopyUpdRemSetPush dflags hdr_size dst dst_off n =
+    whenUpdRemSetEnabled dflags $ do
+        updfr_off <- getUpdFrameOff
+        graph <- mkCall lbl (NativeNodeCall,NativeReturn) [] args updfr_off []
+        emit graph
   where
     lbl = mkLblExpr $ mkPrimCallLabel
           $ PrimCall (fsLit "stg_copyArray_barrier") rtsUnitId
