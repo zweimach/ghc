@@ -330,7 +330,7 @@ threadPaused(Capability *cap, StgTSO *tso)
             }
 #endif
 
-            if (nonmoving_write_barrier_enabled
+            if (RTS_UNLIKELY(nonmoving_write_barrier_enabled)
                 && ip_THUNK(INFO_PTR_TO_STRUCT(bh_info))) {
                 // We are about to replace a thunk with a blackhole.
                 // Add the free variables of the closure we are about to
