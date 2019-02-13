@@ -639,7 +639,7 @@ void markQueuePushClosure (MarkQueue *q,
 /* TODO: Do we really never want to specify the origin here? */
 void markQueueAddRoot (MarkQueue* q, StgClosure** root)
 {
-    markQueuePushClosure(q, *root, NULL);
+    markQueuePushClosure(q, *root, root);
 }
 
 /* Push a closure to the mark queue without origin information */
@@ -1002,9 +1002,9 @@ mark_stack (MarkQueue *queue, StgStack *stack)
 static GNUC_ATTR_HOT void
 mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
 {
-    (void)origin; // TODO: should be used for selector/thunk optimisations
-
+    StgWord tag;
  try_again:
+    tag = GET_CLOSURE_TAG(p);
     p = UNTAG_CLOSURE(p);
 
 #   define PUSH_FIELD(obj, field)                                \
@@ -1019,11 +1019,17 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
         if (type == CONSTR_0_1 || type == CONSTR_0_2 || type == CONSTR_NOCAF) {
             // no need to put these on the static linked list, they don't need
             // to be marked.
+            if (origin) {
+                *origin = TAG_CLOSURE(tag, p);
+            }
             return;
         }
 
         if (lookupHashTable(queue->marked_objects, (W_)p)) {
             // already marked
+            if (origin) {
+                *origin = TAG_CLOSURE(tag, p);
+            }
             return;
         }
 
@@ -1034,6 +1040,9 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
         case THUNK_STATIC:
             if (info->srt != 0) {
                 markQueuePushThunkSrt(queue, info); // TODO this function repeats the check above
+            }
+            if (origin) {
+                *origin = TAG_CLOSURE(tag, p);
             }
             return;
 
@@ -1049,10 +1058,16 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
                     PUSH_FIELD(p, payload[i]);
                 }
             }
+            if (origin) {
+                *origin = TAG_CLOSURE(tag, p);
+            }
             return;
 
         case IND_STATIC:
             PUSH_FIELD((StgInd *) p, indirectee);
+            if (origin) {
+                *origin = TAG_CLOSURE(tag, p);
+            }
             return;
 
         case CONSTR:
@@ -1061,6 +1076,9 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
         case CONSTR_1_1:
             for (StgHalfWord i = 0; i < info->layout.payload.ptrs; ++i) {
                 PUSH_FIELD(p, payload[i]);
+            }
+            if (origin) {
+                *origin = TAG_CLOSURE(tag, p);
             }
             return;
 
@@ -1101,6 +1119,9 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
                 return;
             }
             if (bd->flags & BF_MARKED) {
+                if (origin) {
+                    *origin = TAG_CLOSURE(tag, p);
+                }
                 return;
             }
 
@@ -1128,6 +1149,12 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
                  * things above the allocation pointer that aren't marked since
                  * they may not be valid objects.
                  */
+
+                // TODO: Not quite right: we want to follow indirections even
+                // when they're already marked
+                if (origin) {
+                    *origin = TAG_CLOSURE(tag, p);
+                }
                 return;
             }
         }
@@ -1278,10 +1305,40 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
     }
 
 
-    case IND:
-    case BLACKHOLE:
-        PUSH_FIELD((StgInd *) p, indirectee);
-        break;
+    case IND: {
+        // Follow the indirection
+        p = ((StgInd *) p)->indirectee;
+        goto try_again;
+    }
+
+    case BLACKHOLE: {
+        StgClosure *r;
+bh_loop:
+        r = ((StgInd*)p)->indirectee;
+        if (GET_CLOSURE_TAG(r) == 0) {
+            const StgInfoTable *i = r->header.info;
+            if (i == &stg_IND_info) {
+                // Caught BH in a temporary state, see Note [BLACKHOLE pointing
+                // to IND] in Evac.c. Loop until it's updated.
+                // debugBelch("Non-moving busy loop\n");
+                goto bh_loop;
+            } else if (i == &stg_TSO_info
+                       || i == &stg_WHITEHOLE_info
+                       || i == &stg_BLOCKING_QUEUE_CLEAN_info
+                       || i == &stg_BLOCKING_QUEUE_DIRTY_info) {
+                // Can't short-out, just push the indirectee
+                // The BLACKHOLE may be updated as we mark, but we won't short
+                // it until the next GC.
+                // debugBelch("Non-moving can't short indirection\n");
+                PUSH_FIELD((StgInd*)p, indirectee);
+                break;
+            }
+        }
+        // Otherwise follow the indirection
+        p = r;
+        // debugBelch("Non-moving mark following an indirection\n");
+        goto try_again;
+    }
 
     case MUT_VAR_CLEAN:
     case MUT_VAR_DIRTY:
@@ -1405,6 +1462,10 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
     }
 
 #   undef PUSH_FIELD
+
+    if (origin) {
+        *origin = TAG_CLOSURE(tag, p);
+    }
 
     /* Set the mark bit: it's important that we do this only after we actually push
      * the object's pointers since in the case of marking stacks there may be a
