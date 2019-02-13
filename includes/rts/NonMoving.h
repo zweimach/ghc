@@ -23,3 +23,5 @@ void updateRemembSetPushClosure_(StgRegTable *reg,
 void updateRemembSetPushClosure(Capability *cap,
                               StgClosure *p,
                               StgClosure **origin);
+
+extern bool DLL_IMPORT_DATA_VAR(nonmoving_write_barrier_enabled);
