@@ -1651,6 +1651,10 @@ scavenge_mutable_list(bdescr *bd, generation *gen)
                 recordMutableGen_GC((StgClosure *)p,gen_no);
                 continue;
             }
+            case COMPACT_NFDATA:
+                // Compact normal forms by definition have no outgoing pointers
+                gct->failed_to_evac = false;
+                continue;
             default:
                 ;
             }
