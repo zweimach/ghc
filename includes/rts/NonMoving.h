@@ -24,4 +24,4 @@ void updateRemembSetPushClosure(Capability *cap,
                               StgClosure *p,
                               StgClosure **origin);
 
-extern bool DLL_IMPORT_DATA_VAR(nonmoving_write_barrier_enabled);
+extern StgWord DLL_IMPORT_DATA_VAR(nonmoving_write_barrier_enabled);
