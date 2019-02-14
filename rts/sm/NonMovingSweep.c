@@ -16,6 +16,7 @@
 #include "Storage.h"
 #include "Trace.h"
 #include "StableName.h"
+#include "sm/CNF.h"
 
 static struct NonmovingSegment *pop_all_filled_segments(struct NonmovingAllocator *alloc)
 {
@@ -210,6 +211,20 @@ void nonmovingSweepLargeObjects()
     n_nonmoving_large_blocks = n_nonmoving_marked_large_blocks;
     nonmoving_marked_large_objects = NULL;
     n_nonmoving_marked_large_blocks = 0;
+}
+
+void nonmovingSweepCompactObjects()
+{
+    bdescr *next, *bd;
+    for (bd = nonmoving_compact_objects; bd; bd = next) {
+        next = bd->link;
+        compactFree(((StgCompactNFDataBlock*) bd->start)->owner);
+    }
+
+    nonmoving_compact_objects = nonmoving_marked_compact_objects;
+    n_nonmoving_compact_blocks = n_nonmoving_marked_compact_blocks;
+    nonmoving_marked_compact_objects = NULL;
+    n_nonmoving_marked_compact_blocks = 0;
 }
 
 // Helper for nonmovingSweepStableNameTable. Essentially nonmovingIsAlive,

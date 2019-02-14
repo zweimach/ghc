@@ -276,7 +276,7 @@ compactFree(StgCompactNFData *str)
     for ( ; block; block = next) {
         next = block->next;
         bd = Bdescr((StgPtr)block);
-        ASSERT((bd->flags & BF_EVACUATED) == 0);
+        ASSERT((bd->flags & BF_EVACUATED) == 0 || (bd->flags & BF_NONMOVING_SWEEPING));
         freeGroup(bd);
     }
 }

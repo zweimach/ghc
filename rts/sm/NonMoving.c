@@ -363,11 +363,17 @@ static void nonmovingClearAllBitmaps(void)
     for (bdescr *bd = nonmoving_large_objects; bd; bd = bd->link) {
         bd->flags &= ~BF_MARKED;
     }
+
+    // Clear compact object bits
+    for (bdescr *bd = nonmoving_compact_objects; bd; bd = bd->link) {
+        bd->flags &= ~BF_MARKED;
+    }
 }
 
 /* Prepare the heap bitmaps and snapshot metadata for a mark */
 static void nonmovingPrepareMark(void)
 {
+    // Deal with non-moving segments
     nonmovingClearAllBitmaps();
     nonmovingBumpEpoch();
     for (int alloca_idx = 0; alloca_idx < NONMOVING_ALLOCA_CNT; ++alloca_idx) {
@@ -391,6 +397,7 @@ static void nonmovingPrepareMark(void)
         // since.
     }
 
+    // Deal with large objects
     ASSERT(oldest_gen->scavenged_large_objects == NULL);
     bdescr *next;
     for (bdescr *bd = oldest_gen->large_objects; bd; bd = next) {
@@ -402,6 +409,17 @@ static void nonmovingPrepareMark(void)
     oldest_gen->large_objects = NULL;
     oldest_gen->n_large_words = 0;
     oldest_gen->n_large_blocks = 0;
+
+    // Deal with compacts
+    ASSERT(oldest_gen->live_compact_objects == NULL);
+    for (bdescr *bd = oldest_gen->compact_objects; bd; bd = next) {
+        next = bd->link;
+        bd->flags |= BF_NONMOVING_SWEEPING;
+        dbl_link_onto(bd, &nonmoving_compact_objects);
+    }
+    n_nonmoving_compact_blocks += oldest_gen->n_compact_blocks;
+    oldest_gen->compact_objects = NULL;
+    oldest_gen->n_compact_blocks = 0;
 
 #if defined(DEBUG)
     debug_caf_list_snapshot = debug_caf_list;
@@ -460,6 +478,8 @@ void nonmovingCollect(StgWeak **dead_weaks, StgTSO **resurrected_threads)
     // N.B. These should have been cleared at the end of the last sweep.
     ASSERT(nonmoving_marked_large_objects == NULL);
     ASSERT(n_nonmoving_marked_large_blocks == 0);
+    ASSERT(nonmoving_marked_compact_objects == NULL);
+    ASSERT(n_nonmoving_marked_compact_blocks == 0);
 
     MarkQueue *mark_queue = stgMallocBytes(sizeof(MarkQueue), "mark queue");
     initMarkQueue(mark_queue);
@@ -675,6 +695,7 @@ static void nonmovingMark_(MarkQueue *mark_queue, StgWeak **dead_weaks, StgTSO *
     // collect them in a map in mark_queue and we pass it here to sweep large
     // objects
     nonmovingSweepLargeObjects();
+    nonmovingSweepCompactObjects();
     nonmovingSweepStableNameTable();
 
     nonmovingSweep();
@@ -904,6 +925,31 @@ void locate_object(P_ obj)
     for (bdescr *large_block = nonmoving_marked_large_objects; large_block; large_block = large_block->link) {
         if ((P_)large_block->start == obj) {
             debugBelch("%p is in nonmoving_marked_large_objects\n", obj);
+            return;
+        }
+    }
+
+    // Search compact objects
+    for (uint32_t g = 0; g < RtsFlags.GcFlags.generations - 1; ++g) {
+        generation *gen = &generations[g];
+        for (bdescr *compact_block = gen->compact_objects; compact_block; compact_block = compact_block->link) {
+            if ((P_)compact_block->start == obj) {
+                debugBelch("%p is in compact blocks of generation %d\n", obj, g);
+                return;
+            }
+        }
+    }
+
+    for (bdescr *compact_block = nonmoving_compact_objects; compact_block; compact_block = compact_block->link) {
+        if ((P_)compact_block->start == obj) {
+            debugBelch("%p is in nonmoving_compact_objects\n", obj);
+            return;
+        }
+    }
+
+    for (bdescr *compact_block = nonmoving_marked_compact_objects; compact_block; compact_block = compact_block->link) {
+        if ((P_)compact_block->start == obj) {
+            debugBelch("%p is in nonmoving_marked_compact_objects\n", obj);
             return;
         }
     }

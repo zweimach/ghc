@@ -771,6 +771,8 @@ static void checkGeneration (generation *gen,
     if (RtsFlags.GcFlags.useNonmoving && gen == oldest_gen) {
         ASSERT(countBlocks(nonmoving_large_objects) == n_nonmoving_large_blocks);
         ASSERT(countBlocks(nonmoving_marked_large_objects) == n_nonmoving_marked_large_blocks);
+        ASSERT(countBlocks(nonmoving_compact_objects) == n_nonmoving_compact_blocks);
+        ASSERT(countBlocks(nonmoving_marked_compact_objects) == n_nonmoving_marked_compact_blocks);
     }
 
     checkHeapChain(gen->blocks);

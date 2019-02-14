@@ -23,6 +23,7 @@
 #include "STM.h"
 #include "MarkWeak.h"
 #include "sm/Storage.h"
+#include "sm/CNF.h"
 
 static void mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin);
 static void mark_tso (MarkQueue *queue, StgTSO *tso);
@@ -70,6 +71,14 @@ bdescr *nonmoving_large_objects = NULL;
 bdescr *nonmoving_marked_large_objects = NULL;
 memcount n_nonmoving_large_blocks = 0;
 memcount n_nonmoving_marked_large_blocks = 0;
+
+// Compact objects are treated similarly to large objects.
+// Protected by nonmoving_large_objects_mutex.
+bdescr *nonmoving_compact_objects = NULL;
+bdescr *nonmoving_marked_compact_objects = NULL;
+memcount n_nonmoving_compact_blocks = 0;
+memcount n_nonmoving_marked_compact_blocks = 0;
+
 #if defined(THREADED_RTS)
 /* Protects everything above. Furthermore, we only set the BF_MARKED bit of
  * large object blocks when this is held. This ensures that the write barrier
@@ -391,6 +400,7 @@ void push_fun_srt (MarkQueue *q, const StgInfoTable *info)
 //
 // - Object is in non-moving heap
 // - Object is a large (BF_LARGE) and marked as BF_NONMOVING
+// - Object is a compact (BF_COMPACT) and marked as BF_NONMOVING
 // - Object is static (HEAP_ALLOCED_GC(obj) == false)
 //
 static
@@ -1048,7 +1058,32 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
 
     ASSERT(!IS_FORWARDING_PTR(p->header.info));
 
-    if (bd->flags & BF_NONMOVING) {
+    if (bd->flags & BF_COMPACT) {
+        /* Marking a compact object isn't idempotent since we move it to
+         * nonmoving_marked_compact_objects; to ensure that we don't
+         * repeatedly mark a compact object, we only set BF_MARKED on
+         * compact objects in the nonmoving heap while holding
+         * nonmoving_large_objects_mutex
+         */
+        StgCompactNFData *str = objectGetCompact(p);
+        ASSERT(get_itbl((StgClosure*)str)->type == COMPACT_NFDATA);
+        bd = Bdescr((StgPtr) str);
+        ASSERT(bd->flags & BF_NONMOVING);
+
+        ACQUIRE_LOCK(&nonmoving_large_objects_mutex);
+        if (! (bd->flags & BF_MARKED)) {
+            // Remove the object from nonmoving_compact_objects and link it to
+            // nonmoving_marked_compact_objects
+            dbl_link_remove(bd, &nonmoving_compact_objects);
+            dbl_link_onto(bd, &nonmoving_marked_compact_objects);
+            n_nonmoving_compact_blocks -= bd->blocks;
+            n_nonmoving_marked_compact_blocks += bd->blocks;
+            bd->flags |= BF_MARKED;
+        }
+        RELEASE_LOCK(&nonmoving_large_objects_mutex);
+        // No need to mark contents of CNFs
+        return;
+    } else if (bd->flags & BF_NONMOVING) {
 
         if (bd->flags & BF_LARGE) {
             if (! (bd->flags & BF_NONMOVING_SWEEPING)) {
@@ -1468,7 +1503,7 @@ bool nonmovingIsAlive (StgClosure *p)
     // BF_NONMOVING
     ASSERT(bd->flags & BF_NONMOVING);
 
-    if (bd->flags & BF_LARGE) {
+    if (bd->flags & (BF_LARGE | BF_COMPACT)) {
         return (bd->flags & BF_NONMOVING_SWEEPING) == 0
                    // the large object wasn't in the snapshot and therefore wasn't marked
             || (bd->flags & BF_MARKED) != 0;
@@ -1514,7 +1549,7 @@ static bool nonmovingIsNowAlive (StgClosure *p)
     // BF_NONMOVING
     ASSERT(bd->flags & BF_NONMOVING);
 
-    if (bd->flags & BF_LARGE) {
+    if (bd->flags & (BF_LARGE | BF_COMPACT)) {
         return (bd->flags & BF_NONMOVING_SWEEPING) == 0
                    // the large object wasn't in the snapshot and therefore wasn't marked
             || (bd->flags & BF_MARKED) != 0;

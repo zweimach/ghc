@@ -462,6 +462,9 @@ evacuate_compact (StgPtr p)
     // for that - the only code touching the generation of the block is
     // in the GC, and that should never see blocks other than the first)
     bd->flags |= BF_EVACUATED;
+    if (RtsFlags.GcFlags.useNonmoving && new_gen == oldest_gen) {
+        bd->flags |= BF_NONMOVING;
+    }
     initBdescr(bd, new_gen, new_gen->to);
 
     if (str->hash) {

@@ -16,8 +16,11 @@ GNUC_ATTR_HOT void nonmovingSweep(void);
 // Remove unmarked entries in oldest generation mut_lists
 void nonmovingSweepMutLists(void);
 
-// Remove unmarked entries in oldest generation scavenged_large_objects list
+// Remove unmarked entries in oldest generation large objects list
 void nonmovingSweepLargeObjects(void);
+
+// Remove unmarked entries in oldest generation compact objects list
+void nonmovingSweepCompactObjects(void);
 
 // Remove dead entries in the stable name table
 void nonmovingSweepStableNameTable(void);

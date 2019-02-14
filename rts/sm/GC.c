@@ -647,24 +647,38 @@ GarbageCollect (uint32_t collect_gen,
             gen->n_new_large_words = 0;
         }
 
-        /* COMPACT_NFDATA. The currently live compacts are chained
-         * to live_compact_objects, quite like large objects. And
-         * objects left on the compact_objects list are dead.
-         *
-         * We don't run a simple freeChain because want to give the
-         * CNF module some chance to free memory that freeChain would
-         * not see (namely blocks appended to a CNF through a compactResize).
-         *
-         * See Note [Compact Normal Forms] for details.
-         */
+        /* COMPACT NORMAL FORMS */
+        if (RtsFlags.GcFlags.useNonmoving && g == oldest_gen->no) {
+            /* Same logic for non-moving collector's treatment of large objects
+             * applies to compacts. These will be freed in
+             * nonmovingSweepCompactObjects.
+             */
+            for (bd = gen->live_compact_objects; bd; bd = next) {
+                next = bd->link;
+                dbl_link_onto(bd, &gen->compact_objects);
+            }
+            gen->n_compact_blocks += gen->n_live_compact_blocks;
+            gen->live_compact_objects = NULL;
+            gen->n_live_compact_blocks = 0;
+        } else {
+            /* COMPACT_NFDATA. The currently live compacts are chained
+             * to live_compact_objects, quite like large objects. And
+             * objects left on the compact_objects list are dead.
+             *
+             * We don't run a simple freeChain because want to give the
+             * CNF module some chance to free memory that freeChain would
+             * not see (namely blocks appended to a CNF through a compactResize).
+             *
+             * See Note [Compact Normal Forms] for details.
+             */
 
-        // TODO(osa): we need the same large object treatment here
-        for (bd = gen->compact_objects; bd; bd = next) {
-            next = bd->link;
-            compactFree(((StgCompactNFDataBlock*)bd->start)->owner);
+            for (bd = gen->compact_objects; bd; bd = next) {
+                next = bd->link;
+                compactFree(((StgCompactNFDataBlock*)bd->start)->owner);
+            }
+            gen->compact_objects = gen->live_compact_objects;
+            gen->n_compact_blocks = gen->n_live_compact_blocks;
         }
-        gen->compact_objects = gen->live_compact_objects;
-        gen->n_compact_blocks = gen->n_live_compact_blocks;
     }
     else // for generations > N
     {
