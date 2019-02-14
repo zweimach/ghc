@@ -16,12 +16,12 @@
 /* This is called by the code generator */
 extern DLL_IMPORT_RTS
 void updateRemembSetPushClosure_(StgRegTable *reg,
-                               StgClosure *p,
-                               StgClosure **origin);
+                                 StgClosure *p,
+                                 StgClosure **origin);
 
 
 void updateRemembSetPushClosure(Capability *cap,
-                              StgClosure *p,
-                              StgClosure **origin);
+                                StgClosure *p,
+                                StgClosure **origin);
 
 extern StgWord DLL_IMPORT_DATA_VAR(nonmoving_write_barrier_enabled);
