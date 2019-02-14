@@ -1621,13 +1621,16 @@ doWritePtrArrayOp addr idx val
   = do dflags <- getDynFlags
        let ty = cmmExprType dflags val
            hdr_size = arrPtrsHdrSize dflags
-       -- Update remembered set for non-moving collector
-       whenUpdRemSetEnabled
-           $ emitUpdRemSetPush dflags (cmmLoadIndexOffExpr dflags hdr_size ty addr ty idx)
+
        -- This write barrier is to ensure that the heap writes to the object
        -- referred to by val have happened before we write val into the array.
        -- See #12469 for details.
        emitPrimCall [] MO_WriteBarrier []
+
+       -- Update remembered set write barrier for non-moving collector
+       whenUpdRemSetEnabled
+           $ emitUpdRemSetPush dflags (cmmLoadIndexOffExpr dflags hdr_size ty addr ty idx)
+
        mkBasicIndexedWrite hdr_size Nothing addr ty idx val
        emit (setInfo addr (CmmLit (CmmLabel mkMAP_DIRTY_infoLabel)))
        -- the write barrier.  We must write a byte into the mark table:
