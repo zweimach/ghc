@@ -2565,9 +2565,7 @@ emitCtzCall res x width = do
 ---------------------------------------------------------------------------
 
 whenUpdRemSetEnabled :: DynFlags -> FCode a -> FCode ()
-whenUpdRemSetEnabled dflags code
-  | not $ WayThreaded `elem` ways dflags = return ()
-  | otherwise = do
+whenUpdRemSetEnabled dflags code = do
     do_it <- getCode code
     the_if <- mkCmmIfThenElse' is_enabled do_it mkNop (Just False)
     emit the_if
