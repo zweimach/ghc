@@ -233,22 +233,25 @@ static bool is_alive(StgClosure *p)
 
 void nonmovingSweepStableNameTable()
 {
-    // See comments in gcStableTables
-
     /* Note [Sweeping stable names in the concurrent collector]
      * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
      *
      * When collecting concurrently we need to take care to avoid freeing
-     * stable names the we didn't sweep this collection cycle. For instance,
+     * stable names that we did not sweep this collection cycle. For instance,
      * consider the following situation:
      *
-     *  1. We take a snapshot and start collection
-     *  2. A mutator allocates a new object, then makes a stable name for it
-     *  3. The mutator performs a minor GC and promotes the new object to the nonmoving heap
+     *  1. We take a snapshot and start concurrent collection.
+     *
+     *  2. A mutator allocates a new object, then makes a stable name for it.
+     *
+     *  3. The mutator performs a minor GC and the new object is promoted to
+     *     the nonmoving heap.
+     *
      *  4. The GC thread gets to the sweep phase and, when traversing the stable
      *     name table, finds the new object unmarked. It then assumes that the
      *     object is dead and removes the stable name from the stable name table.
      *
+     * See also: comments in gcStableNameTable
      */
 
     // FIXME: We can't use nonmovingIsAlive here without first using isAlive:
@@ -260,14 +263,17 @@ void nonmovingSweepStableNameTable()
         p, {
             if (p->sn_obj != NULL) {
                 if (!is_alive((StgClosure*)p->sn_obj)) {
+                    debugBelch("Freeing stable name %p (sn_obj=%p)\n", p, p->sn_obj);
                     p->sn_obj = NULL; // Just to make an assertion happy
                     freeSnEntry(p);
                 } else if (p->addr != NULL) {
                     if (!is_alive((StgClosure*)p->addr)) {
+                        debugBelch("Freeing stable name %p (addr=%p)\n", p, p->addr);
                         p->addr = NULL;
                     }
                 }
             }
         });
     stableNameUnlock();
+    updateStableNameTable(true);
 }
