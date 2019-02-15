@@ -116,8 +116,9 @@ INLINE_HEADER void nonmovingPushActiveSegment(struct NonmovingSegment *seg)
     struct NonmovingAllocator *alloc =
         nonmovingHeap.allocators[seg->block_size - NONMOVING_ALLOCA0];
     while (true) {
-        seg->link = alloc->active;
-        if (cas((StgVolatilePtr) &alloc->active, (StgWord) seg->link, (StgWord) seg) == (StgWord) seg->link)
+        struct NonmovingSegment *next = alloc->active;
+        seg->link = next;
+        if (cas((StgVolatilePtr) &alloc->active, (StgWord) next, (StgWord) seg) == (StgWord) next)
             break;
     }
 }
@@ -128,9 +129,14 @@ INLINE_HEADER void nonmovingPushFilledSegment(struct NonmovingSegment *seg)
     struct NonmovingAllocator *alloc =
         nonmovingHeap.allocators[seg->block_size - NONMOVING_ALLOCA0];
     while (true) {
-        seg->link = alloc->filled;
+        struct NonmovingSegment *next = alloc->filled;
+        seg->link = next;
+
+        // This can only happen if we raced with another thread to push this
+        // segment which should not happen; each capability should have its own
+        // active segment.
         ASSERT(seg->link != seg);
-        if (cas((StgVolatilePtr) &alloc->filled, (StgWord) seg->link, (StgWord) seg) == (StgWord) seg->link)
+        if (cas((StgVolatilePtr) &alloc->filled, (StgWord) next, (StgWord) seg) == (StgWord) next)
             break;
     }
 }
