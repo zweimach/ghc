@@ -302,6 +302,8 @@ void nonmovingExit(void)
  */
 void nonmovingAddCapabilities(uint32_t new_n_caps)
 {
+    ACQUIRE_LOCK(&nonmoving_collection_mutex);
+
     unsigned int old_n_caps = nonmovingHeap.n_caps;
     struct NonmovingAllocator **allocs = nonmovingHeap.allocators;
 
@@ -325,6 +327,7 @@ void nonmovingAddCapabilities(uint32_t new_n_caps)
         }
     }
     nonmovingHeap.n_caps = new_n_caps;
+    RELEASE_LOCK(&nonmoving_collection_mutex);
 }
 
 static void nonmovingClearBitmap(struct NonmovingSegment *seg)
