@@ -304,9 +304,6 @@ gcStableNameTable( void )
 void
 updateStableNameTable(bool full)
 {
-    // We must take the stable name lock lest we race with the nonmoving
-    // collector (namely nonmovingSweepStableNameTable).
-    stableNameLock();
     if (full && addrToStableHash != NULL && 0 != keyCountHashTable(addrToStableHash)) {
         freeHashTable(addrToStableHash,NULL);
         addrToStableHash = allocHashTable();
@@ -332,5 +329,4 @@ updateStableNameTable(bool full)
                 }
             });
     }
-    stableNameUnlock();
 }

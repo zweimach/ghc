@@ -773,7 +773,11 @@ GarbageCollect (uint32_t collect_gen,
 #endif
 
   // Update the stable name hash table
+  // We must take the stable name lock lest we race with the nonmoving
+  // collector (namely nonmovingSweepStableNameTable).
+  stableNameLock();
   updateStableNameTable(major_gc);
+  stableNameUnlock();
 
   // unlock the StablePtr table.  Must be before scheduleFinalizers(),
   // because a finalizer may call hs_free_fun_ptr() or

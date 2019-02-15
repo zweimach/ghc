@@ -274,6 +274,6 @@ void nonmovingSweepStableNameTable()
                 }
             }
         });
-    stableNameUnlock();
     updateStableNameTable(true);
+    stableNameUnlock();
 }
