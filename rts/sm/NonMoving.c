@@ -302,7 +302,14 @@ void nonmovingExit(void)
  */
 void nonmovingAddCapabilities(uint32_t new_n_caps)
 {
-    ACQUIRE_LOCK(&nonmoving_collection_mutex);
+    ACQUIRE_LOCK(&concurrent_coll_finished_lock);
+#if defined(THREADED_RTS)
+    if (mark_thread) {
+        debugTrace(DEBUG_nonmoving_gc,
+                   "waiting for nonmoving collector thread to terminate");
+        waitCondition(&concurrent_coll_finished, &concurrent_coll_finished_lock);
+    }
+#endif
 
     unsigned int old_n_caps = nonmovingHeap.n_caps;
     struct NonmovingAllocator **allocs = nonmovingHeap.allocators;
@@ -327,7 +334,7 @@ void nonmovingAddCapabilities(uint32_t new_n_caps)
         }
     }
     nonmovingHeap.n_caps = new_n_caps;
-    RELEASE_LOCK(&nonmoving_collection_mutex);
+    RELEASE_LOCK(&concurrent_coll_finished_lock);
 }
 
 static void nonmovingClearBitmap(struct NonmovingSegment *seg)
