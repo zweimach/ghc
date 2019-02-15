@@ -263,12 +263,10 @@ void nonmovingSweepStableNameTable()
         p, {
             if (p->sn_obj != NULL) {
                 if (!is_alive((StgClosure*)p->sn_obj)) {
-                    debugBelch("Freeing stable name %p (sn_obj=%p)\n", p, p->sn_obj);
                     p->sn_obj = NULL; // Just to make an assertion happy
                     freeSnEntry(p);
                 } else if (p->addr != NULL) {
                     if (!is_alive((StgClosure*)p->addr)) {
-                        debugBelch("Freeing stable name %p (addr=%p)\n", p, p->addr);
                         p->addr = NULL;
                     }
                 }
