@@ -2221,6 +2221,16 @@ setNumCapabilities (uint32_t new_n_capabilities USED_IF_THREADS)
         return;
     }
 
+    /* Make sure there is no active nonmoving collection otherwise we may
+     * deadlock when we enter nonmovingAddCapabilities:
+     *
+     *  - We will hold all capabilities
+     *  - We will block on nonmoving_collection_mutex
+     *  - The nonmoving collector will be blocked on a capability during the
+     *    post-mark synchronisation
+     *
+     */
+    nonmovingBlockCollection();
 
     debugTrace(DEBUG_sched, "changing the number of Capabilities from %d to %d",
                enabled_capabilities, new_n_capabilities);
@@ -2311,6 +2321,7 @@ setNumCapabilities (uint32_t new_n_capabilities USED_IF_THREADS)
     rts_evalIO(&cap, ioManagerCapabilitiesChanged_closure, NULL);
 
     rts_unlock(cap);
+    nonmovingUnblockCollection();
 
 #endif // THREADED_RTS
 }

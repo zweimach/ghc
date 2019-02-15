@@ -295,22 +295,33 @@ void nonmovingExit(void)
 }
 
 /*
+ * Wait for any concurrent collections to finish and prevent any new concurrent
+ * GC from starting until nonmovingUnblockCollection is called.
+ */
+void nonmovingBlockCollection(void)
+{
+#if defined(THREADED_RTS)
+    ACQUIRE_LOCK(&concurrent_coll_finished_lock);
+    if (mark_thread)
+        waitCondition(&concurrent_coll_finished, &concurrent_coll_finished_lock);
+    ACQUIRE_LOCK(&nonmoving_collection_mutex);
+#endif
+}
+
+void nonmovingUnblockCollection(void)
+{
+    RELEASE_LOCK(&nonmoving_collection_mutex);
+    RELEASE_LOCK(&concurrent_coll_finished_lock);
+}
+
+/*
  * Assumes that no garbage collector or mutator threads are running to safely
  * resize the nonmoving_allocators.
  *
- * Must hold sm_mutex.
+ * Must hold sm_mutex and nonmoving_collection_mutex.
  */
 void nonmovingAddCapabilities(uint32_t new_n_caps)
 {
-    ACQUIRE_LOCK(&concurrent_coll_finished_lock);
-#if defined(THREADED_RTS)
-    if (mark_thread) {
-        debugTrace(DEBUG_nonmoving_gc,
-                   "waiting for nonmoving collector thread to terminate");
-        waitCondition(&concurrent_coll_finished, &concurrent_coll_finished_lock);
-    }
-#endif
-
     unsigned int old_n_caps = nonmovingHeap.n_caps;
     struct NonmovingAllocator **allocs = nonmovingHeap.allocators;
 
@@ -334,7 +345,6 @@ void nonmovingAddCapabilities(uint32_t new_n_caps)
         }
     }
     nonmovingHeap.n_caps = new_n_caps;
-    RELEASE_LOCK(&concurrent_coll_finished_lock);
 }
 
 static void nonmovingClearBitmap(struct NonmovingSegment *seg)

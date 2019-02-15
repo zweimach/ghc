@@ -86,6 +86,8 @@ extern struct NonmovingHeap nonmovingHeap;
 
 void nonmovingInit(void);
 void nonmovingExit(void);
+void nonmovingBlockCollection(void);
+void nonmovingUnblockCollection(void);
 
 
 // dead_weaks and resurrected_threads lists are used for two things:
