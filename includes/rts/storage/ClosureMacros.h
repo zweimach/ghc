@@ -110,8 +110,10 @@ INLINE_HEADER const StgConInfoTable *get_con_itbl(const StgClosure *c)
 /* Used when we expect another thread to be mutating the info table pointer of
  * a closure (e.g. when busy-waiting on a WHITEHOLE).
  */
-INLINE_HEADER const StgInfoTable *get_volatile_itbl(StgClosure *c) {
-    return INFO_PTR_TO_STRUCT((StgInfoTable*) VOLATILE_LOAD(&c->header.info));
+INLINE_HEADER const StgInfoTable *get_volatile_itbl(StgClosure *c)
+{
+    StgInfoTable *p = *((StgInfoTable **volatile) &c->header.info);
+    return INFO_PTR_TO_STRUCT(p);
 }
 
 
