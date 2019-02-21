@@ -541,6 +541,5 @@ void * pushCostCentre (void *ccs, void *cc);
 
 // Capability.c
 extern unsigned int n_capabilities;
-extern void updateRemembSetPushThunk_(void *reg, void *p1);
 
 #endif
