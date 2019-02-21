@@ -505,6 +505,18 @@ void updateRemembSetPushThunkEager(Capability *cap,
         }
         break;
     }
+    case THUNK_SELECTOR:
+    {
+        MarkQueue *queue = &cap->upd_rem_set.queue;
+        StgSelector *s = (StgSelector *)thunk;
+        // Don't record the origin of objects living outside of the nonmoving
+        // heap; we can't perform the selector optimisation on them anyways.
+        bool record_origin = check_in_nonmoving_heap((StgClosure*)thunk);
+        if (check_in_nonmoving_heap(s->selectee)) {
+            push_closure(queue, s->selectee, record_origin ? &s->selectee : NULL);
+        }
+        break;
+    }
     case AP:
     {
         MarkQueue *queue = &cap->upd_rem_set.queue;
@@ -513,9 +525,9 @@ void updateRemembSetPushThunkEager(Capability *cap,
         mark_PAP_payload(queue, ap->fun, ap->payload, ap->n_args);
         break;
     }
-    case THUNK_SELECTOR:
     case BLACKHOLE:
-        // TODO: This is right, right?
+        // This case happens in stg_marked_upd_frame. Fields of the thunk should
+        // be pushed when the closure was blackholed, so nothing to do here.
         break;
     default:
         barf("updateRemembSetPushThunk: invalid thunk pushed: p=%p, type=%d",
