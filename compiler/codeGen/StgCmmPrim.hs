@@ -2387,6 +2387,10 @@ doWriteSmallPtrArrayOp :: CmmExpr
 doWriteSmallPtrArrayOp addr idx val = do
     dflags <- getDynFlags
     let ty = cmmExprType dflags val
+        hdr_size = fixedHdrSize dflags
+    -- Update remembered set for non-moving collector
+    whenUpdRemSetEnabled
+        $ emitUpdRemSetPush (cmmLoadIndexOffExpr dflags hdr_size ty addr ty idx)
     emitPrimCall [] MO_WriteBarrier [] -- #12469
     mkBasicIndexedWrite (smallArrPtrsHdrSize dflags) Nothing addr ty idx val
     emit (setInfo addr (CmmLit (CmmLabel mkSMAP_DIRTY_infoLabel)))
