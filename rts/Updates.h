@@ -44,9 +44,7 @@
     W_ bd;                                                      \
                                                                 \
     OVERWRITING_CLOSURE(p1);                                    \
-    if (nonmoving_write_barrier_enabled != 0) {                 \
-      ccall updateRemembSetPushThunk_(BaseReg, p1 "ptr");         \
-    }                                                           \
+    updateRemembSetPushPtr(p1)                                  \
     StgInd_indirectee(p1) = p2;                                 \
     prim_write_barrier;                                         \
     SET_INFO(p1, stg_BLACKHOLE_info);                           \
