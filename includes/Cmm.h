@@ -953,6 +953,6 @@
 // See Note [Update remembered set] in NonMovingMark.c.
 #define updateRemembSetPushPtr(p)                               \
     if (nonmoving_write_barrier_enabled != 0) (likely: False) { \
-      ccall updateRemembSetPushThunk_(BaseReg "ptr", p1 "ptr"); \
+      ccall updateRemembSetPushClosure_(BaseReg, p "ptr");      \
     }                                                           \
 
