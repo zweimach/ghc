@@ -628,8 +628,12 @@ emitBlackHoleCode node = do
              -- profiling), so currently eager blackholing doesn't
              -- work with profiling.
 
+  let hdr_size = fixedHdrSizeW dflags
+      indirectee = cmmOffsetW dflags node hdr_size
   when eager_blackholing $ do
-    emitStore (cmmOffsetW dflags node (fixedHdrSizeW dflags)) currentTSOExpr
+    whenUpdRemSetEnabled dflags $
+        emitUpdRemSetPush $ CmmLoad indirectee (bWord dflags)
+    emitStore indirectee currentTSOExpr
     emitPrimCall [] MO_WriteBarrier []
     emitStore node (CmmReg (CmmGlobal EagerBlackholeInfo))
 

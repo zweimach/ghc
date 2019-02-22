@@ -39,6 +39,10 @@ module StgCmmUtils (
         mkWordCLit,
         newStringCLit, newByteStringCLit,
         blankWord,
+
+        -- * Update remembered set operations
+        whenUpdRemSetEnabled,
+        emitUpdRemSetPush
   ) where
 
 #include "HsVersions.h"
@@ -620,3 +624,31 @@ assignTemp' e
        let reg = CmmLocal lreg
        emitAssign reg e
        return (CmmReg reg)
+
+
+---------------------------------------------------------------------------
+-- Pushing to the update remembered set
+---------------------------------------------------------------------------
+
+whenUpdRemSetEnabled :: DynFlags -> FCode a -> FCode ()
+whenUpdRemSetEnabled dflags code = do
+    do_it <- getCode code
+    the_if <- mkCmmIfThenElse' is_enabled do_it mkNop (Just False)
+    emit the_if
+  where
+    enabled = CmmLoad (CmmLit $ CmmLabel mkNonmovingWriteBarrierEnabledLabel) (bWord dflags)
+    zero = zeroExpr dflags
+    is_enabled = cmmNeWord dflags enabled zero
+
+-- | Emit code to add an entry to a now-overwritten pointer to the update
+-- remembered set.
+emitUpdRemSetPush :: CmmExpr   -- ^ value of pointer which was overwritten
+                  -> FCode ()
+emitUpdRemSetPush ptr = do
+    emitRtsCall
+      rtsUnitId
+      (fsLit "updateRemembSetPushClosure_")
+      [(CmmReg (CmmGlobal BaseReg), AddrHint),
+       (ptr, AddrHint)]
+      False
+

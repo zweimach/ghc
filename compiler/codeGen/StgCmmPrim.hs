@@ -2568,28 +2568,6 @@ emitCtzCall res x width = do
 -- Pushing to the update remembered set
 ---------------------------------------------------------------------------
 
-whenUpdRemSetEnabled :: DynFlags -> FCode a -> FCode ()
-whenUpdRemSetEnabled dflags code = do
-    do_it <- getCode code
-    the_if <- mkCmmIfThenElse' is_enabled do_it mkNop (Just False)
-    emit the_if
-  where
-    enabled = CmmLoad (CmmLit $ CmmLabel mkNonmovingWriteBarrierEnabledLabel) (bWord dflags)
-    zero = zeroExpr dflags
-    is_enabled = cmmNeWord dflags enabled zero
-
--- | Emit code to add an entry to a now-overwritten pointer to the update
--- remembered set.
-emitUpdRemSetPush :: CmmExpr   -- ^ value of pointer which was overwritten
-                  -> FCode ()
-emitUpdRemSetPush ptr = do
-    emitRtsCall
-      rtsUnitId
-      (fsLit "updateRemembSetPushClosure_")
-      [(CmmReg (CmmGlobal BaseReg), AddrHint),
-       (ptr, AddrHint)]
-      False
-
 -- | Push a range of pointer-array elements that are about to be copied over to
 -- the update remembered set.
 emitCopyUpdRemSetPush :: DynFlags
