@@ -23,9 +23,9 @@ CABVER=( ${CABVERSTR//./ } )
 
 if [ "${CABVER[0]}" -gt 2 -o "${CABVER[0]}" -eq 2 -a "${CABVER[1]}" -ge 2 ];
 then
-    "$CABAL" --project-file="$PROJ" new-build $CABFLAGS -j exe:hadrian
+    "$CABAL" --project-file="$PROJ" new-build $CABFLAGS -v0  -j exe:hadrian
     # use new-exec instead of new-run to make sure that the build-tools (alex & happy) are in PATH
-    "$CABAL" --project-file="$PROJ" new-exec  $CABFLAGS    hadrian -- \
+    "$CABAL" --project-file="$PROJ" new-exec  $CABFLAGS -v0  hadrian -- \
         --directory "$PWD" \
         "$@"
 else

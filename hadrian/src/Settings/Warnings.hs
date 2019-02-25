@@ -23,7 +23,7 @@ ghcWarningsArgs = do
     isIntegerSimple <- (== integerSimple) <$> getIntegerPackage
     mconcat
         [ stage0 ? mconcat
-        [ libraryPackage       ? pure [ "-fno-warn-deprecated-flags" ]
+        [ libraryPackage       ? pure [ "-fno-warn-deprecated-flags -O0" ]
         , package terminfo     ? pure [ "-fno-warn-unused-imports" ]
         , package transformers ? pure [ "-fno-warn-unused-matches"
                                       , "-fno-warn-unused-imports" ] ]

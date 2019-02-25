@@ -11,7 +11,11 @@ import qualified Context as Context
 import Rules.Libffi (libffiName)
 
 ghcBuilderArgs :: Args
-ghcBuilderArgs = mconcat [compileAndLinkHs, compileC, findHsDependencies]
+ghcBuilderArgs = mconcat [compileAndLinkHs, compileC, findHsDependencies, ghcInGhciArgs]
+
+ghcInGhciArgs :: Args
+ghcInGhciArgs = builder (Ghc GhcInGhci) ? mconcat [commonGhcArgs, arg "-fno-worker-wrapper"
+                                                                , arg "-O0" ]
 
 compileAndLinkHs :: Args
 compileAndLinkHs = (builder (Ghc CompileHs) ||^ builder (Ghc LinkHs)) ? do
