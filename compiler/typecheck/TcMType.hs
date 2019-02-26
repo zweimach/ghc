@@ -70,9 +70,8 @@ module TcMType (
   candidateQTyVarsOfType,  candidateQTyVarsOfKind,
   candidateQTyVarsOfTypes, candidateQTyVarsOfKinds,
   CandidatesQTvs(..), delCandidates, candidateKindVars,
-  skolemiseQuantifiedTyVar, defaultTyVar,
-  quantifyTyVars,
-  zonkTcTyCoVarBndr,
+  zonkAndSkolemise, skolemiseQuantifiedTyVar,
+  defaultTyVar, quantifyTyVars,
   zonkTcType, zonkTcTypes, zonkCo,
   zonkTyCoVarKind,
 
@@ -681,28 +680,29 @@ cloneMetaTyVarName name
 At the moment we give a unification variable a System Name, which
 influences the way it is tidied; see TypeRep.tidyTyVarBndr.
 
-Note [Unification variables should have fresh Names]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Note [Unification variables get fresh Names]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Whenever we allocate a unification variable (MetaTyVar) we give
 it a fresh name.   Trac #16221 is a very tricky case that illustrates
 why this is important:
 
-   data T0 a = forall k2 (b :: k2). MkT0 (T0 b) !Int
+   data SameKind :: k -> k -> *
+   data T0 a = forall k2 (b :: k2). MkT0 (SameKind a b) !Int
 
 When kind-checking T0, we give (a :: kappa1). Then, in kcConDecl
 we allocate a unification variable kappa2 for k2, and then we
-end up unifying kappa1 := kappa2 (because of the (T0 b).
+end up unifying kappa1 := kappa2 (because of the (SameKind a b).
 
 Now we generalise over kappa2; but if kappa2's Name is k2,
 we'll end up giving T0 the kind forall k2. k2 -> *.  Nothing
-directly worng with that but when we typecheck the data constrautor
+directly wrong with that but when we typecheck the data constrautor
 we end up giving it the type
   MkT0 :: forall k1 (a :: k1) k2 (b :: k2).
-          T0 @{k2} b -> Int -> T0 @{k2} a
-which is boguus.  The result type should be T0 @{k1} a.
+          SameKind @k2 a b -> Int -> T0 @{k2} a
+which is bogus.  The result type should be T0 @{k1} a.
 
 And there no reason /not/ to clone the Name when making a
-unification variable.  So taht's what we do.
+unification variable.  So that's what we do.
 -}
 
 newAnonMetaTyVar :: MetaInfo -> Kind -> TcM TcTyVar
@@ -727,7 +727,7 @@ newSkolemTyVar name kind
 
 newTyVarTyVar :: Name -> Kind -> TcM TcTyVar
 -- See Note [TyVarTv]
--- See Note [Unification variables should have fresh Names]
+-- See Note [Unification variables get fresh Names]
 newTyVarTyVar name kind
   = do { details <- newMetaDetails TyVarTv
        ; name' <- cloneMetaTyVarName name
@@ -1493,6 +1493,24 @@ quantifiableTv outer_tclvl tcv
   | otherwise
   = False
 
+zonkAndSkolemise :: TcTyCoVar -> TcM TcTyCoVar
+-- A tyvar binder is never a unification variable (TauTv),
+-- rather it is always a skolem. It *might* be a TyVarTv.
+-- (Because non-CUSK type declarations use TyVarTvs.)
+-- Regardless, it may have a kind that has not yet been zonked,
+-- and may include kind unification variables.
+zonkAndSkolemise tyvar
+  | isTyVarTyVar tyvar
+     -- We want to preserve the binding location of the original TyVarTv.
+     -- This is important for error messages. If we don't do this, then
+     -- we get bad locations in, e.g., typecheck/should_fail/T2688
+  = do { zonked_tyvar <- zonkTcTyVarToTyVar tyvar
+       ; skolemiseQuantifiedTyVar zonked_tyvar }
+
+  | otherwise
+  = ASSERT2( isImmutableTyVar tyvar || isCoVar tyvar, pprTyVar tyvar )
+    zonkTyCoVarKind tyvar
+
 skolemiseQuantifiedTyVar :: TcTyVar -> TcM TcTyVar
 -- The quantified type variables often include meta type variables
 -- we want to freeze them into ordinary type variables
@@ -1993,28 +2011,6 @@ zonkTcType = mapType zonkTcTypeMapper ()
 -- | "Zonk" a coercion -- really, just zonk any types in the coercion
 zonkCo :: Coercion -> TcM Coercion
 zonkCo = mapCoercion zonkTcTypeMapper ()
-
-zonkTcTyCoVarBndr :: TcTyCoVar -> TcM TcTyCoVar
--- A tyvar binder is never a unification variable (TauTv),
--- rather it is always a skolem. It *might* be a TyVarTv.
--- (Because non-CUSK type declarations use TyVarTvs.)
--- Regardless, it may have a kind that has not yet been zonked,
--- and may include kind unification variables.
-zonkTcTyCoVarBndr tyvar
-  | isTyVarTyVar tyvar
-     -- We want to preserve the binding location of the original TyVarTv.
-     -- This is important for error messages. If we don't do this, then
-     -- we get bad locations in, e.g., typecheck/should_fail/T2688
-  = do { zonked_tyvar <- zonkTcTyVarToTyVar tyvar
---       ; let zonked_tyvar = tcGetTyVar "zonkTcTyCoVarBndr TyVarTv" zonked_ty
---             zonked_name  = getName zonked_tyvar
---             reloc'd_name = setNameLoc zonked_name (getSrcSpan tyvar)
---       ; return (setTyVarName zonked_tyvar reloc'd_name) }
-       ; skolemiseQuantifiedTyVar zonked_tyvar }
-
-  | otherwise
-  = ASSERT2( isImmutableTyVar tyvar || isCoVar tyvar, pprTyVar tyvar )
-    zonkTyCoVarKind tyvar
 
 zonkTcTyVar :: TcTyVar -> TcM TcType
 -- Simply look through all Flexis

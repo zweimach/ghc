@@ -34,7 +34,7 @@ module TcHsSyn (
         zonkTopBndrs,
         ZonkEnv, ZonkFlexi(..), emptyZonkEnv, mkEmptyZonkEnv, initZonkEnv,
         zonkTyVarBinders, zonkTyVarBindersX, zonkTyVarBinderX,
-        zonkTyBndrs, zonkTyBndrsX, zonkRecTyVarBndrsX,
+        zonkTyBndrs, zonkTyBndrsX, zonkRecTyVarBndrs,
         zonkTcTypeToType,  zonkTcTypeToTypeX,
         zonkTcTypesToTypes, zonkTcTypesToTypesX,
         zonkTyVarOcc,
@@ -459,13 +459,15 @@ zonkTyVarBinderX env (Bndr tv vis)
   = do { (env', tv') <- zonkTyBndrX env tv
        ; return (env', Bndr tv' vis) }
 
-zonkRecTyVarBndrsX :: [Name] -> [TcTyVar] -> TcM (ZonkEnv, [TyVar])
-zonkRecTyVarBndrsX names tc_tvs
+zonkRecTyVarBndrs :: [Name] -> [TcTyVar] -> TcM (ZonkEnv, [TyVar])
+-- This rather specialised function is used in exactly one place.
+-- See Note [Tricky scoping in generaliseTcTyCon] in TcTyClsDecls.
+zonkRecTyVarBndrs names tc_tvs
   = initZonkEnv $ \ ze ->
-    fixM $ \ ~(_, new_tvs) ->
+    fixM $ \ ~(_, rec_new_tvs) ->
     do { let ze' = extendTyZonkEnvN ze $
                    zipWithLazy (\ tc_tv new_tv -> (getName tc_tv, new_tv))
-                               tc_tvs new_tvs
+                               tc_tvs rec_new_tvs
        ; new_tvs <- zipWithM (zonk_one ze') names tc_tvs
        ; return (ze', new_tvs) }
   where
@@ -475,7 +477,7 @@ zonkRecTyVarBndrsX names tc_tvs
               vcat [ text "old:" <+> ppr tc_tv <+> dcolon <+> ppr (tyVarKind tc_tv)
                    , text "new:" <+> ppr name <+> dcolon <+> ppr ki ]
            ; return (mkTyVar name ki) }
-    
+
 zonkTopExpr :: HsExpr GhcTcId -> TcM (HsExpr GhcTc)
 zonkTopExpr e = initZonkEnv $ \ ze -> zonkExpr ze e
 

@@ -1924,6 +1924,9 @@ kcLHsQTyVars_NonCusk name flav
 
              all_tv_prs = (kv_ns                `zip` scoped_kvs) ++
                           (hsLTyVarNames hs_tvs `zip` tc_tvs)
+               -- NB: bindIplicitTKBndrs_Q_Tv makes /freshly-named/ unification
+               --     variables, hence the need to zip here.  Ditto bindExplicit..
+               -- See TcMType Note [Unification variables get fresh Names]
              tycon = mkTcTyCon name tc_binders res_kind all_tv_prs
                                False -- not yet generalised
                                flav
@@ -2085,7 +2088,7 @@ newFlexiKindedSkolemTyVar = newFlexiKindedTyVar newSkolemTyVar
 
 newFlexiKindedTyVarTyVar :: Name -> TcM TyVar
 newFlexiKindedTyVarTyVar = newFlexiKindedTyVar newTyVarTyVar
-   -- See Note [Unification variables should have fresh Names] in TcMType
+   -- See Note [Unification variables get fresh Names] in TcMType
 
 --------------------------------------
 -- Explicit binders
@@ -2127,6 +2130,8 @@ bindExplicitTKBndrsX tc_tv hs_tvs thing_inside
             -- Extend the environment as we go, in case a binder
             -- is mentioned in the kind of a later binder
             --   e.g. forall k (a::k). blah
+            -- NB: tv's Name may differ from hs_tv's
+            -- See TcMType Note [Unification variables get fresh Names]
             ; (tvs,res) <- tcExtendNameTyVarEnv [(hsTyVarName hs_tv, tv)] $
                            go hs_tvs
             ; return (tv:tvs, res) }
@@ -2215,8 +2220,8 @@ kcLookupTcTyCon nm
 
 zonkAndScopedSort :: [TcTyVar] -> TcM [TcTyVar]
 zonkAndScopedSort spec_tkvs
-  = do { spec_tkvs <- mapM zonkTcTyCoVarBndr spec_tkvs
-          -- Use zonkTcTyCoVarBndr because a skol_tv might be a TyVarTv
+  = do { spec_tkvs <- mapM zonkAndSkolemise spec_tkvs
+          -- Use zonkAndSkolemise because a skol_tv might be a TyVarTv
 
        -- Do a stable topological sort, following
        -- Note [Ordering of implicit variables] in RnTypes
@@ -2520,7 +2525,7 @@ tcHsPartialSigType ctxt sig_ty
          -- we need to promote the TyVarTvs so we don't violate the TcLevel
          -- invariant
        ; implicit_tvs <- zonkAndScopedSort implicit_tvs
-       ; explicit_tvs <- mapM zonkTcTyCoVarBndr explicit_tvs
+       ; explicit_tvs <- mapM zonkAndSkolemise explicit_tvs
        ; theta        <- mapM zonkTcType theta
        ; tau          <- zonkTcType tau
 
@@ -2638,6 +2643,7 @@ tcHsPatSigType ctxt sig_ty
                        RuleSigCtxt {} -> newSkolemTyVar name kind
                        _              -> newTauTyVar    name kind
                        -- See Note [Pattern signature binders]
+             -- NB: tv's Name may be fresh (in the case of newTauTyVar)
            ; return (name, tv) }
 
 tcHsPatSigType _ (HsWC _ (XHsImplicitBndrs _)) = panic "tcHsPatSigType"

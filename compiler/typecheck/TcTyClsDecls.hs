@@ -552,7 +552,7 @@ generaliseTcTyCon tc
        -- Step 0: zonk and skolemise the Specified and Required binders
        -- It's essential that they are skolems, not MetaTyVars,
        -- for Step 3 to work right
-       ; spec_req_tvs <- mapM zonkTcTyCoVarBndr spec_req_tvs
+       ; spec_req_tvs <- mapM zonkAndSkolemise spec_req_tvs
              -- Running example, where kk1 := kk2, so we get
 
        -- Step 1: find all the variables we want to quantify over,
@@ -575,7 +575,7 @@ generaliseTcTyCon tc
        ; traceTc "generaliseTcTyCon: before zonkRec"
            (vcat [ text "spec_req_tvs =" <+> pprTyVars spec_req_tvs
                  , text "inferred =" <+> pprTyVars inferred ])
-       ; (ze, spec_req_tvs) <- zonkRecTyVarBndrsX spec_req_names spec_req_tvs
+       ; (ze, spec_req_tvs) <- zonkRecTyVarBndrs spec_req_names spec_req_tvs
            -- So ze maps from the tyvars that have ended up
            --
 
@@ -583,7 +583,7 @@ generaliseTcTyCon tc
        -- (remember they all started as TyVarTvs).
        -- They have been skolemised by quantifyTyVars.
        ; tc_res_kind <- zonkTcTypeToTypeX ze tc_res_kind
-       
+
        ; traceTc "generaliseTcTyCon: post zonk" $
          vcat [ text "tycon =" <+> ppr tc
               , text "inferred =" <+> pprTyVars inferred
@@ -594,6 +594,7 @@ generaliseTcTyCon tc
        -- Step 4: Find the Specified and Inferred variables
        -- NB: spec_req_tvs = spec_tvs ++ req_tvs
        --     And req_tvs is 1-1 with tyConTyVars
+       --     See Note [Scoped tyvars in a TcTyCon] in TyCon
        ; let n_spec        = length spec_req_tvs - tyConArity tc
              (spec_tvs, req_tvs) = splitAt n_spec spec_req_tvs
              specified     = scopedSort spec_tvs
@@ -786,12 +787,30 @@ that do not have a CUSK.  Consider
 We do kind inference as follows:
 
 * Step 1: getInitialKinds, and in particular kcLHsQTyVars_NonCusk.
+  Make a unification variable for each of the Required and Specified
+  type varialbes in the header.
+
+  Record the connection between the Names the user wrote and the
+  fresh unification variables in the tcTyConScopedTyVars field
+  of the TcTyCon we are making
+      [ (a,  aa)
+      , (k1, kk1)
+      , (k2, kk2)
+      , (x,  xx) ]
+  (I'm using the convention that double letter like 'aa' or 'kk'
+  mean a unification variable.)
+
+  These unification variables
+    - Are TyVarTvs: that is, unification variables that can
+      unify only with other type variables.
+      See Note [Signature skolems] in TcType
+
+    - Have complete fresh Names; see TcMType
+      Note [Unification variables get fresh Names]
+
   Assign initial monomorophic kinds to S, T
           S :: kk1 -> * -> kk2 -> *
           T :: kk3 -> * -> kk4 -> *
-  Here kk1 etc are TyVarTvs: that is, unification variables that
-  are allowed to unify only with other type variables. See
-  Note [Signature skolems] in TcType
 
 * Step 2: kcTyClDecl. Extend the environment with a TcTyCon for S and
   T, with these monomophic kinds.  Now kind-check the declarations,
@@ -809,18 +828,20 @@ We do kind inference as follows:
   Note [Required, Specified, and Inferred for types]),
   and perform some validity checks.
 
-  This makes the utterly-final TyConBinders for the TyCon
+  This makes the utterly-final TyConBinders for the TyCon.
 
   All this is very similar at the level of terms: see TcBinds
   Note [Quantified variables in partial type signatures]
+
+  But there some tricky corners: Note [Tricky scoping in generaliseTcTyCon]
 
 * Step 4.  Extend the type environment with a TcTyCon for S and T, now
   with their utterly-final polymorphic kinds (needed for recursive
   occurrences of S, T).  Now typecheck the declarations, and build the
   final AlgTyCOn for S and T resp.
 
-The first three steps are in kcTyClGroup;
-the fourth is in tcTyClDecls.
+The first three steps are in kcTyClGroup; the fourth is in
+tcTyClDecls.
 
 There are some wrinkles
 
@@ -859,7 +880,51 @@ There are some wrinkles
     a) when collecting quantification candidates, in
        candidateQTyVarsOfKind, we must collect skolems
     b) quantifyTyVars should be a no-op on such a skolem
--}
+
+Note [Tricky scoping in generaliseTcTyCon]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Consider Trac #16342
+  class C (a::ka) x where
+    cop :: D a x => x -> Proxy a -> Proxy a
+    cop _ x = x :: Proxy (a::ka)
+
+  class D (b::kb) y where
+    dop :: C b y => y -> Proxy b -> Proxy b
+    dop _ x = x :: Proxy (b::kb)
+
+C and D are mutually recursive, by the time we get to
+generaliseTcTyCon we'll have unified kka := kkb.
+
+But when typechecking the default declarations for 'cop' and 'dop' in
+tcDlassDecl2 we need {a, ka} and {b, kb} respectively to be in scope.
+But at that point all we have is the utterly-final Class itself.
+
+Conclusion: the classTyVars of a class must have the same Mame as
+that originally assigned by the user.  In our example, C must have
+classTyVars {a, ka, x} while D has classTyVars {a, kb, y}.  Despite
+the fact that kka and kkb got unified!
+
+We achieve this sleight of hand in generaliseTcTyCon, using
+the specialised function zonkRecTyVarBndrs.  We make the call
+   zonkRecTyVarBndrs [ka,a,x] [kkb,aa,xxx]
+where the [ka,a,x] are the Names originally assigned by the user, and
+[kkb,aa,xx] are the corresponding (post-zonking, skolemised) TcTyVars.
+zonkRecTyVarBndrs builds a recursive ZonkEnv that binds
+   kkb :-> (ka :: <zonked kind of kkb>)
+   aa  :-> (a  :: <konked kind of aa>)
+   etc
+That is, it maps each skolemised TcTyVars to the utterly-final
+TyVar to put in the class, with its correct user-specified name.
+When generalising D we'll do the same thing, but the ZonkEnv will map
+   kkb :-> (kb :: <zonked kind of kkb>)
+   bb  :-> (b  :: <konked kind of bb>)
+   etc
+Note that 'kkb' again appears in the domain of the mapping, but this
+time mapped to 'kb'.  That's how C and D end up with differently-named
+final TyVars despite the fact that we unified kka:=kkb
+
+zonkRecTyVarBndrs we need to do knot-tying because of the need to
+apply this same substitution to the kind of each.  -}
 
 --------------
 tcExtendKindEnvWithTyCons :: [TcTyCon] -> TcM a -> TcM a
