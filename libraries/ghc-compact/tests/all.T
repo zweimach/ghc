@@ -1,4 +1,4 @@
-setTestOpts(extra_ways(['sanity']))
+setTestOpts([extra_ways(['sanity']), omit_ways(['nonmoving', 'nonmoving_thr', 'nonmoving_thr_ghc'])])
 
 test('compact_simple', normal, compile_and_run, [''])
 test('compact_loop', normal, compile_and_run, [''])
