@@ -57,7 +57,7 @@ distDir = do
     version        <- setting ProjectVersion
     hostOs         <- cabalOsString <$> setting BuildOs
     hostArch       <- cabalArchString <$> setting BuildArch
-    return $ hostArch ++ "-" ++ hostOs ++ "-ghc-" ++ version
+    return $ hostArch ++ "-" ++ hostOs ++ "-ghc-" ++ "8.4.4"
 
 pkgFile :: Context -> String -> String -> Action FilePath
 pkgFile context@Context {..} prefix suffix = do

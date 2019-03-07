@@ -108,7 +108,7 @@ stage1Packages = do
              , stm
              , time
              , unlit
-             , xhtml                     
+             , xhtml
              ]
           ++ [ haddock | not cross           ]
           ++ [ hpcBin   | not cross          ]
@@ -147,7 +147,7 @@ defaultLibraryWays :: Ways
 defaultLibraryWays = mconcat
     [ pure [vanilla]
     , notStage0 ? pure [profiling]
-    , notStage0 ? platformSupportsSharedLibs ? pure [dynamic]
+    , platformSupportsSharedLibs ? pure [dynamic]
     ]
 
 -- | Default build ways for the RTS.

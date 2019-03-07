@@ -10,12 +10,23 @@ import Settings.Warnings
 import qualified Context as Context
 import Rules.Libffi (libffiName)
 
+import Debug.Trace
+
 ghcBuilderArgs :: Args
 ghcBuilderArgs = mconcat [compileAndLinkHs, compileC, findHsDependencies, ghcInGhciArgs]
 
 ghcInGhciArgs :: Args
-ghcInGhciArgs = builder (Ghc GhcInGhci) ? mconcat [commonGhcArgs, arg "-fno-worker-wrapper"
-                                                                , arg "-O0" ]
+ghcInGhciArgs = do
+  builder (Ghc GhcInGhci) ? mconcat
+              [ arg "-O0"
+              , packageGhcArgs
+              , includeGhcArgs
+              , map ("-optc" ++) <$> getStagedSettingList ConfCcArgs
+              , map ("-optP" ++) <$> getStagedSettingList ConfCppArgs
+              , map ("-optP" ++) <$> getContextData cppOpts
+
+              --, ghcLinkArgs
+              ]
 
 compileAndLinkHs :: Args
 compileAndLinkHs = (builder (Ghc CompileHs) ||^ builder (Ghc LinkHs)) ? do
@@ -46,23 +57,26 @@ compileC = builder (Ghc CompileCWithGhc) ? do
             , arg =<< getOutput ]
 
 ghcLinkArgs :: Args
-ghcLinkArgs = builder (Ghc LinkHs) ? do
+ghcLinkArgs = builder (Ghc LinkHs) ||^ builder (Ghc GhcInGhci) ? do
     pkg     <- getPackage
     libs    <- getContextData extraLibs
     libDirs <- getContextData extraLibDirs
     fmwks   <- getContextData frameworks
     darwin  <- expr osxHost
     way     <- getWay
-
+--    traceShowM (pkg, libs, libDirs, fmwks, darwin, way)
     -- Relative path from the output (rpath $ORIGIN).
     originPath <- dropFileName <$> getOutput
     context <- getContext
     libPath' <- expr (libPath context)
     distDir <- expr Context.distDir
+--    traceShowM (originPath, context, libPath', distDir)
 
     useSystemFfi <- expr (flag UseSystemFfi)
     buildPath <- getBuildPath
     libffiName' <- libffiName
+--    traceShowM (useSystemFfi, buildPath, libffiName')
+--    traceShowM (originPath, libPath' -/- distDir)
 
     let
         dynamic = Dynamic `wayUnit` way
@@ -86,8 +100,7 @@ ghcLinkArgs = builder (Ghc LinkHs) ? do
                 [ arg "-dynamic"
                 -- TODO what about windows?
                 , isLibrary pkg ? pure [ "-shared", "-dynload", "deploy" ]
-                , notStage0 ?
-                  hostSupportsRPaths ? arg ("-optl-Wl,-rpath," ++ rpath)
+                , hostSupportsRPaths ? arg ("-optl-Wl,-rpath," ++ rpath)
                 ]
             , arg "-no-auto-link-packages"
             ,      nonHsMainPackage pkg  ? arg "-no-hs-main"

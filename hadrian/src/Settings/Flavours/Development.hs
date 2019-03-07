@@ -9,9 +9,9 @@ developmentFlavour :: Stage -> Flavour
 developmentFlavour ghcStage = defaultFlavour
     { name = "devel" ++ show (fromEnum ghcStage)
     , args = defaultBuilderArgs <> developmentArgs ghcStage <> defaultPackageArgs
-    , libraryWays = pure [vanilla]
-    , rtsWays = pure [vanilla, threaded]
-    , dynamicGhcPrograms = return False }
+    , libraryWays = pure [vanilla, dynamic]
+    , rtsWays = pure [vanilla, threaded, dynamic]
+    , dynamicGhcPrograms = return True }
 
 developmentArgs :: Stage -> Args
 developmentArgs ghcStage = do
