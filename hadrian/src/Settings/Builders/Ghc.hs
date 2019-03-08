@@ -24,8 +24,7 @@ ghcInGhciArgs = do
               , map ("-optc" ++) <$> getStagedSettingList ConfCcArgs
               , map ("-optP" ++) <$> getStagedSettingList ConfCppArgs
               , map ("-optP" ++) <$> getContextData cppOpts
-
-              --, ghcLinkArgs
+              , arg "-fno-code"
               ]
 
 compileAndLinkHs :: Args
@@ -101,6 +100,7 @@ ghcLinkArgs = builder (Ghc LinkHs) ||^ builder (Ghc GhcInGhci) ? do
                 -- TODO what about windows?
                 , isLibrary pkg ? pure [ "-shared", "-dynload", "deploy" ]
                 , hostSupportsRPaths ? arg ("-optl-Wl,-rpath," ++ rpath)
+                , hostSupportsRPaths ? arg ("-optl-Wl,-rpath,$ORIGIN")
                 ]
             , arg "-no-auto-link-packages"
             ,      nonHsMainPackage pkg  ? arg "-no-hs-main"
