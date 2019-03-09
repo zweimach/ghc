@@ -85,7 +85,7 @@ pkgHaddockFile Context {..} = do
 -- @_build/stage1/libraries/array/build/libHSarray-0.5.1.0.a@.
 pkgLibraryFile :: Context -> Action FilePath
 pkgLibraryFile context@Context {..} = do
-    extension <- libsuf way
+    extension <- libsuf stage way
     pkgFile context "libHS" extension
 
 -- | Path to the GHCi library file of a given 'Context', e.g.:
