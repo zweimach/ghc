@@ -16,7 +16,8 @@ module DmdAnal ( dmdAnalProgram ) where
 import GhcPrelude
 
 import DynFlags
-import WwLib            ( findTypeShape, deepSplitProductType_maybe )
+import WwLib            ( findTypeShape,
+                          deepSplitProductType_maybe, deepSplitSumType_maybe )
 import Demand   -- All of it
 import CoreSyn
 import CoreSeq          ( seqBinds )
@@ -1198,6 +1199,12 @@ extendEnvForProdAlt env scrut case_bndr dc bndrs
        , ae_virgin env || (is_var_scrut && is_strict)  -- See Note [CPR in a product case alternative]
        , Just (dc,_,_,_) <- deepSplitProductType_maybe fam_envs $ idType id
        = extendAnalEnv NotTopLevel env id (cprProdSig (dataConRepArity dc))
+
+       | isId id
+       , isStrictDmd (idDemandInfo id) || ae_virgin env
+       , Just (cons, _, _) <- deepSplitSumType_maybe (ae_fam_envs env) $ idType id
+       = extendAnalEnv NotTopLevel env id (cprSumSig cons)
+
        | otherwise
        = env
 

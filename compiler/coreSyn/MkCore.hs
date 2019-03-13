@@ -22,6 +22,7 @@ module MkCore (
         -- * Constructing small tuples
         mkCoreVarTup, mkCoreVarTupTy, mkCoreTup, mkCoreUbxTup,
         mkCoreTupBoxity, unitExpr,
+        mkCoreUbxSum,
 
         -- * Constructing big tuples
         mkBigCoreVarTup, mkBigCoreVarTup1,
@@ -372,6 +373,14 @@ mkCoreUbxTup tys exps
 mkCoreTupBoxity :: Boxity -> [CoreExpr] -> CoreExpr
 mkCoreTupBoxity Boxed   exps = mkCoreTup exps
 mkCoreTupBoxity Unboxed exps = mkCoreUbxTup (map exprType exps) exps
+
+mkCoreUbxSum :: [Type] -> ConTag -> CoreExpr -> CoreExpr
+mkCoreUbxSum alt_tys alt arg
+  = ASSERT( alt > 0 && alt <= length alt_tys )
+    mkCoreConApps (sumDataCon alt (length alt_tys))
+      (map (Type . getRuntimeRep "mkCoreUbxSum") alt_tys ++
+       map Type alt_tys ++
+       [arg])
 
 -- | Build a big tuple holding the specified variables
 -- One-tuples are flattened; see Note [Flattening one-tuples]

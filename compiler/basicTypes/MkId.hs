@@ -21,6 +21,7 @@ module MkId (
 
         unwrapNewTypeBody, wrapFamInstBody,
         DataConBoxer(..), mkDataConRep, mkDataConWorkId,
+        isUnpackableType,
 
         -- And some particular Ids; see below for why they are wired in
         wiredInIds, ghcPrimIds,

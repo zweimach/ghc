@@ -712,6 +712,7 @@ optimisationFlags = EnumSet.fromList
    , Opt_SolveConstantDicts
    , Opt_CatchBottoms
    , Opt_IgnoreAsserts
+   , Opt_SumCprWw
    ]
 
 -- | Used when outputting warnings: if a reason is given, it is
@@ -4142,6 +4143,7 @@ fFlagsDeps = [
   flagSpec "helpful-errors"                   Opt_HelpfulErrors,
   flagSpec "hpc"                              Opt_Hpc,
   flagSpec "ignore-asserts"                   Opt_IgnoreAsserts,
+  flagSpec "do-sum-cpr-ww"                    Opt_SumCprWw,
   flagSpec "ignore-interface-pragmas"         Opt_IgnoreInterfacePragmas,
   flagGhciSpec "implicit-import-qualified"    Opt_ImplicitImportQualified,
   flagSpec "irrefutable-tuples"               Opt_IrrefutableTuples,
