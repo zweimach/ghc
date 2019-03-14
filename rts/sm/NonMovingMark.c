@@ -384,6 +384,18 @@ void push_closure (MarkQueue *q,
     // }
 #endif
 
+    if (q->is_upd_rem_set) {
+        atomic_inc(&push_updRemSet, 1);
+    } else if (mark_stage == SYNC1) {
+        push_sync1++;
+    } else if (mark_stage == ASYNC) {
+        push_async++;
+    } else if (mark_stage == SYNC2) {
+        push_sync2++;
+    } else {
+        barf("Weird mark_stage: %d", mark_stage);
+    }
+
     MarkQueueEnt ent = {
         .type = MARK_CLOSURE,
         .mark_closure = {
@@ -999,6 +1011,18 @@ mark_stack (MarkQueue *queue, StgStack *stack)
     mark_stack_(queue, stack->sp, stack->stack + stack->stack_size);
 }
 
+static void
+bump_mark_counter(void)
+{
+    if (mark_stage == ASYNC) {
+        mark_async++;
+    } else if (mark_stage == SYNC2) {
+        mark_sync2++;
+    } else {
+        barf("bump_mark_counter: weird mark stage: %d\n", mark_stage);
+    }
+}
+
 static GNUC_ATTR_HOT void
 mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
 {
@@ -1019,14 +1043,17 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
         if (type == CONSTR_0_1 || type == CONSTR_0_2 || type == CONSTR_NOCAF) {
             // no need to put these on the static linked list, they don't need
             // to be marked.
+            bump_mark_counter();
             return;
         }
 
         if (lookupHashTable(queue->marked_objects, (W_)p)) {
             // already marked
+            n_already_marked++;
             return;
         }
 
+        bump_mark_counter();
         insertHashTable(queue->marked_objects, (W_)p, (P_)1);
 
         switch (type) {
@@ -1098,9 +1125,11 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
         if (bd->flags & BF_LARGE) {
             if (! (bd->flags & BF_NONMOVING_SWEEPING)) {
                 // Not in the snapshot
+                mark_outside_snapshot++;
                 return;
             }
             if (bd->flags & BF_MARKED) {
+                n_already_marked++;
                 return;
             }
 
@@ -1116,8 +1145,10 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
              */
             uint8_t mark = nonmovingGetMark(seg, block_idx);
             /* Don't mark things we've already marked (since we may loop) */
-            if (mark == nonmovingMarkEpoch)
+            if (mark == nonmovingMarkEpoch) {
+                n_already_marked++;
                 return;
+            }
 
             StgClosure *snapshot_loc =
               (StgClosure *) nonmovingSegmentGetBlock(seg, seg->next_free_snap);
@@ -1128,6 +1159,7 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
                  * things above the allocation pointer that aren't marked since
                  * they may not be valid objects.
                  */
+                mark_outside_snapshot++;
                 return;
             }
         }
@@ -1146,6 +1178,7 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
         }
         ASSERT(found_it);
 #endif
+        bump_mark_counter();
         return;
     }
 
@@ -1156,6 +1189,8 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
     /////////////////////////////////////////////////////
     // Trace pointers
     /////////////////////////////////////////////////////
+
+    bump_mark_counter();
 
     const StgInfoTable *info = get_itbl(p);
     switch (info->type) {

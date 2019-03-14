@@ -36,6 +36,27 @@ static void nonmovingBumpEpoch(void) {
 
 struct NonmovingSegment * const END_NONMOVING_TODO_LIST = (struct NonmovingSegment*)1;
 
+// How many already-marked objects we saw during mark loop.
+uint64_t n_already_marked = 0;
+// How many objects are pushed to mark queue during first pause (root marking).
+uint64_t push_sync1 = 0;
+// How many objects are pushed to mark queue during concurrent mark phase by the
+// mark thread.
+uint64_t push_async = 0;
+// How many objects are pushed to UpdRemSets.
+uint64_t push_updRemSet = 0;
+// How many objects are pushed to mark queue during final pause.
+uint64_t push_sync2 = 0;
+// How many objects are marked during concurrent mark phase.
+uint64_t mark_async = 0;
+// How many objects are marked during final pause.
+uint64_t mark_sync2 = 0;
+// We don't mark in first pause so no `mark_sync1`.
+// Number of object we say in mark_closure that were outside of the snapshot.
+uint64_t mark_outside_snapshot = 0;
+
+enum MarkStage mark_stage = NOT_MARKING;
+
 #if defined(THREADED_RTS)
 /*
  * This mutex ensures that only one non-moving collection is active at a time.
@@ -446,6 +467,17 @@ void nonmovingCollect(StgWeak **dead_weaks, StgTSO **resurrected_threads)
     initMarkQueue(mark_queue);
     current_mark_queue = mark_queue;
 
+    // Reset stats
+    n_already_marked = 0;
+    push_sync1 = 0;
+    push_async = 0;
+    push_updRemSet = 0;
+    push_sync2 = 0;
+    mark_async = 0;
+    mark_sync2 = 0;
+    mark_outside_snapshot = 0;
+    mark_stage = SYNC1;
+
     // Mark roots
     markCAFs((evac_fn)markQueueAddRoot, mark_queue);
     for (unsigned int n = 0; n < n_capabilities; ++n) {
@@ -551,8 +583,24 @@ static void appendWeakList( StgWeak **w1, StgWeak *w2 )
     *w1 = w2;
 }
 
+static void print_mark_stats(void)
+{
+#define printVar(var) debugBelch("\t" #var ": %" FMT_Word64 "\n", var);
+    debugBelch("Mark stats:\n");
+    printVar(n_already_marked);
+    printVar(push_sync1);
+    printVar(push_async);
+    printVar(push_updRemSet);
+    printVar(push_sync2);
+    printVar(mark_async);
+    printVar(mark_sync2);
+    printVar(mark_outside_snapshot);
+}
+
 static void nonmovingMark_(MarkQueue *mark_queue, StgWeak **dead_weaks, StgTSO **resurrected_threads)
 {
+    mark_stage = ASYNC;
+
     ACQUIRE_LOCK(&nonmoving_collection_mutex);
     debugTrace(DEBUG_nonmoving_gc, "Starting mark...");
 
@@ -593,6 +641,8 @@ static void nonmovingMark_(MarkQueue *mark_queue, StgWeak **dead_weaks, StgTSO *
         nonmovingMarkThreadsWeaks(mark_queue);
     } while (!all_caps_syncd);
 #endif
+
+    mark_stage = SYNC2;
 
     nonmovingResurrectThreads(mark_queue, resurrected_threads);
 
@@ -671,6 +721,8 @@ static void nonmovingMark_(MarkQueue *mark_queue, StgWeak **dead_weaks, StgTSO *
     current_mark_queue = NULL;
     freeMarkQueue(mark_queue);
     stgFree(mark_queue);
+
+    print_mark_stats();
 
     /****************************************************
      * Sweep

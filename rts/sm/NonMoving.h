@@ -84,6 +84,24 @@ struct NonmovingHeap {
 
 extern struct NonmovingHeap nonmovingHeap;
 
+extern uint64_t n_already_marked;
+extern uint64_t push_sync1;
+extern uint64_t push_async;
+extern uint64_t push_updRemSet;
+extern uint64_t push_sync2;
+extern uint64_t mark_async;
+extern uint64_t mark_sync2;
+extern uint64_t mark_outside_snapshot;
+
+enum MarkStage {
+    NOT_MARKING = 0,
+    SYNC1 = 1, // First pause (root marking)
+    ASYNC = 2, // Concurrent mark
+    SYNC2 = 3, // Final pause
+};
+
+extern enum MarkStage mark_stage;
+
 void nonmovingInit(void);
 void nonmovingExit(void);
 
