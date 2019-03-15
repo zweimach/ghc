@@ -77,6 +77,9 @@ typedef struct MarkQueue_ {
     // A singly link-list of blocks, each containing a MarkQueueChunk.
     bdescr *blocks;
 
+    // Number of entries used (NOT capacity)
+    uint64_t size; 
+
     // Cached value of blocks->start.
     MarkQueueBlock *top;
 

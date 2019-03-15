@@ -54,6 +54,12 @@ uint64_t mark_sync2 = 0;
 // We don't mark in first pause so no `mark_sync1`.
 // Number of object we say in mark_closure that were outside of the snapshot.
 uint64_t mark_outside_snapshot = 0;
+// Indexed by capability number. upd_rem_set_max_size[cap_no] gives max. size of
+// the UpdRemSet of the capability. TODO (osa): This breaks after
+// setNumCapabilities.
+uint64_t *upd_rem_set_max_size = NULL;
+// Max. size of the global mark queue.
+uint64_t mark_queue_max_size = 0;
 
 enum MarkStage mark_stage = NOT_MARKING;
 
@@ -595,6 +601,19 @@ static void print_mark_stats(void)
     printVar(mark_async);
     printVar(mark_sync2);
     printVar(mark_outside_snapshot);
+    printVar(mark_queue_max_size);
+
+    // UpdRemSet sizes may not be up-to-date: sometimes concurrent mark takes
+    // too long and we exit early, before waiting for flush. So update UpdRemSet
+    // sizes here.
+
+    debugBelch("\tUpdRemSet max sizes:\n");
+    for (uint32_t n = 0; n < n_capabilities; ++n) {
+        uint64_t current_size = capabilities[n]->upd_rem_set.queue.size;
+        uint64_t last_known_size = upd_rem_set_max_size[n];
+        upd_rem_set_max_size[n] = current_size > last_known_size ? current_size : last_known_size;
+        debugBelch("\t\t%d: %" FMT_Word64 "\n", n, upd_rem_set_max_size[n]);
+    }
 }
 
 static void nonmovingMark_(MarkQueue *mark_queue, StgWeak **dead_weaks, StgTSO **resurrected_threads)
@@ -722,8 +741,6 @@ static void nonmovingMark_(MarkQueue *mark_queue, StgWeak **dead_weaks, StgTSO *
     freeMarkQueue(mark_queue);
     stgFree(mark_queue);
 
-    print_mark_stats();
-
     /****************************************************
      * Sweep
      ****************************************************/
@@ -749,6 +766,8 @@ static void nonmovingMark_(MarkQueue *mark_queue, StgWeak **dead_weaks, StgTSO *
 
 #if defined(THREADED_RTS)
 finish:
+    print_mark_stats();
+
     // We are done...
     mark_thread = 0;
 

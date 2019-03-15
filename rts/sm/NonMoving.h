@@ -92,6 +92,8 @@ extern uint64_t push_sync2;
 extern uint64_t mark_async;
 extern uint64_t mark_sync2;
 extern uint64_t mark_outside_snapshot;
+extern uint64_t *upd_rem_set_max_size;
+extern uint64_t mark_queue_max_size;
 
 enum MarkStage {
     NOT_MARKING = 0,

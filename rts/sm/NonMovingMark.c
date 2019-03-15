@@ -226,6 +226,11 @@ void nonmovingFlushCapUpdRemSetBlocks(Capability *cap)
                "Capability %d flushing update remembered set: %d",
                cap->no, markQueueLength(&cap->upd_rem_set.queue));
     traceConcUpdRemSetFlush(cap);
+
+    // Update stats
+    uint64_t current_max = upd_rem_set_max_size[cap->no];
+    upd_rem_set_max_size[cap->no] = current_max > cap->upd_rem_set.queue.size ? current_max : cap->upd_rem_set.queue.size;
+
     nonmovingAddUpdRemSetBlocks(&cap->upd_rem_set.queue);
     atomic_inc(&upd_rem_set_flush_count, 1);
     signalCondition(&upd_rem_set_flushed_cond);
@@ -352,6 +357,9 @@ push (MarkQueue *q, const MarkQueueEnt *ent)
         } else {
             // allocate a fresh block.
             ACQUIRE_SM_LOCK;
+            // 1 block = 4kb, sizeof(MarkQueueEnt) = 24, so we allocate
+            // 4096/24 = 170 entries. TODO (osa): This seems too small? How
+            // a mark queue grows in the worst case?
             bdescr *bd = allocGroup(1);
             bd->link = q->blocks;
             q->blocks = bd;
@@ -363,6 +371,14 @@ push (MarkQueue *q, const MarkQueueEnt *ent)
 
     q->top->entries[q->top->head] = *ent;
     q->top->head++;
+    q->size++;
+
+    // UpdRemSet max sizes are updated when we flush, global mark queue max size
+    // is updated here. (We can't update UpdRemSet max sizes here because we
+    // don't know capability number)
+    if (!q->is_upd_rem_set) {
+        mark_queue_max_size = mark_queue_max_size > q->size ? mark_queue_max_size : q->size;
+    }
 }
 
 static
@@ -733,6 +749,7 @@ static void init_mark_queue_ (MarkQueue *queue)
 {
     bdescr *bd = allocGroup(1);
     queue->blocks = bd;
+    queue->size = 0;
     queue->top = (MarkQueueBlock *) bd->start;
     queue->top->head = 0;
 }

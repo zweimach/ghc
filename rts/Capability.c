@@ -28,6 +28,7 @@
 #include "RtsUtils.h"
 #include "sm/OSMem.h"
 #include "sm/BlockAlloc.h" // for countBlocks()
+#include "sm/NonMoving.h" // for upd_rem_set_max_size
 
 #if !defined(mingw32_HOST_OS)
 #include "rts/IOManager.h" // for setIOManagerControlFd()
@@ -403,6 +404,9 @@ void initCapabilities (void)
     for (i = 0; i < n_numa_nodes; i++) {
         last_free_capability[i] = capabilities[0];
     }
+
+    upd_rem_set_max_size = stgMallocBytes(sizeof(uint64_t) * n_capabilities, "initCapabilities");
+    memset(upd_rem_set_max_size, 0, sizeof(uint64_t) * n_capabilities);
 }
 
 void
