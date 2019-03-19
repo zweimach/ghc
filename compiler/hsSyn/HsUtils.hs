@@ -1047,7 +1047,7 @@ collectStmtBinders (ApplicativeStmt _ args _) = concatMap collectArgBinders args
   collectArgBinders (_, ApplicativeArgOne _ pat _ _) = collectPatBinders pat
   collectArgBinders (_, ApplicativeArgMany _ _ _ pat) = collectPatBinders pat
   collectArgBinders _ = []
-collectStmtBinders XStmtLR{} = panic "collectStmtBinders"
+collectStmtBinders (XStmtLR nec) = noExtCon nec
 
 
 ----------------- Patterns --------------------------
@@ -1123,7 +1123,7 @@ hsGroupBinders (HsGroup { hs_valds = val_decls, hs_tyclds = tycl_decls,
                           hs_fords = foreign_decls })
   =  collectHsValBinders val_decls
   ++ hsTyClForeignBinders tycl_decls foreign_decls
-hsGroupBinders (XHsGroup {}) = panic "hsGroupBinders"
+hsGroupBinders (XHsGroup nec) = noExtCon nec
 
 hsTyClForeignBinders :: [TyClGroup GhcRn]
                      -> [LForeignDecl GhcRn]
@@ -1141,7 +1141,9 @@ hsTyClForeignBinders tycl_decls foreign_decls
     getSelectorNames (ns, fs) = map unLoc ns ++ map (extFieldOcc . unLoc) fs
 
 -------------------
-hsLTyClDeclBinders :: Located (TyClDecl pass)
+hsLTyClDeclBinders :: ( XXConDecl pass ~ NoExtCon, XXHsDataDefn pass ~ NoExtCon
+                      , XXFamilyDecl pass ~ NoExtCon, XXTyClDecl pass ~ NoExtCon )
+                   => Located (TyClDecl pass)
                    -> ([Located (IdP pass)], [LFieldOcc pass])
 -- ^ Returns all the /binding/ names of the decl.  The first one is
 -- guaranteed to be the name of the decl. The first component
@@ -1155,8 +1157,8 @@ hsLTyClDeclBinders :: Located (TyClDecl pass)
 hsLTyClDeclBinders (dL->L loc (FamDecl { tcdFam = FamilyDecl
                                             { fdLName = (dL->L _ name) } }))
   = ([cL loc name], [])
-hsLTyClDeclBinders (dL->L _ (FamDecl { tcdFam = XFamilyDecl _ }))
-  = panic "hsLTyClDeclBinders"
+hsLTyClDeclBinders (dL->L _ (FamDecl { tcdFam = XFamilyDecl nec }))
+  = noExtCon nec
 hsLTyClDeclBinders (dL->L loc (SynDecl
                                { tcdLName = (dL->L _ name) }))
   = ([cL loc name], [])
@@ -1174,7 +1176,7 @@ hsLTyClDeclBinders (dL->L loc (ClassDecl
 hsLTyClDeclBinders (dL->L loc (DataDecl    { tcdLName = (dL->L _ name)
                                            , tcdDataDefn = defn }))
   = (\ (xs, ys) -> (cL loc name : xs, ys)) $ hsDataDefnBinders defn
-hsLTyClDeclBinders (dL->L _ (XTyClDecl _)) = panic "hsLTyClDeclBinders"
+hsLTyClDeclBinders (dL->L _ (XTyClDecl nec)) = noExtCon nec
 hsLTyClDeclBinders _ = panic "hsLTyClDeclBinders: Impossible Match"
                              -- due to #15884
 
@@ -1217,40 +1219,44 @@ hsLInstDeclBinders (dL->L _ (ClsInstD
 hsLInstDeclBinders (dL->L _ (DataFamInstD { dfid_inst = fi }))
   = hsDataFamInstBinders fi
 hsLInstDeclBinders (dL->L _ (TyFamInstD {})) = mempty
-hsLInstDeclBinders (dL->L _ (ClsInstD _ (XClsInstDecl {})))
-  = panic "hsLInstDeclBinders"
-hsLInstDeclBinders (dL->L _ (XInstDecl _))
-  = panic "hsLInstDeclBinders"
+hsLInstDeclBinders (dL->L _ (ClsInstD _ (XClsInstDecl nec)))
+  = noExtCon nec
+hsLInstDeclBinders (dL->L _ (XInstDecl nec))
+  = noExtCon nec
 hsLInstDeclBinders _ = panic "hsLInstDeclBinders: Impossible Match"
                              -- due to #15884
 
 -------------------
 -- the SrcLoc returned are for the whole declarations, not just the names
-hsDataFamInstBinders :: DataFamInstDecl pass
-                     -> ([Located (IdP pass)], [LFieldOcc pass])
+hsDataFamInstBinders :: ( XXConDecl pass ~ NoExtCon, XXHsDataDefn pass ~ NoExtCon
+                        , XXFamEqn pass (HsTyPats pass) (HsDataDefn pass) ~ NoExtCon
+                        , XXHsImplicitBndrs pass (FamEqn pass (HsTyPats pass) (HsDataDefn pass)) ~ NoExtCon )
+                     => DataFamInstDecl pass -> ([Located (IdP pass)], [LFieldOcc pass])
 hsDataFamInstBinders (DataFamInstDecl { dfid_eqn = HsIB { hsib_body =
                        FamEqn { feqn_rhs = defn }}})
   = hsDataDefnBinders defn
   -- There can't be repeated symbols because only data instances have binders
 hsDataFamInstBinders (DataFamInstDecl
-                                    { dfid_eqn = HsIB { hsib_body = XFamEqn _}})
-  = panic "hsDataFamInstBinders"
-hsDataFamInstBinders (DataFamInstDecl (XHsImplicitBndrs _))
-  = panic "hsDataFamInstBinders"
+                                    { dfid_eqn = HsIB { hsib_body = XFamEqn nec}})
+  = noExtCon nec
+hsDataFamInstBinders (DataFamInstDecl (XHsImplicitBndrs nec))
+  = noExtCon nec
 
 -------------------
 -- the SrcLoc returned are for the whole declarations, not just the names
-hsDataDefnBinders :: HsDataDefn pass -> ([Located (IdP pass)], [LFieldOcc pass])
+hsDataDefnBinders :: (XXConDecl pass ~ NoExtCon, XXHsDataDefn pass ~ NoExtCon)
+                  => HsDataDefn pass -> ([Located (IdP pass)], [LFieldOcc pass])
 hsDataDefnBinders (HsDataDefn { dd_cons = cons })
   = hsConDeclsBinders cons
   -- See Note [Binders in family instances]
-hsDataDefnBinders (XHsDataDefn _) = panic "hsDataDefnBinders"
+hsDataDefnBinders (XHsDataDefn nec) = noExtCon nec
 
 -------------------
 type Seen pass = [LFieldOcc pass] -> [LFieldOcc pass]
                  -- Filters out ones that have already been seen
 
-hsConDeclsBinders :: [LConDecl pass] -> ([Located (IdP pass)], [LFieldOcc pass])
+hsConDeclsBinders :: forall pass. (XXConDecl pass ~ NoExtCon)
+                  => [LConDecl pass] -> ([Located (IdP pass)], [LFieldOcc pass])
    -- See hsLTyClDeclBinders for what this does
    -- The function is boringly complicated because of the records
    -- And since we only have equality, we have to be a little careful
@@ -1279,7 +1285,7 @@ hsConDeclsBinders cons
                 (remSeen', flds) = get_flds remSeen args
                 (ns, fs) = go remSeen' rs
 
-           XConDecl _ -> panic "hsConDeclsBinders"
+           XConDecl nec -> noExtCon nec
 
     get_flds :: Seen pass -> HsConDeclDetails pass
              -> (Seen pass, [LFieldOcc pass])
@@ -1348,7 +1354,7 @@ lStmtsImplicits = hs_lstmts
     hs_stmt (ApplicativeStmt _ args _) = concatMap do_arg args
       where do_arg (_, ApplicativeArgOne _ pat _ _) = lPatImplicits pat
             do_arg (_, ApplicativeArgMany _ stmts _ _) = hs_lstmts stmts
-            do_arg (_, XApplicativeArg _) = panic "lStmtsImplicits"
+            do_arg (_, XApplicativeArg nec) = noExtCon nec
     hs_stmt (LetStmt _ binds)     = hs_local_binds (unLoc binds)
     hs_stmt (BodyStmt {})         = []
     hs_stmt (LastStmt {})         = []
@@ -1356,7 +1362,7 @@ lStmtsImplicits = hs_lstmts
                                                 , s <- ss]
     hs_stmt (TransStmt { trS_stmts = stmts }) = hs_lstmts stmts
     hs_stmt (RecStmt { recS_stmts = ss })     = hs_lstmts ss
-    hs_stmt (XStmtLR {})          = panic "lStmtsImplicits"
+    hs_stmt (XStmtLR nec)         = noExtCon nec
 
     hs_local_binds (HsValBinds _ val_binds) = hsValBindsImplicits val_binds
     hs_local_binds (HsIPBinds {})           = []

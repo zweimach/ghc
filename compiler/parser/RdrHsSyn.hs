@@ -214,8 +214,8 @@ mkATDefault (dL->L loc (TyFamInstDecl { tfid_eqn = HsIB { hsib_body = e }}))
                                     , feqn_fixity = fixity
                                     , feqn_rhs    = rhs })
            ; pure (f, addAnnsAt loc anns) }
-mkATDefault (dL->L _ (TyFamInstDecl (HsIB _ (XFamEqn _)))) = panic "mkATDefault"
-mkATDefault (dL->L _ (TyFamInstDecl (XHsImplicitBndrs _))) = panic "mkATDefault"
+mkATDefault (dL->L _ (TyFamInstDecl (HsIB _ (XFamEqn nec)))) = noExtCon nec
+mkATDefault (dL->L _ (TyFamInstDecl (XHsImplicitBndrs nec))) = noExtCon nec
 mkATDefault _ = panic "mkATDefault: Impossible Match"
                                 -- due to #15884
 
@@ -505,7 +505,7 @@ has_args ((dL->L _ (Match { m_pats = args })) : _) = not (null args)
         -- no arguments.  This is necessary now that variable bindings
         -- with no arguments are now treated as FunBinds rather
         -- than pattern bindings (tests/rename/should_fail/rnfail002).
-has_args ((dL->L _ (XMatch _)) : _) = panic "has_args"
+has_args ((dL->L _ (XMatch nec)) : _) = noExtCon nec
 has_args (_ : _) = panic "has_args:Impossible Match" -- due to #15884
 
 {- **********************************************************************
@@ -2381,8 +2381,8 @@ mk_rec_fields fs (Just s)  = HsRecFields { rec_flds = fs
 mk_rec_upd_field :: HsRecField GhcPs (LHsExpr GhcPs) -> HsRecUpdField GhcPs
 mk_rec_upd_field (HsRecField (dL->L loc (FieldOcc _ rdr)) arg pun)
   = HsRecField (L loc (Unambiguous noExt rdr)) arg pun
-mk_rec_upd_field (HsRecField (dL->L _ (XFieldOcc _)) _ _)
-  = panic "mk_rec_upd_field"
+mk_rec_upd_field (HsRecField (dL->L _ (XFieldOcc nec)) _ _)
+  = noExtCon nec
 mk_rec_upd_field (HsRecField _ _ _)
   = panic "mk_rec_upd_field: Impossible Match" -- due to #15884
 

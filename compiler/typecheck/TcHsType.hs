@@ -195,7 +195,7 @@ kcHsSigType names (HsIB { hsib_body = hs_ty
     bindImplicitTKBndrs_Skol sig_vars    $
     tc_lhs_type typeLevelMode hs_ty liftedTypeKind
 
-kcHsSigType _ (XHsImplicitBndrs _) = panic "kcHsSigType"
+kcHsSigType _ (XHsImplicitBndrs nec) = noExtCon nec
 
 tcClassSigType :: SkolemInfo -> [Located Name] -> LHsSigType GhcRn -> TcM Type
 -- Does not do validity checking
@@ -254,7 +254,7 @@ tc_hs_sig_type skol_info hs_sig_type ctxt_kind
 
        ; return (mkInvForAllTys kvs ty1) }
 
-tc_hs_sig_type _ (XHsImplicitBndrs _) _ = panic "tc_hs_sig_type"
+tc_hs_sig_type _ (XHsImplicitBndrs nec) _ = noExtCon nec
 
 tcTopLHsType :: LHsSigType GhcRn -> ContextKind -> TcM Type
 -- tcTopLHsType is used for kind-checking top-level HsType where
@@ -279,7 +279,7 @@ tcTopLHsType hs_sig_type ctxt_kind
        ; traceTc "End tcTopLHsType }" (vcat [ppr hs_ty, ppr final_ty])
        ; return final_ty}
 
-tcTopLHsType (XHsImplicitBndrs _) _ = panic "tcTopLHsType"
+tcTopLHsType (XHsImplicitBndrs nec) _ = noExtCon nec
 
 -----------------
 tcHsDeriv :: LHsSigType GhcRn -> TcM ([TyVar], (Class, [Type], [Kind]))
@@ -381,7 +381,7 @@ tcHsTypeApp wc_ty kind
        ; ty <- zonkPromoteType ty
        ; checkValidType TypeAppCtxt ty
        ; return ty }
-tcHsTypeApp (XHsWildCardBndrs _) _ = panic "tcHsTypeApp"
+tcHsTypeApp (XHsWildCardBndrs nec) _ = noExtCon nec
 
 {- Note [Wildcards in visible type application]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1847,7 +1847,7 @@ kcLHsQTyVars_Cusk name flav
     ctxt_kind | tcFlavourIsOpen flav = TheKind liftedTypeKind
               | otherwise            = AnyKind
 
-kcLHsQTyVars_Cusk _ _ (XLHsQTyVars _) _ = panic "kcLHsQTyVars"
+kcLHsQTyVars_Cusk _ _ (XLHsQTyVars nec) _ = noExtCon nec
 
 ------------------------------
 kcLHsQTyVars_NonCusk name flav
@@ -1895,7 +1895,7 @@ kcLHsQTyVars_NonCusk name flav
     ctxt_kind | tcFlavourIsOpen flav = TheKind liftedTypeKind
               | otherwise            = AnyKind
 
-kcLHsQTyVars_NonCusk _ _ (XLHsQTyVars _) _ = panic "kcLHsQTyVars"
+kcLHsQTyVars_NonCusk _ _ (XLHsQTyVars nec) _ = noExtCon nec
 
 
 {- Note [No polymorphic recursion]
@@ -2140,7 +2140,7 @@ tcHsTyVarBndr new_tv (UserTyVar _ (L _ tv_nm))
 tcHsTyVarBndr new_tv (KindedTyVar _ (L _ tv_nm) lhs_kind)
   = do { kind <- tcLHsKindSig (TyVarBndrKindCtxt tv_nm) lhs_kind
        ; new_tv tv_nm kind }
-tcHsTyVarBndr _ (XTyVarBndr _) = panic "tcHsTyVarBndr"
+tcHsTyVarBndr _ (XTyVarBndr nec) = noExtCon nec
 
 -----------------
 tcHsQTyVarBndr :: ContextKind
@@ -2173,7 +2173,7 @@ tcHsQTyVarBndr _ new_tv (KindedTyVar _ (L _ tv_nm) lhs_kind)
     hs_tv = HsTyVar noExt NotPromoted (noLoc tv_nm)
             -- Used for error messages only
 
-tcHsQTyVarBndr _ _ (XTyVarBndr _) = panic "tcHsTyVarBndr"
+tcHsQTyVarBndr _ _ (XTyVarBndr nec) = noExtCon nec
 
 
 --------------------------------------
@@ -2530,8 +2530,8 @@ tcHsPartialSigType ctxt sig_ty
        ; traceTc "tcHsPartialSigType" (ppr all_tvs)
        ; return (wcs, wcx, tv_names, all_tvs, theta, tau) }
 
-tcHsPartialSigType _ (HsWC _ (XHsImplicitBndrs _)) = panic "tcHsPartialSigType"
-tcHsPartialSigType _ (XHsWildCardBndrs _) = panic "tcHsPartialSigType"
+tcHsPartialSigType _ (HsWC _ (XHsImplicitBndrs nec)) = noExtCon nec
+tcHsPartialSigType _ (XHsWildCardBndrs nec) = noExtCon nec
 
 tcPartialContext :: HsContext GhcRn -> TcM (TcThetaType, Maybe TcType)
 tcPartialContext hs_theta
@@ -2641,8 +2641,8 @@ tcHsPatSigType ctxt sig_ty
              -- NB: tv's Name may be fresh (in the case of newPatSigTyVar)
            ; return (name, tv) }
 
-tcHsPatSigType _ (HsWC _ (XHsImplicitBndrs _)) = panic "tcHsPatSigType"
-tcHsPatSigType _ (XHsWildCardBndrs _)          = panic "tcHsPatSigType"
+tcHsPatSigType _ (HsWC _ (XHsImplicitBndrs nec)) = noExtCon nec
+tcHsPatSigType _ (XHsWildCardBndrs nec)          = noExtCon nec
 
 tcPatSig :: Bool                    -- True <=> pattern binding
          -> LHsSigWcType GhcRn

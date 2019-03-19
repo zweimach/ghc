@@ -289,7 +289,7 @@ rnExpr (ExplicitTuple x tup_args boxity)
                                       ; return (L l (Present x e'), fvs) }
     rnTupArg (L l (Missing _)) = return (L l (Missing noExt)
                                         , emptyFVs)
-    rnTupArg (L _ (XTupArg {})) = panic "rnExpr.XTupArg"
+    rnTupArg (L _ (XTupArg nec)) = noExtCon nec
 
 rnExpr (ExplicitSum x alt arity expr)
   = do { (expr', fvs) <- rnLExpr expr
@@ -462,7 +462,7 @@ rnCmdTop = wrapLocFstM rnCmdTop'
 
         ; return (HsCmdTop (cmd_names `zip` cmd_names') cmd',
                   fvCmd `plusFV` cmd_fvs) }
-  rnCmdTop' (XCmdTop{}) = panic "rnCmdTop"
+  rnCmdTop' (XCmdTop nec) = noExtCon nec
 
 rnLCmd :: LHsCmd GhcPs -> RnM (LHsCmd GhcRn, FreeVars)
 rnLCmd = wrapLocFstM rnCmd
@@ -536,7 +536,7 @@ rnCmd (HsCmdDo x (L l stmts))
         ; return ( HsCmdDo x (L l stmts'), fvs ) }
 
 rnCmd cmd@(HsCmdWrap {}) = pprPanic "rnCmd" (ppr cmd)
-rnCmd cmd@(XCmd {})      = pprPanic "rnCmd" (ppr cmd)
+rnCmd     (XCmd nec)     = noExtCon nec
 
 ---------------------------------------------------
 type CmdNeeds = FreeVars        -- Only inhabitants are
@@ -568,7 +568,7 @@ methodNamesCmd (HsCmdLam _ match)        = methodNamesMatch match
 methodNamesCmd (HsCmdCase _ _ matches)
   = methodNamesMatch matches `addOneFV` choiceAName
 
-methodNamesCmd (XCmd {}) = panic "methodNamesCmd"
+methodNamesCmd (XCmd nec) = noExtCon nec
 
 --methodNamesCmd _ = emptyFVs
    -- Other forms can't occur in commands, but it's not convenient
@@ -581,20 +581,20 @@ methodNamesMatch (MG { mg_alts = L _ ms })
   = plusFVs (map do_one ms)
  where
     do_one (L _ (Match { m_grhss = grhss })) = methodNamesGRHSs grhss
-    do_one (L _ (XMatch _)) = panic "methodNamesMatch.XMatch"
-methodNamesMatch (XMatchGroup _) = panic "methodNamesMatch"
+    do_one (L _ (XMatch nec)) = noExtCon nec
+methodNamesMatch (XMatchGroup nec) = noExtCon nec
 
 -------------------------------------------------
 -- gaw 2004
 methodNamesGRHSs :: GRHSs GhcRn (LHsCmd GhcRn) -> FreeVars
 methodNamesGRHSs (GRHSs _ grhss _) = plusFVs (map methodNamesGRHS grhss)
-methodNamesGRHSs (XGRHSs _) = panic "methodNamesGRHSs"
+methodNamesGRHSs (XGRHSs nec) = noExtCon nec
 
 -------------------------------------------------
 
 methodNamesGRHS :: Located (GRHS GhcRn (LHsCmd GhcRn)) -> CmdNeeds
 methodNamesGRHS (L _ (GRHS _ _ rhs)) = methodNamesLCmd rhs
-methodNamesGRHS (L _ (XGRHS _)) = panic "methodNamesGRHS"
+methodNamesGRHS (L _ (XGRHS nec)) = noExtCon nec
 
 ---------------------------------------------------
 methodNamesStmts :: [Located (StmtLR GhcRn GhcRn (LHsCmd GhcRn))] -> FreeVars
@@ -616,7 +616,7 @@ methodNamesStmt (TransStmt {})                 = emptyFVs
 methodNamesStmt ApplicativeStmt{}              = emptyFVs
    -- ParStmt and TransStmt can't occur in commands, but it's not
    -- convenient to error here so we just do what's convenient
-methodNamesStmt (XStmtLR {}) = panic "methodNamesStmt"
+methodNamesStmt (XStmtLR nec) = noExtCon nec
 
 {-
 ************************************************************************
@@ -946,8 +946,8 @@ rnStmt ctxt _ (L loc (TransStmt { trS_stmts = stmts, trS_by = by, trS_form = for
 rnStmt _ _ (L _ ApplicativeStmt{}) _ =
   panic "rnStmt: ApplicativeStmt"
 
-rnStmt _ _ (L _ XStmtLR{}) _ =
-  panic "rnStmt: XStmtLR"
+rnStmt _ _ (L _ (XStmtLR nec)) _ =
+  noExtCon nec
 
 rnParallelStmts :: forall thing. HsStmtContext Name
                 -> SyntaxExpr GhcRn
@@ -978,7 +978,7 @@ rnParallelStmts ctxt return_op segs thing_inside
 
            ; let seg' = ParStmtBlock x stmts' used_bndrs return_op
            ; return ((seg':segs', thing), fvs) }
-    rn_segs _ _ (XParStmtBlock{}:_) = panic "rnParallelStmts"
+    rn_segs _ _ (XParStmtBlock nec:_) = noExtCon nec
 
     cmpByOcc n1 n2 = nameOccName n1 `compare` nameOccName n2
     dupErr vs = addErr (text "Duplicate binding in parallel list comprehension for:"
@@ -1147,10 +1147,10 @@ rn_rec_stmt_lhs _ stmt@(L _ (ApplicativeStmt {})) -- Shouldn't appear yet
 
 rn_rec_stmt_lhs _ (L _ (LetStmt _ (L _ (EmptyLocalBinds _))))
   = panic "rn_rec_stmt LetStmt EmptyLocalBinds"
-rn_rec_stmt_lhs _ (L _ (LetStmt _ (L _ (XHsLocalBindsLR _))))
-  = panic "rn_rec_stmt LetStmt XHsLocalBindsLR"
-rn_rec_stmt_lhs _ (L _ (XStmtLR _))
-  = panic "rn_rec_stmt XStmtLR"
+rn_rec_stmt_lhs _ (L _ (LetStmt _ (L _ (XHsLocalBindsLR nec))))
+  = noExtCon nec
+rn_rec_stmt_lhs _ (L _ (XStmtLR nec))
+  = noExtCon nec
 
 rn_rec_stmts_lhs :: Outputable body => MiniFixityEnv
                  -> [LStmt GhcPs body]
@@ -1218,8 +1218,8 @@ rn_rec_stmt _ _ stmt@(L _ (ParStmt {}), _)       -- Syntactically illegal in mdo
 rn_rec_stmt _ _ stmt@(L _ (TransStmt {}), _)     -- Syntactically illegal in mdo
   = pprPanic "rn_rec_stmt: TransStmt" (ppr stmt)
 
-rn_rec_stmt _ _ (L _ (LetStmt _ (L _ (XHsLocalBindsLR _))), _)
-  = panic "rn_rec_stmt: LetStmt XHsLocalBindsLR"
+rn_rec_stmt _ _ (L _ (LetStmt _ (L _ (XHsLocalBindsLR nec))), _)
+  = noExtCon nec
 
 rn_rec_stmt _ _ (L _ (LetStmt _ (L _ (EmptyLocalBinds _))), _)
   = panic "rn_rec_stmt: LetStmt EmptyLocalBinds"
@@ -1227,8 +1227,8 @@ rn_rec_stmt _ _ (L _ (LetStmt _ (L _ (EmptyLocalBinds _))), _)
 rn_rec_stmt _ _ stmt@(L _ (ApplicativeStmt {}), _)
   = pprPanic "rn_rec_stmt: ApplicativeStmt" (ppr stmt)
 
-rn_rec_stmt _ _ stmt@(L _ (XStmtLR {}), _)
-  = pprPanic "rn_rec_stmt: XStmtLR" (ppr stmt)
+rn_rec_stmt _ _ (L _ (XStmtLR nec), _)
+  = noExtCon nec
 
 rn_rec_stmts :: Outputable (body GhcPs) =>
                 (Located (body GhcPs) -> RnM (Located (body GhcRn), FreeVars))
@@ -1996,7 +1996,7 @@ checkStmt ctxt (L _ stmt)
    msg = sep [ text "Unexpected" <+> pprStmtCat stmt <+> ptext (sLit "statement")
              , text "in" <+> pprAStmtContext ctxt ]
 
-pprStmtCat :: Stmt a body -> SDoc
+pprStmtCat :: (XXStmtLR a a body ~ NoExtCon) => Stmt a body -> SDoc
 pprStmtCat (TransStmt {})     = text "transform"
 pprStmtCat (LastStmt {})      = text "return expression"
 pprStmtCat (BodyStmt {})      = text "body"
@@ -2005,7 +2005,7 @@ pprStmtCat (LetStmt {})       = text "let"
 pprStmtCat (RecStmt {})       = text "rec"
 pprStmtCat (ParStmt {})       = text "parallel"
 pprStmtCat (ApplicativeStmt {}) = panic "pprStmtCat: ApplicativeStmt"
-pprStmtCat (XStmtLR {})         = panic "pprStmtCat: XStmtLR"
+pprStmtCat (XStmtLR nec)        = noExtCon nec
 
 ------------
 emptyInvalid :: Validity  -- Payload is the empty document
@@ -2071,7 +2071,7 @@ okCompStmt dflags _ stmt
        RecStmt {}  -> emptyInvalid
        LastStmt {} -> emptyInvalid  -- Should not happen (dealt with by checkLastStmt)
        ApplicativeStmt {} -> emptyInvalid
-       XStmtLR{} -> panic "okCompStmt"
+       XStmtLR nec -> noExtCon nec
 
 ---------
 checkTupleSection :: [LHsTupArg GhcPs] -> RnM ()

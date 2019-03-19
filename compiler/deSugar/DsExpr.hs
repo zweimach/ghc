@@ -98,7 +98,7 @@ dsIPBinds (IPBinds ev_binds ip_binds) body
       = do e' <- dsLExpr e
            return (Let (NonRec n e') body)
     ds_ip_bind _ _ = panic "dsIPBinds"
-dsIPBinds (XHsIPBinds _) _ = panic "dsIPBinds"
+dsIPBinds (XHsIPBinds nec) _ = noExtCon nec
 
 -------------------------
 -- caller sets location
@@ -758,7 +758,7 @@ ds_expr _ (EViewPat      {})  = panic "dsExpr:EViewPat"
 ds_expr _ (ELazyPat      {})  = panic "dsExpr:ELazyPat"
 ds_expr _ (HsDo          {})  = panic "dsExpr:HsDo"
 ds_expr _ (HsRecFld      {})  = panic "dsExpr:HsRecFld"
-ds_expr _ (XExpr         {})  = panic "dsExpr: XExpr"
+ds_expr _ (XExpr nec)         = noExtCon nec
 
 
 ------------------------------
@@ -931,7 +931,7 @@ dsDo stmts
                  (pat, dsLExpr expr)
                do_arg (ApplicativeArgMany _ stmts ret pat) =
                  (pat, dsDo (stmts ++ [noLoc $ mkLastStmt (noLoc ret)]))
-               do_arg (XApplicativeArg _) = panic "dsDo"
+               do_arg (XApplicativeArg nec) = noExtCon nec
 
                arg_tys = map hsLPatType pats
 
@@ -988,7 +988,7 @@ dsDo stmts
 
     go _ (ParStmt   {}) _ = panic "dsDo ParStmt"
     go _ (TransStmt {}) _ = panic "dsDo TransStmt"
-    go _ (XStmtLR   {}) _ = panic "dsDo XStmtLR"
+    go _ (XStmtLR nec)  _ = noExtCon nec
 
 handle_failure :: LPat GhcTc -> MatchResult -> SyntaxExpr GhcTc -> DsM CoreExpr
     -- In a do expression, pattern-match failure just calls

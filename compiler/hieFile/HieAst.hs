@@ -1172,7 +1172,7 @@ instance ToHie (LTyClDecl GhcRn) where
              -> FamEqn GhcRn (TScoped (LHsQTyVars GhcRn)) (LHsType GhcRn)
           go (FamEqn a var bndrs pat b rhs) =
              FamEqn a var bndrs (TS (ResolvedScopes [mkLScope rhs]) pat) b rhs
-          go (XFamEqn NoExt) = XFamEqn NoExt
+          go (XFamEqn nec) = noExtCon nec
       XTyClDecl _ -> []
 
 instance ToHie (LFamilyDecl GhcRn) where

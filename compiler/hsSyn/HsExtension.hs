@@ -1,5 +1,7 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE EmptyCase #-}
+{-# LANGUAGE EmptyDataDeriving #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
@@ -63,6 +65,17 @@ instance Outputable NoExt where
 -- | Used when constructing a term with an unused extension point.
 noExt :: NoExt
 noExt = NoExt
+
+-- | TODO RGS: Docs
+data NoExtCon
+  deriving (Data,Eq,Ord)
+
+instance Outputable NoExtCon where
+  ppr = noExtCon
+
+-- | TODO RGS: Docs
+noExtCon :: NoExtCon -> a
+noExtCon x = case x of {}
 
 -- | Used as a data type index for the hsSyn AST
 data GhcPass (c :: Pass)
@@ -1080,7 +1093,7 @@ type ConvertIdX a b =
 --
 -- So
 --
---   type instance XXHsIPBinds    (GhcPass p) = NoExt
+--   type instance XXHsIPBinds    (GhcPass p) = NoExtCon
 --
 -- will correctly deduce Outputable for (GhcPass p), but
 --

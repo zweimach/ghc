@@ -96,7 +96,7 @@ data HsLocalBindsLR idL idR
 type instance XHsValBinds      (GhcPass pL) (GhcPass pR) = NoExt
 type instance XHsIPBinds       (GhcPass pL) (GhcPass pR) = NoExt
 type instance XEmptyLocalBinds (GhcPass pL) (GhcPass pR) = NoExt
-type instance XXHsLocalBindsLR (GhcPass pL) (GhcPass pR) = NoExt
+type instance XXHsLocalBindsLR (GhcPass pL) (GhcPass pR) = NoExtCon
 
 type LHsLocalBindsLR idL idR = Located (HsLocalBindsLR idL idR)
 
@@ -329,7 +329,7 @@ type instance XPatBind    GhcTc (GhcPass pR) = NPatBindTc
 type instance XVarBind    (GhcPass pL) (GhcPass pR) = NoExt
 type instance XAbsBinds   (GhcPass pL) (GhcPass pR) = NoExt
 type instance XPatSynBind (GhcPass pL) (GhcPass pR) = NoExt
-type instance XXHsBindsLR (GhcPass pL) (GhcPass pR) = NoExt
+type instance XXHsBindsLR (GhcPass pL) (GhcPass pR) = NoExtCon
 
 
         -- Consider (AbsBinds tvs ds [(ftvs, poly_f, mono_f) binds]
@@ -356,7 +356,7 @@ data ABExport p
    | XABExport (XXABExport p)
 
 type instance XABE       (GhcPass p) = NoExt
-type instance XXABExport (GhcPass p) = NoExt
+type instance XXABExport (GhcPass p) = NoExtCon
 
 
 -- | - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnPattern',
@@ -382,7 +382,7 @@ type instance XPSB         (GhcPass idL) GhcPs = NoExt
 type instance XPSB         (GhcPass idL) GhcRn = NameSet
 type instance XPSB         (GhcPass idL) GhcTc = NameSet
 
-type instance XXPatSynBind (GhcPass idL) (GhcPass idR) = NoExt
+type instance XXPatSynBind (GhcPass idL) (GhcPass idR) = NoExtCon
 
 {-
 Note [AbsBinds]
@@ -829,7 +829,7 @@ type instance XIPBinds       GhcTc = TcEvBinds -- binds uses of the
                                                -- implicit parameters
 
 
-type instance XXHsIPBinds    (GhcPass p) = NoExt
+type instance XXHsIPBinds    (GhcPass p) = NoExtCon
 
 isEmptyIPBindsPR :: HsIPBinds (GhcPass p) -> Bool
 isEmptyIPBindsPR (IPBinds _ is) = null is
@@ -864,7 +864,7 @@ data IPBind id
   | XIPBind (XXIPBind id)
 
 type instance XCIPBind    (GhcPass p) = NoExt
-type instance XXIPBind    (GhcPass p) = NoExt
+type instance XXIPBind    (GhcPass p) = NoExtCon
 
 instance (p ~ GhcPass pass, OutputableBndrId p)
        => Outputable (HsIPBinds p) where
@@ -1057,7 +1057,7 @@ type instance XSpecInstSig      (GhcPass p) = NoExt
 type instance XMinimalSig       (GhcPass p) = NoExt
 type instance XSCCFunSig        (GhcPass p) = NoExt
 type instance XCompleteMatchSig (GhcPass p) = NoExt
-type instance XXSig             (GhcPass p) = NoExt
+type instance XXSig             (GhcPass p) = NoExtCon
 
 -- | Located Fixity Signature
 type LFixitySig pass = Located (FixitySig pass)
@@ -1067,7 +1067,7 @@ data FixitySig pass = FixitySig (XFixitySig pass) [Located (IdP pass)] Fixity
                     | XFixitySig (XXFixitySig pass)
 
 type instance XFixitySig  (GhcPass p) = NoExt
-type instance XXFixitySig (GhcPass p) = NoExt
+type instance XXFixitySig (GhcPass p) = NoExtCon
 
 -- | Type checker Specialisation Pragmas
 --
