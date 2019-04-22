@@ -601,6 +601,8 @@ stat_endGC (Capability *cap, gc_thread *initiating_gct, W_ live, W_ copied, W_ s
     }
 }
 
+StgWord ben_IND=0;
+
 /* -----------------------------------------------------------------------------
    Called at the beginning of each Retainer Profiliing
    -------------------------------------------------------------------------- */
@@ -766,6 +768,8 @@ static void free_RTSSummaryStats(RTSSummaryStats * sum)
 
 static void report_summary(const RTSSummaryStats* sum)
 {
+    statsPrintf("ben_IND %lu\n", ben_IND);
+
     // We should do no calculation, other than unit changes and formatting, and
     // we should not not use any data from outside of globals, sum and stats
     // here. See Note [RTS Stats Reporting]
