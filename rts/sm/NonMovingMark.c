@@ -24,7 +24,7 @@
 #include "MarkWeak.h"
 #include "sm/Storage.h"
 
-static void mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin);
+static void mark_closure (MarkQueue *queue, const StgClosure *p, StgClosure **origin);
 static void mark_tso (MarkQueue *queue, StgTSO *tso);
 static void mark_stack (MarkQueue *queue, StgStack *stack);
 static void mark_PAP_payload (MarkQueue *queue,
@@ -385,7 +385,7 @@ void push_closure (MarkQueue *q,
     MarkQueueEnt ent = {
         .type = MARK_CLOSURE,
         .mark_closure = {
-            .p = UNTAG_CLOSURE(p),
+            .p = p,
             .origin = origin,
         }
     };
@@ -998,11 +998,13 @@ mark_stack (MarkQueue *queue, StgStack *stack)
 }
 
 static GNUC_ATTR_HOT void
-mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
+mark_closure (MarkQueue *queue, const StgClosure *p0, StgClosure **origin)
 {
-    (void)origin; // TODO: should be used for selector/thunk optimisations
+    StgClosure *p = (StgClosure*)p0;
 
  try_again:
+    ;
+    StgWord tag = GET_CLOSURE_TAG(p);
     p = UNTAG_CLOSURE(p);
 
 #   define PUSH_FIELD(obj, field)                                \
@@ -1017,12 +1019,12 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
         if (type == CONSTR_0_1 || type == CONSTR_0_2 || type == CONSTR_NOCAF) {
             // no need to put these on the static linked list, they don't need
             // to be marked.
-            return;
+            goto done;
         }
 
         if (lookupHashTable(queue->marked_objects, (W_)p)) {
             // already marked
-            return;
+            goto done;
         }
 
         insertHashTable(queue->marked_objects, (W_)p, (P_)1);
@@ -1033,7 +1035,7 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
             if (info->srt != 0) {
                 markQueuePushThunkSrt(queue, info); // TODO this function repeats the check above
             }
-            return;
+            goto done;
 
         case FUN_STATIC:
             if (info->srt != 0 || info->layout.payload.ptrs != 0) {
@@ -1047,11 +1049,11 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
                     PUSH_FIELD(p, payload[i]);
                 }
             }
-            return;
+            goto done;
 
         case IND_STATIC:
             PUSH_FIELD((StgInd *) p, indirectee);
-            return;
+            goto done;
 
         case CONSTR:
         case CONSTR_1_0:
@@ -1060,7 +1062,7 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
             for (StgHalfWord i = 0; i < info->layout.payload.ptrs; ++i) {
                 PUSH_FIELD(p, payload[i]);
             }
-            return;
+            goto done;
 
         case WHITEHOLE:
             while (get_itbl(p)->type == WHITEHOLE);
@@ -1083,7 +1085,7 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
         // This should never happen in the non-concurrent case
         barf("Closure outside of non-moving heap: %p", p);
 #else
-        return;
+        goto done;
 #endif
     }
 
@@ -1096,10 +1098,10 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
         if (bd->flags & BF_LARGE) {
             if (! (bd->flags & BF_NONMOVING_SWEEPING)) {
                 // Not in the snapshot
-                return;
+                goto done;
             }
             if (bd->flags & BF_MARKED) {
-                return;
+                goto done;
             }
 
             // Mark contents
@@ -1114,8 +1116,9 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
              */
             uint8_t mark = nonmovingGetMark(seg, block_idx);
             /* Don't mark things we've already marked (since we may loop) */
-            if (mark == nonmovingMarkEpoch)
-                return;
+            if (mark == nonmovingMarkEpoch) {
+                goto done;
+            }
 
             StgClosure *snapshot_loc =
               (StgClosure *) nonmovingSegmentGetBlock(seg, seg->next_free_snap);
@@ -1126,7 +1129,7 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
                  * things above the allocation pointer that aren't marked since
                  * they may not be valid objects.
                  */
-                return;
+                goto done;
             }
         }
     }
@@ -1144,7 +1147,7 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
         }
         ASSERT(found_it);
 #endif
-        return;
+        return; // we don't update origin here! TODO(osa): explain this
     }
 
     else {
@@ -1276,7 +1279,16 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
     }
 
 
-    case IND:
+    case IND: {
+        PUSH_FIELD((StgInd *) p, indirectee);
+        if (origin != NULL) {
+            p = ((StgInd*)p)->indirectee;
+            goto try_again;
+        } else {
+            break;
+        }
+    }
+
     case BLACKHOLE:
         PUSH_FIELD((StgInd *) p, indirectee);
         break;
@@ -1366,7 +1378,7 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
             // the stack will be fully marked before we sweep due to the final
             // post-mark synchronization. Most importantly, we do not set its
             // mark bit, the mutator is responsible for this.
-            return;
+            goto done;
         }
         break;
     }
@@ -1430,6 +1442,15 @@ mark_closure (MarkQueue *queue, StgClosure *p, StgClosure **origin)
         struct NonmovingSegment *seg = nonmovingGetSegment((StgPtr) p);
         nonmoving_block_idx block_idx = nonmovingGetBlockIdx((StgPtr) p);
         nonmovingSetMark(seg, block_idx);
+    }
+
+done:
+    if (origin != NULL) {
+        if (UNTAG_CLOSURE(p0) != p) {
+            if (cas((StgVolatilePtr)origin, (StgWord)p0, (StgWord)TAG_CLOSURE(tag, p)) == (StgWord)p0) {
+                // debugBelch("cas successful");
+            }
+        }
     }
 }
 
