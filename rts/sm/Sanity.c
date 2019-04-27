@@ -470,7 +470,13 @@ void checkHeapChain (bdescr *bd)
     StgPtr p;
 
     for (; bd != NULL; bd = bd->link) {
-        if(!(bd->flags & BF_SWEPT)) {
+        if (false && bd->flags & BF_NONMOVING) {
+            struct NonmovingSegment *seg = (struct NonmovingSegment *) bd->start;
+            for (nonmoving_block_idx i=0; i < nonmovingSegmentBlockCount(seg); i++) {
+                if (nonmovingGetMark(seg, i) == nonmovingMarkEpoch) 
+                    checkClosure((StgClosure *) nonmovingSegmentGetBlock(seg, i));
+            }
+        } else if(!(bd->flags & BF_SWEPT)) {
             p = bd->start;
             while (p < bd->free) {
                 uint32_t size = checkClosure((StgClosure *)p);
