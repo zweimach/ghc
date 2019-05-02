@@ -1004,6 +1004,7 @@ mark_closure (MarkQueue *queue, const StgClosure *p0, StgClosure **origin)
 
  try_again:
     ;
+    StgClosure *p_next = NULL;
     StgWord tag = GET_CLOSURE_TAG(p);
     p = UNTAG_CLOSURE(p);
 
@@ -1074,19 +1075,17 @@ mark_closure (MarkQueue *queue, const StgClosure *p0, StgClosure **origin)
         }
     }
 
-    bdescr *bd = Bdescr((StgPtr) p);
+    bdescr *const bd = Bdescr((StgPtr) p);
 
     if (bd->gen != oldest_gen) {
-        // Here we have an object living outside of the non-moving heap. Since
-        // we moved everything to the non-moving heap before starting the major
-        // collection, we know that we don't need to trace it: it was allocated
-        // after we took our snapshot.
-#if !defined(THREADED_RTS)
-        // This should never happen in the non-concurrent case
-        barf("Closure outside of non-moving heap: %p", p);
-#else
+        // Here we have an object living outside of the non-moving heap. While
+        // we likely evacuated nearly everything to the nonmoving heap during
+        // preparation there are nevertheless a few ways in which we might trace
+        // a reference into younger generations:
+        //
+        //  * a mutable object might have been updated
+        //  * we might have aged an object
         goto done;
-#endif
     }
 
     ASSERTM(LOOKS_LIKE_CLOSURE_PTR(p), "invalid closure, info=%p", p->header.info);
@@ -1282,22 +1281,20 @@ mark_closure (MarkQueue *queue, const StgClosure *p0, StgClosure **origin)
     case IND: {
         PUSH_FIELD((StgInd *) p, indirectee);
         if (origin != NULL) {
-            p = ((StgInd*)p)->indirectee;
-            goto try_again;
-        } else {
-            break;
+            p_next = ((StgInd*)p)->indirectee;
         }
+        break;
     }
 
     case BLACKHOLE: {
         PUSH_FIELD((StgInd *) p, indirectee);
         StgClosure *indirectee = ((StgInd*)p)->indirectee;
         if (GET_CLOSURE_TAG(indirectee) == 0 || origin == NULL) {
-            break;
+            // do nothing
         } else {
-            p = indirectee;
-            goto try_again;
+            p_next = indirectee;
         }
+        break;
     }
 
     case MUT_VAR_CLEAN:
@@ -1444,18 +1441,23 @@ mark_closure (MarkQueue *queue, const StgClosure *p0, StgClosure **origin)
             bd->flags |= BF_MARKED;
         }
         RELEASE_LOCK(&nonmoving_large_objects_mutex);
-    } else {
+    } else if (bd->flags & BF_NONMOVING) {
         // TODO: Kill repetition
         struct NonmovingSegment *seg = nonmovingGetSegment((StgPtr) p);
         nonmoving_block_idx block_idx = nonmovingGetBlockIdx((StgPtr) p);
         nonmovingSetMark(seg, block_idx);
     }
 
+    // If we found a indirection to shortcut keep going.
+    if (p_next) {
+        p = p_next;
+        goto try_again;
+    }
+
 done:
-    if (origin != NULL) {
-        if (UNTAG_CLOSURE((StgClosure*)p0) != p) {
+    if (origin != NULL && (!HEAP_ALLOCED(p) || bd->flags & BF_NONMOVING)) {
+        if (UNTAG_CLOSURE((StgClosure*)p0) != p && *origin == p0) {
             if (cas((StgVolatilePtr)origin, (StgWord)p0, (StgWord)TAG_CLOSURE(tag, p)) == (StgWord)p0) {
-                // debugBelch("cas successful");
             }
         }
     }
