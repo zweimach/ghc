@@ -17,7 +17,7 @@
 
 void longPauseCb(uint64_t dur_ns STG_UNUSED) {
   //trace(1, "LONG PAUSE %f", 1.0 * dur_ns / 1e9);
-  debugBelch("LONG PAUSE %f\n", 1.0 * dur_ns / 1e9);
+  //debugBelch("LONG PAUSE %f\n", 1.0 * dur_ns / 1e9);
 }
 
 void ACQUIRE_LOCK_CHECKED_(Mutex *mutex, int max_msec) {
