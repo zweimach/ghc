@@ -20,6 +20,7 @@
 #include "Printer.h"
 #include "Schedule.h"
 #include "Weak.h"
+#include "Stats.h"
 #include "STM.h"
 #include "MarkWeak.h"
 #include "sm/Storage.h"
