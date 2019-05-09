@@ -102,7 +102,7 @@ nonmovingSweepSegment(struct NonmovingSegment *seg)
 
 #if defined(DEBUG)
 
-void nonmovingGcCafs(struct MarkQueue_ *queue)
+void nonmovingGcCafs()
 {
     uint32_t i = 0;
     StgIndStatic *next;

@@ -686,7 +686,7 @@ static void nonmovingMark_(MarkQueue *mark_queue, StgWeak **dead_weaks, StgTSO *
 
 #if defined(DEBUG)
     // Zap CAFs that we will sweep
-    nonmovingGcCafs(mark_queue);
+    nonmovingGcCafs();
 #endif
 
     ASSERT(mark_queue->top->head == 0);
