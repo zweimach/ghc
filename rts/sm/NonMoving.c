@@ -95,7 +95,7 @@ static void nonmovingInitSegment(struct NonmovingSegment *seg, uint8_t block_siz
     Bdescr((P_)seg)->u.scan = nonmovingSegmentGetBlock(seg, 0);
 }
 
-static unsigned int countSegmentListBlocks(struct NonmovingSegment *seg)
+STG_UNUSED static unsigned int countSegmentListBlocks(struct NonmovingSegment *seg)
 {
     unsigned int n = 0;
     while (seg != NULL) {
@@ -105,7 +105,7 @@ static unsigned int countSegmentListBlocks(struct NonmovingSegment *seg)
     return n;
 }
 
-static unsigned int countAllocatorBlocks(struct NonmovingAllocator *alloc)
+STG_UNUSED static unsigned int countAllocatorBlocks(struct NonmovingAllocator *alloc)
 {
     unsigned int n = 0;
     n += countSegmentListBlocks(alloc->filled);
@@ -115,7 +115,7 @@ static unsigned int countAllocatorBlocks(struct NonmovingAllocator *alloc)
     return n;
 }
 
-static unsigned int countHeapBlocks(struct NonmovingHeap *heap)
+STG_UNUSED static unsigned int countHeapBlocks(struct NonmovingHeap *heap)
 {
     unsigned int n = 0;
     for (unsigned int i = 0; i < NONMOVING_ALLOCA_CNT; i++) {
