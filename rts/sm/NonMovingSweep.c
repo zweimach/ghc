@@ -240,7 +240,6 @@ void nonmovingSweepStableNameTable()
     // a stable name can die during moving heap collection and we can't use
     // nonmovingIsAlive on those objects. Inefficient.
 
-    trace(1, "StartNonmovingSweepStableNameTable")
     stableNameLock();
     FOR_EACH_STABLE_NAME(
         p, {
@@ -256,5 +255,4 @@ void nonmovingSweepStableNameTable()
             }
         });
     stableNameUnlock();
-    trace(1, "EndNonmovingSweepStableNameTable")
 }
