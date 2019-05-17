@@ -267,6 +267,14 @@ GarbageCollect (uint32_t collect_gen,
   N = collect_gen;
   major_gc = (N == RtsFlags.GcFlags.generations-1);
 
+#if defined(THREADED_RTS)
+  if (major_gc && RtsFlags.GcFlags.useNonmoving && concurrent_coll_running) {
+      N--;
+      collect_gen--;
+      major_gc = false;
+  }
+#endif
+
   /* N.B. The nonmoving collector works a bit differently. See
    * Note [Static objects under the nonmoving collector].
    */
