@@ -1580,6 +1580,7 @@ mark_closure (MarkQueue *queue, const StgClosure *p0, StgClosure **origin)
     }
 
     case TSO:
+        debugBelch("Marked TSO %p\n", p);
         mark_tso(queue, (StgTSO *) p);
         break;
 
@@ -1914,6 +1915,9 @@ void nonmovingTidyThreads ()
 
         next = t->global_link;
 
+        debugBelch("nonmovingTidyThreads: %p => %s\n",
+                   t, nonmovingIsNowAlive((StgClosure*) t) ? "live" : "dead");
+
         // N.B. This thread is in old_threads, consequently we *know* it is in
         // the snapshot and it is therefore safe to rely on the bitmap to
         // determine its reachability.
@@ -1936,6 +1940,7 @@ void nonmovingResurrectThreads (struct MarkQueue_ *queue, StgTSO **resurrected_t
     StgTSO *next;
     for (StgTSO *t = nonmoving_old_threads; t != END_TSO_QUEUE; t = next) {
         next = t->global_link;
+        debugBelch("nonmoving resurrect %p\n", t);
 
         switch (t->what_next) {
         case ThreadKilled:
