@@ -792,9 +792,6 @@ loop:
       StgClosure *r;
       const StgInfoTable *i;
       r = ((StgInd*)q)->indirectee;
-      // XXX: disable shortcutting
-      copy(p,info,q,sizeofW(StgInd),gen_no);
-      return;
       if (GET_CLOSURE_TAG(r) == 0) {
           i = r->header.info;
           if (IS_FORWARDING_PTR(i)) {
@@ -849,8 +846,6 @@ loop:
       return;
 
   case IND:
-    // XXX: disable shortcutting
-    copy(p,info,q,sizeofW(StgInd),gen_no);
     // follow chains of indirections, don't evacuate them
     q = ((StgInd*)q)->indirectee;
     *p = q;
@@ -1217,9 +1212,6 @@ selector_loop:
         // leaks by evaluating this selector thunk anyhow.
         goto bale_out;
     }
-
-    // XXX: Disable selector optimization
-    goto bale_out;
 
     info = INFO_PTR_TO_STRUCT(info);
     switch (info->type) {
