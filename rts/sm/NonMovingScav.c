@@ -18,6 +18,7 @@ nonmovingScavengeOne (StgClosure *q)
     StgPtr p = (StgPtr)q;
     const StgInfoTable *info = get_itbl(q);
     const bool saved_eager_promotion = gct->eager_promotion;
+    gct->scav_in_nonmoving = true;
 
     switch (info->type) {
 
@@ -352,6 +353,7 @@ nonmovingScavengeOne (StgClosure *q)
             recordMutableGen_GC(q, oldest_gen->no);
         }
     }
+    gct->scav_in_nonmoving = false;
 }
 
 /* Scavenge objects evacuated into a nonmoving segment by a minor GC */

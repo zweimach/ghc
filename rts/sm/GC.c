@@ -1727,6 +1727,7 @@ init_gc_thread (gc_thread *t)
     t->evac_gen_no = 0;
     t->failed_to_evac = false;
     t->eager_promotion = true;
+    t->scav_in_nonmoving = false;
     t->thunk_selector_depth = 0;
     t->copied = 0;
     t->scanned = 0;

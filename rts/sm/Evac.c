@@ -617,7 +617,7 @@ loop:
           // NOTE: large objects in nonmoving heap are also marked with
           // BF_NONMOVING. Those are moved to scavenged_large_objects list in
           // mark phase.
-          if (major_gc)
+          if (major_gc && !gct->scav_in_nonmoving)
               markQueuePushClosureGC(&gct->cap->upd_rem_set.queue, q);
           return;
       }
@@ -649,7 +649,7 @@ loop:
           // We may have evacuated the block to the nonmoving generation. If so
           // we need to make sure it is added to the mark queue since the only
           // reference to it may be from the moving heap.
-          if (major_gc && bd->flags & BF_NONMOVING) {
+          if (major_gc && bd->flags & BF_NONMOVING && !gct->scav_in_nonmoving) {
               markQueuePushClosureGC(&gct->cap->upd_rem_set.queue, q);
           }
           return;
@@ -663,7 +663,7 @@ loop:
           // We may have evacuated the block to the nonmoving generation. If so
           // we need to make sure it is added to the mark queue since the only
           // reference to it may be from the moving heap.
-          if (major_gc && bd->flags & BF_NONMOVING) {
+          if (major_gc && bd->flags & BF_NONMOVING && !gct->scav_in_nonmoving) {
               markQueuePushClosureGC(&gct->cap->upd_rem_set.queue, q);
           }
           return;
@@ -968,7 +968,7 @@ evacuate_BLACKHOLE(StgClosure **p)
     ASSERT((bd->flags & BF_COMPACT) == 0);
 
     if (bd->flags & BF_NONMOVING) {
-        if (major_gc)
+        if (major_gc && !gct->scav_in_nonmoving)
             markQueuePushClosureGC(&gct->cap->upd_rem_set.queue, q);
         return;
     }
