@@ -41,6 +41,8 @@
         copy_tag(p, info, src, size, stp, tag)
 #endif
 
+extern bool mark_nonmoving_closures;
+
 /* Note [Selector optimisation depth limit]
  * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
  *
@@ -371,7 +373,7 @@ evacuate_static_object (StgClosure **link_field, StgClosure *q)
 {
     if (RTS_UNLIKELY(RtsFlags.GcFlags.useNonmoving)) {
         // See Note [Static objects under the nonmoving collector] in Storage.c.
-        if (major_gc)
+        if (mark_nonmoving_closures)
             markQueuePushClosureGC(&gct->cap->upd_rem_set.queue, q);
         return;
     }
@@ -617,7 +619,7 @@ loop:
           // NOTE: large objects in nonmoving heap are also marked with
           // BF_NONMOVING. Those are moved to scavenged_large_objects list in
           // mark phase.
-          if (major_gc && !gct->scav_in_nonmoving)
+          if (mark_nonmoving_closures)
               markQueuePushClosureGC(&gct->cap->upd_rem_set.queue, q);
           return;
       }
@@ -649,7 +651,7 @@ loop:
           // We may have evacuated the block to the nonmoving generation. If so
           // we need to make sure it is added to the mark queue since the only
           // reference to it may be from the moving heap.
-          if (major_gc && bd->flags & BF_NONMOVING && !gct->scav_in_nonmoving) {
+          if (major_gc && bd->flags & BF_NONMOVING && mark_nonmoving_closures) {
               markQueuePushClosureGC(&gct->cap->upd_rem_set.queue, q);
           }
           return;
@@ -663,7 +665,7 @@ loop:
           // We may have evacuated the block to the nonmoving generation. If so
           // we need to make sure it is added to the mark queue since the only
           // reference to it may be from the moving heap.
-          if (major_gc && bd->flags & BF_NONMOVING && !gct->scav_in_nonmoving) {
+          if (major_gc && bd->flags & BF_NONMOVING && mark_nonmoving_closures) {
               markQueuePushClosureGC(&gct->cap->upd_rem_set.queue, q);
           }
           return;
@@ -968,7 +970,7 @@ evacuate_BLACKHOLE(StgClosure **p)
     ASSERT((bd->flags & BF_COMPACT) == 0);
 
     if (bd->flags & BF_NONMOVING) {
-        if (major_gc && !gct->scav_in_nonmoving)
+        if (major_gc && mark_nonmoving_closures)
             markQueuePushClosureGC(&gct->cap->upd_rem_set.queue, q);
         return;
     }

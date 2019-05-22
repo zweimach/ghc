@@ -110,6 +110,7 @@
  */
 uint32_t N;
 bool major_gc;
+bool mark_nonmoving_closures = true;
 
 /* Data used for allocation area sizing.
  */
@@ -282,17 +283,17 @@ GarbageCollect (uint32_t collect_gen,
       major_gc = false;
   }
 #endif
+  mark_nonmoving_closures = major_gc;
+
+  if (true || major_gc) {
+      trace_dump_start_gc();
+  }
+  if (major_gc) {
+      trace_dump_note("Major GC");
+  }
 
   struct long_pause_ctx gc_pause;
   LONG_PAUSE_START(&gc_pause);
-
-#if defined(THREADED_RTS)
-  if (major_gc && RtsFlags.GcFlags.useNonmoving && concurrent_coll_running) {
-      N--;
-      collect_gen--;
-      major_gc = false;
-  }
-#endif
 
   /* N.B. The nonmoving collector works a bit differently. See
    * Note [Static objects under the nonmoving collector].
@@ -484,6 +485,35 @@ GarbageCollect (uint32_t collect_gen,
 
       // If we get to here, there's really nothing left to do.
       break;
+  }
+
+
+  if (RtsFlags.GcFlags.useNonmoving && major_gc) {
+      inc_running();
+      mark_nonmoving_closures = false;
+      uint32_t g = oldest_gen->no;
+      scavenge_mutable_list(cap->saved_mut_lists[g], oldest_gen);
+      freeChain_sync(cap->saved_mut_lists[g]);
+      cap->saved_mut_lists[g] = NULL;
+
+      for (;;)
+      {
+          scavenge_until_all_done();
+
+          // The other threads are now stopped.  We might recurse back to
+          // here, but from now on this is the only thread.
+
+          // must be last...  invariant is that everything is fully
+          // scavenged at this point.
+          if (traverseWeakPtrList(&dead_weak_ptr_list, &resurrected_threads)) { // returns true if evaced something
+              inc_running();
+              continue;
+          }
+
+          // If we get to here, there's really nothing left to do.
+          break;
+      }
+      mark_nonmoving_closures = true;
   }
 
   shutdown_gc_threads(gct->thread_index, idle_cap);
@@ -1727,7 +1757,6 @@ init_gc_thread (gc_thread *t)
     t->evac_gen_no = 0;
     t->failed_to_evac = false;
     t->eager_promotion = true;
-    t->scav_in_nonmoving = false;
     t->thunk_selector_depth = 0;
     t->copied = 0;
     t->scanned = 0;

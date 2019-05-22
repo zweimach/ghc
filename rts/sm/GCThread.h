@@ -173,11 +173,6 @@ typedef struct gc_thread_ {
                                    // instead of the to-space
                                    // corresponding to the object
 
-    bool scav_in_nonmoving;        // The object we are scavenging is in the
-                                   // nonmoving heap already. This means that
-                                   // evacuate needn't mark any objects in the
-                                   // nonmoving heap that it encounters.
-
     W_ thunk_selector_depth;       // used to avoid unbounded recursion in
                                    // evacuate() for THUNK_SELECTOR
 

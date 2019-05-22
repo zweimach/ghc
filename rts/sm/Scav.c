@@ -1578,7 +1578,7 @@ scavenge_one(StgPtr p)
    remove non-mutable objects from the mutable list at this point.
    -------------------------------------------------------------------------- */
 
-static void
+void
 scavenge_mutable_list(bdescr *bd, generation *gen)
 {
     StgPtr p, q;
@@ -1680,15 +1680,6 @@ scavenge_mutable_list(bdescr *bd, generation *gen)
 void
 scavenge_capability_mut_lists (Capability *cap)
 {
-    // In a major GC only nonmoving heap's mut list is root
-    if (RtsFlags.GcFlags.useNonmoving && major_gc) {
-        uint32_t g = oldest_gen->no;
-        scavenge_mutable_list(cap->saved_mut_lists[g], oldest_gen);
-        freeChain_sync(cap->saved_mut_lists[g]);
-        cap->saved_mut_lists[g] = NULL;
-        return;
-    }
-
     /* Mutable lists from each generation > N
      * we want to *scavenge* these roots, not evacuate them: they're not
      * going to move in this GC.
