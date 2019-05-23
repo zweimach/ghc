@@ -664,8 +664,6 @@ GarbageCollect (uint32_t collect_gen,
          *
          * See Note [Compact Normal Forms] for details.
          */
-
-        // TODO(osa): we need the same large object treatment here
         for (bd = gen->compact_objects; bd; bd = next) {
             next = bd->link;
             compactFree(((StgCompactNFDataBlock*)bd->start)->owner);
