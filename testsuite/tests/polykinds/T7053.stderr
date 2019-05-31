@@ -1,0 +1,6 @@
+
+T7053.hs:7:50: error:
+    • Occurs check: cannot construct the infinite kind: k ~ k -> k
+    • In the first argument of ‘TypeRep’, namely ‘(a b)’
+      In the type ‘TypeRep (a b)’
+      In the definition of data constructor ‘TyApp’

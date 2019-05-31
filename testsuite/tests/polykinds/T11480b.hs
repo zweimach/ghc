@@ -14,6 +14,7 @@
 {-# language DefaultSignatures #-}
 {-# language FunctionalDependencies #-}
 {-# language UndecidableSuperClasses #-}
+{-# language StandaloneKindSignatures #-}
 
 -- This code, supplied by Edward Kmett, uses UndecidableSuperClasses along
 -- with a bunch of other stuff, so it's a useful stress test.
@@ -39,6 +40,7 @@ instance Vacuous p a
 data Dict (p :: Constraint) where
   Dict :: p => Dict p
 
+type Category :: (i -> i -> Type) -> Constraint
 class Functor (Op p) (Nat p (->)) p => Category (p :: i -> i -> Type) where
   type Ob p :: i -> Constraint
   type Ob p = Vacuous p

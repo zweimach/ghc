@@ -1,10 +1,15 @@
-{-# LANGUAGE TemplateHaskell, TypeFamilies, PolyKinds, TypeApplications, TypeFamilyDependencies #-}
+{-# LANGUAGE TemplateHaskell, TypeFamilies, PolyKinds, TypeApplications, TypeFamilyDependencies,
+             StandaloneKindSignatures #-}
 
 module ClosedFam2 where
 
 import Language.Haskell.TH
 
-$( return [ ClosedTypeFamilyD
+$( return [ KiSigD (mkName "Equals")
+              (ArrowT `AppT` VarT (mkName "k") `AppT`
+              (ArrowT `AppT` VarT (mkName "k") `AppT`
+               VarT (mkName "k")))
+          , ClosedTypeFamilyD
               (TypeFamilyHead
                 (mkName "Equals")
                 [ KindedTV (mkName "a") (VarT (mkName "k"))
@@ -26,7 +31,8 @@ a = (5 :: Int)
 b :: Equals Int Bool
 b = False
 
-$( return [ ClosedTypeFamilyD
+$( return [ KiSigD (mkName "Foo") (ArrowT `AppT` VarT (mkName "k") `AppT` StarT)
+          , ClosedTypeFamilyD
                (TypeFamilyHead
                 (mkName "Foo")
                 [ KindedTV (mkName "a") (VarT (mkName "k"))]

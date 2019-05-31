@@ -6,8 +6,9 @@
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE UnboxedTuples #-}
 {-# LANGUAGE UnboxedSums #-}
-{-# LANGUAGE TypeInType #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
 
 import GHC.Int (Int(I#))
 import GHC.Word (Word(W#))
@@ -23,11 +24,12 @@ main = case (IdentityC 5#) of
       print (maybeInt# 12 increment# (Maybe# (# 42# | #)))
       print (maybeInt# 27 increment# (Maybe# (# | (# #) #)))
 
-newtype Identity :: forall (r :: RuntimeRep). TYPE r -> TYPE r where
+type Identity :: forall (r :: RuntimeRep). TYPE r -> TYPE r
+newtype Identity a where
   IdentityC :: forall (r :: RuntimeRep) (a :: TYPE r). a -> Identity a
 
-newtype Maybe# :: forall (r :: RuntimeRep).
-    TYPE r -> TYPE (SumRep '[r, TupleRep '[]]) where
+type Maybe# :: forall (r :: RuntimeRep). TYPE r -> TYPE (SumRep '[r, TupleRep '[]])
+newtype Maybe# a where
   Maybe# :: forall (r :: RuntimeRep) (a :: TYPE r). (# a | (# #) #) -> Maybe# a
 
 maybeInt# :: a -> (Int# -> a) -> Maybe# Int# -> a

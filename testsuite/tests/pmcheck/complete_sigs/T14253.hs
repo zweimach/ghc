@@ -3,13 +3,15 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
 
 module T14253 where
 
 import GHC.Exts
 import Data.Kind
 
-data TypeRep (a :: k) where
+type TypeRep :: k -> Type
+data TypeRep a where
     Con :: TypeRep (a :: k)
     TrFun   :: forall (r1 :: RuntimeRep) (r2 :: RuntimeRep)
                       (a :: TYPE r1) (b :: TYPE r2).

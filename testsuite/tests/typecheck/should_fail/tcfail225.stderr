@@ -1,5 +1,5 @@
 
-tcfail225.hs:9:19: error:
+tcfail225.hs:8:19: error:
     • Expected kind ‘k -> *’, but ‘Maybe’ has kind ‘* -> *’
     • In the first argument of ‘T’, namely ‘Maybe’
       In the type ‘T Maybe (m a)’

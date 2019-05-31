@@ -1,7 +1,11 @@
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
 module T7892 where
 
-class C (f :: * -> *) where
-   type F (f :: *) :: *
+import Data.Kind
+
+type C :: (Type -> Type) -> Constraint
+class C f where
+   type F (f :: Type) :: Type
 
 
