@@ -1020,7 +1020,7 @@ splice. In particular it is not set when the splice is renamed or typechecked.
 'RunSplice' is needed to provide a reference where 'addModFinalizer' can insert
 the finalizer (see Note [Delaying modFinalizers in untyped splices]), and
 'addModFinalizer' runs when doing Q things. Therefore, It doesn't make sense to
-set 'RunSplice' when renaming or typechecking the splice, where 'Splice', 
+set 'RunSplice' when renaming or typechecking the splice, where 'Splice',
 'Brack' or 'Comp' are used instead.
 
 -}
