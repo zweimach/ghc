@@ -835,7 +835,7 @@ void nonmovingCollect(StgWeak **dead_weaks, StgTSO **resurrected_threads)
 
     // Mark threads resurrected during moving heap scavenging
     for (StgTSO *tso = *resurrected_threads; tso != END_TSO_QUEUE; tso = tso->global_link) {
-        debugBelch("resurrecting from moving %p\n", tso);
+        debugTrace(DEBUG_weak, "resurrecting from moving %p\n", tso);
         markQueuePushClosure_(mark_queue, (StgClosure*)tso);
     }
     LONG_PAUSE_END(&pause, 20, "root-marking");
