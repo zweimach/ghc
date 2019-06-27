@@ -41,7 +41,6 @@ import DynFlags
 import Cmm              hiding (topInfoTable)
 import BlockId
 import CLabel
-import Unique           ( pprUniqueAlways )
 import GHC.Platform
 import FastString
 import Outputable
@@ -280,10 +279,7 @@ pprReg f r
           if target32Bit platform then ppr32_reg_no f i
                                   else ppr64_reg_no f i
       RegReal    (RealRegPair _ _) -> panic "X86.Ppr: no reg pairs on this arch"
-      RegVirtual (VirtualRegI  u)  -> text "%vI_"   <> pprUniqueAlways u
-      RegVirtual (VirtualRegHi u)  -> text "%vHi_"  <> pprUniqueAlways u
-      RegVirtual (VirtualRegF  u)  -> text "%vF_"   <> pprUniqueAlways u
-      RegVirtual (VirtualRegD  u)  -> text "%vD_"   <> pprUniqueAlways u
+      RegVirtual v                 -> ppr v
 
   where
     ppr32_reg_no :: Format -> Int -> SDoc
