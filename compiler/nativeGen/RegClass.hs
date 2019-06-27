@@ -2,6 +2,7 @@
 module RegClass
         ( VecRegWidth(..), vecRegWidthBits
         , RegClass(..)
+        , allRegClasses
         ) where
 
 import GhcPrelude
@@ -11,7 +12,7 @@ import  Unique
 
 -- | The width of a vector register.
 data VecRegWidth = Vec128 | Vec256 | Vec512
-                 deriving (Eq, Ord, Show)
+                 deriving (Eq, Ord, Show, Enum, Bounded)
 
 -- | The width of a vector register in bits.
 vecRegWidthBits :: VecRegWidth -> Int
@@ -29,6 +30,10 @@ data RegClass
         | RcDouble
         | RcVector VecRegWidth
         deriving Eq
+
+allRegClasses :: [RegClass]
+allRegClasses =
+    [ RcInteger, RcFloat, RcDouble ] ++ map RcVector [minBound..maxBound]
 
 
 instance Uniquable RegClass where
