@@ -56,7 +56,7 @@ data VirtualReg
         | VirtualRegHi {-# UNPACK #-} !Unique  -- High part of 2-word register
         | VirtualRegF  {-# UNPACK #-} !Unique
         | VirtualRegD  {-# UNPACK #-} !Unique
-        | VirtualRegVec !VecRegWidth {-# UNPACK #-} !Unique
+        | VirtualRegVec {-# UNPACK #-} !Unique
 
         deriving (Eq, Show)
 
@@ -70,7 +70,7 @@ instance Ord VirtualReg where
   compare (VirtualRegHi a) (VirtualRegHi b) = nonDetCmpUnique a b
   compare (VirtualRegF a) (VirtualRegF b) = nonDetCmpUnique a b
   compare (VirtualRegD a) (VirtualRegD b) = nonDetCmpUnique a b
-  compare (VirtualRegVec w a) (VirtualRegVec v b) = compare w v `mappend` nonDetCmpUnique a b
+  compare (VirtualRegVec a) (VirtualRegVec b) = nonDetCmpUnique a b
 
   compare VirtualRegI{} _ = LT
   compare _ VirtualRegI{} = GT
@@ -89,7 +89,7 @@ instance Uniquable VirtualReg where
                 VirtualRegHi u  -> u
                 VirtualRegF u   -> u
                 VirtualRegD u   -> u
-                VirtualRegVec _ u -> u
+                VirtualRegVec u -> u
 
 instance Outputable VirtualReg where
         ppr reg
@@ -101,8 +101,7 @@ instance Outputable VirtualReg where
                 -- namely SSE2 register xmm0 .. xmm15
                 VirtualRegF  u  -> text "%vFloat_"  <> pprUniqueAlways u
                 VirtualRegD  u  -> text "%vDouble_" <> pprUniqueAlways u
-                VirtualRegVec w u -> text "%vVec" <> ppr (vecRegWidthBits w)
-                                      <> text "_"    <> pprUniqueAlways u
+                VirtualRegVec u -> text "%vVec_"    <> pprUniqueAlways u
 
 
 
@@ -113,7 +112,7 @@ renameVirtualReg u r
         VirtualRegHi _  -> VirtualRegHi u
         VirtualRegF _   -> VirtualRegF  u
         VirtualRegD _   -> VirtualRegD  u
-        VirtualRegVec w _ -> VirtualRegVec w u
+        VirtualRegVec _ -> VirtualRegVec u
 
 
 classOfVirtualReg :: VirtualReg -> RegClass
@@ -123,7 +122,7 @@ classOfVirtualReg vr
         VirtualRegHi{}  -> RcInteger
         VirtualRegF{}   -> RcFloat
         VirtualRegD{}   -> RcDouble
-        VirtualRegVec w _ -> RcVector w
+        VirtualRegVec{} -> RcDouble
 
 
 

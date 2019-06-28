@@ -193,8 +193,8 @@ trivColorable platform virtualRegSqueeze realRegSqueeze RcDouble conflicts exclu
 
         = count3 < cALLOCATABLE_REGS_DOUBLE
 
-trivColorable platform virtualRegSqueeze realRegSqueeze (RcVector _) conflicts exclusions
-        | let cALLOCATABLE_REGS_DOUBLE
+trivColorable platform virtualRegSqueeze realRegSqueeze RcVector conflicts exclusions
+        | let cALLOCATABLE_REGS_VECTOR
                   =        (case platformArch platform of
                             ArchX86       -> 8
                             ArchX86_64    -> 10
@@ -213,15 +213,15 @@ trivColorable platform virtualRegSqueeze realRegSqueeze (RcVector _) conflicts e
                             ArchMipsel    -> panic "trivColorable ArchMipsel"
                             ArchJavaScript-> panic "trivColorable ArchJavaScript"
                             ArchUnknown   -> panic "trivColorable ArchUnknown")
-        , count2        <- accSqueeze 0 cALLOCATABLE_REGS_DOUBLE
-                                (virtualRegSqueeze RcDouble)
+        , count2        <- accSqueeze 0 cALLOCATABLE_REGS_VECTOR
+                                (virtualRegSqueeze RcVector)
                                 conflicts
 
-        , count3        <- accSqueeze  count2    cALLOCATABLE_REGS_DOUBLE
-                                (realRegSqueeze   RcDouble)
+        , count3        <- accSqueeze  count2    cALLOCATABLE_REGS_VECTOR
+                                (realRegSqueeze   RcVector)
                                 exclusions
 
-        = count3 < cALLOCATABLE_REGS_DOUBLE
+        = count3 < cALLOCATABLE_REGS_VECTOR
 
 
 

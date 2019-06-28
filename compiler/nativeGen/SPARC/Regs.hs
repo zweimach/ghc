@@ -104,9 +104,6 @@ virtualRegSqueeze cls vr
                 VirtualRegD{}           -> 1
                 _other                  -> 0
 
-        RcVector _
-         -> panic "SPARC.Regs.virtualRegSqueeze: No vector registers"
-
 {-# INLINE realRegSqueeze #-}
 realRegSqueeze :: RegClass -> RealReg -> Int
 
@@ -135,9 +132,6 @@ realRegSqueeze cls rr
                         | otherwise     -> 1
 
                 RealRegPair{}           -> 1
-
-        RcVector _
-         -> panic "SPARC.Regs.virtualRegSqueeze: No vector registers"
 
 -- | All the allocatable registers in the machine,
 --      including register pairs.

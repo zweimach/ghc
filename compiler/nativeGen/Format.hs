@@ -49,8 +49,6 @@ import Outputable
 --
 --  * 'RegClass.RegClass': Whether a register is an integer, float-point, or vector register
 --
---  * 'RegClass.VecRegWidth': The bit-width of a vector register; used by 'RegClass.RegClassVec'.
---
 
 -- It looks very like the old MachRep, but it's now of purely local
 -- significance, here in the native code generator.  You can change it

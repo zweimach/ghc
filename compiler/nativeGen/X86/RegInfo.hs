@@ -13,8 +13,6 @@ import GhcPrelude
 
 import Format
 import Reg
-import RegClass
-import CmmType (Width(..))
 
 import Outputable
 import GHC.Platform
@@ -35,12 +33,7 @@ mkVirtualReg u format
         -- For now we map both to being allocated as "Double" Registers
         -- on X86/X86_64
         FF64    -> VirtualRegD u
-        VecFormat {} ->
-          case formatToWidth format of
-            W128 -> VirtualRegVec Vec128 u
-            W256 -> VirtualRegVec Vec256 u
-            W512 -> VirtualRegVec Vec512 u
-            _    -> panic "X86.RegInfo.mkVirtualReg: Invalid vector width"
+        VecFormat {} -> VirtualRegVec u
         _other  -> VirtualRegI u
 
 regDotColor :: Platform -> RealReg -> SDoc
