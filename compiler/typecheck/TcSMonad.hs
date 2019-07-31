@@ -3337,7 +3337,7 @@ useVars co_vars
        ; wrapTcS $
          do { tcvs <- TcM.readTcRef ref
             ; let tcvs' = tcvs `unionVarSet` co_vars
-            ; TcM.writeTcRef' ref tcvs' } }
+            ; TcM.writeTcRef ref tcvs' } }
 
 -- | Equalities only
 setWantedEq :: TcEvDest -> Coercion -> TcS ()
