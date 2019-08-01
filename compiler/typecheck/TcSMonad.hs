@@ -2666,7 +2666,7 @@ getGlobalRdrEnvTcS = wrapTcS TcM.getGlobalRdrEnv
 bumpStepCountTcS :: TcS ()
 bumpStepCountTcS = TcS $ \env -> do { let ref = tcs_count env
                                     ; n <- TcM.readTcRef ref
-                                    ; TcM.writeTcRef ref (n+1) }
+                                    ; TcM.writeTcRef' ref (n+1) }
 
 csTraceTcS :: SDoc -> TcS ()
 csTraceTcS doc
@@ -3337,7 +3337,7 @@ useVars co_vars
        ; wrapTcS $
          do { tcvs <- TcM.readTcRef ref
             ; let tcvs' = tcvs `unionVarSet` co_vars
-            ; TcM.writeTcRef' ref tcvs' } }
+            ; TcM.writeTcRef ref tcvs' } }
 
 -- | Equalities only
 setWantedEq :: TcEvDest -> Coercion -> TcS ()
