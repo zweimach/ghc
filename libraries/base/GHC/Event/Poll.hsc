@@ -38,6 +38,7 @@ import GHC.Real (fromIntegral, div)
 import GHC.Show (Show)
 import System.Posix.Types (Fd(..), CNfds(..))
 
+import GHC.Event.PollMask
 import qualified GHC.Event.Array as A
 import qualified GHC.Event.Internal as E
 
@@ -151,36 +152,6 @@ data PollFd = PollFd {
     , pfdEvents  :: {-# UNPACK #-} !Event
     , pfdRevents :: {-# UNPACK #-} !Event
     } deriving Show -- ^ @since 4.4.0.0
-
-newtype Event = Event CShort
-    deriving ( Eq         -- ^ @since 4.4.0.0
-             , Show       -- ^ @since 4.4.0.0
-             , Num        -- ^ @since 4.4.0.0
-             , Storable   -- ^ @since 4.4.0.0
-             , Bits       -- ^ @since 4.4.0.0
-             , FiniteBits -- ^ @since 4.7.0.0
-             )
-
-#{enum Event, Event
- , pollIn    = POLLIN
- , pollOut   = POLLOUT
- , pollErr   = POLLERR
- , pollHup   = POLLHUP
- }
-
-fromEvent :: E.Event -> Event
-fromEvent e = remap E.evtRead  pollIn .|.
-              remap E.evtWrite pollOut
-  where remap evt to
-            | e `E.eventIs` evt = to
-            | otherwise         = 0
-
-toEvent :: Event -> E.Event
-toEvent e = remap (pollIn .|. pollErr .|. pollHup)  E.evtRead `mappend`
-            remap (pollOut .|. pollErr .|. pollHup) E.evtWrite
-  where remap evt to
-            | e .&. evt /= 0 = to
-            | otherwise      = mempty
 
 -- | @since 4.3.1.0
 instance Storable PollFd where
