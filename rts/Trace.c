@@ -159,7 +159,7 @@ static void tracePreface (void)
     debugBelch("%12lx: ", (unsigned long)osThreadId());
 #endif
     if (RtsFlags.TraceFlags.timestamp) {
-        debugBelch("%9" FMT_Word64 ": ", stat_getElapsedTime());
+        debugBelch("%9" FMT_Word64 ": ", timeToNS(stat_getElapsedTime()));
     }
 }
 #endif

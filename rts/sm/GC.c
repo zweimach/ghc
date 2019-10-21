@@ -215,7 +215,7 @@ GarbageCollect (uint32_t collect_gen,
 #endif
   uint32_t g, n;
   // the time we should report our heap census as occurring at, if necessary.
-  Time mut_time = 0;
+  Time mut_time = NSToTime(0);
 
   if (do_heap_census) {
       RTSStats stats;

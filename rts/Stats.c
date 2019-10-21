@@ -74,7 +74,7 @@ static void statsClose( void );
 
 Time stat_getElapsedTime(void)
 {
-    return getProcessElapsedTime() - start_init_elapsed;
+    return subTime(getProcessElapsedTime(), start_init_elapsed);
 }
 
 /* ---------------------------------------------------------------------------
@@ -84,7 +84,8 @@ Time stat_getElapsedTime(void)
 double
 mut_user_time_until( Time t )
 {
-    return TimeToSecondsDbl(t - stats.gc_cpu_ns - stats.nonmoving_gc_cpu_ns);
+    return TimeToSecondsDbl(subTime(subTime(t, stats.gc_cpu_ns),
+                                    stats.nonmoving_gc_cpu_ns));
     // heapCensus() time is included in GC_tot_cpu, so we don't need
     // to subtract it here.
 
@@ -120,32 +121,32 @@ mut_user_time_during_RP( void )
 void
 initStats0(void)
 {
-    start_init_cpu    = 0;
-    start_init_elapsed = 0;
-    end_init_cpu     = 0;
-    end_init_elapsed  = 0;
+    start_init_cpu    = NSToTime(0);
+    start_init_elapsed = NSToTime(0);
+    end_init_cpu     = NSToTime(0);
+    end_init_elapsed  = NSToTime(0);
 
-    start_nonmoving_gc_cpu = 0;
-    start_nonmoving_gc_elapsed = 0;
-    start_nonmoving_gc_sync_elapsed = 0;
+    start_nonmoving_gc_cpu = NSToTime(0);
+    start_nonmoving_gc_elapsed = NSToTime(0);
+    start_nonmoving_gc_sync_elapsed = NSToTime(0);
 
-    start_exit_cpu    = 0;
-    start_exit_elapsed = 0;
-    start_exit_gc_cpu    = 0;
-    start_exit_gc_elapsed = 0;
-    end_exit_cpu     = 0;
-    end_exit_elapsed  = 0;
+    start_exit_cpu    = NSToTime(0);
+    start_exit_elapsed = NSToTime(0);
+    start_exit_gc_cpu    = NSToTime(0);
+    start_exit_gc_elapsed = NSToTime(0);
+    end_exit_cpu     = NSToTime(0);
+    end_exit_elapsed  = NSToTime(0);
 
 #if defined(PROFILING)
-    RP_start_time  = 0;
-    RP_tot_time  = 0;
-    RPe_start_time = 0;
-    RPe_tot_time = 0;
+    RP_start_time  = NSToTime(0);
+    RP_tot_time  = NSToTime(0);
+    RPe_start_time = NSToTime(0);
+    RPe_tot_time = NSToTime(0);
 
-    HC_start_time = 0;
-    HC_tot_time = 0;
-    HCe_start_time = 0;
-    HCe_tot_time = 0;
+    HC_start_time = NSToTime(0);
+    HC_tot_time = NSToTime(0);
+    HCe_start_time = NSToTime(0);
+    HCe_tot_time = NSToTime(0);
 #endif
 
     GC_end_faults = 0;
@@ -171,19 +172,19 @@ initStats0(void)
         .any_work = 0,
         .no_work = 0,
         .scav_find_work = 0,
-        .init_cpu_ns = 0,
-        .init_elapsed_ns = 0,
-        .mutator_cpu_ns = 0,
-        .mutator_elapsed_ns = 0,
-        .gc_cpu_ns = 0,
-        .gc_elapsed_ns = 0,
-        .cpu_ns = 0,
-        .elapsed_ns = 0,
-        .nonmoving_gc_cpu_ns = 0,
-        .nonmoving_gc_elapsed_ns = 0,
-        .nonmoving_gc_max_elapsed_ns = 0,
-        .nonmoving_gc_sync_elapsed_ns = 0,
-        .nonmoving_gc_sync_max_elapsed_ns = 0,
+        .init_cpu_ns = NSToTime(0),
+        .init_elapsed_ns = NSToTime(0),
+        .mutator_cpu_ns = NSToTime(0),
+        .mutator_elapsed_ns = NSToTime(0),
+        .gc_cpu_ns = NSToTime(0),
+        .gc_elapsed_ns = NSToTime(0),
+        .cpu_ns = NSToTime(0),
+        .elapsed_ns = NSToTime(0),
+        .nonmoving_gc_cpu_ns = NSToTime(0),
+        .nonmoving_gc_elapsed_ns = NSToTime(0),
+        .nonmoving_gc_max_elapsed_ns = NSToTime(0),
+        .nonmoving_gc_sync_elapsed_ns = NSToTime(0),
+        .nonmoving_gc_sync_max_elapsed_ns = NSToTime(0),
         .gc = {
             .gen = 0,
             .threads = 0,
@@ -196,12 +197,12 @@ initStats0(void)
             .copied_bytes = 0,
             .par_max_copied_bytes = 0,
             .par_balanced_copied_bytes = 0,
-            .sync_elapsed_ns = 0,
-            .cpu_ns = 0,
-            .elapsed_ns = 0,
-            .nonmoving_gc_cpu_ns = 0,
-            .nonmoving_gc_elapsed_ns = 0,
-            .nonmoving_gc_sync_elapsed_ns = 0,
+            .sync_elapsed_ns = NSToTime(0),
+            .cpu_ns = NSToTime(0),
+            .elapsed_ns = NSToTime(0),
+            .nonmoving_gc_cpu_ns = NSToTime(0),
+            .nonmoving_gc_elapsed_ns = NSToTime(0),
+            .nonmoving_gc_sync_elapsed_ns = NSToTime(0),
         }
     };
 }
@@ -1381,7 +1382,7 @@ stat_exit (void)
                 gen_stats->elapsed_ns = GC_coll_elapsed[g];
                 gen_stats->max_pause_ns = GC_coll_max_pause[g];
                 gen_stats->avg_pause_ns = gen->collections == 0 ?
-                    0 : (GC_coll_elapsed[g] / gen->collections);
+                    0 : ((Time){.time=GC_coll_elapsed[g].time / gen->collections});
     #if defined(THREADED_RTS) && defined(PROF_SPIN)
                 gen_stats->sync_spin = gen->sync.spin;
                 gen_stats->sync_yield = gen->sync.yield;
@@ -1650,19 +1651,21 @@ int getRTSStatsEnabled( void )
 
 void getRTSStats( RTSStats *s )
 {
-    Time current_elapsed = 0;
-    Time current_cpu = 0;
+    Time current_elapsed = NSToTime(0);
+    Time current_cpu = NSToTime(0);
 
     *s = stats;
 
     getProcessTimes(&current_cpu, &current_elapsed);
-    s->cpu_ns = current_cpu - end_init_cpu;
-    s->elapsed_ns = current_elapsed - end_init_elapsed;
+    s->cpu_ns = subTime(current_cpu, end_init_cpu);
+    s->elapsed_ns = subTime(current_elapsed, end_init_elapsed);
 
-    s->mutator_cpu_ns = current_cpu - end_init_cpu - stats.gc_cpu_ns -
-        stats.nonmoving_gc_cpu_ns;
-    s->mutator_elapsed_ns = current_elapsed - end_init_elapsed -
-        stats.gc_elapsed_ns;
+    s->mutator_cpu_ns =
+      subTime(subTime(subTime(current_cpu, end_init_cpu), stats.gc_cpu_ns),
+              stats.nonmoving_gc_cpu_ns);
+    s->mutator_elapsed_ns =
+      subTime(subTime(current_elapsed, end_init_elapsed),
+              stats.gc_elapsed_ns);
 }
 
 /* -----------------------------------------------------------------------------

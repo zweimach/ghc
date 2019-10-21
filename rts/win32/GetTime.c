@@ -20,11 +20,10 @@
 static inline Time
 fileTimeToRtsTime(FILETIME ft)
 {
-    Time t;
+    uint64_t t;
     t = ((Time)ft.dwHighDateTime << 32) | ft.dwLowDateTime;
-    t = NSToTime(t * 100);
     /* FILETIMES are in units of 100ns */
-    return t;
+    return NSToTime(t * 100);
 }
 
 void

@@ -58,8 +58,8 @@ handle_tick(int unused STG_UNUSED)
   switch (recent_activity) {
   case ACTIVITY_YES:
       recent_activity = ACTIVITY_MAYBE_NO;
-      ticks_to_gc = RtsFlags.GcFlags.idleGCDelayTime /
-                    RtsFlags.MiscFlags.tickInterval;
+      ticks_to_gc = divTime(RtsFlags.GcFlags.idleGCDelayTime,
+                            RtsFlags.MiscFlags.tickInterval);
       break;
   case ACTIVITY_MAYBE_NO:
       if (ticks_to_gc == 0) {
@@ -103,11 +103,15 @@ handle_tick(int unused STG_UNUSED)
 
 static StgWord timer_disabled;
 
+static bool ticker_enabled(void) {
+    return ! eqTime(RtsFlags.MiscFlags.tickInterval, NSToTime(0));
+}
+
 void
 initTimer(void)
 {
     initProfTimer();
-    if (RtsFlags.MiscFlags.tickInterval != 0) {
+    if (ticker_enabled()) {
         initTicker(RtsFlags.MiscFlags.tickInterval, handle_tick);
     }
     timer_disabled = 1;
@@ -117,7 +121,7 @@ void
 startTimer(void)
 {
     if (atomic_dec(&timer_disabled) == 0) {
-        if (RtsFlags.MiscFlags.tickInterval != 0) {
+        if (ticker_enabled()) {
             startTicker();
         }
     }
@@ -127,7 +131,7 @@ void
 stopTimer(void)
 {
     if (atomic_inc(&timer_disabled, 1) == 1) {
-        if (RtsFlags.MiscFlags.tickInterval != 0) {
+        if (ticker_enabled()) {
             stopTicker();
         }
     }
@@ -136,7 +140,7 @@ stopTimer(void)
 void
 exitTimer (bool wait)
 {
-    if (RtsFlags.MiscFlags.tickInterval != 0) {
+    if (ticker_enabled()) {
         exitTicker(wait);
     }
 }

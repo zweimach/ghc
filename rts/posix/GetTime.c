@@ -50,7 +50,7 @@ static Time getClockTime(clockid_t clock)
     struct timespec ts;
     int res = clock_gettime(clock, &ts);
     if (res == 0) {
-        return SecondsToTime(ts.tv_sec) + NSToTime(ts.tv_nsec);
+        return addTime(SecondsToTime(ts.tv_sec), NSToTime(ts.tv_nsec));
     } else {
         sysErrorBelch("clock_gettime");
         stg_exit(EXIT_FAILURE);
@@ -105,14 +105,15 @@ Time getProcessCPUTime(void)
     {
         struct rusage t;
         getrusage(RUSAGE_SELF, &t);
-        return SecondsToTime(t.ru_utime.tv_sec) + USToTime(t.ru_utime.tv_usec);
+        return addTime(SecondsToTime(t.ru_utime.tv_sec),
+                       USToTime(t.ru_utime.tv_usec));
     }
 }
 
 StgWord64 getMonotonicNSec(void)
 {
 #if defined(HAVE_CLOCK_GETTIME)
-    return getClockTime(CLOCK_ID);
+    return timeToNS(getClockTime(CLOCK_ID));
 
 #elif defined(darwin_HOST_OS)
 

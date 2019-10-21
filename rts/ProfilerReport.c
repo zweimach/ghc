@@ -296,7 +296,7 @@ writeCCSReport( FILE *prof_file, CostCentreStack const *stack,
 
     fprintf(prof_file, "\ttotal time  = %11.2f secs   (%lu ticks @ %d us, %d processor%s)\n",
             ((double) totals.total_prof_ticks *
-             (double) RtsFlags.MiscFlags.tickInterval) / (TIME_RESOLUTION * n_capabilities),
+             TimeToSecondsDbl(RtsFlags.MiscFlags.tickInterval) / n_capabilities),
             (unsigned long) totals.total_prof_ticks,
             (int) TimeToUS(RtsFlags.MiscFlags.tickInterval),
             n_capabilities, n_capabilities > 1 ? "s" : "");

@@ -174,7 +174,7 @@ void initRtsFlagsDefaults(void)
     RtsFlags.GcFlags.numa               = false;
     RtsFlags.GcFlags.numaMask           = 1;
     RtsFlags.GcFlags.ringBell           = false;
-    RtsFlags.GcFlags.longGCSync         = 0; /* detection turned off */
+    RtsFlags.GcFlags.longGCSync         = NSToTime(0); /* detection turned off */
 
     RtsFlags.DebugFlags.scheduler       = false;
     RtsFlags.DebugFlags.interpreter     = false;
@@ -1166,12 +1166,12 @@ error = true;
                 if (rts_argv[arg][2] == '\0') {
                   /* use default */
                 } else {
-                    Time t = fsecondsToTime(atof(rts_argv[arg]+2));
+                    float t = atof(rts_argv[arg]+2);
                     if (t == 0) {
                         RtsFlags.GcFlags.doIdleGC = false;
                     } else {
                         RtsFlags.GcFlags.doIdleGC = true;
-                        RtsFlags.GcFlags.idleGCDelayTime = t;
+                        RtsFlags.GcFlags.idleGCDelayTime = fsecondsToTime(t);
                     }
                 }
                 break;
@@ -1303,7 +1303,7 @@ error = true;
               case 'C': /* context switch interval */
                 OPTION_UNSAFE;
                 if (rts_argv[arg][2] == '\0')
-                    RtsFlags.ConcFlags.ctxtSwitchTime = 0;
+                    RtsFlags.ConcFlags.ctxtSwitchTime = NSToTime(0);
                 else {
                     RtsFlags.ConcFlags.ctxtSwitchTime =
                         fsecondsToTime(atof(rts_argv[arg]+2));
@@ -1314,7 +1314,7 @@ error = true;
                 OPTION_UNSAFE;
                 if (rts_argv[arg][2] == '\0') {
                     // turns off ticks completely
-                    RtsFlags.MiscFlags.tickInterval = 0;
+                    RtsFlags.MiscFlags.tickInterval = NSToTime(0);
                 } else {
                     RtsFlags.MiscFlags.tickInterval =
                         fsecondsToTime(atof(rts_argv[arg]+2));
@@ -1629,50 +1629,50 @@ error = true;
 
 static void normaliseRtsOpts (void)
 {
-    if (RtsFlags.MiscFlags.tickInterval < 0) {
+    if (ltTime(RtsFlags.MiscFlags.tickInterval, NSToTime(0))) {
         RtsFlags.MiscFlags.tickInterval = DEFAULT_TICK_INTERVAL;
     }
 
     // If the master timer is disabled, turn off the other timers.
-    if (RtsFlags.MiscFlags.tickInterval == 0) {
-        RtsFlags.ConcFlags.ctxtSwitchTime  = 0;
-        RtsFlags.GcFlags.idleGCDelayTime   = 0;
-        RtsFlags.ProfFlags.heapProfileInterval = 0;
+    if (eqTime(RtsFlags.MiscFlags.tickInterval, NSToTime(0))) {
+        RtsFlags.ConcFlags.ctxtSwitchTime  = NSToTime(0);
+        RtsFlags.GcFlags.idleGCDelayTime   = NSToTime(0);
+        RtsFlags.ProfFlags.heapProfileInterval = NSToTime(0);
     }
 
     // Determine what tick interval we should use for the RTS timer
     // by taking the shortest of the various intervals that we need to
     // monitor.
-    if (RtsFlags.ConcFlags.ctxtSwitchTime > 0) {
+    if (eqTime(RtsFlags.ConcFlags.ctxtSwitchTime, NSToTime(0))) {
         RtsFlags.MiscFlags.tickInterval =
-            stg_min(RtsFlags.ConcFlags.ctxtSwitchTime,
+            minTime(RtsFlags.ConcFlags.ctxtSwitchTime,
                     RtsFlags.MiscFlags.tickInterval);
     }
 
-    if (RtsFlags.GcFlags.idleGCDelayTime > 0) {
+    if (eqTime(RtsFlags.GcFlags.idleGCDelayTime, NSToTime(0))) {
         RtsFlags.MiscFlags.tickInterval =
-            stg_min(RtsFlags.GcFlags.idleGCDelayTime,
+            minTime(RtsFlags.GcFlags.idleGCDelayTime,
                     RtsFlags.MiscFlags.tickInterval);
     }
 
-    if (RtsFlags.ProfFlags.heapProfileInterval > 0) {
+    if (eqTime(RtsFlags.ProfFlags.heapProfileInterval, NSToTime(0))) {
         RtsFlags.MiscFlags.tickInterval =
-            stg_min(RtsFlags.ProfFlags.heapProfileInterval,
+            minTime(RtsFlags.ProfFlags.heapProfileInterval,
                     RtsFlags.MiscFlags.tickInterval);
     }
 
-    if (RtsFlags.ConcFlags.ctxtSwitchTime > 0) {
+    if (eqTime(RtsFlags.ConcFlags.ctxtSwitchTime, NSToTime(0))) {
         RtsFlags.ConcFlags.ctxtSwitchTicks =
-            RtsFlags.ConcFlags.ctxtSwitchTime /
-            RtsFlags.MiscFlags.tickInterval;
+            divTime(RtsFlags.ConcFlags.ctxtSwitchTime,
+                    RtsFlags.MiscFlags.tickInterval);
     } else {
         RtsFlags.ConcFlags.ctxtSwitchTicks = 0;
     }
 
-    if (RtsFlags.ProfFlags.heapProfileInterval > 0) {
+    if (eqTime(RtsFlags.ProfFlags.heapProfileInterval, NSToTime(0))) {
         RtsFlags.ProfFlags.heapProfileIntervalTicks =
-            RtsFlags.ProfFlags.heapProfileInterval /
-            RtsFlags.MiscFlags.tickInterval;
+            divTime(RtsFlags.ProfFlags.heapProfileInterval,
+                    RtsFlags.MiscFlags.tickInterval);
     } else {
         RtsFlags.ProfFlags.heapProfileIntervalTicks = 0;
     }
