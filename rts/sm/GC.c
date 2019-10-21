@@ -1349,10 +1349,10 @@ waitForGcThreads (Capability *cap USED_IF_THREADS, bool idle_cap[])
         }
 
         t2 = getProcessElapsedTime();
-        if (RtsFlags.GcFlags.longGCSync != 0 &&
-            t2 - t1 > RtsFlags.GcFlags.longGCSync) {
+        if (! eqTime(RtsFlags.GcFlags.longGCSync, NSToTime(0)) &&
+            ltTime(RtsFlags.GcFlags.longGCSync, subTime(t2, t0))) {
             /* call this every longGCSync of delay */
-            rtsConfig.longGCSync(cap->no, t2 - t0);
+            rtsConfig.longGCSync(cap->no, subTime(t2, t0));
             t1 = t2;
         }
         if (retry) {
@@ -1365,9 +1365,9 @@ waitForGcThreads (Capability *cap USED_IF_THREADS, bool idle_cap[])
         }
     }
 
-    if (RtsFlags.GcFlags.longGCSync != 0 &&
-        t2 - t0 > RtsFlags.GcFlags.longGCSync) {
-        rtsConfig.longGCSyncEnd(t2 - t0);
+    if (! eqTime(RtsFlags.GcFlags.longGCSync, NSToTime(0)) &&
+        ltTime(RtsFlags.GcFlags.longGCSync, subTime(t2, t0))) {
+        rtsConfig.longGCSyncEnd(subTime(t2, t0));
     }
 }
 
