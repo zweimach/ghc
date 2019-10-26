@@ -2968,6 +2968,13 @@ primop  ThreadStatusOp "threadStatus#" GenPrimOp
    out_of_line = True
    has_side_effects = True
 
+primop ListThreadsOp "listThreads#" GenPrimOp
+   State# RealWorld -> (# State# RealWorld, MutableArray# RealWorld a #)
+   { Returns an array of {\tt ThreadId#}s. }
+   with
+   out_of_line = True
+   has_side_effects = True
+
 ------------------------------------------------------------------------
 section "Weak pointers"
 ------------------------------------------------------------------------

@@ -256,3 +256,4 @@ test('T16943b', normal, compile_and_run, [''])
 # This frequently times out with integer-simple
 test('T17499', [when(integer_simple(), skip), collect_stats('bytes allocated',5)],
      compile_and_run, ['-O -w'])
+test('listThreads', normal, compile_and_run, [''])
