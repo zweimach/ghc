@@ -1782,7 +1782,7 @@ ocMprotect_Elf( ObjectCode *oc )
             if (section->alloc != SECTION_M32) {
                 // N.B. m32 handles protection of its allocations during
                 // flushing.
-                mmapForLinkerMarkExecutable(section->start, section->size);
+                mmapForLinkerMarkExecutable(section->mapped_start, section->mapped_size);
             }
             break;
         default:
