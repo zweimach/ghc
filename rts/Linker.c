@@ -1218,8 +1218,7 @@ void freeObjectCode (ObjectCode *oc)
                     IF_DEBUG(zero_on_gc,
                         memset(oc->sections[i].start,
                             0x00, oc->sections[i].size));
-                    m32_free(oc->sections[i].start,
-                             oc->sections[i].size);
+                    // Freed by m32_free_allocator
                     break;
 #endif
                 case SECTION_MALLOC:
@@ -1249,7 +1248,7 @@ void freeObjectCode (ObjectCode *oc)
     if (RTS_LINKER_USE_MMAP) {
       if (!USE_CONTIGUOUS_MMAP && !RtsFlags.MiscFlags.linkerAlwaysPic &&
           oc->symbol_extras != NULL) {
-        m32_free(oc->symbol_extras, sizeof(SymbolExtra) * oc->n_symbol_extras);
+        // Freed by m32_free_allocator
       }
     }
     else {
