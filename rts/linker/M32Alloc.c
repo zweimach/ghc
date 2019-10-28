@@ -125,7 +125,15 @@ struct m32_alloc_t {
  * number of pages can be configured with M32_MAX_PAGES.
  */
 struct m32_allocator_t {
+   bool executable;
+   struct to_protect_t *to_protect_head;
    struct m32_alloc_t pages[M32_MAX_PAGES];
+};
+
+struct to_protect_t {
+    void *start;
+    size_t size;
+    struct to_protect_t *next;
 };
 
 /**
@@ -136,6 +144,10 @@ struct m32_allocator_t {
 static void
 munmapForLinker (void * addr, size_t size)
 {
+   IF_DEBUG(linker,
+            debugBelch("m32_alloc: Unmapping %" FMT_Word " bytes at %p\n",
+                       size, addr));
+
    int r = munmap(addr,size);
    if (r == -1) {
       // Should we abort here?
@@ -149,11 +161,12 @@ munmapForLinker (void * addr, size_t size)
  * See the note titled "Compile Time Trickery" at the top of this file.
  */
 m32_allocator *
-m32_allocator_new()
+m32_allocator_new(bool executable)
 {
   m32_allocator *alloc =
     stgMallocBytes(sizeof(m32_allocator), "m32_new_allocator");
   memset(alloc, 0, sizeof(struct m32_allocator_t));
+  alloc->executable = executable;
 
   // Preallocate the initial M32_MAX_PAGES to ensure that they don't
   // fragment the memory.
@@ -186,13 +199,16 @@ void m32_allocator_free(m32_allocator *alloc)
  * page if necessary. The given address must be the *base address* of the page.
  *
  * You shouldn't have to use this method. Use `m32_free` instead.
+ * Returns true if the page was unmapped.
  */
-static void
+static bool
 m32_free_internal(void * addr) {
    uintptr_t c = __sync_sub_and_fetch((uintptr_t*)addr, 1);
    if (c == 0) {
       munmapForLinker(addr, getPageSize());
+      return true;
    }
+   return false;
 }
 
 /**
@@ -201,18 +217,32 @@ m32_free_internal(void * addr) {
  * from the allocator to ensure that empty pages waiting to be filled aren't
  * unnecessarily held.
  *
+ * If this allocator is for executable allocations this is where we mark the
+ * filled pages as executable (and no longer writable).
+ *
  * This is the real implementation. There is another dummy implementation below.
  * See the note titled "Compile Time Trickery" at the top of this file.
  */
 void
 m32_allocator_flush(m32_allocator *alloc) {
-   int i;
-   for (i=0; i<M32_MAX_PAGES; i++) {
+   for (int i=0; i<M32_MAX_PAGES; i++) {
       void * addr =  __sync_fetch_and_and(&alloc->pages[i].base_addr, 0x0);
       if (addr != 0) {
-         m32_free_internal(addr);
+         bool freed = m32_free_internal(addr);
+         if (!freed && alloc->executable) {
+             mmapForLinkerMarkExecutable(addr, getPageSize());
+         }
       }
    }
+
+   struct to_protect_t *i = alloc->to_protect_head;
+   while (i != NULL) {
+     mmapForLinkerMarkExecutable(i->start, i->size);
+     struct to_protect_t *next = i->next;
+     stgFree(i);
+     i = next;
+   }
+   alloc->to_protect_head = NULL;
 }
 
 // Return true if the object has its own dedicated set of pages
@@ -229,8 +259,7 @@ m32_allocator_flush(m32_allocator *alloc) {
  * If the object is "small", the object counter of the page it is allocated in
  * is decremented and the page is not freed until all of its objects are freed.
  *
- * This is the real implementation. There is another dummy implementation below.
- * See the note titled "Compile Time Trickery" at the top of this file.
+ * This is the real implementation. There is another dummy implementation below. See the note titled "Compile Time Trickery" at the top of this file.
  */
 void
 m32_free(void *addr, size_t size)
@@ -248,6 +277,16 @@ m32_free(void *addr, size_t size)
    }
 }
 
+static void
+m32_add_to_protect(struct m32_allocator_t *alloc, void *start, size_t size)
+{
+    struct to_protect_t *new = stgMallocBytes(sizeof(struct to_protect_t), "m32_allocator_alloc");
+    new->start = start;
+    new->size = size;
+    new->next = alloc->to_protect_head;
+    alloc->to_protect_head = new;
+}
+
 /**
  * Allocate `size` bytes of memory with the given alignment.
  *
@@ -260,8 +299,12 @@ m32_alloc(struct m32_allocator_t *alloc, size_t size, size_t alignment)
    size_t pgsz = getPageSize();
 
    if (m32_is_large_object(size,alignment)) {
-       // large object
-       return mmapForLinker(size,MAP_ANONYMOUS,-1,0);
+      // large object
+      void *addr =  mmapForLinker(size,MAP_ANONYMOUS,-1,0);
+      if (alloc->executable) {
+          m32_add_to_protect(alloc, addr, size);
+      }
+      return addr;
    }
 
    // small object
@@ -302,7 +345,10 @@ m32_alloc(struct m32_allocator_t *alloc, size_t size, size_t alignment)
 
    // If we haven't found an empty page, flush the most filled one
    if (empty == -1) {
-      m32_free_internal(alloc->pages[most_filled].base_addr);
+      bool freed = m32_free_internal(alloc->pages[most_filled].base_addr);
+      if (!freed && alloc->executable) {
+         m32_add_to_protect(alloc, alloc->pages[most_filled].base_addr, size);
+      }
       alloc->pages[most_filled].base_addr    = 0;
       alloc->pages[most_filled].current_size = 0;
       empty = most_filled;
@@ -330,7 +376,7 @@ m32_alloc(struct m32_allocator_t *alloc, size_t size, size_t alignment)
 // See the note titled "Compile Time Trickery" at the top of this file.
 
 m32_allocator *
-m32_allocator_new(void)
+m32_allocator_new(bool executable)
 {
     barf("%s: RTS_LINKER_USE_MMAP is %d", __func__, RTS_LINKER_USE_MMAP);
 }

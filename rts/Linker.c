@@ -1020,7 +1020,7 @@ mmap_again:
        map_addr = mmap_32bit_base;
    }
 
-   const int prot = PROT_READ | PROT_WRITE | PROT_EXEC;
+   const int prot = PROT_READ | PROT_WRITE;
    IF_DEBUG(linker,
             debugBelch("mmapForLinker: \tprotection %#0x\n", prot));
    IF_DEBUG(linker,
@@ -1090,6 +1090,40 @@ mmap_again:
             debugBelch("mmapForLinker: done\n"));
 
    return result;
+}
+
+/* Note [Memory protection in the linker]
+ * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ * For many years the linker would simply map all of its memory
+ * with PROT_READ|PROT_WRITE|PROT_EXEC. However operating systems have been
+ * becoming increasingly reluctant to accept this practice (e.g. #17353,
+ * #12657) and for good reason: writable code is ripe for exploitation.
+ *
+ * Consequently mmapForLinker now maps its memory with PROT_READ|PROT_WRITE.
+ * After the linker has finished filling/relocating the mapping it must then
+ * call mmapForLinkerMarkExecutable on the sections of the mapping which
+ * contain executable code.
+ *
+ * Note that the m32 allocator handles protection of its allocations. For this
+ * reason the caller to m32_alloc() must tell the allocator whether the
+ * allocation needs to be executable. The caller must then ensure that they
+ * call m32_flush() after they are finished filling the region, which will
+ * cause the allocator to change the protection bits to PROT_READ|PROT_EXEC.
+ *
+ */
+
+/*
+ * Mark an portion of a mapping previously reserved by mmapForLinker
+ * as executable (but not writable).
+ */
+void mmapForLinkerMarkExecutable(void *start, size_t len)
+{
+    IF_DEBUG(linker,
+             debugBelch("mmapForLinkerMarkExecutable: protecting %" FMT_Word
+                        " bytes starting at %p\n", (W_)len, start));
+    if (mprotect(start, len, PROT_READ|PROT_EXEC) == -1) {
+       barf("mmapForLinkerMarkExecutable: mprotect: %s\n", strerror(errno));
+    }
 }
 #endif
 
@@ -1230,7 +1264,11 @@ void freeObjectCode (ObjectCode *oc)
     ocDeinit_ELF(oc);
 #endif
 
-    m32_allocator_free(oc->m32);
+#if RTS_LINKER_USE_MMAP == 1
+    m32_allocator_free(oc->rx_m32);
+    m32_allocator_free(oc->rw_m32);
+#endif
+
     stgFree(oc->fileName);
     stgFree(oc->archiveMemberName);
 
@@ -1310,7 +1348,8 @@ mkOc( pathchar *path, char *image, int imageSize,
    oc->next              = NULL;
 
 #if RTS_LINKER_USE_MMAP
-   oc->m32 = m32_allocator_new();
+   oc->rw_m32 = m32_allocator_new(false);
+   oc->rx_m32 = m32_allocator_new(true);
 #endif
 
    IF_DEBUG(linker, debugBelch("mkOc: done\n"));
@@ -1631,7 +1670,11 @@ int ocTryLoad (ObjectCode* oc) {
 #   endif
     if (!r) { return r; }
 
-    m32_allocator_flush(oc->m32);
+    // Flush m32 to ensure that any symbol extras are marked as executable
+#if RTS_LINKER_USE_MMAP
+    m32_allocator_flush(oc->rx_m32);
+    m32_allocator_flush(oc->rw_m32);
+#endif
 
     // run init/init_array/ctors/mod_init_func
 
