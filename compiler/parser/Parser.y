@@ -1335,6 +1335,10 @@ opt_instance :: { [AddAnn] }
               : {- empty -} { [] }
               | 'instance'  { [mj AnnInstance $1] }
 
+opt_unlifted :: { ([AddAnn], Maybe Levity) }
+              : {- empty -} { ([], Nothing) }
+              | 'unlifted'  { ([mj AnnUnlifted $1], Just Unlifted) }
+
 -- Associated type instances
 --
 at_decl_inst :: { LInstDecl GhcPs }
@@ -1347,14 +1351,14 @@ at_decl_inst :: { LInstDecl GhcPs }
                         (mj AnnType $1:$2++(fst $ unLoc $3)) }
 
         -- data/newtype instance declaration, with optional 'instance' keyword
-        | data_or_newtype opt_instance capi_ctype tycl_hdr_inst constrs maybe_derivings
+        | data_or_newtype opt_unlifted opt_instance capi_ctype tycl_hdr_inst constrs maybe_derivings
                {% amms (mkDataFamInst (comb4 $1 $4 $5 $6) (snd $ unLoc $1) $3 (snd $ unLoc $4)
                                     Nothing (reverse (snd $ unLoc $5))
                                             (fmap reverse $6))
                        ((fst $ unLoc $1):$2++(fst $ unLoc $4)++(fst $ unLoc $5)) }
 
         -- GADT instance declaration, with optional 'instance' keyword
-        | data_or_newtype opt_instance capi_ctype tycl_hdr_inst opt_kind_sig
+        | data_or_newtype opt_unlifted opt_instance capi_ctype tycl_hdr_inst opt_kind_sig
                  gadt_constrlist
                  maybe_derivings
                 {% amms (mkDataFamInst (comb4 $1 $4 $6 $7) (snd $ unLoc $1) $3
