@@ -8,7 +8,7 @@ module StgLiftLams.Transformation (stgLiftLams) where
 
 import GhcPrelude
 
-import BasicTypes
+import BasicTypes hiding ( isLifted )
 import DynFlags
 import Id
 import IdInfo

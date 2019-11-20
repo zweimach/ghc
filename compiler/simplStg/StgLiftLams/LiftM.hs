@@ -24,7 +24,7 @@ module StgLiftLams.LiftM (
 
 import GhcPrelude
 
-import BasicTypes
+import BasicTypes hiding ( isLifted )
 import CostCentre ( isCurrentCCS, dontCareCCS )
 import DynFlags
 import FastString

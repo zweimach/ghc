@@ -49,7 +49,7 @@ module BasicTypes(
         OverlapFlag(..), OverlapMode(..), setOverlapModeMaybe,
         hasOverlappingFlag, hasOverlappableFlag, hasIncoherentFlag,
 
-        Levity(..), isLifted,
+        Levity(..), isLifted, pprUnlifted,
 
         Boxity(..), isBoxed,
 
@@ -546,6 +546,10 @@ isLifted Unlifted = False
 instance Outputable Levity where
   ppr Lifted   = text "Lifted"
   ppr Unlifted = text "Unlifted"
+
+pprUnlifted :: Levity -> SDoc
+pprUnlifted Unlifted = text "unlifted"
+pprUnlifted Lifted   = empty
 
 {-
 ************************************************************************
