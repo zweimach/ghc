@@ -93,9 +93,9 @@ import Util             ( looksLikePackageName, fstOf3, sndOf3, thdOf3 )
 import GhcPrelude
 }
 
-%expect 236 -- shift/reduce conflicts
+%expect 243 -- shift/reduce conflicts
 
-{- Last updated: 04 June 2018
+{- Last updated: 21 November 2019
 
 If you modify this parser and add a conflict, please update this comment.
 You can learn more about the conflicts by passing 'happy' the -i flag:
@@ -126,7 +126,7 @@ follows. Shift parses as if the 'module' keyword follows.
 
 -------------------------------------------------------------------------------
 
-state 60 contains 1 shift/reduce conflict.
+state 61 contains 1 shift/reduce conflict.
 
         context -> btype .
     *** type -> btype .
@@ -136,7 +136,7 @@ state 60 contains 1 shift/reduce conflict.
 
 -------------------------------------------------------------------------------
 
-state 61 contains 47 shift/reduce conflicts.
+state 62 contains 48 shift/reduce conflicts.
 
     *** btype -> tyapps .
         tyapps -> tyapps . tyapp
@@ -154,7 +154,7 @@ Shift parses as (per longest-parse rule):
 
 -------------------------------------------------------------------------------
 
-state 143 contains 15 shift/reduce conflicts.
+state 146 contains 15 shift/reduce conflicts.
 
         exp -> infixexp . '::' sigtype
         exp -> infixexp . '-<' exp
@@ -179,7 +179,7 @@ Shift parses as (per longest-parse rule):
 
 -------------------------------------------------------------------------------
 
-state 148 contains 67 shift/reduce conflicts.
+state 151 contains 68 shift/reduce conflicts.
 
     *** exp10 -> fexp .
         fexp -> fexp . aexp
@@ -197,7 +197,7 @@ Shift parses as (per longest-parse rule):
 
 -------------------------------------------------------------------------------
 
-state 203 contains 27 shift/reduce conflicts.
+state 205 contains 28 shift/reduce conflicts.
 
         aexp2 -> TH_TY_QUOTE . tyvar
         aexp2 -> TH_TY_QUOTE . gtycon
@@ -216,7 +216,35 @@ Shift parses as (per longest-parse rule):
 
 -------------------------------------------------------------------------------
 
-state 299 contains 1 shift/reduce conflicts.
+state 234 contains 1 shift/reduce conflicts.
+
+        ty_decl -> data_or_newtype . opt_unlifted capi_ctype tycl_hdr constrs maybe_derivings
+        ty_decl -> data_or_newtype . opt_unlifted capi_ctype tycl_hdr opt_kind_sig gadt_constrlist maybe_derivings
+
+    Conflict: 'unlifted' (empty opt_unlifted reduces)
+
+In addition to a contextual keyword after 'data', 'unlifted' might also be a
+type variable as part of the declared data type or context. In which case we
+always have an incorrect program that is rejected by parser validation. Shifting
+is correct, as it favors the interpretation as a keyword.
+
+NB: The same would apply to 'instance' if we would use opt_instance in
+at_decl_cls. Since it's not optional currently, we shift unconditionally there.
+
+Example of ambiguity:
+    'data unlifted T = T Int'
+
+Shift parses as (per longest-parse rule):
+    'data unlifted T = T Int' (a valid unlifted data type)
+    'data unlifted = T Int' (parse error on input ‘=’)
+
+Reduce would parse as:
+    'data (unlifted T) = T Int' (an invalid data type 'unlifted' with type parameter 'T')
+    'data unlifted = T Int' (Malformed head of type or class declaration: unlifted)
+
+-------------------------------------------------------------------------------
+
+state 303 contains 1 shift/reduce conflicts.
 
         rule -> STRING . rule_activation rule_forall infixexp '=' exp
 
@@ -234,18 +262,29 @@ a rule instructing how to rewrite the expression '[0] f'.
 
 -------------------------------------------------------------------------------
 
-state 309 contains 1 shift/reduce conflict.
+state 314 contains 1 shift/reduce conflict.
 
     *** type -> btype .
         type -> btype . '->' ctype
 
     Conflict: '->'
 
-Same as state 61 but without contexts.
+Same as state 62 but without contexts.
 
 -------------------------------------------------------------------------------
 
-state 353 contains 1 shift/reduce conflicts.
+state 343 contains 1 shift/reduce conflict.
+
+        inst_decl -> data_or_newtype 'instance' . opt_unlifted capi_ctype tycl_hdr_inst constrs maybe_derivings
+        inst_decl -> data_or_newtype 'instance' . opt_unlifted capi_ctype tycl_hdr_inst opt_kind_sig gadt_constrlist maybe_derivings
+
+    Conflict: 'unlifted' (empty opt_unlifted reduces)
+
+Same as state 234 but in an instance declaration.
+
+-------------------------------------------------------------------------------
+
+state 359 contains 1 shift/reduce conflicts.
 
         tup_exprs -> commas . tup_tail
         sysdcon_nolist -> '(' commas . ')'
@@ -262,7 +301,7 @@ See also Note [ExplicitTuple] in GHC.Hs.Expr.
 
 -------------------------------------------------------------------------------
 
-state 408 contains 1 shift/reduce conflicts.
+state 413 contains 1 shift/reduce conflicts.
 
         tup_exprs -> commas . tup_tail
         sysdcon_nolist -> '(#' commas . '#)'
@@ -270,21 +309,21 @@ state 408 contains 1 shift/reduce conflicts.
 
     Conflict: '#)' (empty tup_tail reduces)
 
-Same as State 354 for unboxed tuples.
+Same as State 359 for unboxed tuples.
 
 -------------------------------------------------------------------------------
 
-state 416 contains 67 shift/reduce conflicts.
+state 421 contains 68 shift/reduce conflicts.
 
     *** exp10 -> '-' fexp .
         fexp -> fexp . aexp
         fexp -> fexp . TYPEAPP atype
 
-Same as 149 but with a unary minus.
+Same as 151 but with a unary minus.
 
 -------------------------------------------------------------------------------
 
-state 481 contains 1 shift/reduce conflict.
+state 486 contains 1 shift/reduce conflict.
 
         oqtycon -> '(' qtyconsym . ')'
     *** qtyconop -> qtyconsym .
@@ -298,7 +337,7 @@ parenthesized infix type expression of length 1.
 
 -------------------------------------------------------------------------------
 
-state 678 contains 1 shift/reduce conflicts.
+state 684 contains 1 shift/reduce conflicts.
 
     *** aexp2 -> ipvar .
         dbind -> ipvar . '=' exp
@@ -313,7 +352,7 @@ sensible meaning, namely the lhs of an implicit binding.
 
 -------------------------------------------------------------------------------
 
-state 756 contains 1 shift/reduce conflicts.
+state 764 contains 1 shift/reduce conflicts.
 
         rule -> STRING rule_activation . rule_forall infixexp '=' exp
 
@@ -330,7 +369,7 @@ doesn't include 'forall'.
 
 -------------------------------------------------------------------------------
 
-state 992 contains 1 shift/reduce conflicts.
+state 995 contains 1 shift/reduce conflicts.
 
         transformqual -> 'then' 'group' . 'using' exp
         transformqual -> 'then' 'group' . 'by' exp 'using' exp
@@ -362,7 +401,38 @@ Shift means the parser only allows the former. Also see conflict 753 above.
 
 -------------------------------------------------------------------------------
 
-state 1390 contains 1 shift/reduce conflict.
+state 1234 contains 1 shift/reduce conflict.
+
+        at_decl_inst -> data_or_newtype opt_instance . opt_unlifted capi_ctype tycl_hdr_inst constrs maybe_derivings
+        at_decl_inst -> data_or_newtype opt_instance . opt_unlifted capi_ctype tycl_hdr_inst opt_kind_sig gadt_constrlist maybe_derivings
+
+    Conflict: 'unlifted' (empty opt_unlifted reduces)
+
+Same as state 234 but in an associated type instance declaration.
+
+-------------------------------------------------------------------------------
+
+state 1348 contains 1 shift/reduce conflict.
+
+        constrs1 -> constrs1 maybe_docnext '|' . maybe_docprev constr    (rule 443)
+
+    Conflict: DOCPREV (empty maybe_docprev reduces)
+
+We clearly want to shift here.
+
+Example of ambiguity:
+    'A | -- ^ foo'
+
+Shift parses as (per longest-parse rule):
+    'A | -- ^ foo' (the comment refers to the data con A)
+
+Reduce would parse as:
+    'A | -- ^ foo' (the comment is parsed as a TyElDocPrev in constr_tyapp, but
+                    there is no type argument it refers to)
+
+-------------------------------------------------------------------------------
+
+state 1385 contains 1 shift/reduce conflict.
 
     *** atype -> tyvar .
         tv_bndr -> '(' tyvar . '::' kind ')'
@@ -3677,6 +3747,7 @@ special_id
         | 'stock'               { sL1 $1 (fsLit "stock") }
         | 'anyclass'            { sL1 $1 (fsLit "anyclass") }
         | 'via'                 { sL1 $1 (fsLit "via") }
+        | 'unlifted'            { sL1 $1 (fsLit "unlifted") }
         | 'unit'                { sL1 $1 (fsLit "unit") }
         | 'dependency'          { sL1 $1 (fsLit "dependency") }
         | 'signature'           { sL1 $1 (fsLit "signature") }
