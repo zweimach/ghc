@@ -132,7 +132,7 @@ module Type (
         tcIsRuntimeTypeKind,
 
         -- ** Common Kind
-        liftedTypeKind,
+        liftedTypeKind, unliftedTypeKind,
 
         -- * Type free variables
         tyCoFVsOfType, tyCoFVsBndr, tyCoFVsVarBndr, tyCoFVsVarBndrs,
@@ -238,7 +238,7 @@ import TyCon
 import TysPrim
 import {-# SOURCE #-} TysWiredIn ( listTyCon, typeNatKind
                                  , typeSymbolKind, liftedTypeKind
-                                 , constraintKind )
+                                 , unliftedTypeKind, constraintKind )
 import PrelNames
 import CoAxiom
 import {-# SOURCE #-} Coercion( mkNomReflCo, mkGReflCo, mkReflCo

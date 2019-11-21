@@ -1075,13 +1075,14 @@ getInitialKind strategy
     (DataDecl { tcdLName = dL->L _ name
               , tcdTyVars = ktvs
               , tcdDataDefn = HsDataDefn { dd_kindSig = m_sig
-                                         , dd_ND = new_or_data } })
+                                         , dd_ND = new_or_data
+                                         , dd_levity = levity } })
   = do  { let flav = newOrDataToFlavour new_or_data
               ctxt = DataKindCtxt name
         ; tc <- kcDeclHeader strategy name flav ktvs $
                 case m_sig of
                   Just ksig -> TheKind <$> tcLHsKindSig ctxt ksig
-                  Nothing -> dataDeclDefaultResultKind new_or_data
+                  Nothing -> dataDeclDefaultResultKind new_or_data levity
         ; return [tc] }
 
 getInitialKind InitialKindInfer (FamDecl { tcdFam = decl })
@@ -1196,13 +1197,18 @@ have before standalone kind signatures:
 -}
 
 -- See Note [Data declaration default result kind]
-dataDeclDefaultResultKind :: NewOrData -> TcM ContextKind
-dataDeclDefaultResultKind new_or_data = do
+dataDeclDefaultResultKind :: NewOrData -> Maybe Levity -> TcM ContextKind
+dataDeclDefaultResultKind new_or_data levity = do
   -- See Note [Implementation of UnliftedNewtypes]
-  unlifted_newtypes <- xoptM LangExt.UnliftedNewtypes
-  return $ case new_or_data of
-    NewType | unlifted_newtypes -> OpenKind
-    _ -> TheKind liftedTypeKind
+  unlifted_newtypes  <- xoptM LangExt.UnliftedNewtypes
+  -- See Note [Implementation of UnliftedDatatypes] TODO
+  unlifted_datatypes <- xoptM LangExt.UnliftedDatatypes
+  return $ case (new_or_data, levity) of
+    (NewType, _)
+      | unlifted_newtypes  -> OpenKind
+    (DataType, Just Unlifted)
+      | unlifted_datatypes -> TheKind unliftedTypeKind
+    _                      -> TheKind liftedTypeKind
 
 {- Note [Data declaration default result kind]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -2215,7 +2221,8 @@ tcDataDefn :: SDoc
 tcDataDefn err_ctxt
            roles_info
            tc_name tycon_binders res_kind
-           (HsDataDefn { dd_ND = new_or_data, dd_cType = cType
+           (HsDataDefn { dd_ND = new_or_data
+                       , dd_cType = cType
                        , dd_ctxt = ctxt
                        , dd_kindSig = mb_ksig  -- Already in tc's kind
                                                -- via inferInitialKinds

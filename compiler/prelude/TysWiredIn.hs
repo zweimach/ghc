@@ -93,7 +93,7 @@ module TysWiredIn (
         -- * Kinds
         typeNatKindCon, typeNatKind, typeSymbolKindCon, typeSymbolKind,
         isLiftedTypeKindTyConName, liftedTypeKind,
-        typeToTypeKind, constraintKind,
+        unliftedTypeKind, typeToTypeKind, constraintKind,
         liftedTypeKindTyCon, constraintKindTyCon,  constraintKindTyConName,
         liftedTypeKindTyConName,
 
@@ -105,7 +105,7 @@ module TysWiredIn (
         -- * RuntimeRep and friends
         runtimeRepTyCon, vecCountTyCon, vecElemTyCon,
 
-        runtimeRepTy, liftedRepTy, liftedRepDataCon, liftedRepDataConTyCon,
+        runtimeRepTy, liftedRepTy, unliftedRepTy, liftedRepDataCon, liftedRepDataConTyCon,
 
         vecRepDataConTyCon, tupleRepDataConTyCon, sumRepDataConTyCon,
 
@@ -613,8 +613,9 @@ typeSymbolKind = mkTyConTy typeSymbolKindCon
 constraintKindTyCon :: TyCon
 constraintKindTyCon = pcTyCon constraintKindTyConName Nothing [] []
 
-liftedTypeKind, typeToTypeKind, constraintKind :: Kind
+liftedTypeKind, unliftedTypeKind, typeToTypeKind, constraintKind :: Kind
 liftedTypeKind   = tYPE liftedRepTy
+unliftedTypeKind = tYPE unliftedRepTy
 typeToTypeKind   = liftedTypeKind `mkVisFunTy` liftedTypeKind
 constraintKind   = mkTyConApp constraintKindTyCon []
 
@@ -1151,7 +1152,7 @@ runtimeRepTy = mkTyConTy runtimeRepTyCon
 liftedTypeKindTyCon :: TyCon
 liftedTypeKindTyCon   = buildSynTyCon liftedTypeKindTyConName
                                        [] liftedTypeKind []
-                                       (tYPE liftedRepTy)
+                                       liftedTypeKind
 
 runtimeRepTyCon :: TyCon
 runtimeRepTyCon = pcTyCon runtimeRepTyConName Nothing []
@@ -1294,6 +1295,10 @@ liftedRepDataConTyCon = promoteDataCon liftedRepDataCon
 -- The type ('LiftedRep)
 liftedRepTy :: Type
 liftedRepTy = liftedRepDataConTy
+
+-- The type ('UnliftedRep)
+unliftedRepTy :: Type
+unliftedRepTy = unliftedRepDataConTy
 
 {- *********************************************************************
 *                                                                      *
