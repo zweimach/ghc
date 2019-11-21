@@ -2222,6 +2222,7 @@ tcDataDefn err_ctxt
            roles_info
            tc_name tycon_binders res_kind
            (HsDataDefn { dd_ND = new_or_data
+                       , dd_levity = levity
                        , dd_cType = cType
                        , dd_ctxt = ctxt
                        , dd_kindSig = mb_ksig  -- Already in tc's kind
@@ -2234,7 +2235,7 @@ tcDataDefn err_ctxt
        ; (extra_bndrs, final_res_kind) <- etaExpandAlgTyCon tycon_binders res_kind
        ; let hsc_src = tcg_src tcg_env
        ; unless (mk_permissive_kind hsc_src cons) $
-           checkDataKindSig (DataDeclSort new_or_data) final_res_kind
+           checkDataKindSig (DataDeclSort new_or_data levity) final_res_kind
 
        ; stupid_tc_theta <- pushTcLevelM_ $ solveEqualities $ tcHsContext ctxt
        ; stupid_theta    <- zonkTcTypesToTypes stupid_tc_theta

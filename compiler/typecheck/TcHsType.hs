@@ -2899,9 +2899,19 @@ etaExpandAlgTyCon tc_bndrs kind
 --
 -- At present, this data type is only consumed by 'checkDataKindSig'.
 data DataSort
-  = DataDeclSort     NewOrData
-  | DataInstanceSort NewOrData
+  = DataDeclSort     NewOrData (Maybe Levity)
+  | DataInstanceSort NewOrData (Maybe Levity)
   | DataFamilySort
+
+data AllowedDataResKind
+  = AnyTYPEKind
+  | UnliftedKind
+  | LiftedKind
+
+isAllowedDataResKind :: AllowedDataResKind -> Kind -> Bool
+isAllowedDataResKind AnyTYPEKind  kind = tcIsRuntimeTypeKind kind
+isAllowedDataResKind UnliftedKind kind = tcIsUnliftedTypeKind kind
+isAllowedDataResKind LiftedKind   kind = tcIsLiftedTypeKind kind
 
 -- | Checks that the return kind in a data declaration's kind signature is
 -- permissible. There are three cases:
@@ -2923,23 +2933,32 @@ data DataSort
 checkDataKindSig :: DataSort -> Kind -> TcM ()
 checkDataKindSig data_sort kind = do
   dflags <- getDynFlags
-  checkTc (is_TYPE_or_Type dflags || is_kind_var) (err_msg dflags)
+  checkTc (tYPE_ok dflags || is_kind_var) (err_msg dflags)
   where
     pp_dec :: SDoc
     pp_dec = text $
       case data_sort of
-        DataDeclSort     DataType -> "data type"
-        DataDeclSort     NewType  -> "newtype"
-        DataInstanceSort DataType -> "data instance"
-        DataInstanceSort NewType  -> "newtype instance"
-        DataFamilySort            -> "data family"
+        DataDeclSort     DataType (Just Unlifted) -> "unlifted data type"
+        DataDeclSort     DataType _               -> "data type"
+        DataDeclSort     NewType  _               -> "newtype"
+        DataInstanceSort DataType (Just Unlifted) -> "unlifted data instance"
+        DataInstanceSort DataType _               -> "data instance"
+        DataInstanceSort NewType  _               -> "newtype instance"
+        DataFamilySort                            -> "data family"
 
     is_newtype :: Bool
     is_newtype =
       case data_sort of
-        DataDeclSort     new_or_data -> new_or_data == NewType
-        DataInstanceSort new_or_data -> new_or_data == NewType
-        DataFamilySort               -> False
+        DataDeclSort     new_or_data _ -> new_or_data == NewType
+        DataInstanceSort new_or_data _ -> new_or_data == NewType
+        DataFamilySort                 -> False
+
+    is_unlifted_datatype :: Bool
+    is_unlifted_datatype =
+      case data_sort of
+        DataDeclSort     DataType (Just Unlifted) -> True
+        DataInstanceSort DataType (Just Unlifted) -> True
+        _                                         -> False
 
     is_data_family :: Bool
     is_data_family =
@@ -2948,24 +2967,28 @@ checkDataKindSig data_sort kind = do
         DataInstanceSort{} -> False
         DataFamilySort     -> True
 
+    allowed_kind :: DynFlags -> AllowedDataResKind
+    allowed_kind dflags
+      | is_newtype && xopt LangExt.UnliftedNewtypes dflags
+        -- With UnliftedNewtypes, we allow kinds other than Type, but they
+        -- must still be of the form `TYPE r` since we don't want to accept
+        -- Constraint or Nat.
+        -- See Note [Implementation of UnliftedNewtypes] in TcTyClsDecls.
+      = AnyTYPEKind
+      | is_data_family
+        -- If this is a `data family` declaration, we don't need to check if
+        -- UnliftedNewtypes is enabled, since data family declarations can
+        -- have return kind `TYPE r` unconditionally (#16827).
+      = AnyTYPEKind
+      | is_unlifted_datatype && xopt LangExt.UnliftedDatatypes dflags
+        -- With UnliftedDatatypes, we allow a kind sig the result kind of
+        -- which reduces to `TYPE 'UnliftedRep`.
+      = UnliftedKind
+      | otherwise
+      = LiftedKind
+
     tYPE_ok :: DynFlags -> Bool
-    tYPE_ok dflags =
-         (is_newtype && xopt LangExt.UnliftedNewtypes dflags)
-           -- With UnliftedNewtypes, we allow kinds other than Type, but they
-           -- must still be of the form `TYPE r` since we don't want to accept
-           -- Constraint or Nat.
-           -- See Note [Implementation of UnliftedNewtypes] in TcTyClsDecls.
-      || is_data_family
-           -- If this is a `data family` declaration, we don't need to check if
-           -- UnliftedNewtypes is enabled, since data family declarations can
-           -- have return kind `TYPE r` unconditionally (#16827).
-
-    is_TYPE :: Bool
-    is_TYPE = tcIsRuntimeTypeKind kind
-
-    is_TYPE_or_Type :: DynFlags -> Bool
-    is_TYPE_or_Type dflags | tYPE_ok dflags = is_TYPE
-                           | otherwise      = tcIsLiftedTypeKind kind
+    tYPE_ok dflags = isAllowedDataResKind (allowed_kind dflags) kind
 
     -- In the particular case of a data family, permit a return kind of the
     -- form `:: k` (where `k` is a bare kind variable).
@@ -2973,17 +2996,32 @@ checkDataKindSig data_sort kind = do
     is_kind_var | is_data_family = isJust (tcGetCastedTyVar_maybe kind)
                 | otherwise      = False
 
+    pp_allowed_kind dflags =
+      case allowed_kind dflags of
+        AnyTYPEKind  -> text "TYPE"
+        UnliftedKind -> ppr unliftedTypeKind
+        LiftedKind   -> ppr liftedTypeKind
+
     err_msg :: DynFlags -> SDoc
     err_msg dflags =
-      sep [ (sep [ text "Kind signature on" <+> pp_dec <+>
-                   text "declaration has non-" <>
-                   (if tYPE_ok dflags then text "TYPE" else ppr liftedTypeKind)
-                 , (if is_data_family then text "and non-variable" else empty) <+>
-                   text "return kind" <+> quotes (ppr kind) ])
-          , if not (tYPE_ok dflags) && is_TYPE && is_newtype &&
-               not (xopt LangExt.UnliftedNewtypes dflags)
-            then text "Perhaps you intended to use UnliftedNewtypes"
-            else empty ]
+      sep [ sep [ text "Kind signature on" <+> pp_dec <+>
+                  text "declaration has non-" <>
+                  pp_allowed_kind dflags
+                , (if is_data_family then text "and non-variable" else empty) <+>
+                  text "return kind" <+> quotes (ppr kind) ]
+          , ext_hint dflags ]
+
+    ext_hint dflags
+      | tcIsRuntimeTypeKind kind
+      , is_newtype
+      , not (xopt LangExt.UnliftedNewtypes dflags)
+      = text "Perhaps you intended to use UnliftedNewtypes"
+      | tcIsUnliftedTypeKind kind
+      , is_unlifted_datatype
+      , not (xopt LangExt.UnliftedDatatypes dflags)
+      = text "Perhaps you intended to use UnliftedDatatypes"
+      | otherwise
+      = empty
 
 -- | Checks that the result kind of a class is exactly `Constraint`, rejecting
 -- type synonyms and type families that reduce to `Constraint`. See #16826.

@@ -687,7 +687,7 @@ tcDataFamInstDecl mb_clsinfo
        --     we did it before the "extra" tvs from etaExpandAlgTyCon
        --     would always be eta-reduced
        ; (extra_tcbs, final_res_kind) <- etaExpandAlgTyCon full_tcbs res_kind
-       ; checkDataKindSig (DataInstanceSort new_or_data) final_res_kind
+       ; checkDataKindSig (DataInstanceSort new_or_data levity) final_res_kind
        ; let extra_pats  = map (mkTyVarTy . binderVar) extra_tcbs
              all_pats    = pats `chkAppend` extra_pats
              orig_res_ty = mkTyConApp fam_tc all_pats

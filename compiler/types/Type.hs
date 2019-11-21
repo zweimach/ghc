@@ -129,7 +129,7 @@ module Type (
         -- ** Finding the kind of a type
         typeKind, tcTypeKind, isTypeLevPoly, resultIsLevPoly,
         tcIsLiftedTypeKind, tcIsConstraintKind, tcReturnsConstraintKind,
-        tcIsRuntimeTypeKind,
+        tcIsUnliftedTypeKind, tcIsRuntimeTypeKind,
 
         -- ** Common Kind
         liftedTypeKind, unliftedTypeKind,
@@ -2528,6 +2528,15 @@ tcIsLiftedTypeKind ty
   | Just (tc, [arg]) <- tcSplitTyConApp_maybe ty    -- Note: tcSplit here
   , tc `hasKey` tYPETyConKey
   = isLiftedRuntimeRep arg
+  | otherwise
+  = False
+
+-- | Is this kind equivalent to @TYPE 'UnliftedRep@?
+tcIsUnliftedTypeKind :: Kind -> Bool
+tcIsUnliftedTypeKind ty
+  | Just (tc, [arg]) <- tcSplitTyConApp_maybe ty    -- Note: tcSplit here
+  , tc `hasKey` tYPETyConKey
+  = isUnliftedRuntimeRep arg
   | otherwise
   = False
 
