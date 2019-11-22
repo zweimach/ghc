@@ -40,6 +40,7 @@ expectedGhcOnlyExtensions = ["RelaxedLayout",
                              "AlternativeLayoutRule",
                              "AlternativeLayoutRuleTransitional",
                              "UnliftedNewtypes",
+                             "UnliftedDatatypes",
                              "CUSKs",
                              "StandaloneKindSignatures",
                              "ImportQualifiedPost"]
