@@ -1,4 +1,3 @@
-
 def ffi( name, opts ):
   opts.extra_hc_opts = '-XForeignFunctionInterface -optc-Wno-implicit'
 
@@ -43,3 +42,4 @@ test(
         + (' -optcxx=-stdlib=libc++' if opsys('darwin') else '')
     ],
 )
+test('cc018', unless(opsys('mingw32'), skip), compile, [''])
