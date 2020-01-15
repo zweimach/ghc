@@ -246,18 +246,17 @@ import {-# SOURCE #-} GHC.Builtin.Types
                                  , typeSymbolKind, liftedTypeKind
                                  , liftedTypeKindTyCon
                                  , constraintKind )
-import GHC.Types.Name( Name )
+import GHC.Types.Name   ( Name )
 import GHC.Builtin.Names
 import GHC.Core.Coercion.Axiom
 import {-# SOURCE #-} GHC.Core.Coercion
-   ( mkNomReflCo, mkGReflCo, mkReflCo
-   , mkTyConAppCo, mkAppCo, mkCoVarCo, mkAxiomRuleCo
-   , mkForAllCo, mkFunCo, mkAxiomInstCo, mkUnivCo
-   , mkSymCo, mkTransCo, mkNthCo, mkLRCo, mkInstCo
-   , mkKindCo, mkSubCo, mkFunCo, mkAxiomInstCo
-   , decomposePiCos, coercionKind, coercionLKind
-   , coercionRKind, coercionType
-   , isReflexiveCo, seqCo )
+  ( mkNomReflCo, mkGReflCo, mkReflCo
+  , mkTyConAppCo, mkAppCo, mkCoVarCo, mkAxiomRuleCo
+  , mkForAllCo, mkFunCo, mkAxiomInstCo, mkUnivCo
+  , mkSymCo, mkTransCo, mkNthCo, mkLRCo, mkInstCo
+  , mkKindCo, mkSubCo, mkFunCo, mkAxiomInstCo
+  , coercionLKind, coercionRKind, coercionType
+  , isReflexiveCo, seqCo )
 
 -- others
 import GHC.Utils.Misc
@@ -794,11 +793,6 @@ the type checker (e.g. when matching type-function equations).
 
 -- | Applies a type to another, as in e.g. @k a@
 mkAppTy :: Type -> Type -> Type
-  -- See Note [Respecting definitional equality], invariant (EQ1).
-mkAppTy (CastTy fun_ty co) arg_ty
-  | ([arg_co], res_co) <- decomposePiCos co (coercionKind co) [arg_ty]
-  = (fun_ty `mkAppTy` (arg_ty `mkCastTy` arg_co)) `mkCastTy` res_co
-
 mkAppTy (TyConApp tc tys) ty2 = mkTyConApp tc (tys ++ [ty2])
 mkAppTy ty1               ty2 = AppTy ty1 ty2
         -- Note that the TyConApp could be an
@@ -816,15 +810,6 @@ mkAppTy ty1               ty2 = AppTy ty1 ty2
 
 mkAppTys :: Type -> [Type] -> Type
 mkAppTys ty1                []   = ty1
-mkAppTys (CastTy fun_ty co) arg_tys  -- much more efficient then nested mkAppTy
-                                     -- Why do this? See (EQ1) of
-                                     -- Note [Respecting definitional equality]
-                                     -- in GHC.Core.TyCo.Rep
-  = foldl' AppTy ((mkAppTys fun_ty casted_arg_tys) `mkCastTy` res_co) leftovers
-  where
-    (arg_cos, res_co) = decomposePiCos co (coercionKind co) arg_tys
-    (args_to_cast, leftovers) = splitAtList arg_cos arg_tys
-    casted_arg_tys = zipWith mkCastTy args_to_cast arg_cos
 mkAppTys (TyConApp tc tys1) tys2 = mkTyConApp tc (tys1 ++ tys2)
 mkAppTys ty1                tys2 = foldl' AppTy ty1 tys2
 
@@ -1369,7 +1354,7 @@ splitCastTy_maybe _                            = Nothing
 -- Coercion for reflexivity, dropping it if it's reflexive.
 -- See Note [Respecting definitional equality] in GHC.Core.TyCo.Rep
 mkCastTy :: Type -> Coercion -> Type
-mkCastTy ty co | isReflexiveCo co = ty  -- (EQ2) from the Note
+mkCastTy ty co | isReflexiveCo co = ty  -- (EQ1) from the Note
 -- NB: Do the slow check here. This is important to keep the splitXXX
 -- functions working properly. Otherwise, we may end up with something
 -- like (((->) |> something_reflexive_but_not_obviously_so) biz baz)
@@ -1377,12 +1362,12 @@ mkCastTy ty co | isReflexiveCo co = ty  -- (EQ2) from the Note
 -- in test dependent/should_compile/dynamic-paper.
 
 mkCastTy (CastTy ty co1) co2
-  -- (EQ3) from the Note
+  -- (EQ2) from the Note
   = mkCastTy ty (co1 `mkTransCo` co2)
       -- call mkCastTy again for the reflexivity check
 
 mkCastTy (ForAllTy (Bndr tv vis) inner_ty) co
-  -- (EQ4) from the Note
+  -- (EQ3) from the Note
   -- See Note [Weird typing rule for ForAllTy] in GHC.Core.TyCo.Rep.
   | isTyVar tv
   , let fvs = tyCoVarsOfCo co
@@ -2183,17 +2168,6 @@ seqTypes (ty:tys) = seqType ty `seq` seqTypes tys
 *                                                                      *
 ************************************************************************
 
-Note [Equality on AppTys]
-~~~~~~~~~~~~~~~~~~~~~~~~~
-In our cast-ignoring equality, we want to say that the following two
-are equal:
-
-  (Maybe |> co) (Int |> co')   ~?       Maybe Int
-
-But the left is an AppTy while the right is a TyConApp. The solution is
-to use repSplitAppTy_maybe to break up the TyConApp into its pieces and
-then continue. Easy to do, but also easy to forget to do.
-
 -}
 
 eqType :: Type -> Type -> Bool
@@ -2243,6 +2217,16 @@ ordering leads to nondeterminism. We hit the same problem in the TyVarTy case,
 comparing type variables is nondeterministic, note the call to nonDetCmpVar in
 nonDetCmpTypeX.
 See Note [Unique Determinism] for more details.
+
+Note [Computing equality on types]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+There are several places within GHC that depend on the precise choice of
+definitional equality used. If we change that definition, all these places
+must be updated. This Note merely serves as a place for all these places
+to refer to, so searching for references to this Note will find every place
+that needs to be updated.
+
+See also Note [Non-trivial definitional equality] in TyCoRep.
 -}
 
 nonDetCmpType :: Type -> Type -> Ordering
@@ -2269,6 +2253,7 @@ data TypeOrdering = TLT  -- ^ @t1 < t2@
 
 nonDetCmpTypeX :: RnEnv2 -> Type -> Type -> Ordering  -- Main workhorse
     -- See Note [Non-trivial definitional equality] in GHC.Core.TyCo.Rep
+    -- See Note [Computing equality on types]
 nonDetCmpTypeX env orig_t1 orig_t2 =
     case go env orig_t1 orig_t2 of
       -- If there are casts then we also need to do a comparison of the kinds of
@@ -2311,13 +2296,9 @@ nonDetCmpTypeX env orig_t1 orig_t2 =
     go env (ForAllTy (Bndr tv1 _) t1) (ForAllTy (Bndr tv2 _) t2)
       = go env (varType tv1) (varType tv2)
         `thenCmpTy` go (rnBndr2 env tv1 tv2) t1 t2
-        -- See Note [Equality on AppTys]
-    go env (AppTy s1 t1) ty2
-      | Just (s2, t2) <- repSplitAppTy_maybe ty2
-      = go env s1 s2 `thenCmpTy` go env t1 t2
-    go env ty1 (AppTy s2 t2)
-      | Just (s1, t1) <- repSplitAppTy_maybe ty1
-      = go env s1 s2 `thenCmpTy` go env t1 t2
+        -- See Note [Equality on AppTys] in GHC.Core.TyCo.Rep
+    go env (AppTy s1 t1) (AppTy s2 t2)
+      = liftOrdering (nonDetCmpTypeX env s1 s2 `thenCmp` nonDetCmpTypeX env t1 t2)
     go env (FunTy _ s1 t1) (FunTy _ s2 t2)
       = go env s1 s2 `thenCmpTy` go env t1 t2
     go env (TyConApp tc1 tys1) (TyConApp tc2 tys2)
