@@ -469,9 +469,9 @@ type TypeMapG = GenMap TypeMapX
 -- 'GenMap' optimization. See Note [Computing equality on types] in Type.
 data TypeMapX a
   = TM { tm_var       :: VarMap a
-       , tm_app       :: TypeMap (TypeMap a)  -- NB: TypeMap looks up kinds; that's what we want
+       , tm_app       :: TypeMap (TypeMap a)  -- Note [Equality on AppTys] in TyCoRep
        , tm_tyconapp  :: DNameEnv (ListMap TypeMapG a)
-       , tm_fun       :: TypeMapG (TypeMapG a)
+       , tm_fun       :: TypeMap (TypeMap a)  -- Note [Equality on FunTys] in TyCoRep
        , tm_forall    :: TypeMapG (BndrMap a) -- See Note [Binders]
        , tm_tylit     :: TyLitMap a
        , tm_coerce    :: Maybe a
@@ -550,7 +550,7 @@ lkT (D env ty) m = go ty m
                                                >=> lkTT (D env t2)
     go (TyConApp tc args)          = tm_tyconapp >.> lkDNamed tc
                                                  >=> lkList (lkG . D env) args
-    go (FunTy _ arg res)           = tm_fun >.> lkG (D env arg) >=> lkG (D env res)
+    go (FunTy _ arg res)           = tm_fun >.> lkTT (D env arg) >=> lkTT (D env res)
     go (LitTy l)                   = tm_tylit  >.> lkTyLit l
     go (ForAllTy (Bndr tv _) ty)   = tm_forall >.> lkG (D (extendCME env tv) ty)
                                                >=> lkBndr env tv
@@ -566,8 +566,8 @@ xtT (D env (AppTy t1 t2))      f m = m { tm_app      = tm_app m |> xtTT (D env t
                                                                |>> xtTT (D env t2) f }
 xtT (D env (TyConApp tc args)) f m = m { tm_tyconapp = tm_tyconapp m |> xtDNamed tc
                                                                     |>> xtList (xtG . D env) args f }
-xtT (D env (FunTy _ arg res))  f m = m { tm_fun      = tm_fun m |> xtG (D env arg)
-                                                               |>> xtG (D env res) f }
+xtT (D env (FunTy _ arg res))  f m = m { tm_fun      = tm_fun m |> xtTT (D env arg)
+                                                               |>> xtTT (D env res) f }
 xtT (D _   (LitTy l))          f m = m { tm_tylit    = tm_tylit m |> xtTyLit l f }
 xtT (D env (CastTy t _))       f m = xtT (D env t) f m
 xtT (D _   (CoercionTy {}))    f m = m { tm_coerce   = tm_coerce m |> f }
