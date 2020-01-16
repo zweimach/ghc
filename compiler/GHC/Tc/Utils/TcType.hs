@@ -598,6 +598,10 @@ Note [TcLevel and untouchable type variables]
   is EQUAL TO that of its immediate parent implication,
   and it is a TauTv or TyVarTv (but /not/ FlatMetaTv or FlatSkolTv)
 
+* If a tyvar tv has level n, then the levels of all variables free
+  in tv's kind are <= n. Consequence: if tv is untouchable, so are
+  all variables in tv's kind.
+
 Note [WantedInv]
 ~~~~~~~~~~~~~~~~
 Why is WantedInv important?  Consider this implication, where
