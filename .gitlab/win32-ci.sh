@@ -46,11 +46,13 @@ fi
 
 case $MSYSTEM in
   MINGW32)
-    triple="i386-unknown-mingw32"
+    triple="i686-unknown-mingw32"
+    boot_triple="i386-unknown-mingw32" # triple of bootstrap GHC
     cabal_arch="i386"
     ;;
   MINGW64)
     triple="x86_64-unknown-mingw32"
+    boot_triple="x86_64-unknown-mingw32" # triple of bootstrap GHC
     cabal_arch="x86_64"
     ;;
   *)
@@ -86,10 +88,10 @@ setup() {
   fi
 
   if [ ! -e $toolchain/bin/ghc ]; then
-      url="https://downloads.haskell.org/~ghc/$GHC_VERSION/ghc-$GHC_VERSION-$triple.tar.xz"
+      url="https://downloads.haskell.org/~ghc/${GHC_VERSION}/ghc-${GHC_VERSION}-${boot_triple}.tar.xz"
       info "Fetching GHC binary distribution from $url..."
       curl $url | tar -xJ
-      mv ghc-$GHC_VERSION/* toolchain
+      mv ghc-${GHC_VERSION}/* toolchain
   fi
 
   if [ ! -e $toolchain/bin/cabal ]; then
@@ -136,6 +138,8 @@ configure() {
   run python boot
   run ./configure \
     --enable-tarballs-autodownload \
+    --target=$triple \
+    $CONFIGURE_ARGS \
     GHC=$toolchain/bin/ghc \
     HAPPY=$toolchain/bin/happy \
     ALEX=$toolchain/bin/alex \

@@ -859,7 +859,6 @@ nightly-i386-windows-hadrian:
   extends: .build-windows-make
   variables:
     MSYSTEM: MINGW64
-    CONFIGURE_ARGS: "--target=x86_64-unknown-mingw32"
     TEST_ENV: "x86_64-windows"
   cache:
     key: "x86_64-windows-$WINDOWS_TOOLCHAIN_VERSION"
@@ -888,7 +887,6 @@ release-x86_64-windows:
   extends: .build-windows-make
   variables:
     MSYSTEM: MINGW32
-    CONFIGURE_ARGS: "--target=i386-unknown-mingw32"
     # Due to #15934
     BUILD_PROF_LIBS: "NO"
     TEST_ENV: "i386-windows"
