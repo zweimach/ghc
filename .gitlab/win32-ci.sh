@@ -98,7 +98,8 @@ configure() {
     --enable-tarballs-autodownload \
     GHC=$toolchain/bin/ghc \
     HAPPY=$toolchain/bin/happy \
-    ALEX=$toolchain/bin/alex
+    ALEX=$toolchain/bin/alex \
+    || cat config.log
 }
 
 build_make() {
