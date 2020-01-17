@@ -2,7 +2,7 @@
 
 # This is the primary driver of the Win32 CI infrastructure.
 
-set -eu -o pipefail
+set -e -o pipefail
 
 # Colors
 BLACK="0;30"
