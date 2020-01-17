@@ -798,9 +798,9 @@ validate-x86_64-linux-fedora27:
   # due to #16574 this currently fails
   allow_failure: true
   script:
-    - bash ~/.gitlab/win32-ci.sh configure
-    - bash ~/.gitlab/win32-ci.sh build_hadrian
-    - bash ~/.gitlab/win32-ci.sh test_hadrian
+    - bash .gitlab/win32-ci.sh configure
+    - bash .gitlab/win32-ci.sh build_hadrian
+    - bash .gitlab/win32-ci.sh test_hadrian
   tags:
     - x86_64-windows
   artifacts:

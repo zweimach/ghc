@@ -21,10 +21,9 @@ case $MSYSTEM in
 esac
 echo "hello world"
 
-ls /etc
-bash /etc/profile || true
-
-# Bring mingw toolchain into PATH
+# Bring mingw toolchain into PATH.
+# This is extracted from /etc/profile since this script inexplicably fails to
+# run under gitlab-runner.
 source /etc/msystem
 MINGW_MOUNT_POINT="${MINGW_PREFIX}"
 PATH="$MINGW_MOUNT_POINT/bin:$PATH"
