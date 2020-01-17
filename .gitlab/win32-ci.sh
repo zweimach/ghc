@@ -4,6 +4,7 @@
 
 set -e
 
+echo hello
 case $MSYSTEM in
   MINGW32)
     triple="i386-unknown-mingw32"
@@ -18,19 +19,23 @@ case $MSYSTEM in
     exit 1
     ;;
 esac
+echo "hello world"
 
 # Bring mingw64 toolchain into PATH
 source /etc/profile
 
+echo "hello world2"
 # This will contain GHC's local native toolchain
 toolchain="$PWD/toolchain"
 PATH="$toolchain/bin:$PATH"
 
+echo "hello world3"
 # Use a local temporary directory to ensure that concurrent builds don't
 # interfere with one another
 mkdir -p tmp
 export TMP=$PWD/tmp
 export TEMP=$PWD/tmp
+echo "hello world4"
 
 function run() {
   echo "Running $@..."
