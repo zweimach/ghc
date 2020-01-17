@@ -4,29 +4,28 @@
 
 set -eu -o pipefail
 
-# Wrap escape sequences in \[ \] to avoid wrapping issues
-NO_COLOUR="\[\e[0m\]"
-BLACK="\[\e[0;30m\]"
-GRAY="\[\e[1,30m\]"
-RED="\[\e[0;31m\]"
-LT_RED="\[\e[1;31m\]"
-BROWN="\[\e[0;33m\]"
-LT_BROWN="\[\e[1;33m\]"
-GREEN="\[\e[0;32m\]"
-LT_GREEN="\[\e[1;32m\]"
-BLUE="\[\e[0;34m\]"
-LT_BLUE="\[\e[1;34m\]"
-PURPLE="\[\e[0;35m\]"
-LT_PURPLE="\[\e[1;35m\]"
-CYAN="\[\e[0;36m\]"
-LT_CYAN="\[\e[1;36m\]"
-WHITE="\[\e[1;37m\]"
-LT_GRAY="\[\e[0,37m\]"
+# Colors
+BLACK="0;30"
+GRAY="1;30"
+RED="0;31"
+LT_RED="1;31"
+BROWN="0;33"
+LT_BROWN="1;33"
+GREEN="0;32"
+LT_GREEN="1;32"
+BLUE="0;34"
+LT_BLUE="1;34"
+PURPLE="0;35"
+LT_PURPLE="1;35"
+CYAN="0;36"
+LT_CYAN="1;36"
+WHITE="1;37"
+LT_GRAY="0;37"
 
 echo_color() {
   local color="$1"
   local msg="$2"
-  echo -e "${color}${msg}${NO_COLOUR}"
+  echo -e "\e[${color}m${msg}\e[0m"
 }
 
 error() { echo_color "${RED}" "$1"; }
