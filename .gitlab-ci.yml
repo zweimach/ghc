@@ -884,7 +884,7 @@ release-x86_64-windows:
     BUILD_FLAVOUR: "perf"
 
 
-.build-i386-windows:
+.build-i386-windows-make:
   extends: .build-windows-make
   variables:
     MSYSTEM: MINGW32
