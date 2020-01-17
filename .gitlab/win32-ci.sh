@@ -95,20 +95,22 @@ configure() {
 build_make() {
   echo "include mk/flavours/${BUILD_FLAVOUR}.mk" > mk/build.mk
   echo 'GhcLibHcOpts+=-haddock' >> mk/build.mk
-  make -j`mk/detect-cpu-count.sh`
+  run make -j`mk/detect-cpu-count.sh`
   mv _build/bindist/ghc*.tar.xz ghc.tar.xz
 }
 
 fetch_perf_notes() {
   echo "Fetching perf notes..."
-  git fetch https://gitlab.haskell.org/ghc/ghc-performance-notes.git refs/notes/perf:refs/notes/perf \
+  git fetch \
+    https://gitlab.haskell.org/ghc/ghc-performance-notes.git \
+    refs/notes/perf:refs/notes/perf \
     || echo "warning: Failed to fetch perf notes"
 }
 
 test_make() {
-  make binary-dist-prep TAR_COMP_OPTS=-1
-  make test_bindist TEST_PREP=YES
-  make V=0 test \
+  run make binary-dist-prep TAR_COMP_OPTS=-1
+  run make test_bindist TEST_PREP=YES
+  run make V=0 test \
     THREADS=`mk/detect-cpu-count.sh` \
     JUNIT_FILE=../../junit.xml
 }
@@ -119,7 +121,7 @@ clean_make() {
 }
 
 build_hadrian() {
-  hadrian/build.cabal.sh \
+  run hadrian/build.cabal.sh \
     --flavour=$FLAVOUR \
     -j`mk/detect-cpu-count.sh` \
     --flavour=Quick \
@@ -132,13 +134,13 @@ build_hadrian() {
 test_hadrian() {
   export TOP=$(pwd)
   cd _build/bindist/ghc-*/
-  ./configure --prefix=$TOP/_build/install
-  make install
+  run ./configure --prefix=$TOP/_build/install
+  run make install
   cd ../../../
 
   # skipping perf tests for now since we build a quick-flavoured GHC,
   # which might result in some broken perf tests?
-  hadrian/build.cabal.sh \
+  run hadrian/build.cabal.sh \
     --flavour=$FLAVOUR \
     -j`mk/detect-cpu-count.sh` \
     --flavour=quick \
