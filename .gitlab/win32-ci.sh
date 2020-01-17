@@ -26,7 +26,7 @@ LT_GRAY="\[\e[0,37m\]"
 echo_color() {
   local color="$1"
   local msg="$2"
-  echo "${color}${msg}${NO_COLOR}"
+  echo -e "${color}${msg}${NO_COLOUR}"
 }
 
 error() { echo_color "${RED}" "$1"; }
