@@ -60,7 +60,7 @@ setup() {
       url="https://downloads.haskell.org/~ghc/$GHC_VERSION/ghc-$GHC_VERSION-$triple.tar.xz"
       echo "Fetching GHC binary distribution from $url..."
       curl $url | tar -xJ
-      mv ghc-$GHC_VERSION toolchain
+      mv ghc-$GHC_VERSION/* toolchain
   fi
 
   if [ ! -e $toolchain/bin/cabal ]; then
@@ -84,6 +84,14 @@ setup() {
       cabal install alex
       cp $(cygpath $APPDATA)/cabal/bin/alex $toolchain/bin
   fi
+
+  echo "====================================================="
+  echo "Toolchain versions"
+  echo "====================================================="
+  $toolchain/bin/ghc --version
+  $toolchain/bin/cabal --version
+  $toolchain/bin/happy --version
+  $toolchain/bin/alex --version
 }
 
 cleanup_submodules() {
