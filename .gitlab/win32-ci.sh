@@ -4,7 +4,11 @@
 
 set -e
 
-echo hello
+if [ -z "$GHC_VERSION" ]; then
+  echo "GHC_VERSION not set"
+  exit 1;
+fi
+
 case $MSYSTEM in
   MINGW32)
     triple="i386-unknown-mingw32"
@@ -19,7 +23,8 @@ case $MSYSTEM in
     exit 1
     ;;
 esac
-echo "hello world"
+
+TOP="$(pwd)"
 
 # Bring mingw toolchain into PATH.
 # This is extracted from /etc/profile since this script inexplicably fails to
@@ -28,18 +33,16 @@ source /etc/msystem
 MINGW_MOUNT_POINT="${MINGW_PREFIX}"
 PATH="$MINGW_MOUNT_POINT/bin:$PATH"
 
-echo "hello world2"
 # This will contain GHC's local native toolchain
-toolchain="$PWD/toolchain"
+toolchain="$TOP/toolchain"
+mkdir -p $toolchain/bin
 PATH="$toolchain/bin:$PATH"
 
-echo "hello world3"
 # Use a local temporary directory to ensure that concurrent builds don't
 # interfere with one another
 mkdir -p tmp
-export TMP=$PWD/tmp
-export TEMP=$PWD/tmp
-echo "hello world4"
+export TMP=$TOP/tmp
+export TEMP=$TOP/tmp
 
 function run() {
   echo "Running $@..."
@@ -63,8 +66,8 @@ setup() {
   if [ ! -e $toolchain/bin/cabal ]; then
       url="https://downloads.haskell.org/~cabal/cabal-install-2.4.1.0/cabal-install-2.4.1.0-$cabal_arch-unknown-mingw32.zip"
       echo "Fetching cabal binary distribution from $url..."
-      curl $url > /tmp/cabal.zip
-      unzip /tmp/cabal.zip
+      curl $url > $TMP/cabal.zip
+      unzip $TMP/cabal.zip
       mv cabal.exe $toolchain/bin
   fi
 
@@ -72,14 +75,14 @@ setup() {
       echo "Building happy..."
       cabal update
       cabal install happy
-      cp $APPDATA/cabal/bin/happy $toolchain/bin
+      cp $(cygpath $APPDATA)/cabal/bin/happy $toolchain/bin
   fi
 
   if [ ! -e $toolchain/bin/alex ]; then
       echo "Building alex..."
       cabal update
       cabal install alex
-      cp $APPDATA/cabal/bin/alex $toolchain/bin
+      cp $(cygpath $APPDATA)/cabal/bin/alex $toolchain/bin
   fi
 }
 
@@ -142,7 +145,6 @@ build_hadrian() {
 }
 
 test_hadrian() {
-  export TOP=$(pwd)
   cd _build/bindist/ghc-*/
   run ./configure --prefix=$TOP/_build/install
   run make install
