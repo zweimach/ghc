@@ -23,8 +23,11 @@ echo "hello world"
 
 ls /etc
 bash /etc/profile || true
-# Bring mingw64 toolchain into PATH
-source /etc/profile
+
+# Bring mingw toolchain into PATH
+source /etc/msystem
+MINGW_MOUNT_POINT="${MINGW_PREFIX}"
+PATH="$MINGW_MOUNT_POINT/bin:$PATH"
 
 echo "hello world2"
 # This will contain GHC's local native toolchain
