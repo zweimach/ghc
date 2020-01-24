@@ -266,7 +266,7 @@ hadrian-ghc-in-ghci:
     - cabal update
     - cd hadrian; cabal new-build --project-file=ci.project; cd ..
     - git clean -xdf && git submodule foreach git clean -xdf
-    - .gitlab/prepare-system.sh
+    - .gitlab/ci.sh setup
     - if [[ -d ./cabal-cache ]]; then cp -R ./.cabal-cache ~/.cabal-cache; fi
     - ./boot
     - ./configure $CONFIGURE_ARGS
