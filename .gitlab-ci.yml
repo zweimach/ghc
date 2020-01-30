@@ -89,6 +89,17 @@ ghc-linters:
     refs:
       - merge_requests
 
+# Run shellcheck on our various shell scripts
+lint-shell:
+  <<: *only-default
+  stage: lint
+  image: "registry.gitlab.haskell.org/ghc/ci-images/linters:$DOCKER_REV"
+  script:
+    - shellcheck .gitlab/ci.sh
+  dependencies: []
+  tags:
+    - lint
+
 # Run mypy Python typechecker on linter scripts.
 lint-linters:
   <<: *only-default
