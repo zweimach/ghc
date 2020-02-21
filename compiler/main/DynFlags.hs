@@ -565,7 +565,6 @@ data GeneralFlag
    | Opt_PedanticBottoms                -- Be picky about how we treat bottom
    | Opt_LlvmTBAA                       -- Use LLVM TBAA infrastructure for improving AA (hidden flag)
    | Opt_LlvmFillUndefWithGarbage       -- Testing for undef bugs (hidden flag)
-   | Opt_NonmovingBarrier               -- Disable only for performance measurement of nonmoving collector barrier
    | Opt_IrrefutableTuples
    | Opt_CmmSink
    | Opt_CmmElimCommonBlocks
@@ -4250,7 +4249,6 @@ fFlagsDeps = [
   flagSpec "liberate-case"                    Opt_LiberateCase,
   flagHiddenSpec "llvm-tbaa"                  Opt_LlvmTBAA,
   flagHiddenSpec "llvm-fill-undef-with-garbage" Opt_LlvmFillUndefWithGarbage,
-  flagHiddenSpec "nonmoving-barrier"          Opt_NonmovingBarrier,
   flagSpec "loopification"                    Opt_Loopification,
   flagSpec "block-layout-cfg"                 Opt_CfgBlocklayout,
   flagSpec "block-layout-weightless"          Opt_WeightlessBlocklayout,
@@ -4590,8 +4588,7 @@ defaultFlags settings
       Opt_RPath,
       Opt_SharedImplib,
       Opt_SimplPreInlining,
-      Opt_VersionMacros,
-      Opt_NonmovingBarrier
+      Opt_VersionMacros
     ]
 
     ++ [f | (ns,f) <- optLevelFlags, 0 `elem` ns]

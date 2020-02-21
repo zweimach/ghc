@@ -1284,10 +1284,6 @@ runPhase (RealPhase cc_phase) input_fn dflags
                    | optLevel dflags >= 1 = [ "-O" ]
                    | otherwise            = []
 
-        let barrier_opt
-              | gopt Opt_NonmovingBarrier dflags = [ "-DWITH_NONMOVING_BARRIER" ]
-              | otherwise = []
-
         -- Decide next phase
         let next_phase = As False
         output_fn <- phaseOutputFilename next_phase
@@ -1318,7 +1314,6 @@ runPhase (RealPhase cc_phase) input_fn dflags
                         ]
                        ++ map SysTools.Option (
                           pic_c_flags
-                       ++ barrier_opt
 
                 -- Stub files generated for foreign exports references the runIO_closure
                 -- and runNonIO_closure symbols, which are defined in the base package.
