@@ -983,6 +983,7 @@ static void nonmovingMark_(MarkQueue *mark_queue, StgWeak **dead_weaks, StgTSO *
     }
 
     // We're still running, request a sync
+retry_sync:
     nonmovingBeginFlush(task);
 
 #define MAX_SYNC_MARK_COUNT 10000
@@ -991,11 +992,10 @@ static void nonmovingMark_(MarkQueue *mark_queue, StgWeak **dead_weaks, StgTSO *
         all_caps_syncd = nonmovingWaitForFlush();
         bool done = nonmovingMarkThreadsWeaks(mark_queue, MAX_SYNC_MARK_COUNT);
         if (!done) {
-            debugBelch("Aborted flush...\n");
+            debugBelch("Aborted flush 1...\n");
             nonmovingAbortFlush(task);
             nonmovingMarkThreadsWeaks(mark_queue, -1);
-            nonmovingBeginFlush(task);
-            continue;
+            goto retry_sync;
         }
     } while (!all_caps_syncd);
 #endif
@@ -1007,7 +1007,16 @@ static void nonmovingMark_(MarkQueue *mark_queue, StgWeak **dead_weaks, StgTSO *
     // Do last marking of weak pointers
     while (true) {
         // Propagate marks
+#if defined(THREADED_RTS)
+        if (!nonmovingMarkWithLimit(mark_queue, MAX_SYNC_MARK_COUNT)) {
+            debugBelch("Aborted flush 2...\n");
+            nonmovingAbortFlush(task);
+            nonmovingMarkThreadsWeaks(mark_queue, -1);
+            goto retry_sync;
+        }
+#else
         nonmovingMark(mark_queue);
+#endif
 
         if (!nonmovingTidyWeaks(mark_queue))
             break;
@@ -1016,7 +1025,16 @@ static void nonmovingMark_(MarkQueue *mark_queue, StgWeak **dead_weaks, StgTSO *
     nonmovingMarkDeadWeaks(mark_queue, dead_weaks);
 
     // Propagate marks
-    nonmovingMark(mark_queue);
+#if defined(THREADED_RTS)
+    if (!nonmovingMarkWithLimit(mark_queue, MAX_SYNC_MARK_COUNT)) {
+        debugBelch("Aborted flush 3...\n");
+        nonmovingAbortFlush(task);
+        nonmovingMarkThreadsWeaks(mark_queue, -1);
+        goto retry_sync;
+    }
+#else
+        nonmovingMark(mark_queue);
+#endif
 
     // Now remove all dead objects from the mut_list to ensure that a younger
     // generation collection doesn't attempt to look at them after we've swept.
