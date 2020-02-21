@@ -176,6 +176,7 @@ void initRtsFlagsDefaults(void)
     RtsFlags.GcFlags.numaMask           = 1;
     RtsFlags.GcFlags.ringBell           = false;
     RtsFlags.GcFlags.longGCSync         = 0; /* detection turned off */
+    RtsFlags.GcFlags.noNonmovingMarking = false;
 
     RtsFlags.DebugFlags.scheduler       = false;
     RtsFlags.DebugFlags.interpreter     = false;
@@ -895,6 +896,11 @@ error = true;
                               &rts_argv[arg][2])) {
                       OPTION_UNSAFE;
                       RtsFlags.MiscFlags.install_seh_handlers = false;
+                  }
+                  else if (strequal("no-nonmoving-marking",
+                              &rts_argv[arg][2])) {
+                      OPTION_UNSAFE;
+                      RtsFlags.GcFlags.noNonmovingMarking = true;
                   }
                   else if (strequal("generate-stack-traces=yes",
                                &rts_argv[arg][2])) {

@@ -821,6 +821,9 @@ void nonmovingCollect(StgWeak **dead_weaks, StgTSO **resurrected_threads)
 
     trace(TRACE_nonmoving_gc, "Starting nonmoving GC preparation");
     resizeGenerations();
+    if (RtsFlags.GcFlags.noNonmovingMarking) {
+        return;
+    }
 
     nonmovingPrepareMark();
 
