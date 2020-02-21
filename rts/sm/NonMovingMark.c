@@ -393,6 +393,14 @@ bool nonmovingWaitForFlush()
  * loop? Would that work? Or what would break?
  */
 
+void nonmovingAbortFlush(Task *task)
+{
+    debugTrace(DEBUG_nonmoving_gc, "Finished update remembered set flush...");
+    traceConcSyncEnd();
+    stat_endNonmovingGcSync();
+    releaseAllCapabilities(n_capabilities, NULL, task);
+}
+
 /* Notify capabilities that the synchronisation is finished; they may resume
  * execution.
  */
@@ -1674,6 +1682,13 @@ done:
 GNUC_ATTR_HOT void
 nonmovingMark (MarkQueue *queue)
 {
+    nonmovingMarkWithLimit(queue, -1);
+}
+
+/* Returns true if there is no more work. */
+GNUC_ATTR_HOT bool
+nonmovingMarkWithLimit (MarkQueue *queue, long limit)
+{
     traceConcMarkBegin();
     debugTrace(DEBUG_nonmoving_gc, "Starting mark pass");
     unsigned int count = 0;
@@ -1718,8 +1733,12 @@ nonmovingMark (MarkQueue *queue)
                 // Nothing more to do
                 debugTrace(DEBUG_nonmoving_gc, "Finished mark pass: %d", count);
                 traceConcMarkEnd(count);
-                return;
+                return true;
             }
+        }
+
+        if (count >= limit && limit != -1) {
+            return false;
         }
     }
 }

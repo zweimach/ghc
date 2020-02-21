@@ -151,6 +151,7 @@ void updateRemembSetPushStack(Capability *cap, StgStack *stack);
 void nonmovingFlushCapUpdRemSetBlocks(Capability *cap);
 void nonmovingBeginFlush(Task *task);
 bool nonmovingWaitForFlush(void);
+void nonmovingAbortFlush(Task *task);
 void nonmovingFinishFlush(Task *task);
 #endif
 
@@ -159,6 +160,7 @@ void markQueueAddRoot(MarkQueue* q, StgClosure** root);
 void initMarkQueue(MarkQueue *queue);
 void freeMarkQueue(MarkQueue *queue);
 void nonmovingMark(struct MarkQueue_ *restrict queue);
+bool nonmovingMarkWithLimit(struct MarkQueue_ *restrict queue, long limit);
 
 bool nonmovingTidyWeaks(struct MarkQueue_ *queue);
 void nonmovingTidyThreads(void);

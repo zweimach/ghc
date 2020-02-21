@@ -907,19 +907,23 @@ void nonmovingCollect(StgWeak **dead_weaks, StgTSO **resurrected_threads)
 }
 
 /* Mark mark queue, threads, and weak pointers until no more weaks have been
- * resuscitated
+ * resuscitated.
+ *
+ * Returns true if all done; false if hit marking limit.
  */
-static void nonmovingMarkThreadsWeaks(MarkQueue *mark_queue)
+static bool nonmovingMarkThreadsWeaks(MarkQueue *mark_queue, long limit)
 {
     while (true) {
         // Propagate marks
-        nonmovingMark(mark_queue);
+        if (!nonmovingMarkWithLimit(mark_queue, limit)) {
+            return false;
+        };
 
         // Tidy threads and weaks
         nonmovingTidyThreads();
 
         if (! nonmovingTidyWeaks(mark_queue))
-            return;
+            return true;
     }
 }
 
@@ -951,7 +955,7 @@ static void nonmovingMark_(MarkQueue *mark_queue, StgWeak **dead_weaks, StgTSO *
     stat_startNonmovingGc();
 
     // Do concurrent marking; most of the heap will get marked here.
-    nonmovingMarkThreadsWeaks(mark_queue);
+    nonmovingMarkThreadsWeaks(mark_queue, -1);
 
 #if defined(THREADED_RTS)
     Task *task = newBoundTask();
@@ -981,10 +985,18 @@ static void nonmovingMark_(MarkQueue *mark_queue, StgWeak **dead_weaks, StgTSO *
     // We're still running, request a sync
     nonmovingBeginFlush(task);
 
+#define MAX_SYNC_MARK_COUNT 10000
     bool all_caps_syncd;
     do {
         all_caps_syncd = nonmovingWaitForFlush();
-        nonmovingMarkThreadsWeaks(mark_queue);
+        bool done = nonmovingMarkThreadsWeaks(mark_queue, MAX_SYNC_MARK_COUNT);
+        if (!done) {
+            debugBelch("Aborted flush...\n");
+            nonmovingAbortFlush(task);
+            nonmovingMarkThreadsWeaks(mark_queue, -1);
+            nonmovingBeginFlush(task);
+            continue;
+        }
     } while (!all_caps_syncd);
 #endif
 
