@@ -34,7 +34,7 @@ EF_(stg_copyArray_barrier);
 extern StgWord DLL_IMPORT_DATA_VAR(nonmoving_write_barrier_enabled);
 
 // A similar macro is defined in includes/Cmm.h for C-- code.
-#if defined(THREADED_RTS)
+#if defined(THREADED_RTS) && defined(WITH_NONMOVING_BARRIER)
 #define IF_NONMOVING_WRITE_BARRIER_ENABLED \
     if (RTS_UNLIKELY(nonmoving_write_barrier_enabled))
 #else

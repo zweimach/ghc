@@ -621,6 +621,8 @@ assignTemp' e
 ---------------------------------------------------------------------------
 
 whenUpdRemSetEnabled :: DynFlags -> FCode a -> FCode ()
+whenUpdRemSetEnabled dflags _
+  | not $ gopt Opt_NonmovingBarrier dflags = return ()
 whenUpdRemSetEnabled dflags code = do
     do_it <- getCode code
     the_if <- mkCmmIfThenElse' is_enabled do_it mkNop (Just False)

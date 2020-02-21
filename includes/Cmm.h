@@ -955,7 +955,7 @@
 //
 // See Note [Update remembered set] in NonMovingMark.c.
 
-#if defined(THREADED_RTS)
+#if defined(THREADED_RTS) && defined(WITH_NONMOVING_BARRIER)
 #define IF_NONMOVING_WRITE_BARRIER_ENABLED                     \
     if (W_[nonmoving_write_barrier_enabled] != 0) (likely: False)
 #else
