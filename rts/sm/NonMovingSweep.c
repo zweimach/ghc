@@ -31,14 +31,14 @@ GNUC_ATTR_HOT static enum SweepResult
 nonmovingSweepSegment(struct NonmovingSegment *seg)
 {
     bool found_free = false;
-    bool found_live = false;
+    unsigned int found_live = 0;
 
     for (nonmoving_block_idx i = 0;
          i < nonmovingSegmentBlockCount(seg);
          ++i)
     {
         if (seg->bitmap[i] == nonmovingMarkEpoch) {
-            found_live = true;
+            found_live += 1;
         } else if (!found_free) {
             found_free = true;
             seg->next_free = i;
@@ -48,20 +48,12 @@ nonmovingSweepSegment(struct NonmovingSegment *seg)
         } else {
             seg->bitmap[i] = 0;
         }
-
-        if (found_free && found_live) {
-            // zero the remaining dead object's mark bits
-            for (; i < nonmovingSegmentBlockCount(seg); ++i) {
-                if (seg->bitmap[i] != nonmovingMarkEpoch) {
-                    seg->bitmap[i] = 0;
-                }
-            }
-            return SEGMENT_PARTIAL;
-        }
     }
 
-    if (found_live) {
+    if (found_live > nonmovingSegmentBlockCount(seg) > 0.8) {
         return SEGMENT_FILLED;
+    } else if (found_live > 0) {
+        return SEGMENT_PARTIAL;
     } else {
         ASSERT(seg->next_free == 0);
         ASSERT(nonmovingSegmentInfo(seg)->next_free_snap == 0);
