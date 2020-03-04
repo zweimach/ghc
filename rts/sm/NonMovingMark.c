@@ -1679,7 +1679,7 @@ done:
  *
  */
 GNUC_ATTR_HOT void
-nonmovingMark (MarkQueue *queue)
+nonmovingMark (MarkQueue *queue, struct NonMovingMarkWorkers *workers)
 {
     traceConcMarkBegin();
     debugTrace(DEBUG_nonmoving_gc, "Starting mark pass");
@@ -1940,6 +1940,90 @@ void nonmovingResurrectThreads (struct MarkQueue_ *queue, StgTSO **resurrected_t
             *resurrected_threads = t;
         }
     }
+}
+
+struct NonMovingMarkWorkers {
+    const int n_workers;
+    Semaphore sem;
+    bool stop;
+    // Protects mark_queue.
+    Mutex mutex;
+    struct MarkQueue *mark_queue;
+    ThreadId worker_threads[];
+};
+
+static void *markWorker(void *user_data)
+{
+    struct NonMovingMarkWorkers *workers = (struct NonMovingMarkWorkers *) user_data;
+    while (true) {
+        waitSemaphore(&workers->sem);
+        if (workers->stop) break;
+
+        MarkQueue *mark_queue;
+        do {
+            ACQUIRE_LOCK(&workers->mutex);
+            mark_queue = workers->mark_queue;
+            workers->mark_queue = mark_queue->next;
+            RELEASE_LOCK(&workers->mutex);
+            nonmovingMark(mark_queue);
+        } while (mark_queue);
+        postSemaphore(&workers->sem);
+    }
+    return NULL;
+}
+
+void pushWorkForMarkWorkers(struct NonMovingMarkWorkers *workers, MarkQueue *q)
+{
+    MarkQueue *tail = q;
+    while (tail->next) {
+        tail = tail->next;
+    }
+
+    ACQUIRE_LOCK(&workers->mutex);
+    tail->next = workers->mark_queue;
+    workers->mark_queue = q;
+    RELEASE_LOCK(&workers->mutex);
+}
+
+struct NonMovingMarkWorkers *spawnMarkWorkers(int n_workers)
+{
+    struct NonMovingMarkWorkers *workers = stgMalloc(sizeof(struct NonMovingMarkWorkers) + sizeof(ThreadId) * n_workers);
+    *workers = (struct NonMovingMarkWorkers) {
+        .n_workers = n_workers,
+        .stop = false,
+        .mark_queue = NULL,
+    };
+    initMutex(&workers->mutex);
+
+    // Start semaphore off empty to ensure workers don't run
+    initSemaphore(&workers->sem, n_workers);
+    for (int i=0; i < n_workers; i++) {
+        waitSemaphore(&workers->sem, n_workers);
+    }
+
+    // Start threads
+    for (int i=0; i < n_workers; i++) {
+        pthread_create(&workers.worker_threads[i], NULL, markWorker, workers);
+    }
+
+    return workers;
+}
+
+void startMarkWorkers(struct NonMovingMarkWorkers *workers)
+{
+    for (int i=0; i < workers->n_workers; i++) {
+        hi
+    }
+}
+
+void finishMarkWorkers(struct NonMovingMarkWorkers *workers)
+{
+    workers->stop = true;
+    for (int i=0; i < workers->n_workers; i++) {
+        postSemaphore(&workers->sem);
+        pthread_join(&workers.worker_threads[i]);
+    }
+    stgFree(workers);
 }
 
 #if defined(DEBUG)
