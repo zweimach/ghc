@@ -25,10 +25,12 @@
 #else
 
 #include <pthread.h>
+#include <semaphore.h>
 #include <errno.h>
 
 typedef pthread_cond_t  Condition;
 typedef pthread_mutex_t Mutex;
+typedef sem_t           Semaphore;
 typedef pthread_t       OSThreadId;
 typedef pthread_key_t   ThreadLocalKey;
 
@@ -49,6 +51,30 @@ typedef pthread_key_t   ThreadLocalKey;
   if (pthread_mutex_lock(mutex) == EDEADLK) { \
     barf("multiple ACQUIRE_LOCK: %s %d", __FILE__,__LINE__); \
   }
+
+EXTERN_INLINE void initSemaphore(Semaphore *sem, int n);
+EXTERN_INLINE void initSemaphore(Semaphore *sem, int n)
+{
+    sem_init(sem, 0, n);
+}
+
+EXTERN_INLINE void waitSemaphore(Semaphore *sem);
+EXTERN_INLINE void waitSemaphore(Semaphore *sem)
+{
+    sem_wait(sem);
+}
+
+EXTERN_INLINE void postSemaphore(Semaphore *sem);
+EXTERN_INLINE void postSemaphore(Semaphore *sem)
+{
+    sem_post(sem);
+}
+
+EXTERN_INLINE void closeSemaphore(Semaphore *sem);
+EXTERN_INLINE void closeSemaphore(Semaphore *sem)
+{
+    sem_destroy(sem);
+}
 
 // Returns zero if the lock was acquired.
 EXTERN_INLINE int TRY_ACQUIRE_LOCK(pthread_mutex_t *mutex);
@@ -89,6 +115,7 @@ EXTERN_INLINE int TRY_ACQUIRE_LOCK(pthread_mutex_t *mutex)
 #include <windows.h>
 
 typedef HANDLE Condition;
+typedef HANDLE Semaphore;
 typedef DWORD OSThreadId;
 // don't be tempted to use HANDLE as the OSThreadId: there can be
 // many HANDLES to a given thread, so comparison would not work.
@@ -125,6 +152,31 @@ typedef CRITICAL_SECTION Mutex;
 #define OS_ACQUIRE_LOCK(mutex)      EnterCriticalSection(mutex)
 #define TRY_ACQUIRE_LOCK(mutex)  (TryEnterCriticalSection(mutex) == 0)
 #define OS_RELEASE_LOCK(mutex)      LeaveCriticalSection(mutex)
+
+EXTERN_INLINE void initSemaphore(Semaphore *sem, int n);
+EXTERN_INLINE void initSemaphore(Semaphore *sem, int n)
+{
+    *sem = CreateSemaphore(NULL, n, n, NULL);
+}
+
+EXTERN_INLINE void waitSemaphore(Semaphore *sem);
+EXTERN_INLINE void waitSemaphore(Semaphore *sem)
+{
+    DWORD result = WaitForSingleObject(sem, INFINITE);
+    ASSERT(result == WAIT_OBJECT_0);
+}
+
+EXTERN_INLINE void postSemaphore(Semaphore *sem);
+EXTERN_INLINE void postSemaphore(Semaphore *sem)
+{
+    ReleaseSemaphore(sem, 1, NULL);
+}
+
+EXTERN_INLINE void destroySemaphore(Semaphore *sem);
+EXTERN_INLINE void destroySemaphore(Semaphore *sem)
+{
+    CloseHandle(sem);
+}
 
 // I don't know how to do this.  TryEnterCriticalSection() doesn't do
 // the right thing.
