@@ -591,57 +591,20 @@ inline void updateRemembSetPushThunk(Capability *cap, StgThunk *thunk)
  * See Note [Update rememembered set].
  */
 void updateRemembSetPushThunkEager(Capability *cap,
-                                   const StgThunkInfoTable *info,
+                                   const StgThunkInfoTable *orig_info,
                                    StgThunk *thunk)
 {
+    if (!check_in_nonmoving_heap((StgClosure *) thunk))
+        return;
+    MarkQueueEnt ent = {
+        .thunk = {
+            .thunk = (StgThunk *) TAG_CLOSURE(MARK_THUNK, (StgClosure *) thunk),
+            .orig_info = orig_info,
+        },
+    };
     /* N.B. info->i.type mustn't be WHITEHOLE */
     MarkQueue *queue = &cap->upd_rem_set.queue;
-    switch (info->i.type) {
-    case THUNK:
-    case THUNK_1_0:
-    case THUNK_0_1:
-    case THUNK_2_0:
-    case THUNK_1_1:
-    case THUNK_0_2:
-    {
-        push_thunk_srt(queue, &info->i);
-
-        for (StgWord i = 0; i < info->i.layout.payload.ptrs; i++) {
-            if (check_in_nonmoving_heap(thunk->payload[i])) {
-                // Don't bother to push origin; it makes the barrier needlessly
-                // expensive with little benefit.
-                push_closure(queue, thunk->payload[i], NULL);
-            }
-        }
-        break;
-    }
-    case AP:
-    {
-        StgAP *ap = (StgAP *) thunk;
-        if (check_in_nonmoving_heap(ap->fun)) {
-            push_closure(queue, ap->fun, NULL);
-        }
-        mark_PAP_payload(queue, ap->fun, ap->payload, ap->n_args);
-        break;
-    }
-    case THUNK_SELECTOR:
-    case BLACKHOLE:
-        // TODO: This is right, right?
-        break;
-    // The selector optimization performed by the nonmoving mark may have
-    // overwritten a thunk which we are updating with an indirection.
-    case IND:
-    {
-        StgInd *ind = (StgInd *) thunk;
-        if (check_in_nonmoving_heap(ind->indirectee)) {
-            push_closure(queue, ind->indirectee, NULL);
-        }
-        break;
-    }
-    default:
-        barf("updateRemembSetPushThunk: invalid thunk pushed: p=%p, type=%d",
-             thunk, info->i.type);
-    }
+    push(queue, &ent);
 }
 
 void updateRemembSetPushThunk_(StgRegTable *reg, StgThunk *p)
@@ -1169,6 +1132,68 @@ bump_static_flag(StgClosure **link_field, StgClosure *q STG_UNUSED)
     }
 }
 
+static GNUC_ATTR_HOT void
+mark_thunk (MarkQueue *queue, const StgThunkInfoTable *info, const StgThunk *thunk)
+{
+    switch (info->i.type) {
+    case THUNK:
+    case THUNK_1_0:
+    case THUNK_0_1:
+    case THUNK_2_0:
+    case THUNK_1_1:
+    case THUNK_0_2:
+    {
+        push_thunk_srt(queue, &info->i);
+
+        for (StgWord i = 0; i < info->i.layout.payload.ptrs; i++) {
+            if (check_in_nonmoving_heap(thunk->payload[i])) {
+                // Don't bother to push origin; it makes the barrier needlessly
+                // expensive with little benefit.
+                push_closure(queue, thunk->payload[i], NULL);
+            }
+        }
+        break;
+    }
+    case AP:
+    {
+        StgAP *ap = (StgAP *) thunk;
+        if (check_in_nonmoving_heap(ap->fun)) {
+            push_closure(queue, ap->fun, NULL);
+        }
+        mark_PAP_payload(queue, ap->fun, ap->payload, ap->n_args);
+        break;
+    }
+    case THUNK_SELECTOR:
+    case BLACKHOLE:
+        // TODO: This is right, right?
+        break;
+    // The selector optimization performed by the nonmoving mark may have
+    // overwritten a thunk which we are updating with an indirection.
+    case IND:
+    {
+        StgInd *ind = (StgInd *) thunk;
+        if (check_in_nonmoving_heap(ind->indirectee)) {
+            push_closure(queue, ind->indirectee, NULL);
+        }
+        break;
+    }
+    default:
+        barf("updateRemembSetPushThunk: invalid thunk pushed: p=%p, type=%d",
+             thunk, info->i.type);
+    }
+
+    bdescr *bd = Bdescr((StgPtr) thunk);
+    if (bd->flags & BF_NONMOVING) {
+        // TODO: Kill repetition
+        struct NonmovingSegment *seg = nonmovingGetSegment((StgPtr) thunk);
+        nonmoving_block_idx block_idx = nonmovingGetBlockIdx((StgPtr) thunk);
+        nonmovingSetMark(seg, block_idx);
+        nonmoving_live_words += nonmovingSegmentBlockSize(seg) / sizeof(W_);
+    } else {
+        barf("other type thunk");
+    }
+}
+
 /* N.B. p0 may be tagged */
 static GNUC_ATTR_HOT void
 mark_closure (MarkQueue *queue, const StgClosure *p0, StgClosure **origin)
@@ -1687,6 +1712,9 @@ nonmovingMark (MarkQueue *queue)
         case MARK_CLOSURE:
             mark_closure(queue, ent.mark_closure.p, ent.mark_closure.origin);
             break;
+        case MARK_THUNK:
+            mark_thunk(queue, ent.thunk.orig_info, (const StgThunk *) UNTAG_CLOSURE((StgClosure *) ent.thunk.thunk));
+            break;
         case MARK_ARRAY: {
             const StgMutArrPtrs *arr = (const StgMutArrPtrs *)
                 UNTAG_CLOSURE((StgClosure *) ent.mark_array.array);
@@ -1945,6 +1973,9 @@ void printMarkQueueEntry (MarkQueueEnt *ent)
       case MARK_CLOSURE:
         debugBelch("Closure: ");
         printClosure(ent->mark_closure.p);
+        break;
+      case MARK_THUNK:
+        debugBelch("Thunk\n");
         break;
       case MARK_ARRAY:
         debugBelch("Array\n");

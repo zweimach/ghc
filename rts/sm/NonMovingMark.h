@@ -19,7 +19,8 @@
 enum EntryType {
     NULL_ENTRY = 0,
     MARK_CLOSURE = 1,
-    MARK_ARRAY = 2
+    MARK_ARRAY = 2,
+    MARK_THUNK = 3,
 };
 
 /* Note [Origin references in the nonmoving collector]
@@ -51,6 +52,10 @@ typedef struct {
             void *p;              // must be NULL
         } null_entry;
         struct {
+            StgThunk *thunk;
+            const StgThunkInfoTable *orig_info;
+        } thunk;
+        struct {
             StgClosure *p;        // the object to be marked
             StgClosure **origin;  // field where this reference was found.
                                   // See Note [Origin references in the nonmoving collector]
@@ -65,7 +70,7 @@ typedef struct {
 INLINE_HEADER enum EntryType nonmovingMarkQueueEntryType(MarkQueueEnt *ent)
 {
     uintptr_t tag = (uintptr_t) ent->null_entry.p & TAG_MASK;
-    ASSERT(tag <= MARK_ARRAY);
+    ASSERT(tag <= MARK_THUNK);
     return tag;
 }
 
