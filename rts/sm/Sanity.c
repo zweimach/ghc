@@ -494,7 +494,7 @@ static void checkNonmovingSegments (struct NonmovingSegment *seg)
     while (seg != NULL) {
         const nonmoving_block_idx count = nonmovingSegmentBlockCount(seg);
         for (nonmoving_block_idx i=0; i < count; i++) {
-            if (seg->bitmap[i] == nonmovingMarkEpoch) {
+            if ((seg->bitmap[i] & EPOCH_MASK) == nonmovingMarkEpoch) {
                 StgPtr p = nonmovingSegmentGetBlock(seg, i);
                 checkClosure((StgClosure *) p);
             } else if (i < nonmovingSegmentInfo(seg)->next_free_snap){

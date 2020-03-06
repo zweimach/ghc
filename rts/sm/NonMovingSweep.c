@@ -38,7 +38,12 @@ nonmovingSweepSegment(struct NonmovingSegment *seg)
          i < nonmovingSegmentBlockCount(seg);
          ++i)
     {
-        if (seg->bitmap[i] == nonmovingMarkEpoch) {
+        if ((seg->bitmap[i] & EPOCH_MASK) != nonmovingMarkEpoch && seg->bitmap[i] & MF_ASSERT_MARKED) {
+            debugBelch("h");
+            //abort();
+        }
+
+        if ((seg->bitmap[i] & EPOCH_MASK) == nonmovingMarkEpoch) {
             found_live = true;
         } else if (!found_free) {
             // This is the first free block we've found; set next_free,
@@ -55,7 +60,11 @@ nonmovingSweepSegment(struct NonmovingSegment *seg)
         if (found_free && found_live) {
             // zero the remaining dead object's mark bits
             for (; i < nonmovingSegmentBlockCount(seg); ++i) {
-                if (seg->bitmap[i] != nonmovingMarkEpoch) {
+                if ((seg->bitmap[i] & EPOCH_MASK) != nonmovingMarkEpoch && seg->bitmap[i] & MF_ASSERT_MARKED) {
+                    debugBelch("h");
+                }
+
+                if ((seg->bitmap[i] & EPOCH_MASK) != nonmovingMarkEpoch) {
                     seg->bitmap[i] = 0;
                 }
             }

@@ -50,10 +50,10 @@
                                                                 \
     prim_write_barrier;                                         \
     bd = Bdescr(p1);                                            \
-    if (bdescr_gen_no(bd) != 0 :: bits16) {                     \
       IF_NONMOVING_WRITE_BARRIER_ENABLED {                      \
         ccall updateRemembSetPushThunk_(BaseReg, p1 "ptr");     \
       }                                                         \
+    if (bdescr_gen_no(bd) != 0 :: bits16) {                     \
       recordMutableCap(p1, TO_W_(bdescr_gen_no(bd)));           \
       TICK_UPD_OLD_IND();                                       \
     } else {                                                    \
@@ -78,10 +78,10 @@ INLINE_HEADER void updateWithIndirection (Capability *cap,
     /* See Note [Heap memory barriers] in SMP.h */
     write_barrier();
     bdescr *bd = Bdescr((StgPtr)p1);
-    if (bd->gen_no != 0) {
         IF_NONMOVING_WRITE_BARRIER_ENABLED {
             updateRemembSetPushThunk(cap, (StgThunk*)p1);
         }
+    if (bd->gen_no != 0) {
         recordMutableCap(p1, cap, bd->gen_no);
         TICK_UPD_OLD_IND();
     } else {

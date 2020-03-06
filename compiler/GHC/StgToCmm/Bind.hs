@@ -26,7 +26,7 @@ import GHC.StgToCmm.Ticky
 import GHC.StgToCmm.Layout
 import GHC.StgToCmm.Utils
 import GHC.StgToCmm.Closure
-import GHC.StgToCmm.Foreign    (emitPrimCall)
+import GHC.StgToCmm.Foreign    (emitPrimCall, emitCCall)
 
 import GHC.Cmm.Graph
 import CoreSyn          ( AltCon(..), tickishIsCode )
@@ -501,11 +501,24 @@ closureCodeBody top_lvl bndr cl_info cc args arity body fv_details
                 -- Load free vars out of closure *after*
                 -- heap check, to reduce live vars over check
                 ; when node_points $ load_fvs node lf_info fv_bindings
+                ; when node_points $ emitNonmovingAssert node
                 ; void $ cgExpr body
                 }}}
 
   }
 
+-- TODO: Use in mkTaggedObjectLoad
+emitNonmovingAssert :: LocalReg -> FCode ()
+emitNonmovingAssert node = do
+    emitStore slot (CmmReg nodeReg)
+    emitCCall [] lbl [(CmmReg nodeReg, AddrHint)]
+    emitAssign nodeReg slot
+  where
+    lbl = mkLblExpr $ mkForeignLabel (fsLit "nonmovingAssertMark") 
+            Nothing (ForeignLabelInPackage rtsUnitId) IsFunction
+    nodeReg = CmmLocal node
+    slot = CmmRegOff spReg 0
+  
 -- Note [NodeReg clobbered with loopification]
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 --

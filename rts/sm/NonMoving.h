@@ -252,14 +252,17 @@ INLINE_HEADER nonmoving_block_idx nonmovingGetBlockIdx(StgPtr p)
 // TODO: Eliminate this
 extern uint8_t nonmovingMarkEpoch;
 
+#define EPOCH_MASK 3
+#define MF_ASSERT_MARKED 8
+
 INLINE_HEADER void nonmovingSetMark(struct NonmovingSegment *seg, nonmoving_block_idx i)
 {
-    seg->bitmap[i] = nonmovingMarkEpoch;
+    seg->bitmap[i] = (seg->bitmap[i] & ~EPOCH_MASK) | nonmovingMarkEpoch;
 }
 
 INLINE_HEADER uint8_t nonmovingGetMark(struct NonmovingSegment *seg, nonmoving_block_idx i)
 {
-    return seg->bitmap[i];
+    return seg->bitmap[i] & EPOCH_MASK;
 }
 
 INLINE_HEADER void nonmovingSetClosureMark(StgPtr p)

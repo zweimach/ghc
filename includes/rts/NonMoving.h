@@ -41,3 +41,7 @@ extern StgWord DLL_IMPORT_DATA_VAR(nonmoving_write_barrier_enabled);
 #define IF_NONMOVING_WRITE_BARRIER_ENABLED \
     if (0)
 #endif
+
+// For debugging
+void nonmovingAssertMark(StgClosure *p);
+

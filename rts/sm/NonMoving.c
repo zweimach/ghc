@@ -681,6 +681,16 @@ void nonmovingAddCapabilities(uint32_t new_n_caps)
     nonmovingHeap.n_caps = new_n_caps;
 }
 
+void nonmovingAssertMark(StgClosure *p)
+{
+    bdescr *bd = Bdescr((StgPtr) p);
+    if (HEAP_ALLOCED_GC(p) && bd->flags & BF_NONMOVING) {
+        struct NonmovingSegment *seg = nonmovingGetSegment((StgPtr) p);
+        nonmoving_block_idx i = nonmovingGetBlockIdx((StgPtr) p);
+        seg->bitmap[i] |= MF_ASSERT_MARKED;
+    }
+}
+
 void nonmovingClearBitmap(struct NonmovingSegment *seg)
 {
     unsigned int n = nonmovingSegmentBlockCount(seg);

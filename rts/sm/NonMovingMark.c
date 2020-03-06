@@ -594,6 +594,8 @@ void updateRemembSetPushThunkEager(Capability *cap,
                                    const StgThunkInfoTable *info,
                                    StgThunk *thunk)
 {
+    bool in_nursery = Bdescr((StgPtr) thunk)->gen_no == 0;
+
     /* N.B. info->i.type mustn't be WHITEHOLE */
     MarkQueue *queue = &cap->upd_rem_set.queue;
     switch (info->i.type) {
@@ -608,6 +610,7 @@ void updateRemembSetPushThunkEager(Capability *cap,
 
         for (StgWord i = 0; i < info->i.layout.payload.ptrs; i++) {
             if (check_in_nonmoving_heap(thunk->payload[i])) {
+                //if (in_nursery) nonmovingAssertMark(thunk->payload[i]);
                 // Don't bother to push origin; it makes the barrier needlessly
                 // expensive with little benefit.
                 push_closure(queue, thunk->payload[i], NULL);
