@@ -583,6 +583,8 @@ validate-x86_64-linux-deb9-debug:
   extends: .build-x86_64-linux-deb9
   stage: full-build
   variables:
+    # V=0 otherwise we overflow the log size limit
+    MAKE_ARGS: "V=0"
     BUILD_FLAVOUR: validate
     # Ensure that stage2 also has DEBUG enabled
     ValidateSpeed: SLOW
