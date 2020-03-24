@@ -1177,7 +1177,7 @@ pprCLabel dynFlags (AsmTempDerivedLabel l suf)
      <> case l of AsmTempLabel u    -> pprUniqueAlways u
                   LocalBlockLabel u -> pprUniqueAlways u
                   _other            -> pprCLabel dynFlags l
-     <> ftext suf
+     <> zeroWidthFText suf
 
 pprCLabel dynFlags (DynamicLinkerLabel info lbl)
  | platformMisc_ghcWithNativeCodeGen $ platformMisc dynFlags
@@ -1220,7 +1220,7 @@ pprAsmCLbl platform (ForeignLabel fs (Just sz) _ _)
  | platformOS platform == OSMinGW32
     -- In asm mode, we need to put the suffix on a stdcall ForeignLabel.
     -- (The C compiler does this itself).
-    = ftext fs <> char '@' <> int sz
+    = zeroWidthFText fs <> char '@' <> int sz
 pprAsmCLbl _ lbl
    = pprCLbl lbl
 
@@ -1239,14 +1239,14 @@ pprCLbl (LargeBitmapLabel u)  =
 -- with a letter so the label will be legal assembly code.
 
 
-pprCLbl (CmmLabel _ str CmmCode)        = ftext str
-pprCLbl (CmmLabel _ str CmmData)        = ftext str
-pprCLbl (CmmLabel _ str CmmPrimCall)    = ftext str
+pprCLbl (CmmLabel _ str CmmCode)        = zeroWidthFText str
+pprCLbl (CmmLabel _ str CmmData)        = zeroWidthFText str
+pprCLbl (CmmLabel _ str CmmPrimCall)    = zeroWidthFText str
 
 pprCLbl (LocalBlockLabel u)             =
     tempLabelPrefixOrUnderscore <> text "blk_" <> pprUniqueAlways u
 
-pprCLbl (RtsLabel (RtsApFast str))   = ftext str <> text "_fast"
+pprCLbl (RtsLabel (RtsApFast str))   = zeroWidthFText str <> text "_fast"
 
 pprCLbl (RtsLabel (RtsSelectorInfoTable upd_reqd offset))
   = sdocWithDynFlags $ \dflags ->
@@ -1285,19 +1285,19 @@ pprCLbl (RtsLabel (RtsApEntry upd_reqd arity))
         ]
 
 pprCLbl (CmmLabel _ fs CmmInfo)
-  = ftext fs <> text "_info"
+  = zeroWidthFText fs <> text "_info"
 
 pprCLbl (CmmLabel _ fs CmmEntry)
-  = ftext fs <> text "_entry"
+  = zeroWidthFText fs <> text "_entry"
 
 pprCLbl (CmmLabel _ fs CmmRetInfo)
-  = ftext fs <> text "_info"
+  = zeroWidthFText fs <> text "_info"
 
 pprCLbl (CmmLabel _ fs CmmRet)
-  = ftext fs <> text "_ret"
+  = zeroWidthFText fs <> text "_ret"
 
 pprCLbl (CmmLabel _ fs CmmClosure)
-  = ftext fs <> text "_closure"
+  = zeroWidthFText fs <> text "_closure"
 
 pprCLbl (RtsLabel (RtsPrimOp primop))
   = text "stg_" <> ppr primop
@@ -1306,7 +1306,7 @@ pprCLbl (RtsLabel (RtsSlowFastTickyCtr pat))
   = text "SLOW_CALL_fast_" <> text pat <> ptext (sLit "_ctr")
 
 pprCLbl (ForeignLabel str _ _ _)
-  = ftext str
+  = zeroWidthFText str
 
 pprCLbl (IdLabel name _cafs flavor) =
   internalNamePrefix name <> ppr name <> ppIdFlavor flavor
