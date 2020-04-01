@@ -23,6 +23,7 @@ module GHC.Cmm.CLabel (
         mkConInfoTableLabel,
         mkApEntryLabel,
         mkApInfoTableLabel,
+        mkMkStringInfoTableLabel,
         mkClosureTableLabel,
         mkBytesLabel,
 
@@ -61,6 +62,7 @@ module GHC.Cmm.CLabel (
         mkCAFBlackHoleInfoTableLabel,
         mkRtsPrimOpLabel,
         mkRtsSlowFastTickyCtrLabel,
+        mkRtsMkStringLabel,
 
         mkSelectorInfoLabel,
         mkSelectorEntryLabel,
@@ -426,6 +428,8 @@ data RtsLabelInfo
   | RtsApInfoTable       Bool{-updatable-} Int{-arity-}    -- ^ AP thunks
   | RtsApEntry           Bool{-updatable-} Int{-arity-}
 
+  | RtsMkStringInfoTable
+
   | RtsPrimOp PrimOp
   | RtsApFast     FastString    -- ^ _fast versions of generic apply
   | RtsSlowFastTickyCtr String
@@ -589,6 +593,8 @@ mkApEntryLabel dflags upd arity =
    ASSERT(arity > 0 && arity <= mAX_SPEC_AP_SIZE dflags)
    RtsLabel (RtsApEntry upd arity)
 
+mkMkStringInfoTableLabel :: CLabel
+mkMkStringInfoTableLabel = RtsLabel RtsMkStringInfoTable
 
 -- A call to some primitive hand written Cmm code
 mkPrimCallLabel :: PrimCall -> CLabel
@@ -681,6 +687,8 @@ mkRtsApFastLabel str = RtsLabel (RtsApFast str)
 mkRtsSlowFastTickyCtrLabel :: String -> CLabel
 mkRtsSlowFastTickyCtrLabel pat = RtsLabel (RtsSlowFastTickyCtr pat)
 
+mkRtsMkStringLabel :: CLabel
+mkRtsMkStringLabel = RtsLabel RtsMkStringInfoTable
 
 -- Constructing Code Coverage Labels
 mkHpcTicksLabel :: Module -> CLabel
@@ -761,6 +769,8 @@ hasHaskellName _               = Nothing
 hasCAF :: CLabel -> Bool
 hasCAF (IdLabel _ _ RednCounts) = False -- Note [ticky for LNE]
 hasCAF (IdLabel _ MayHaveCafRefs _) = True
+hasCAF (RtsLabel RtsMkStringInfoTable) = True
+  -- The info table stg_MK_STRING_info is for thunks
 hasCAF _                            = False
 
 -- Note [ticky for LNE]
@@ -1301,6 +1311,8 @@ pprCLbl platform = \case
    (CC_Label cc)       -> ppr cc
    (CCS_Label ccs)     -> ppr ccs
    (HpcTicksLabel mod) -> text "_hpc_tickboxes_"  <> ppr mod <> ptext (sLit "_hpc")
+
+   (RtsLabel RtsMkStringInfoTable) -> text "stg_MK_STRING_info"
 
    (AsmTempLabel {})        -> panic "pprCLbl AsmTempLabel"
    (AsmTempDerivedLabel {}) -> panic "pprCLbl AsmTempDerivedLabel"

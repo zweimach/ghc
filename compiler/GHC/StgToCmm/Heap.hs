@@ -172,10 +172,11 @@ mkStaticClosureFields
         -> CostCentreStack
         -> CafInfo
         -> [CmmLit]             -- Payload
+        -> [CmmLit]             -- Extra non-pointers that go to the end of the closure
         -> [CmmLit]             -- The full closure
-mkStaticClosureFields dflags info_tbl ccs caf_refs payload
+mkStaticClosureFields dflags info_tbl ccs caf_refs payload extras
   = mkStaticClosure dflags info_lbl ccs payload padding
-        static_link_field saved_info_field
+        static_link_field saved_info_field extras
   where
     platform = targetPlatform dflags
     info_lbl = cit_lbl info_tbl
@@ -220,14 +221,15 @@ mkStaticClosureFields dflags info_tbl ccs caf_refs payload
                                       -- in rts/sm/Storage.h
 
 mkStaticClosure :: DynFlags -> CLabel -> CostCentreStack -> [CmmLit]
-  -> [CmmLit] -> [CmmLit] -> [CmmLit] -> [CmmLit]
-mkStaticClosure dflags info_lbl ccs payload padding static_link_field saved_info_field
+  -> [CmmLit] -> [CmmLit] -> [CmmLit] -> [CmmLit] -> [CmmLit]
+mkStaticClosure dflags info_lbl ccs payload padding static_link_field saved_info_field extras
   =  [CmmLabel info_lbl]
   ++ staticProfHdr dflags ccs
   ++ payload
   ++ padding
   ++ static_link_field
   ++ saved_info_field
+  ++ extras
 
 -----------------------------------------------------------
 --              Heap overflow checking

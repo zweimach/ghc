@@ -51,6 +51,8 @@ import GHC.Utils.Outputable
 import GHC.Data.FastString
 import GHC.Driver.Session
 
+import GHC.Builtin.Names (unpackCStringName)
+
 import Control.Monad
 
 ------------------------------------------------------------------------
@@ -76,6 +78,9 @@ cgTopRhsClosure dflags rec id ccs upd_flag args body =
       lf_info       = mkClosureLFInfo platform id TopLevel [] upd_flag args
   in (cg_id_info, gen_code dflags lf_info closure_label)
   where
+
+  gen_code :: DynFlags -> LambdaFormInfo -> CLabel -> FCode ()
+
   -- special case for a indirection (f = g).  We create an IND_STATIC
   -- closure pointing directly to the indirectee.  This is exactly
   -- what the CAF will eventually evaluate to anyway, we're just
@@ -90,10 +95,32 @@ cgTopRhsClosure dflags rec id ccs upd_flag args body =
   -- concurrent/should_run/4030 fails, for instance.
   --
   gen_code _ _ closure_label
-    | StgApp f [] <- body, null args, isNonRec rec
+    | StgApp f [] <- body
+    , null args
+    , isNonRec rec
     = do
          cg_info <- getCgIdInfo f
          emitDataCon closure_label indStaticInfoTable ccs [unLit (idInfoToAmode cg_info)]
+
+  gen_code _ _ closure_label
+    | null args
+    , StgApp f [arg] <- stripStgTicksTopE (not . tickishIsCode) body
+    , idName f == unpackCStringName
+    = do -- TODO: What to do with ticks?
+         arg' <- getArgAmode (NonVoid arg)
+         case arg' of
+           CmmLit lit -> do
+             let info = CmmInfoTable
+                   { cit_lbl = mkRtsMkStringLabel
+                   , cit_rep = HeapRep True 0 1 Thunk
+                   , cit_prof = NoProfilingInfo
+                   , cit_srt = Nothing
+                   , cit_clo = Nothing
+                   }
+             emitDecl $ CmmData (Section Data closure_label) $
+                 CmmStatics closure_label info ccs [] [lit]
+           _ -> panic "cgTopRhsClosure.gen_code"
+
 
   gen_code dflags lf_info _closure_label
    = do { let name = idName id

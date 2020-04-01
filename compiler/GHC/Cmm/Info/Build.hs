@@ -488,7 +488,7 @@ cafAnalData
 cafAnalData (CmmStaticsRaw _lbl _data) =
     Set.empty
 
-cafAnalData (CmmStatics _lbl _itbl _ccs payload) =
+cafAnalData (CmmStatics _lbl _itbl _ccs payload _extras) =
     foldl' analyzeStatic Set.empty payload
   where
     analyzeStatic s lit =
@@ -649,10 +649,15 @@ getBlockLabels = mapMaybe getBlockLabel
 --   - the info label for a continuation or dynamic closure
 --   - the closure label for a top-level function (not a CAF)
 getLabelledBlocks :: CmmDecl -> [(SomeLabel, CAFLabel)]
+
 getLabelledBlocks (CmmData _ (CmmStaticsRaw _ _)) =
   []
-getLabelledBlocks (CmmData _ (CmmStatics lbl _ _ _)) =
-  [ (DeclLabel lbl, mkCAFLabel lbl) ]
+
+getLabelledBlocks (CmmData _ (CmmStatics lbl info _ _ _)) =
+  [ (DeclLabel lbl, mkCAFLabel lbl)
+  | not (isThunkRep (cit_rep info))
+  ]
+
 getLabelledBlocks (CmmProc top_info _ _ _) =
   [ (BlockLabel blockId, caf_lbl)
   | (blockId, info) <- mapToList (info_tbls top_info)
@@ -677,6 +682,7 @@ depAnalSRTs cafEnv cafEnv_static decls =
  where
   labelledBlocks :: [(SomeLabel, CAFLabel)]
   labelledBlocks = concatMap getLabelledBlocks decls
+
   labelToBlock :: Map CAFLabel SomeLabel
   labelToBlock = foldl' (\m (v,k) -> Map.insert k v m) Map.empty labelledBlocks
 
@@ -700,16 +706,27 @@ depAnalSRTs cafEnv cafEnv_static decls =
 --    SRT, since the point of SRTs is to keep CAFs alive.
 --  - CAFs therefore don't take part in the dependency analysis in depAnalSRTs.
 --    instead we generate their SRTs after everything else.
-getCAFs :: CAFEnv -> [CmmDecl] -> [(Label, CAFLabel, Set CAFLabel)]
-getCAFs cafEnv decls =
-  [ (g_entry g, mkCAFLabel topLbl, cafs)
-  | CmmProc top_info topLbl _ g <- decls
-  , Just info <- [mapLookup (g_entry g) (info_tbls top_info)]
-  , let rep = cit_rep info
-  , isStaticRep rep && isThunkRep rep
-  , Just cafs <- [mapLookup (g_entry g) cafEnv]
-  ]
+getCAFs :: CAFEnv -> [CmmDecl] -> [(Maybe Label, CAFLabel, Set CAFLabel)]
+getCAFs cafEnv = mapMaybe getCAFLabel
+  where
+    getCAFLabel :: CmmDecl -> Maybe (Maybe Label, CAFLabel, Set CAFLabel)
 
+    getCAFLabel (CmmProc top_info top_lbl _ g)
+      | Just info <- mapLookup (g_entry g) (info_tbls top_info)
+      , let rep = cit_rep info
+      , isStaticRep rep && isThunkRep rep
+      , Just cafs <- mapLookup (g_entry g) cafEnv
+      = Just (Just (g_entry g), mkCAFLabel top_lbl, cafs)
+
+    getCAFLabel (CmmData _ (CmmStatics top_lbl info _ccs _payload _extras))
+      | isThunkRep (cit_rep info)
+      = Just (Nothing, mkCAFLabel top_lbl, Set.empty)
+
+    getCAFLabel (CmmData _ (CmmStaticsRaw _lbl _payload))
+      = Nothing
+
+    getCAFLabel _
+      = Nothing
 
 -- | Get the list of blocks that correspond to the entry points for
 -- FUN_STATIC closures.  These are the blocks for which if we have an
@@ -777,7 +794,7 @@ doSRTs dflags moduleSRTInfo procs data_ = do
               pprPanic "doSRTs" (text "Proc in static data list:" <+> ppr decl)
             CmmData _ static ->
               case static of
-                CmmStatics lbl _ _ _ -> (lbl, set)
+                CmmStatics lbl _ _ _ _ -> (lbl, set)
                 CmmStaticsRaw lbl _ -> (lbl, set)
 
       static_data :: Set CLabel
@@ -798,7 +815,7 @@ doSRTs dflags moduleSRTInfo procs data_ = do
     sccs :: [SCC (SomeLabel, CAFLabel, Set CAFLabel)]
     sccs = {-# SCC depAnalSRTs #-} depAnalSRTs cafEnv static_data_env decls
 
-    cafsWithSRTs :: [(Label, CAFLabel, Set CAFLabel)]
+    cafsWithSRTs :: [(Maybe Label, CAFLabel, Set CAFLabel)]
     cafsWithSRTs = getCAFs cafEnv decls
 
   srtTraceM "doSRTs" (text "data:" <+> ppr data_ $$
@@ -821,7 +838,7 @@ doSRTs dflags moduleSRTInfo procs data_ = do
         flip runStateT moduleSRTInfo $ do
           nonCAFs <- mapM (doSCC dflags staticFuns static_data) sccs
           cAFs <- forM cafsWithSRTs $ \(l, cafLbl, cafs) ->
-            oneSRT dflags staticFuns [BlockLabel l] [cafLbl]
+            oneSRT dflags staticFuns (map BlockLabel (maybeToList l)) [cafLbl]
                    True{-is a CAF-} cafs static_data
           return (nonCAFs ++ cAFs)
 
@@ -1125,6 +1142,7 @@ buildSRT dflags refs = do
         [] -- no padding
         [mkIntCLit platform 0] -- link field
         [] -- no saved info
+        [] -- no extras
   return (mkDataLits (Section Data lbl) lbl fields, SRTEntry lbl)
 
 -- | Update info tables with references to their SRTs. Also generate
@@ -1140,11 +1158,11 @@ updInfoSRTs
 updInfoSRTs _ _ _ _ (CmmData s (CmmStaticsRaw lbl statics))
   = [CmmData s (CmmStaticsRaw lbl statics)]
 
-updInfoSRTs dflags _ _ caffy (CmmData s (CmmStatics lbl itbl ccs payload))
+updInfoSRTs dflags _ _ caffy (CmmData s (CmmStatics lbl itbl ccs payload extras))
   = [CmmData s (CmmStaticsRaw lbl (map CmmStaticLit field_lits))]
   where
     caf_info = if caffy then MayHaveCafRefs else NoCafRefs
-    field_lits = mkStaticClosureFields dflags itbl ccs caf_info payload
+    field_lits = mkStaticClosureFields dflags itbl ccs caf_info payload extras
 
 updInfoSRTs dflags srt_env funSRTEnv caffy (CmmProc top_info top_l live g)
   | Just (_,closure) <- maybeStaticClosure = [ proc, closure ]
@@ -1175,7 +1193,7 @@ updInfoSRTs dflags srt_env funSRTEnv caffy (CmmProc top_info top_l live g)
             Just srtEntries -> srtTrace "maybeStaticFun" (ppr res)
               (info_tbl { cit_rep = new_rep }, res)
               where res = [ CmmLabel lbl | SRTEntry lbl <- srtEntries ]
-          fields = mkStaticClosureFields dflags info_tbl ccs caf_info srtEntries
+          fields = mkStaticClosureFields dflags info_tbl ccs caf_info srtEntries []
           new_rep = case cit_rep of
              HeapRep sta ptrs nptrs ty ->
                HeapRep sta (ptrs + length srtEntries) nptrs ty
