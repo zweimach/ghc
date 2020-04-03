@@ -161,6 +161,7 @@ main' postLoadMode dflags0 args flagWarnings = do
          = case postLoadMode of
                DoInteractive   -> (CompManager, HscInterpreted, LinkInMemory)
                DoEval _        -> (CompManager, HscInterpreted, LinkInMemory)
+               DoRun           -> (CompManager, HscInterpreted, LinkInMemory)
                DoMake          -> (CompManager, dflt_target,    LinkBinary)
                DoBackpack      -> (CompManager, dflt_target,    LinkBinary)
                DoMkDependHS    -> (MkDepend,    dflt_target,    LinkBinary)
@@ -172,6 +173,7 @@ main' postLoadMode dflags0 args flagWarnings = do
                          ghcLink   = link,
                          verbosity = case postLoadMode of
                                          DoEval _ -> 0
+                                         DoRun    -> 0
                                          _other   -> 1
                         }
 
@@ -185,6 +187,7 @@ main' postLoadMode dflags0 args flagWarnings = do
       -- a great story for the moment.
       dflags2  | DoInteractive <- postLoadMode = def_ghci_flags
                | DoEval _      <- postLoadMode = def_ghci_flags
+               | DoRun         <- postLoadMode = def_ghci_flags
                | otherwise                     = dflags1
         where def_ghci_flags = dflags1 `gopt_set` Opt_ImplicitImportQualified
                                        `gopt_set` Opt_IgnoreOptimChanges
@@ -271,6 +274,7 @@ main' postLoadMode dflags0 args flagWarnings = do
        DoInteractive          -> ghciUI hsc_env dflags6 srcs Nothing
        DoEval exprs           -> ghciUI hsc_env dflags6 srcs $ Just $
                                    reverse exprs
+       DoRun                  -> ghciUI hsc_env dflags6 srcs (Just ["main"])
        DoAbiHash              -> abiHash (map fst srcs)
        ShowPackages           -> liftIO $ showPackages dflags6
        DoFrontend f           -> doFrontend f srcs
@@ -488,15 +492,17 @@ data PostLoadMode
   | DoBackpack              -- ghc --backpack foo.bkp
   | DoInteractive           -- ghc --interactive
   | DoEval [String]         -- ghc -e foo -e bar => DoEval ["bar", "foo"]
+  | DoRun                   -- ghc --run
   | DoAbiHash               -- ghc --abi-hash
   | ShowPackages            -- ghc --show-packages
   | DoFrontend ModuleName   -- ghc --frontend Plugin.Module
 
-doMkDependHSMode, doMakeMode, doInteractiveMode,
+doMkDependHSMode, doMakeMode, doInteractiveMode, doRunMode,
   doAbiHashMode, showPackagesMode :: Mode
 doMkDependHSMode = mkPostLoadMode DoMkDependHS
 doMakeMode = mkPostLoadMode DoMake
 doInteractiveMode = mkPostLoadMode DoInteractive
+doRunMode = mkPostLoadMode DoRun
 doAbiHashMode = mkPostLoadMode DoAbiHash
 showPackagesMode = mkPostLoadMode ShowPackages
 
@@ -557,11 +563,13 @@ needsInputsMode _               = False
 isLinkMode :: PostLoadMode -> Bool
 isLinkMode (StopBefore StopLn) = True
 isLinkMode DoMake              = True
+isLinkMode DoRun               = True
 isLinkMode DoInteractive       = True
 isLinkMode (DoEval _)          = True
 isLinkMode _                   = False
 
 isCompManagerMode :: PostLoadMode -> Bool
+isCompManagerMode DoRun         = True
 isCompManagerMode DoMake        = True
 isCompManagerMode DoInteractive = True
 isCompManagerMode (DoEval _)    = True
@@ -643,6 +651,7 @@ mode_flags =
   , defFlag "E"            (PassFlag (setMode (stopBeforeMode anyHsc)))
   , defFlag "C"            (PassFlag (setMode (stopBeforeMode HCc)))
   , defFlag "S"            (PassFlag (setMode (stopBeforeMode (As False))))
+  , defFlag "-run"         (PassFlag (setMode doRunMode))
   , defFlag "-make"        (PassFlag (setMode doMakeMode))
   , defFlag "-backpack"    (PassFlag (setMode doBackpackMode))
   , defFlag "-interactive" (PassFlag (setMode doInteractiveMode))

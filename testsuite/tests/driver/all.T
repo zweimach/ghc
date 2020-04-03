@@ -279,3 +279,4 @@ test('T16737',
 
 test('T17143', exit_code(1), run_command, ['{compiler} T17143.hs -S -fno-code'])
 test('T17786', unless(opsys('mingw32'), skip), makefile_test, [])
+test('RunMode', extra_files(['RunMode/Test.hs']), run_command, ['{compiler} --run -iRunMode/ -ignore-dot-ghci RunMode.hs'])
