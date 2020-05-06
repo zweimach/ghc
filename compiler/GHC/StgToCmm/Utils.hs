@@ -611,7 +611,7 @@ emitUpdRemSetPush :: CmmExpr   -- ^ value of pointer which was overwritten
 emitUpdRemSetPush ptr = do
     emitRtsCall
       rtsUnitId
-      (fsLit "updateRemembSetPushClosure_")
+      (fsLit "updateRemembSetPushClosureRegs")
       [(CmmReg (CmmGlobal BaseReg), AddrHint),
        (ptr, AddrHint)]
       False
@@ -621,7 +621,7 @@ emitUpdRemSetPushThunk :: CmmExpr -- ^ the thunk
 emitUpdRemSetPushThunk ptr = do
     emitRtsCall
       rtsUnitId
-      (fsLit "updateRemembSetPushThunk_")
+      (fsLit "updateRemembSetPushThunkRegs")
       [(CmmReg (CmmGlobal BaseReg), AddrHint),
        (ptr, AddrHint)]
       False
