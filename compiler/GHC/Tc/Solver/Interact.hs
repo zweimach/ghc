@@ -1984,7 +1984,7 @@ reduce_top_fun_eq old_ev fsk (ax_co, rhs_ty)
   = ASSERT2( not (fsk `elemVarSet` tyCoVarsOfType rhs_ty)
            , ppr old_ev $$ ppr rhs_ty )
            -- Guaranteed by Note [FunEq occurs-check principle]
-    do { (rhs_xi, flatten_co) <- flatten FM_FlattenAll old_ev rhs_ty
+    do { (rhs_xi, flatten_co, _wrw) <- flatten FM_FlattenAll old_ev rhs_ty
              -- flatten_co :: rhs_xi ~ rhs_ty
              -- See Note [Flatten when discharging CFunEqCan]
        ; let total_co = ax_co `mkTcTransCo` mkTcSymCo flatten_co

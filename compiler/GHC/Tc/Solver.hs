@@ -2638,7 +2638,7 @@ disambigGroup (default_ty:default_tys) group@(the_tv, wanteds)
        ; if success then
              -- Success: record the type variable binding, and return
              do { unifyTyVar the_tv default_ty
-                ; wrapWarnTcS $ warnDefaulting wanteds default_ty
+                ; wrapWarnTcS $ warnDefaulting (map ctEvidence wanteds) default_ty
                 ; traceTcS "disambigGroup succeeded }" (ppr default_ty)
                 ; return True }
          else

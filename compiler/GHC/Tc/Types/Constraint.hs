@@ -15,7 +15,7 @@ module GHC.Tc.Types.Constraint (
         isPendingScDict, superClassesMightHelp, getPendingWantedScs,
         isCDictCan_Maybe, isCFunEqCan_maybe,
         isCNonCanonical, isWantedCt, isDerivedCt, isGivenCt,
-        isUserTypeErrorCt, getUserTypeErrorMsg,
+        isUserTypeErrorCtEv, getUserTypeErrorMsg,
         ctEvidence, ctLoc, setCtLoc, ctPred, ctFlavour, ctEqRel, ctOrigin,
         ctEvId, mkTcEqPredLikeEv,
         mkNonCanonical, mkNonCanonicalCt, mkGivens,
@@ -33,23 +33,27 @@ module GHC.Tc.Types.Constraint (
         tyCoVarsOfWC, dropDerivedWC, dropDerivedSimples,
         tyCoVarsOfWCList, insolubleCt, insolubleEqCt,
         isDroppableCt, insolubleImplic,
-        arisesFromGivens,
 
         Implication(..), implicationPrototype,
         ImplicStatus(..), isInsolubleStatus, isSolvedStatus,
         SubGoalDepth, initialSubGoalDepth, maxSubGoalDepth,
         bumpSubGoalDepth, subGoalDepthExceeded,
         CtLoc(..), ctLocSpan, ctLocEnv, ctLocLevel, ctLocOrigin,
+        ctLocAncestor, setCtLocAncestor,
         ctLocTypeOrKind_maybe,
         ctLocDepth, bumpCtLocDepth, isGivenLoc,
         setCtLocOrigin, updateCtLocOrigin, setCtLocEnv, setCtLocSpan,
         pprCtLoc,
 
+        WRWFlag(..), wantedRewriteWanted,
+
         -- CtEvidence
         CtEvidence(..), TcEvDest(..),
         mkKindLoc, toKindLoc, mkGivenLoc,
         isWanted, isGiven, isDerived, isGivenOrWDeriv,
-        ctEvRole,
+        ctEvRole, setCtEvLoc, arisesFromGivens,
+        tyCoVarsOfCtEvList, tyCoVarsOfCtEv, tyCoVarsOfCtEvsList,
+        ctEvAncestor,
 
         wrapType,
 
@@ -98,6 +102,7 @@ import GHC.Types.SrcLoc
 import GHC.Data.Bag
 import GHC.Utils.Misc
 
+import qualified Data.Semigroup
 import Control.Monad ( msum )
 
 {-
@@ -454,6 +459,18 @@ ctFlavour = ctEvFlavour . ctEvidence
 ctEqRel :: Ct -> EqRel
 ctEqRel = ctEvEqRel . ctEvidence
 
+-- | Get the highest ancestor of the given 'CtEvidence'.
+-- This ancestor will be a constraint that was not rewritten
+-- by a Wanted. See Note [Wanteds rewrite Wanteds].
+ctEvAncestor :: CtEvidence -> CtEvidence
+ctEvAncestor ct
+  | Just anc <- ctLocAncestor ct_loc
+  = ctEvAncestor anc
+  | otherwise
+  = ct
+  where
+    ct_loc = ctEvLoc ct
+
 instance Outputable Ct where
   ppr ct = ppr (ctEvidence ct) <+> parens pp_sort
     where
@@ -483,10 +500,19 @@ instance Outputable Ct where
 tyCoVarsOfCt :: Ct -> TcTyCoVarSet
 tyCoVarsOfCt = fvVarSet . tyCoFVsOfCt
 
--- | Returns free variables of constraints as a deterministically ordered.
+-- | Returns free variables of constraints as a non-deterministic set
+tyCoVarsOfCtEv :: CtEvidence -> TcTyCoVarSet
+tyCoVarsOfCtEv = fvVarSet . tyCoFVsOfCtEv
+
+-- | Returns free variables of constraints as a deterministically ordered
 -- list. See Note [Deterministic FV] in GHC.Utils.FV.
 tyCoVarsOfCtList :: Ct -> [TcTyCoVar]
 tyCoVarsOfCtList = fvVarList . tyCoFVsOfCt
+
+-- | Returns free variables of constraints as a deterministically ordered
+-- list. See Note [Deterministic FV] in GHC.Utils.FV.
+tyCoVarsOfCtEvList :: CtEvidence -> [TcTyCoVar]
+tyCoVarsOfCtEvList = fvVarList . tyCoFVsOfType . ctEvPred
 
 -- | Returns free variables of constraints as a composable FV computation.
 -- See Note [Deterministic FV] in GHC.Utils.FV.
@@ -495,6 +521,11 @@ tyCoFVsOfCt ct = tyCoFVsOfType (ctPred ct)
   -- This must consult only the ctPred, so that it gets *tidied* fvs if the
   -- constraint has been tidied. Tidying a constraint does not tidy the
   -- fields of the Ct, only the predicate in the CtEvidence.
+
+-- | Returns free variables of constraints as a composable FV computation.
+-- See Note [Deterministic FV] in GHC.Utils.FV.
+tyCoFVsOfCtEv :: CtEvidence -> FV
+tyCoFVsOfCtEv ct = tyCoFVsOfType (ctEvPred ct)
 
 -- | Returns free variables of a bag of constraints as a non-deterministic
 -- set. See Note [Deterministic FV] in GHC.Utils.FV.
@@ -506,10 +537,20 @@ tyCoVarsOfCts = fvVarSet . tyCoFVsOfCts
 tyCoVarsOfCtsList :: Cts -> [TcTyCoVar]
 tyCoVarsOfCtsList = fvVarList . tyCoFVsOfCts
 
+-- | Returns free variables of a bag of constraints as a deterministically
+-- ordered list. See Note [Deterministic FV] in GHC.Utils.FV.
+tyCoVarsOfCtEvsList :: [CtEvidence] -> [TcTyCoVar]
+tyCoVarsOfCtEvsList = fvVarList . tyCoFVsOfCtEvs
+
 -- | Returns free variables of a bag of constraints as a composable FV
 -- computation. See Note [Deterministic FV] in GHC.Utils.FV.
 tyCoFVsOfCts :: Cts -> FV
 tyCoFVsOfCts = foldr (unionFV . tyCoFVsOfCt) emptyFV
+
+-- | Returns free variables of a bag of constraints as a composable FV
+-- computation. See Note [Deterministic FV] in GHC.Utils.FV.
+tyCoFVsOfCtEvs :: [CtEvidence] -> FV
+tyCoFVsOfCtEvs = foldr (unionFV . tyCoFVsOfCtEv) emptyFV
 
 -- | Returns free variables of WantedConstraints as a non-deterministic
 -- set. See Note [Deterministic FV] in GHC.Utils.FV.
@@ -620,13 +661,6 @@ isDroppableCt ct
                g2 = isGivenOrigin orig2
 
            _ -> False
-
-arisesFromGivens :: Ct -> Bool
-arisesFromGivens ct
-  = case ctEvidence ct of
-      CtGiven {}                   -> True
-      CtWanted {}                  -> False
-      CtDerived { ctev_loc = loc } -> isGivenLoc loc
 
 isGivenLoc :: CtLoc -> Bool
 isGivenLoc loc = isGivenOrigin (ctLocOrigin loc)
@@ -754,8 +788,8 @@ Eq (F (TypeError msg))  -- Here the type error is nested under a type-function
 -- | A constraint is considered to be a custom type error, if it contains
 -- custom type errors anywhere in it.
 -- See Note [Custom type errors in constraints]
-getUserTypeErrorMsg :: Ct -> Maybe Type
-getUserTypeErrorMsg ct = findUserTypeError (ctPred ct)
+getUserTypeErrorMsg :: CtEvidence -> Maybe Type
+getUserTypeErrorMsg ctev = findUserTypeError (ctEvPred ctev)
   where
   findUserTypeError t = msum ( userTypeError_maybe t
                              : map findUserTypeError (subTys t)
@@ -771,10 +805,10 @@ getUserTypeErrorMsg ct = findUserTypeError (ctPred ct)
 
 
 
-isUserTypeErrorCt :: Ct -> Bool
-isUserTypeErrorCt ct = case getUserTypeErrorMsg ct of
-                         Just _ -> True
-                         _      -> False
+isUserTypeErrorCtEv :: CtEvidence -> Bool
+isUserTypeErrorCtEv ctev = case getUserTypeErrorMsg ctev of
+                             Just _ -> True
+                             _      -> False
 
 isPendingScDict :: Ct -> Maybe Ct
 -- Says whether this is a CDictCan with cc_pend_sc is True,
@@ -999,9 +1033,9 @@ insolubleCt :: Ct -> Bool
 --         b) that is insoluble
 --         c) and does not arise from a Given
 insolubleCt ct
-  | not (insolubleEqCt ct) = False
-  | arisesFromGivens ct    = False              -- See Note [Given insolubles]
-  | otherwise              = True
+  | not (insolubleEqCt ct)           = False
+  | arisesFromGivens (ctEvidence ct) = False              -- See Note [Given insolubles]
+  | otherwise                        = True
 
 insolubleEqCt :: Ct -> Bool
 -- Returns True of /equality/ constraints
@@ -1443,6 +1477,14 @@ ctEvEvId (CtWanted { ctev_dest = HoleDest h })   = coHoleCoVar h
 ctEvEvId (CtGiven  { ctev_evar = ev })           = ev
 ctEvEvId ctev@(CtDerived {}) = pprPanic "ctEvId:" (ppr ctev)
 
+setCtEvLoc :: CtEvidence -> CtLoc -> CtEvidence
+setCtEvLoc ctev loc = ctev { ctev_loc = loc }
+
+arisesFromGivens :: CtEvidence -> Bool
+arisesFromGivens (CtGiven {})                   = True
+arisesFromGivens (CtWanted {})                  = False
+arisesFromGivens (CtDerived { ctev_loc = loc }) = isGivenLoc loc
+
 instance Outputable TcEvDest where
   ppr (HoleDest h)   = text "hole" <> ppr h
   ppr (EvVarDest ev) = ppr ev
@@ -1567,9 +1609,9 @@ With the solver handling Coercible constraints like equality constraints,
 the rewrite conditions must take role into account, never allowing
 a representational equality to rewrite a nominal one.
 
-Note [Wanteds do not rewrite Wanteds]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-We don't allow Wanteds to rewrite Wanteds, because that can give rise
+Note [Wanteds rewrite Wanteds]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+We must be careful when Wanteds rewrite Wanteds, because that can give rise
 to very confusing type error messages.  A good example is #8450.
 Here's another
    f :: a -> Bool
@@ -1578,6 +1620,16 @@ Here we get
   [W] a ~ Char
   [W] a ~ Bool
 but we do not want to complain about Bool ~ Char!
+
+So, when a Wanted rewrites another Wanted (or a Derived, which is similar),
+we record the unwritten Wanted as its ancestor; this is the ctl_ancestor
+field of a CtLoc. In reporting errors, if a constraint has a known ancestor,
+we report the ancestor instead of the original constraint. Once an ancestor
+is set, we do not update it, because any update may be sullied by the
+confusion that arises when Wanteds rewrite Wanteds.
+
+The recording above happens during canonicalisation and flattening. See
+Note [Flattening wanteds] in GHC.Tc.Solver.Flatten.
 
 Note [Deriveds do rewrite Deriveds]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1610,10 +1662,11 @@ eqCanRewriteFR :: CtFlavourRole -> CtFlavourRole -> Bool
 -- Can fr1 actually rewrite fr2?
 -- Very important function!
 -- See Note [eqCanRewrite]
--- See Note [Wanteds do not rewrite Wanteds]
+-- See Note [Wanteds rewrite Wanteds]
 -- See Note [Deriveds do rewrite Deriveds]
-eqCanRewriteFR (Given,         r1)    (_,       r2)    = eqCanRewrite r1 r2
-eqCanRewriteFR (Wanted WDeriv, NomEq) (Derived, NomEq) = True
+eqCanRewriteFR (Given,         r1)    (_,        r2)   = eqCanRewrite r1 r2
+eqCanRewriteFR (Wanted _,      r1)    (Wanted _, r2)   = eqCanRewrite r1 r2
+eqCanRewriteFR (Wanted _,      r1)    (Derived,  r2)   = eqCanRewrite r1 r2
 eqCanRewriteFR (Derived,       NomEq) (Derived, NomEq) = True
 eqCanRewriteFR _                      _                = False
 
@@ -1621,9 +1674,16 @@ eqMayRewriteFR :: CtFlavourRole -> CtFlavourRole -> Bool
 -- Is it /possible/ that fr1 can rewrite fr2?
 -- This is used when deciding which inerts to kick out,
 -- at which time a [WD] inert may be split into [W] and [D]
-eqMayRewriteFR (Wanted WDeriv, NomEq) (Wanted WDeriv, NomEq) = True
 eqMayRewriteFR (Derived,       NomEq) (Wanted WDeriv, NomEq) = True
 eqMayRewriteFR fr1 fr2 = eqCanRewriteFR fr1 fr2
+
+-- | Checks if the first flavour rewriting the second is a wanted
+-- rewriting a wanted. See Note [Wanteds rewrite Wanteds]
+wantedRewriteWanted :: CtFlavourRole -> CtFlavourRole -> WRWFlag
+wantedRewriteWanted (Wanted _, _) _ = YesWRW
+wantedRewriteWanted _             _ = NoWRW
+  -- It doesn't matter what the second argument is; it can only
+  -- be Wanted or Derived anyway
 
 -----------------
 {- Note [funEqCanDischarge]
@@ -1777,14 +1837,14 @@ subGoalDepthExceeded dflags (SubGoalDepth d)
 The 'CtLoc' gives information about where a constraint came from.
 This is important for decent error message reporting because
 dictionaries don't appear in the original source code.
-type will evolve...
 
 -}
 
-data CtLoc = CtLoc { ctl_origin :: CtOrigin
-                   , ctl_env    :: TcLclEnv
-                   , ctl_t_or_k :: Maybe TypeOrKind  -- OK if we're not sure
-                   , ctl_depth  :: !SubGoalDepth }
+data CtLoc = CtLoc { ctl_origin   :: CtOrigin
+                   , ctl_env      :: TcLclEnv
+                   , ctl_t_or_k   :: Maybe TypeOrKind  -- OK if we're not sure
+                   , ctl_depth    :: !SubGoalDepth
+                   , ctl_ancestor :: Maybe CtEvidence } -- See Note [Wanteds rewrite Wanteds]
 
   -- The TcLclEnv includes particularly
   --    source location:  tcl_loc   :: RealSrcSpan
@@ -1804,10 +1864,11 @@ toKindLoc loc = loc { ctl_t_or_k = Just KindLevel }
 
 mkGivenLoc :: TcLevel -> SkolemInfo -> TcLclEnv -> CtLoc
 mkGivenLoc tclvl skol_info env
-  = CtLoc { ctl_origin = GivenOrigin skol_info
-          , ctl_env    = setLclEnvTcLevel env tclvl
-          , ctl_t_or_k = Nothing    -- this only matters for error msgs
-          , ctl_depth  = initialSubGoalDepth }
+  = CtLoc { ctl_origin   = GivenOrigin skol_info
+          , ctl_env      = setLclEnvTcLevel env tclvl
+          , ctl_t_or_k   = Nothing    -- this only matters for error msgs
+          , ctl_depth    = initialSubGoalDepth
+          , ctl_ancestor = Nothing }
 
 ctLocEnv :: CtLoc -> TcLclEnv
 ctLocEnv = ctl_env
@@ -1843,9 +1904,36 @@ updateCtLocOrigin ctl@(CtLoc { ctl_origin = orig }) upd
 setCtLocEnv :: CtLoc -> TcLclEnv -> CtLoc
 setCtLocEnv ctl env = ctl { ctl_env = env }
 
+-- | Retrieves the ancestor constraint, if there is one.
+-- See Note [Wanteds rewrite Wanteds].
+ctLocAncestor :: CtLoc -> Maybe CtEvidence
+ctLocAncestor = ctl_ancestor
+
+-- | Sets a CtLoc ancestor if one is not already established.
+-- Does nothing if an ancestor already exists
+setCtLocAncestor :: WRWFlag  -- YesWRW <=> a wanted rewrote a wanted
+                 -> CtLoc -> CtEvidence -> CtLoc
+setCtLocAncestor YesWRW ctl@(CtLoc { ctl_ancestor = Nothing }) ctev
+  = ctl { ctl_ancestor = Just ctev }
+setCtLocAncestor _ ctl _ = ctl
+
 pprCtLoc :: CtLoc -> SDoc
 -- "arising from ... at ..."
 -- Not an instance of Outputable because of the "arising from" prefix
 pprCtLoc (CtLoc { ctl_origin = o, ctl_env = lcl})
   = sep [ pprCtOrigin o
         , text "at" <+> ppr (getLclEnvLoc lcl)]
+
+-- | A flag to record whether or not a wanted has rewritten a wanted
+-- See Note [Wanteds rewrite Wanteds]
+data WRWFlag = YesWRW
+             | NoWRW
+  deriving Eq
+
+instance Semigroup WRWFlag where
+  NoWRW <> NoWRW = NoWRW
+  _     <> _     = YesWRW
+
+instance Outputable WRWFlag where
+  ppr YesWRW = text "YesWRW"
+  ppr NoWRW  = text "NoWRW"

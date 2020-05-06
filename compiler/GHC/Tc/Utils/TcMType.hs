@@ -4,7 +4,7 @@
 
 -}
 
-{-# LANGUAGE CPP, TupleSections, MultiWayIf #-}
+{-# LANGUAGE CPP, TupleSections, MultiWayIf, TypeApplications #-}
 
 {-# OPTIONS_GHC -Wno-incomplete-record-updates #-}
 
@@ -41,7 +41,7 @@ module GHC.Tc.Utils.TcMType (
   --------------------------------
   -- Creating new evidence variables
   newEvVar, newEvVars, newDict,
-  newWanted, newWanteds, cloneWanted, cloneWC,
+  newWanted, newWanteds, cloneWanted, cloneWC, cloneWantedCtEv,
   emitWanted, emitWantedEq, emitWantedEvVar, emitWantedEvVars,
   emitDerivedEqs,
   newTcEvBinds, newNoTcEvBinds, addTcEvBind,
@@ -68,7 +68,7 @@ module GHC.Tc.Utils.TcMType (
   --------------------------------
   -- Zonking and tidying
   zonkTidyTcType, zonkTidyTcTypes, zonkTidyOrigin,
-  tidyEvVar, tidyCt, tidyHole, tidySkolemInfo,
+  tidyEvVar, tidyCt, tidyCtEvidence, tidyHole, tidySkolemInfo,
     zonkTcTyVar, zonkTcTyVars,
   zonkTcTyVarToTyVar, zonkTyVarTyVarPairs,
   zonkTyCoVarsAndFV, zonkTcTypeAndFV, zonkDTyCoVarSetAndFV,
@@ -198,13 +198,14 @@ newWanteds orig = mapM (newWanted orig Nothing)
 -- Cloning constraints
 ----------------------------------------------
 
-cloneWanted :: Ct -> TcM Ct
-cloneWanted ct
-  | ev@(CtWanted { ctev_dest = HoleDest old_hole, ctev_pred = pty }) <- ctEvidence ct
+cloneWantedCtEv :: CtEvidence -> TcM CtEvidence
+cloneWantedCtEv ctev@(CtWanted { ctev_dest = HoleDest old_hole, ctev_pred = pty })
   = do { co_hole <- newCoercionHole (ch_blocker old_hole) pty
-       ; return (mkNonCanonical (ev { ctev_dest = HoleDest co_hole })) }
-  | otherwise
-  = return ct
+       ; return (ctev { ctev_dest = HoleDest co_hole }) }
+cloneWantedCtEv ctev = return ctev
+
+cloneWanted :: Ct -> TcM Ct
+cloneWanted ct = mkNonCanonical <$> cloneWantedCtEv (ctEvidence ct)
 
 cloneWC :: WantedConstraints -> TcM WantedConstraints
 -- Clone all the evidence bindings in
@@ -2264,13 +2265,20 @@ zonkTidyOrigin env orig = return (env, orig)
 ----------------
 tidyCt :: TidyEnv -> Ct -> Ct
 -- Used only in error reporting
-tidyCt env ct
-  = ct { cc_ev = tidy_ev (ctEvidence ct) }
-  where
-    tidy_ev :: CtEvidence -> CtEvidence
+tidyCt env ct = ct { cc_ev = tidyCtEvidence env (ctEvidence ct) }
+
+tidyCtEvidence :: TidyEnv -> CtEvidence -> CtEvidence
      -- NB: we do not tidy the ctev_evar field because we don't
      --     show it in error messages
-    tidy_ev ctev = ctev { ctev_pred = tidyType env (ctev_pred ctev) }
+tidyCtEvidence env ctev = ctev { ctev_pred = tidyType env ty
+                               , ctev_loc  = tidyCtLoc env loc }
+  where
+    ty  = ctev_pred ctev
+    loc = ctev_loc ctev
+
+tidyCtLoc :: TidyEnv -> CtLoc -> CtLoc
+tidyCtLoc env ctl@(CtLoc { ctl_ancestor = m_ancestor })
+  = ctl { ctl_ancestor = fmap @Maybe (tidyCtEvidence env) m_ancestor }
 
 tidyHole :: TidyEnv -> Hole -> Hole
 tidyHole env h@(Hole { hole_ty = ty }) = h { hole_ty = tidyType env ty }

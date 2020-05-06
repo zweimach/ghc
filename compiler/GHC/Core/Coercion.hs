@@ -2937,11 +2937,11 @@ bad_co_hole_co :: Coercion -> Monoid.Any
     hole _                                             = Monoid.Any False
 
 -- | Is there a blocking coercion hole in this type? See
--- TcCanonical Note [Equalities with incompatible kinds]
+-- GHC.Tc.Solver.Canonical Note [Equalities with incompatible kinds]
 badCoercionHole :: Type -> Bool
 badCoercionHole = Monoid.getAny . bad_co_hole_ty
 
 -- | Is there a blocking coercion hole in this coercion? See
--- TcCanonical Note [Equalities with incompatible kinds]
+-- GHC.Tc.Solver.Canonical Note [Equalities with incompatible kinds]
 badCoercionHoleCo :: Coercion -> Bool
 badCoercionHoleCo = Monoid.getAny . bad_co_hole_co
