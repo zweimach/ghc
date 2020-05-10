@@ -35,7 +35,7 @@ import GHC.Stg.Syntax
 import GHC.Cmm.Graph
 import GHC.Cmm.BlockId
 import GHC.Cmm hiding ( succ )
-import GHC.Cmm.Utils ( zeroExpr, cmmTagMask )
+import GHC.Cmm.Utils ( zeroExpr, cmmTagMask, mkWordCLit )
 import GHC.Cmm.Info
 import GHC.Core
 import GHC.Core.DataCon
@@ -78,10 +78,10 @@ cgExpr (StgOpApp (StgPrimOp DataToTagOp) [StgVarArg a] _res_ty) = do
   info <- getCgIdInfo a
   let amode = idInfoToAmode info
   tag_reg <- assignTemp $ cmmConstrTag1 dflags amode
-  result_reg <- newTemp (bWord dflags)
+  result_reg <- newTemp (bWord platform)
   let tag = CmmReg $ CmmLocal tag_reg
-      is_tagged = cmmNeWord dflags tag (zeroExpr dflags)
-      is_too_big_tag = cmmEqWord dflags tag (cmmTagMask dflags)
+      is_tagged = cmmNeWord platform tag (zeroExpr platform)
+      is_too_big_tag = cmmEqWord platform tag (cmmTagMask dflags)
   -- Here we will first check the tag bits of the pointer we were given;
   -- if this doesn't work then enter the closure and use the info table
   -- to determine the constructor. Note that all tag bits set means that
@@ -89,7 +89,7 @@ cgExpr (StgOpApp (StgPrimOp DataToTagOp) [StgVarArg a] _res_ty) = do
   -- we must look in the info table. See Note [Tagging big families].
 
   slow_path <- getCode $ do
-      tmp <- newTemp (bWord dflags)
+      tmp <- newTemp (bWord platform)
       _ <- withSequel (AssignTo [tmp] False) (cgIdApp a [])
       emitAssign (CmmLocal result_reg)
         $ getConstrTag dflags (cmmUntag dflags (CmmReg (CmmLocal tmp)))
@@ -98,7 +98,7 @@ cgExpr (StgOpApp (StgPrimOp DataToTagOp) [StgVarArg a] _res_ty) = do
       -- Return the constructor index from the pointer tag
       return_ptr_tag <- getCode $ do
           emitAssign (CmmLocal result_reg)
-            $ cmmSubWord dflags tag (CmmLit $ mkWordCLit dflags 1)
+            $ cmmSubWord platform tag (CmmLit $ mkWordCLit platform 1)
       -- Return the constructor index recorded in the info table
       return_info_tag <- getCode $ do
           emitAssign (CmmLocal result_reg)
