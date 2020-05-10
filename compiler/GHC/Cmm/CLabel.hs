@@ -379,8 +379,8 @@ data ForeignLabelSource
 pprDebugCLabel :: CLabel -> SDoc
 pprDebugCLabel lbl
  = case lbl of
-        IdLabel _ _ info-> ppr lbl <> (parens $ text "IdLabel"
-                                       <> whenPprDebug (text ":" <> text (show info)))
+        IdLabel _ _ info-> ppr lbl <> (parens $ text "IdLabel")
+                                       -- <> whenPprDebug (text ":" <> text (show info)))
         CmmLabel pkg _name _info
          -> ppr lbl <> (parens $ text "CmmLabel" <+> ppr pkg)
 
@@ -406,8 +406,8 @@ data IdLabelInfo
 
   | RednCounts          -- ^ Label of place to keep Ticky-ticky  info for this Id
 
-  | ConEntry            -- ^ Constructor entry point
-  | ConInfoTable        -- ^ Corresponding info table
+  | ConEntry (Maybe (Module, Int))            -- ^ Constructor entry point
+  | ConInfoTable (Maybe (Module, Int))        -- ^ Corresponding info table
 
   | ClosureTable        -- ^ Table of closures for Enum tycons
 
@@ -417,7 +417,7 @@ data IdLabelInfo
                         -- instead of a closure entry-point.
                         -- See Note [Proc-point local block entry-point].
 
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord)
 
 
 data RtsLabelInfo
@@ -484,13 +484,13 @@ mkClosureLabel              :: Name -> CafInfo -> CLabel
 mkInfoTableLabel            :: Name -> CafInfo -> CLabel
 mkEntryLabel                :: Name -> CafInfo -> CLabel
 mkClosureTableLabel         :: Name -> CafInfo -> CLabel
-mkConInfoTableLabel         :: Name -> CafInfo -> CLabel
+mkConInfoTableLabel         :: Name -> (Maybe (Module, Int)) -> CafInfo -> CLabel
 mkBytesLabel                :: Name -> CLabel
 mkClosureLabel name         c     = IdLabel name c Closure
 mkInfoTableLabel name       c     = IdLabel name c InfoTable
 mkEntryLabel name           c     = IdLabel name c Entry
 mkClosureTableLabel name    c     = IdLabel name c ClosureTable
-mkConInfoTableLabel name    c     = IdLabel name c ConInfoTable
+mkConInfoTableLabel name k c      = IdLabel name c (ConInfoTable k)
 mkBytesLabel name                 = IdLabel name NoCafRefs Bytes
 
 mkBlockInfoTableLabel :: Name -> CafInfo -> CLabel
@@ -629,7 +629,7 @@ isStaticClosureLabel _lbl = False
 isSomeRODataLabel :: CLabel -> Bool
 -- info table defined in haskell (.hs)
 isSomeRODataLabel (IdLabel _ _ ClosureTable) = True
-isSomeRODataLabel (IdLabel _ _ ConInfoTable) = True
+isSomeRODataLabel (IdLabel _ _ ConInfoTable {}) = True
 isSomeRODataLabel (IdLabel _ _ InfoTable) = True
 isSomeRODataLabel (IdLabel _ _ LocalInfoTable) = True
 isSomeRODataLabel (IdLabel _ _ BlockInfoTable) = True
@@ -641,13 +641,13 @@ isSomeRODataLabel _lbl = False
 isInfoTableLabel :: CLabel -> Bool
 isInfoTableLabel (IdLabel _ _ InfoTable)      = True
 isInfoTableLabel (IdLabel _ _ LocalInfoTable) = True
-isInfoTableLabel (IdLabel _ _ ConInfoTable)   = True
+isInfoTableLabel (IdLabel _ _ ConInfoTable {})   = True
 isInfoTableLabel (IdLabel _ _ BlockInfoTable) = True
 isInfoTableLabel _                            = False
 
 -- | Whether label is points to constructor info table
 isConInfoTableLabel :: CLabel -> Bool
-isConInfoTableLabel (IdLabel _ _ ConInfoTable)   = True
+isConInfoTableLabel (IdLabel _ _ ConInfoTable {})   = True
 isConInfoTableLabel _                            = False
 
 -- | Get the label size field from a ForeignLabel
@@ -727,7 +727,7 @@ toSlowEntryLbl l = pprPanic "toSlowEntryLbl" (ppr l)
 
 toEntryLbl :: CLabel -> CLabel
 toEntryLbl (IdLabel n c LocalInfoTable)  = IdLabel n c LocalEntry
-toEntryLbl (IdLabel n c ConInfoTable)    = IdLabel n c ConEntry
+toEntryLbl (IdLabel n c (ConInfoTable k))    = IdLabel n c (ConEntry k)
 toEntryLbl (IdLabel n _ BlockInfoTable)  = mkLocalBlockLabel (nameUnique n)
                               -- See Note [Proc-point local block entry-point].
 toEntryLbl (IdLabel n c _)               = IdLabel n c Entry
@@ -737,7 +737,7 @@ toEntryLbl l = pprPanic "toEntryLbl" (ppr l)
 
 toInfoLbl :: CLabel -> CLabel
 toInfoLbl (IdLabel n c LocalEntry)     = IdLabel n c LocalInfoTable
-toInfoLbl (IdLabel n c ConEntry)       = IdLabel n c ConInfoTable
+toInfoLbl (IdLabel n c (ConEntry k))       = IdLabel n c (ConInfoTable k)
 toInfoLbl (IdLabel n c _)              = IdLabel n c InfoTable
 toInfoLbl (CmmLabel m str CmmEntry)    = CmmLabel m str CmmInfo
 toInfoLbl (CmmLabel m str CmmRet)      = CmmLabel m str CmmRetInfo
@@ -997,7 +997,7 @@ idInfoLabelType info =
     LocalInfoTable -> DataLabel
     BlockInfoTable -> DataLabel
     Closure       -> GcPtrLabel
-    ConInfoTable  -> DataLabel
+    ConInfoTable {} -> DataLabel
     ClosureTable  -> DataLabel
     RednCounts    -> DataLabel
     Bytes         -> DataLabel
@@ -1304,20 +1304,28 @@ pprCLbl dflags = \case
    (DeadStripPreventer {})  -> panic "pprCLbl DeadStripPreventer"
 
 ppIdFlavor :: IdLabelInfo -> SDoc
-ppIdFlavor x = pp_cSEP <> text
+ppIdFlavor x = pp_cSEP <>
                (case x of
-                       Closure          -> "closure"
-                       InfoTable        -> "info"
-                       LocalInfoTable   -> "info"
-                       Entry            -> "entry"
-                       LocalEntry       -> "entry"
-                       Slow             -> "slow"
-                       RednCounts       -> "ct"
-                       ConEntry         -> "con_entry"
-                       ConInfoTable     -> "con_info"
-                       ClosureTable     -> "closure_tbl"
-                       Bytes            -> "bytes"
-                       BlockInfoTable   -> "info"
+                       Closure          -> text "closure"
+                       InfoTable        -> text "info"
+                       LocalInfoTable   -> text "info"
+                       Entry            -> text "entry"
+                       LocalEntry       -> text "entry"
+                       Slow             -> text "slow"
+                       RednCounts       -> text "ct"
+                       ConEntry k       ->
+                          case k of
+                            Nothing -> text "con_entry"
+                            Just (m, n) ->
+                              ppr m <> pp_cSEP <> ppr n <> pp_cSEP <> text "con_entry"
+                       ConInfoTable k   ->
+                        case k of
+                          Nothing -> text "con_info"
+                          Just (m, n) ->
+                            ppr m <> pp_cSEP <> ppr n <> pp_cSEP <> text "con_info"
+                       ClosureTable     -> text "closure_tbl"
+                       Bytes            -> text "bytes"
+                       BlockInfoTable   -> text "info"
                       )
 
 

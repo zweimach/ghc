@@ -60,7 +60,7 @@ annTopBindingsDeps this_mod bs = zip bs (map top_bind bs)
     rhs bounds (StgRhsClosure _ _ _ as e) =
       expr (extendVarSetList bounds as) e
 
-    rhs bounds (StgRhsCon _ _ as) =
+    rhs bounds (StgRhsCon _ _ _ as) =
       args bounds as
 
     var :: BVs -> Var -> FVs
@@ -85,7 +85,7 @@ annTopBindingsDeps this_mod bs = zip bs (map top_bind bs)
     expr _ StgLit{} =
       emptyVarSet
 
-    expr bounds (StgConApp _ as _) =
+    expr bounds (StgConApp _ _ as _) =
       args bounds as
     expr bounds (StgOpApp _ as _) =
       args bounds as

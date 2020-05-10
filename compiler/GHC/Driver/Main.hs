@@ -180,6 +180,8 @@ import GHC.Iface.Ext.Ast    ( mkHieFile )
 import GHC.Iface.Ext.Types  ( getAsts, hie_asts, hie_module )
 import GHC.Iface.Ext.Binary ( readHieFile, writeHieFile , hie_file_result)
 import GHC.Iface.Ext.Debug  ( diffFile, validateScopes )
+import GHC.Types.Unique.Map
+import GHC.Core.DataCon
 
 #include "HsVersions.h"
 
@@ -1409,7 +1411,7 @@ hscGenHardCode hsc_env cgguts location output_filename = do
                        corePrepPgm hsc_env this_mod location
                                    core_binds data_tycons
         -----------------  Convert to STG ------------------
-        (stg_binds, (caf_ccs, caf_cc_stacks))
+        (stg_binds, denv, (caf_ccs, caf_cc_stacks))
             <- {-# SCC "CoreToStg" #-}
                myCoreToStg dflags this_mod prepd_binds
 
@@ -1429,7 +1431,7 @@ hscGenHardCode hsc_env cgguts location output_filename = do
                    (text "CodeGen"<+>brackets (ppr this_mod))
                    (const ()) $ do
             cmms <- {-# SCC "StgToCmm" #-}
-                            doCodeGen hsc_env this_mod data_tycons
+                            doCodeGen hsc_env this_mod denv data_tycons
                                 cost_centre_info
                                 stg_binds hpc_info
 
@@ -1538,7 +1540,7 @@ This reduces residency towards the end of the CodeGen phase significantly
 (5-10%).
 -}
 
-doCodeGen   :: HscEnv -> Module -> [TyCon]
+doCodeGen   :: HscEnv -> Module -> UniqMap DataCon Int -> [TyCon]
             -> CollectedCCs
             -> [StgTopBinding]
             -> HpcInfo
@@ -1546,7 +1548,7 @@ doCodeGen   :: HscEnv -> Module -> [TyCon]
          -- Note we produce a 'Stream' of CmmGroups, so that the
          -- backend can be run incrementally.  Otherwise it generates all
          -- the C-- up front, which has a significant space cost.
-doCodeGen hsc_env this_mod data_tycons
+doCodeGen hsc_env this_mod denv data_tycons
               cost_centre_info stg_binds hpc_info = do
     let dflags = hsc_dflags hsc_env
 
@@ -1557,7 +1559,7 @@ doCodeGen hsc_env this_mod data_tycons
     let cmm_stream :: Stream IO CmmGroup ()
         -- See Note [Forcing of stg_binds]
         cmm_stream = stg_binds_w_fvs `seqList` {-# SCC "StgToCmm" #-}
-            lookupHook stgToCmmHook StgToCmm.codeGen dflags dflags this_mod data_tycons
+            lookupHook stgToCmmHook StgToCmm.codeGen dflags dflags this_mod denv data_tycons
                            cost_centre_info stg_binds_w_fvs hpc_info
 
         -- codegen consumes a stream of CmmGroup, and produces a new
@@ -1587,9 +1589,10 @@ doCodeGen hsc_env this_mod data_tycons
 
 myCoreToStg :: DynFlags -> Module -> CoreProgram
             -> IO ( [StgTopBinding] -- output program
+                  , UniqMap DataCon Int
                   , CollectedCCs )  -- CAF cost centre info (declared and used)
 myCoreToStg dflags this_mod prepd_binds = do
-    let (stg_binds, cost_centre_info)
+    let (stg_binds, denv, cost_centre_info)
          = {-# SCC "Core2Stg" #-}
            coreToStg dflags this_mod prepd_binds
 
@@ -1597,7 +1600,7 @@ myCoreToStg dflags this_mod prepd_binds = do
         <- {-# SCC "Stg2Stg" #-}
            stg2stg dflags this_mod stg_binds
 
-    return (stg_binds2, cost_centre_info)
+    return (stg_binds2, denv, cost_centre_info)
 
 
 {- **********************************************************************

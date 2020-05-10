@@ -55,6 +55,8 @@ import GHC.Stg.Syntax
 import GHC.Data.Stream
 import GHC.Cmm
 import GHC.Hs.Extension
+import GHC.Types.Unique.Map
+import GHC.Core.DataCon
 
 import Data.Maybe
 
@@ -108,7 +110,7 @@ data Hooks = Hooks
   , getValueSafelyHook     :: Maybe (HscEnv -> Name -> Type
                                                           -> IO (Maybe HValue))
   , createIservProcessHook :: Maybe (CreateProcess -> IO ProcessHandle)
-  , stgToCmmHook           :: Maybe (DynFlags -> Module -> [TyCon] -> CollectedCCs
+  , stgToCmmHook           :: Maybe (DynFlags -> Module -> UniqMap DataCon Int -> [TyCon] -> CollectedCCs
                                  -> [CgStgTopBinding] -> HpcInfo -> Stream IO CmmGroup ())
   , cmmToRawCmmHook        :: forall a . Maybe (DynFlags -> Maybe Module -> Stream IO CmmGroupSRTs a
                                  -> IO (Stream IO RawCmmGroup a))

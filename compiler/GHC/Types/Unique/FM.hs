@@ -337,8 +337,7 @@ nonDetUFMToList (UFM m) = map (\(k, v) -> (getUnique k, v)) $ M.toList m
 -- that the provided 'Foldable' and 'Traversable' instances are
 -- nondeterministic.
 -- If you use this please provide a justification why it doesn't introduce
--- nondeterminism.
--- See Note [Deterministic UniqFM] in GHC.Types.Unique.DFM to learn about determinism.
+-- nondeterminism.,FM] in GHC.Types.Unique.DFM to learn about determinism.
 newtype NonDetUniqFM ele = NonDetUniqFM { getNonDet :: UniqFM ele }
   deriving (Functor)
 
