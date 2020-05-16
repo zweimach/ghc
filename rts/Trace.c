@@ -643,6 +643,16 @@ void traceHeapProfCostCentre(StgWord32 ccID,
     }
 }
 
+void traceIPE(StgInfoTable * info,
+              const char *label,
+              const char *module,
+              const char *srcloc )
+{
+    if (eventlog_enabled) {
+        postIPE(info, label, module, srcloc);
+    }
+}
+
 // This one is for .hp samples
 void traceHeapProfSampleCostCentre(StgWord8 profile_id,
                                    CostCentreStack *stack, StgWord residency)

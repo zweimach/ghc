@@ -189,6 +189,7 @@ data CostCentreStack
 
 type DCMap = UniqMap DataCon [(Int, Maybe (RealSrcSpan, String))]
 
+
 -- synonym for triple which describes the cost centre info in the generated
 -- code for a module.
 type CollectedCCs

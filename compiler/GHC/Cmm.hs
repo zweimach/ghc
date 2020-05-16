@@ -166,6 +166,7 @@ data CmmInfoTable
         -- GHC.Cmm.Info.Build.doSRTs.
     }
 
+
 data ProfilingInfo
   = NoProfilingInfo
   | ProfilingInfo ByteString ByteString  -- closure_type, closure_desc

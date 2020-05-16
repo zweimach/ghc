@@ -13,6 +13,7 @@
 module GHC.Cmm.CLabel (
         CLabel, -- abstract type
         ForeignLabelSource(..),
+        InfoTableEnt(..),
         pprDebugCLabel,
 
         mkClosureLabel,
@@ -87,6 +88,8 @@ module GHC.Cmm.CLabel (
         isStaticClosureLabel,
         mkCCLabel, mkCCSLabel,
 
+        mkIPELabel, InfoTableEnt(..),
+
         DynamicLinkerLabelInfo(..),
         mkDynamicLinkerLabel,
         dynamicLinkerLabelInfo,
@@ -133,6 +136,7 @@ import GHC.Types.Unique.Set
 import GHC.Utils.Misc
 import GHC.Core.Ppr ( {- instances -} )
 import GHC.CmmToAsm.Config
+import GHC.Types.SrcLoc
 
 -- -----------------------------------------------------------------------------
 -- The CLabel type
@@ -235,6 +239,7 @@ data CLabel
 
   | CC_Label  CostCentre
   | CCS_Label CostCentreStack
+  | IPE_Label InfoTableEnt
 
 
   -- | These labels are generated and used inside the NCG only.
@@ -306,6 +311,8 @@ instance Ord CLabel where
   compare (CC_Label a1) (CC_Label a2) =
     compare a1 a2
   compare (CCS_Label a1) (CCS_Label a2) =
+    compare a1 a2
+  compare (IPE_Label a1) (IPE_Label a2) =
     compare a1 a2
   compare (DynamicLinkerLabel a1 b1) (DynamicLinkerLabel a2 b2) =
     compare a1 a2 `thenCmp`
@@ -484,13 +491,13 @@ mkClosureLabel              :: Name -> CafInfo -> CLabel
 mkInfoTableLabel            :: Name -> CafInfo -> CLabel
 mkEntryLabel                :: Name -> CafInfo -> CLabel
 mkClosureTableLabel         :: Name -> CafInfo -> CLabel
-mkConInfoTableLabel         :: Name -> (Maybe (Module, Int)) -> CafInfo -> CLabel
+mkConInfoTableLabel         :: Name -> (Maybe (Module, Int)) -> CLabel
 mkBytesLabel                :: Name -> CLabel
 mkClosureLabel name         c     = IdLabel name c Closure
 mkInfoTableLabel name       c     = IdLabel name c InfoTable
 mkEntryLabel name           c     = IdLabel name c Entry
 mkClosureTableLabel name    c     = IdLabel name c ClosureTable
-mkConInfoTableLabel name k c      = IdLabel name c (ConInfoTable k)
+mkConInfoTableLabel name k        = IdLabel name NoCafRefs (ConInfoTable k)
 mkBytesLabel name                 = IdLabel name NoCafRefs Bytes
 
 mkBlockInfoTableLabel :: Name -> CafInfo -> CLabel
@@ -660,11 +667,18 @@ foreignLabelStdcallInfo _lbl = Nothing
 mkBitmapLabel   :: Unique -> CLabel
 mkBitmapLabel   uniq            = LargeBitmapLabel uniq
 
+
+data InfoTableEnt = InfoTableEnt { infoTablePtr :: CLabel
+                                 , infoTableProv :: (Module, RealSrcSpan, String) }
+                                 deriving (Eq, Ord)
+
 -- Constructing Cost Center Labels
 mkCCLabel  :: CostCentre      -> CLabel
 mkCCSLabel :: CostCentreStack -> CLabel
+mkIPELabel :: InfoTableEnt -> CLabel
 mkCCLabel           cc          = CC_Label cc
 mkCCSLabel          ccs         = CCS_Label ccs
+mkIPELabel          ipe         = IPE_Label ipe
 
 mkRtsApFastLabel :: FastString -> CLabel
 mkRtsApFastLabel str = RtsLabel (RtsApFast str)
@@ -803,6 +817,7 @@ needsCDecl (CmmLabel pkgId _ _)
 needsCDecl l@(ForeignLabel{})           = not (isMathFun l)
 needsCDecl (CC_Label _)                 = True
 needsCDecl (CCS_Label _)                = True
+needsCDecl (IPE_Label {})               = True
 needsCDecl (HpcTicksLabel _)            = True
 needsCDecl (DynamicLinkerLabel {})      = panic "needsCDecl DynamicLinkerLabel"
 needsCDecl PicBaseLabel                 = panic "needsCDecl PicBaseLabel"
@@ -925,6 +940,7 @@ externallyVisibleCLabel (ForeignLabel{})        = True
 externallyVisibleCLabel (IdLabel name _ info)   = isExternalName name && externallyVisibleIdLabel info
 externallyVisibleCLabel (CC_Label _)            = True
 externallyVisibleCLabel (CCS_Label _)           = True
+externallyVisibleCLabel (IPE_Label {})          = True
 externallyVisibleCLabel (DynamicLinkerLabel _ _)  = False
 externallyVisibleCLabel (HpcTicksLabel _)       = True
 externallyVisibleCLabel (LargeBitmapLabel _)    = False
@@ -984,6 +1000,7 @@ labelType (AsmTempDerivedLabel _ _)             = panic "labelType(AsmTempDerive
 labelType (StringLitLabel _)                    = DataLabel
 labelType (CC_Label _)                          = DataLabel
 labelType (CCS_Label _)                         = DataLabel
+labelType (IPE_Label {})                        = DataLabel
 labelType (DynamicLinkerLabel _ _)              = DataLabel -- Is this right?
 labelType PicBaseLabel                          = DataLabel
 labelType (DeadStripPreventer _)                = DataLabel
@@ -1072,6 +1089,7 @@ labelDynamic config this_mod lbl =
 
    -- CCS_Label always contains a CostCentre defined in the current module
    CCS_Label _ -> False
+   IPE_Label {} -> False
 
    HpcTicksLabel m ->
      externalDynamicRefs && this_mod /= m
@@ -1295,6 +1313,7 @@ pprCLbl dflags = \case
 
    (CC_Label cc)       -> ppr cc
    (CCS_Label ccs)     -> ppr ccs
+   (IPE_Label (InfoTableEnt l _)) -> ppr l <> text "_ipe"
    (HpcTicksLabel mod) -> text "_hpc_tickboxes_"  <> ppr mod <> ptext (sLit "_hpc")
 
    (AsmTempLabel {})        -> panic "pprCLbl AsmTempLabel"

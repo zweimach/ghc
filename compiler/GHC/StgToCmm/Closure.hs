@@ -958,7 +958,7 @@ mkDataConInfoTable dflags data_con mn mspn is_static ptr_wds nonptr_wds
                 , cit_clo  = Nothing }
  where
    name = dataConName data_con
-   info_lbl = mkConInfoTableLabel name mn NoCafRefs
+   info_lbl = mkConInfoTableLabel name mn 
    sm_rep = mkHeapRep dflags is_static ptr_wds nonptr_wds cl_type
    cl_type = Constr (dataConTagZ data_con) (dataConIdentity data_con)
                   -- We keep the *zero-indexed* tag in the srt_len field

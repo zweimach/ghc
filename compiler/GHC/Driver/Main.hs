@@ -138,6 +138,7 @@ import GHC.Cmm.Parser       ( parseCmmFile )
 import GHC.Cmm.Info.Build
 import GHC.Cmm.Pipeline
 import GHC.Cmm.Info
+import GHC.Cmm.CLabel
 import GHC.Driver.CodeOutput
 import GHC.Core.InstEnv
 import GHC.Core.FamInstEnv
@@ -1418,7 +1419,8 @@ hscGenHardCode hsc_env cgguts location output_filename = do
         let cost_centre_info =
               (S.toList local_ccs ++ caf_ccs, caf_cc_stacks)
             prof_init = profilingInitCode dflags this_mod cost_centre_info
-            foreign_stubs = foreign_stubs0 `appendStubC` prof_init
+            ip_init = ipInitCode dflags this_mod denv
+            foreign_stubs = foreign_stubs0 `appendStubC` prof_init `appendStubC` ip_init
 
         ------------------  Code generation ------------------
 

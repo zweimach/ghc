@@ -10,6 +10,9 @@ module GHC.StgToCmm.Prof (
         initCostCentres, ccType, ccsType,
         mkCCostCentre, mkCCostCentreStack,
 
+        -- infoTablePRov
+        initInfoTableProv,
+
         -- Cost-centre Profiling
         dynProfHdr, profDynAlloc, profAlloc, staticProfHdr, initUpdFrameProf,
         enterCostCentreThunk, enterCostCentreFun,
@@ -270,6 +273,37 @@ sizeof_ccs_words dflags
    platform = targetPlatform dflags
    (ws,ms) = sIZEOF_CostCentreStack dflags `divMod` platformWordSizeInBytes platform
 
+
+initInfoTableProv :: [InfoTableEnt] -> FCode ()
+-- Emit the declarations
+initInfoTableProv ents
+  = do dflags <- getDynFlags
+       pprTraceM "initInfoTable" (ppr (length ents))
+       mapM_ emitInfoTableProv ents
+
+--- Info Table Prov stuff
+emitInfoTableProv :: InfoTableEnt  -> FCode ()
+emitInfoTableProv ip = do
+  { dflags <- getDynFlags
+  ; let (mod, src, label) = infoTableProv ip
+  ; platform <- getPlatform
+                        -- NB. bytesFS: we want the UTF-8 bytes here (#5559)
+  ; label <- newByteStringCLit (bytesFS $ mkFastString label)
+  ; modl  <- newByteStringCLit (bytesFS $ moduleNameFS
+                                        $ moduleName
+                                        $ mod)
+  ; loc <- newByteStringCLit $ bytesFS $ mkFastString $
+                   showPpr dflags src
+           -- XXX going via FastString to get UTF-8 encoding is silly
+  ; let
+     lits = [ CmmLabel (infoTablePtr ip), -- Info table pointer
+              label,          -- char *label,
+              modl,           -- char *module,
+              loc,            -- char *srcloc,
+              zero platform   -- struct _InfoProvEnt *link
+            ]
+  ; emitDataLits (mkIPELabel ip) lits
+  }
 -- ---------------------------------------------------------------------------
 -- Set the current cost centre stack
 
@@ -297,6 +331,7 @@ bumpSccCount dflags ccs
   = addToMem (rEP_CostCentreStack_scc_count dflags)
          (cmmOffsetB platform ccs (oFFSET_CostCentreStack_scc_count dflags)) 1
   where platform = targetPlatform dflags
+
 
 -----------------------------------------------------------------------------
 --

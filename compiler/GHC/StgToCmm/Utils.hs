@@ -44,6 +44,8 @@ module GHC.StgToCmm.Utils (
         whenUpdRemSetEnabled,
         emitUpdRemSetPush,
         emitUpdRemSetPushThunk,
+
+        convertDCMap
   ) where
 
 #include "HsVersions.h"
@@ -85,6 +87,10 @@ import qualified Data.Map as M
 import Data.Char
 import Data.List
 import Data.Ord
+import GHC.Types.Unique.Map
+import GHC.Types.Unique.FM
+import Data.Maybe
+import GHC.Core.DataCon
 
 
 -------------------------------------------------------------------------
@@ -624,3 +630,13 @@ emitUpdRemSetPushThunk ptr = do
       [(CmmReg (CmmGlobal BaseReg), AddrHint),
        (ptr, AddrHint)]
       False
+
+
+convertDCMap :: Module -> DCMap -> [InfoTableEnt]
+convertDCMap this_mod (UniqMap denv) =
+  concatMap (\(dc, ns) -> mapMaybe (\(k, mss) -> 
+      case mss of
+        Nothing -> Nothing
+        Just (ss, l) -> Just $ 
+          InfoTableEnt (mkConInfoTableLabel (dataConName dc) (Just (this_mod, k)))  
+                       (this_mod, ss, l)) ns) (nonDetEltsUFM denv)

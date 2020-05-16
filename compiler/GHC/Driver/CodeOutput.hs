@@ -1,3 +1,4 @@
+{-# LANGUAGE TypeApplications #-}
 {-
 (c) The GRASP/AQUA Project, Glasgow University, 1993-1998
 
@@ -10,6 +11,7 @@ module GHC.Driver.CodeOutput
    ( codeOutput
    , outputForeignStubs
    , profilingInitCode
+   , ipInitCode
    )
 where
 
@@ -32,6 +34,8 @@ import GHC.Driver.Session
 import GHC.Data.Stream           ( Stream )
 import qualified GHC.Data.Stream as Stream
 import GHC.SysTools.FileCleanup
+import GHC.StgToCmm.Utils
+
 
 import GHC.Utils.Error
 import GHC.Utils.Outputable
@@ -314,3 +318,35 @@ profilingInitCode dflags this_mod (local_CCs, singleton_CCSs)
                          | cc <- ccs
                          ] ++ [text "NULL"])
       <> semi
+
+
+-- | Generate code to initialise info pointer origin
+ipInitCode :: DynFlags -> Module -> DCMap -> SDoc
+ipInitCode dflags this_mod dcmap
+ = pprTraceIt "codeOutput" $ if not (gopt Opt_SccProfilingOn dflags)
+   then empty
+   else vcat
+    $  map emit_ipe_decl ents
+    ++ [emit_ipe_list ents]
+    ++ [ text "static void ip_init_" <> ppr this_mod
+            <> text "(void) __attribute__((constructor));"
+       , text "static void ip_init_" <> ppr this_mod <> text "(void)"
+       , braces (vcat
+                 [ text "registerInfoProvList" <> parens local_ipe_list_label <> semi
+                 ])
+       ]
+ where
+   ents = convertDCMap this_mod dcmap
+   emit_ipe_decl ipe =
+       text "extern InfoProvEnt" <+> ipe_lbl <> text "[];"
+     where ipe_lbl = ppr (mkIPELabel ipe)
+   local_ipe_list_label = text "local_ipe_" <> ppr this_mod
+   emit_ipe_list ipes =
+      text "static InfoProvEnt *" <> local_ipe_list_label <> text "[] ="
+      <+> braces (vcat $ [ ppr (mkIPELabel ipe) <> comma
+                         | ipe <- ipes
+                         ] ++ [text "NULL"])
+      <> semi
+
+
+

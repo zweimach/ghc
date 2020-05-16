@@ -104,6 +104,7 @@ char *EventDesc[] = {
   [EVENT_HACK_BUG_T9003]      = "Empty event for bug #9003",
   [EVENT_HEAP_PROF_BEGIN]     = "Start of heap profile",
   [EVENT_HEAP_PROF_COST_CENTRE]   = "Cost center definition",
+  [EVENT_IPE]                      = "ITE",
   [EVENT_HEAP_PROF_SAMPLE_BEGIN]  = "Start of heap profile sample",
   [EVENT_HEAP_BIO_PROF_SAMPLE_BEGIN]  = "Start of heap profile (biographical) sample",
   [EVENT_HEAP_PROF_SAMPLE_END]    = "End of heap profile sample",
@@ -431,6 +432,9 @@ init_event_types(void)
             break;
 
         case EVENT_HEAP_PROF_COST_CENTRE:
+            eventTypes[t].size = EVENT_SIZE_DYNAMIC;
+            break;
+        case EVENT_IPE:
             eventTypes[t].size = EVENT_SIZE_DYNAMIC;
             break;
 
@@ -1405,6 +1409,25 @@ void postHeapProfCostCentre(StgWord32 ccID,
     postString(&eventBuf, module);
     postString(&eventBuf, srcloc);
     postWord8(&eventBuf, is_caf);
+    RELEASE_LOCK(&eventBufMutex);
+}
+void postIPE(StgWord64 info,
+             const char *label,
+             const char *module,
+             const char *srcloc)
+{
+    ACQUIRE_LOCK(&eventBufMutex);
+    StgWord label_len = strlen(label);
+    StgWord module_len = strlen(module);
+    StgWord srcloc_len = strlen(srcloc);
+    StgWord len = 8+label_len+module_len+srcloc_len+3;
+    ensureRoomForVariableEvent(&eventBuf, len);
+    postEventHeader(&eventBuf, EVENT_IPE);
+    postPayloadSize(&eventBuf, len);
+    postWord64(&eventBuf, info);
+    postString(&eventBuf, label);
+    postString(&eventBuf, module);
+    postString(&eventBuf, srcloc);
     RELEASE_LOCK(&eventBufMutex);
 }
 

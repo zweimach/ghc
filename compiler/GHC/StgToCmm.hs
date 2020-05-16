@@ -15,7 +15,7 @@ module GHC.StgToCmm ( codeGen ) where
 
 import GHC.Prelude as Prelude
 
-import GHC.StgToCmm.Prof (initCostCentres, ldvEnter)
+import GHC.StgToCmm.Prof (initInfoTableProv, initCostCentres, ldvEnter)
 import GHC.StgToCmm.Monad
 import GHC.StgToCmm.Env
 import GHC.StgToCmm.Bind
@@ -59,6 +59,8 @@ import System.IO.Unsafe
 import qualified Data.ByteString as BS
 import GHC.Types.Unique.Map
 import GHC.Types.SrcLoc
+import Data.Maybe
+
 
 codeGen :: DynFlags
         -> Module
@@ -70,7 +72,7 @@ codeGen :: DynFlags
         -> Stream IO CmmGroup ()       -- Output as a stream, so codegen can
                                        -- be interleaved with output
 
-codeGen dflags this_mod (UniqMap denv) data_tycons
+codeGen dflags this_mod dcmap@(UniqMap denv) data_tycons
         cost_centre_info stg_binds hpc_info
   = do  {     -- cg: run the code generator, and yield the resulting CmmGroup
               -- Using an IORef to store the state is a bit crude, but otherwise
@@ -93,7 +95,7 @@ codeGen dflags this_mod (UniqMap denv) data_tycons
                -- FIRST.  This is because when -split-objs is on we need to
                -- combine this block with its initialisation routines; see
                -- Note [pipeline-split-init].
-        ; cg (mkModuleInit cost_centre_info this_mod hpc_info)
+        ; cg (mkModuleInit cost_centre_info this_mod hpc_info (convertDCMap this_mod dcmap))
 
         ; mapM_ (cg . cgTopBinding dflags) stg_binds
 
@@ -184,11 +186,13 @@ mkModuleInit
         :: CollectedCCs         -- cost centre info
         -> Module
         -> HpcInfo
+        -> [InfoTableEnt]
         -> FCode ()
 
-mkModuleInit cost_centre_info this_mod hpc_info
+mkModuleInit cost_centre_info this_mod hpc_info info_ents
   = do  { initHpc this_mod hpc_info
         ; initCostCentres cost_centre_info
+        ; initInfoTableProv info_ents
         }
 
 

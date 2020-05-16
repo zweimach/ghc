@@ -157,6 +157,10 @@ void postHeapProfCostCentre(StgWord32 ccID,
                             const char *module,
                             const char *srcloc,
                             StgBool is_caf);
+void postIPE(StgWord64 info,
+             const char *label,
+             const char *module,
+             const char *srcloc);
 
 void postHeapProfSampleCostCentre(StgWord8 profile_id,
                                   CostCentreStack *stack,
