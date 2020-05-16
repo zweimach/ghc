@@ -1540,7 +1540,7 @@ This reduces residency towards the end of the CodeGen phase significantly
 (5-10%).
 -}
 
-doCodeGen   :: HscEnv -> Module -> UniqMap DataCon Int -> [TyCon]
+doCodeGen   :: HscEnv -> Module -> DCMap -> [TyCon]
             -> CollectedCCs
             -> [StgTopBinding]
             -> HpcInfo
@@ -1589,7 +1589,7 @@ doCodeGen hsc_env this_mod denv data_tycons
 
 myCoreToStg :: DynFlags -> Module -> CoreProgram
             -> IO ( [StgTopBinding] -- output program
-                  , UniqMap DataCon Int
+                  , DCMap
                   , CollectedCCs )  -- CAF cost centre info (declared and used)
 myCoreToStg dflags this_mod prepd_binds = do
     let (stg_binds, denv, cost_centre_info)

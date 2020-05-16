@@ -110,7 +110,8 @@ data Hooks = Hooks
   , getValueSafelyHook     :: Maybe (HscEnv -> Name -> Type
                                                           -> IO (Maybe HValue))
   , createIservProcessHook :: Maybe (CreateProcess -> IO ProcessHandle)
-  , stgToCmmHook           :: Maybe (DynFlags -> Module -> UniqMap DataCon Int -> [TyCon] -> CollectedCCs
+  , stgToCmmHook           :: Maybe (DynFlags -> Module -> DCMap -> [TyCon] -> CollectedCCs
+
                                  -> [CgStgTopBinding] -> HpcInfo -> Stream IO CmmGroup ())
   , cmmToRawCmmHook        :: forall a . Maybe (DynFlags -> Maybe Module -> Stream IO CmmGroupSRTs a
                                  -> IO (Stream IO RawCmmGroup a))

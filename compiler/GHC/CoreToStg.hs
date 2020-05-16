@@ -11,7 +11,7 @@
 -- And, as we have the info in hand, we may convert some lets to
 -- let-no-escapes.
 
-module GHC.CoreToStg ( coreToStg ) where
+module GHC.CoreToStg ( coreToStg  ) where
 
 #include "HsVersions.h"
 
@@ -53,8 +53,9 @@ import Data.List.NonEmpty (nonEmpty, toList)
 import Data.Maybe    (fromMaybe)
 import Control.Monad (ap)
 import qualified Data.Set as Set
-import Control.Monad.Trans.State
+import Control.Monad.Trans.RWS
 import GHC.Types.Unique.Map
+import GHC.Types.SrcLoc
 
 -- Note [Live vs free]
 -- ~~~~~~~~~~~~~~~~~~~
@@ -226,7 +227,6 @@ import GHC.Types.Unique.Map
 -- Setting variable info: top-level, binds, RHSs
 -- --------------------------------------------------------------
 
-type DCMap = UniqMap DataCon Int
 
 coreToStg :: DynFlags -> Module -> CoreProgram
           -> ([StgTopBinding], DCMap, CollectedCCs)
@@ -410,12 +410,12 @@ coreToStgExpr expr@(Lam _ _)
     return result_expr
 
 coreToStgExpr (Tick tick expr)
-  = do case tick of
-         HpcTick{}    -> return ()
-         ProfNote{}   -> return ()
-         SourceNote{} -> return ()
-         Breakpoint{} -> panic "coreToStgExpr: breakpoint should not happen"
-       expr2 <- coreToStgExpr expr
+  = do let k = case tick of
+                HpcTick{}    -> id
+                ProfNote{}   -> id
+                SourceNote ss fp -> withSpan (ss, fp)
+                Breakpoint{} -> panic "coreToStgExpr: breakpoint should not happen"
+       expr2 <- k (coreToStgExpr expr)
        return (StgTick tick expr2)
 
 coreToStgExpr (Cast expr _)
@@ -833,7 +833,7 @@ isPAP env _               = False
 newtype CtsM a = CtsM
     { unCtsM :: DynFlags -- Needed for checking for bad coercions in coreToStgArgs
              -> IdEnv HowBound
-             -> State DCMap a
+             -> RWS (Maybe (RealSrcSpan, String)) () DCMap a
     }
     deriving (Functor)
 
@@ -870,7 +870,9 @@ data LetInfo
 -- The std monad functions:
 
 initCts :: DynFlags -> IdEnv HowBound -> DCMap -> CtsM a -> (a, DCMap)
-initCts dflags env u m = flip runState u (unCtsM m dflags env)
+initCts dflags env u m =
+  let (a, d, ()) = runRWS (unCtsM m dflags env) Nothing u
+  in (a, d)
 
 
 
@@ -915,11 +917,14 @@ lookupBinding env v = case lookupVarEnv env v of
 incDc :: DataCon -> CtsM Int
 incDc dc = CtsM $ \_ _ -> do
           env <- get
-          let env' = alterUniqMap (maybe (Just 0) (Just . (+1))) env dc
+          cc <- ask
+          let env' = alterUniqMap (maybe (Just [(0, cc)]) (\xs@((k, _):_) -> Just ((k + 1, cc) : xs))) env dc
           put env'
           let Just r = lookupUniqMap env' dc
-          return r
+          return (fst (head r))
 
+withSpan :: (RealSrcSpan, String) -> CtsM a -> CtsM a
+withSpan s (CtsM act) = CtsM (\a b -> local (const $ Just s) (act a b))
 
 getAllCAFsCC :: Module -> (CostCentre, CostCentreStack)
 getAllCAFsCC this_mod =

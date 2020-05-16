@@ -58,10 +58,11 @@ import GHC.Utils.Misc
 import System.IO.Unsafe
 import qualified Data.ByteString as BS
 import GHC.Types.Unique.Map
+import GHC.Types.SrcLoc
 
 codeGen :: DynFlags
         -> Module
-        -> UniqMap DataCon Int
+        -> DCMap
         -> [TyCon]
         -> CollectedCCs                -- (Local/global) cost-centres needing declaring/registering.
         -> [CgStgTopBinding]           -- Bindings to convert
@@ -106,11 +107,11 @@ codeGen dflags this_mod (UniqMap denv) data_tycons
                 -- tagged.
                  when (isEnumerationTyCon tycon) $ cg (cgEnumerationTyCon tycon)
                  -- Emit normal info_tables, just in case
-                 mapM_ (cg . cgDataCon Nothing) (tyConDataCons tycon)
+                 mapM_ (cg . cgDataCon Nothing Nothing) (tyConDataCons tycon)
                  -- Emit special info tables for everything used in this module
 
         ; mapM_ do_tycon data_tycons
-        ; mapM_ (\(dc, n) -> forM_ [0..n] $ \k -> cg (cgDataCon (Just (this_mod, k)) dc)) (nonDetEltsUFM denv)
+        ; mapM_ (\(dc, ns) -> forM_ ns $ \(k, ss) -> cg (cgDataCon (Just (this_mod, k)) ss dc)) (nonDetEltsUFM denv)
         }
 
 ---------------------------------------------------------------
@@ -205,12 +206,12 @@ cgEnumerationTyCon tycon
              | con <- tyConDataCons tycon]
 
 
-cgDataCon :: Maybe (Module, Int) -> DataCon -> FCode ()
+cgDataCon :: Maybe (Module, Int) -> Maybe (RealSrcSpan, String) -> DataCon -> FCode ()
 -- Generate the entry code, info tables, and (for niladic constructor)
 -- the static closure, for a constructor.
-cgDataCon _ data_con | isUnboxedTupleCon data_con = return ()
-cgDataCon mn data_con
-  = do  { pprTraceM "cgDataCon" (ppr mn <+> ppr data_con)
+cgDataCon _ _ data_con | isUnboxedTupleCon data_con = return ()
+cgDataCon mn ms data_con
+  = do  {  pprTraceM "cgDataCon" (ppr mn <+> ppr ms <+> ppr data_con)
         ; dflags <- getDynFlags
         ; platform <- getPlatform
         ; let
@@ -221,7 +222,7 @@ cgDataCon mn data_con
             nonptr_wds   = tot_wds - ptr_wds
 
             dyn_info_tbl =
-              mkDataConInfoTable dflags data_con mn False ptr_wds nonptr_wds
+              mkDataConInfoTable dflags data_con mn ms False ptr_wds nonptr_wds
 
             -- We're generating info tables, so we don't know and care about
             -- what the actual arguments are. Using () here as the place holder.

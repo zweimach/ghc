@@ -168,7 +168,7 @@ data CmmInfoTable
 
 data ProfilingInfo
   = NoProfilingInfo
-  | ProfilingInfo ByteString ByteString -- closure_type, closure_desc
+  | ProfilingInfo ByteString ByteString  -- closure_type, closure_desc
 
 -----------------------------------------------------------------------------
 --              Static Data
