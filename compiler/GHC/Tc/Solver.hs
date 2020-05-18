@@ -14,7 +14,7 @@ module GHC.Tc.Solver(
 
        captureTopConstraints,
 
-       simpl_top,
+       simpl_top,  -- used in GHC.Tc.Errors.Hole
 
        promoteTyVar,
        promoteTyVarSet,
@@ -638,15 +638,9 @@ tcNormalise :: Bag EvVar -> Type -> TcM Type
 tcNormalise given_ids ty
   = do { lcl_env <- TcM.getLclEnv
        ; let given_loc = mkGivenLoc topTcLevel UnkSkol lcl_env
+             given_cts = mkGivens given_loc (bagToList given_ids)
        ; norm_loc <- getCtLocM PatCheckOrigin Nothing
-       ; (res, _ev_binds) <- runTcS $
-             do { traceTcS "tcNormalise {" (ppr given_ids)
-                ; let given_cts = mkGivens given_loc (bagToList given_ids)
-                ; solveSimpleGivens given_cts
-                ; ty' <- flattenType norm_loc ty
-                ; traceTcS "tcNormalise }" (ppr ty')
-                ; pure ty' }
-       ; return res }
+       ; withGivens given_cts $ flattenType norm_loc ty }
 
 {- Note [Superclasses and satisfiability]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -819,7 +813,8 @@ simplifyInfer rhs_tclvl infer_mode sigs name_taus wanteds
        ; let psig_wanted = [ CtWanted { ctev_pred = idType psig_theta_var
                                       , ctev_dest = EvVarDest psig_theta_var
                                       , ctev_nosh = WDeriv
-                                      , ctev_loc  = ct_loc }
+                                      , ctev_loc  = ct_loc
+                                      , ctev_born_as = idType psig_theta_var }
                            | psig_theta_var <- psig_theta_vars ]
 
        -- Now construct the residual constraint
@@ -1518,9 +1513,7 @@ solveWanteds wc@(WC { wc_simple = simples, wc_impl = implics, wc_holes = holes }
        ; solved_wc <- simpl_loop 0 (solverIterations dflags) floated_eqs
                                 (wc1 { wc_impl = implics2 })
 
-       ; holes' <- simplifyHoles holes
-       ; let final_wc = solved_wc { wc_holes = holes' }
-
+       ; let final_wc = solved_wc { wc_holes = holes }
        ; ev_binds_var <- getTcEvBindsVar
        ; bb <- TcS.getTcEvBindsMap ev_binds_var
        ; traceTcS "solveWanteds }" $
@@ -1886,15 +1879,6 @@ neededEvVars implic@(Implic { ic_given = givens
    add_wanted (EvBind { eb_is_given = is_given, eb_rhs = rhs }) needs
      | is_given  = needs  -- Add the rhs vars of the Wanted bindings only
      | otherwise = evVarsOfTerm rhs `unionVarSet` needs
-
--------------------------------------------------
-simplifyHoles :: Bag Hole -> TcS (Bag Hole)
-simplifyHoles = mapBagM simpl_hole
-  where
-    simpl_hole :: Hole -> TcS Hole
-    simpl_hole h@(Hole { hole_ty = ty, hole_loc = loc })
-      = do { ty' <- flattenType loc ty
-           ; return (h { hole_ty = ty' }) }
 
 {- Note [Delete dead Given evidence bindings]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -2638,7 +2622,7 @@ disambigGroup (default_ty:default_tys) group@(the_tv, wanteds)
        ; if success then
              -- Success: record the type variable binding, and return
              do { unifyTyVar the_tv default_ty
-                ; wrapWarnTcS $ warnDefaulting (map ctEvidence wanteds) default_ty
+                ; wrapWarnTcS $ warnDefaulting wanteds default_ty
                 ; traceTcS "disambigGroup succeeded }" (ppr default_ty)
                 ; return True }
          else
@@ -2652,8 +2636,13 @@ disambigGroup (default_ty:default_tys) group@(the_tv, wanteds)
       = do { lcl_env <- TcS.getLclEnv
            ; tc_lvl <- TcS.getTcLevel
            ; let loc = mkGivenLoc tc_lvl UnkSkol lcl_env
-           ; wanted_evs <- mapM (newWantedEvVarNC loc . substTy subst . ctPred)
-                                wanteds
+           ; wanted_evs <- sequence [ newWantedEvVarNC loc born_as' pred'
+                                    | wanted <- wanteds
+                                    , CtWanted { ctev_pred = pred
+                                               , ctev_born_as = born_as }
+                                        <- return (ctEvidence wanted)
+                                    , let pred'    = substTy subst pred
+                                          born_as' = substTy subst born_as ]
            ; fmap isEmptyWC $
              solveSimpleWanteds $ listToBag $
              map mkNonCanonical wanted_evs }

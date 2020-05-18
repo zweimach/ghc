@@ -645,14 +645,13 @@ findValidHoleFits tidy_env implics simples h@(Hole { hole_sort = ExprHole _
     relevantCts = if isEmptyVarSet (fvVarSet hole_fvs) then []
                   else filter isRelevant simples
       where hole_fv_set = fvVarSet hole_fvs
-            anyFVMentioned :: CtEvidence -> Bool
-            anyFVMentioned ctev = tyCoVarsOfCtEv ctev `intersectsVarSet` hole_fv_set
             -- We filter out those constraints that have no variables (since
             -- they won't be solved by finding a type for the type variable
             -- representing the hole) and also other holes, since we're not
             -- trying to find hole fits for many holes at once.
-            isRelevant ctev = not (isEmptyVarSet (tyCoVarsOfCtEv ctev))
-                              && anyFVMentioned ctev
+            isRelevant ctev = not (isEmptyVarSet fvs) &&
+                             (fvs `intersectsVarSet` hole_fv_set)
+              where fvs = tyCoVarsOfCtEv ctev
 
     -- We zonk the hole fits so that the output aligns with the rest
     -- of the typed hole error message output.

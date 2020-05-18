@@ -1,6 +1,6 @@
 
 ExpandSynsFail2.hs:19:37: error:
-    • Couldn't match type ‘Int’ with ‘Bool’
+    • Couldn't match type ‘Foo’ with ‘Bar’
       Expected type: ST s Foo
         Actual type: MyBarST s
       Type synonyms expanded:

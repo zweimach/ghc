@@ -6,6 +6,7 @@
 module GHC.Tc.Solver.Interact (
      solveSimpleGivens,   -- Solves [Ct]
      solveSimpleWanteds,  -- Solves Cts
+     withGivens
   ) where
 
 #include "HsVersions.h"
@@ -1984,7 +1985,7 @@ reduce_top_fun_eq old_ev fsk (ax_co, rhs_ty)
   = ASSERT2( not (fsk `elemVarSet` tyCoVarsOfType rhs_ty)
            , ppr old_ev $$ ppr rhs_ty )
            -- Guaranteed by Note [FunEq occurs-check principle]
-    do { (rhs_xi, flatten_co, _wrw) <- flatten FM_FlattenAll old_ev rhs_ty
+    do { (rhs_xi, flatten_co) <- flatten FM_FlattenAll old_ev rhs_ty
              -- flatten_co :: rhs_xi ~ rhs_ty
              -- See Note [Flatten when discharging CFunEqCan]
        ; let total_co = ax_co `mkTcTransCo` mkTcSymCo flatten_co
@@ -2096,20 +2097,21 @@ shortCutReduction old_ev fsk ax_co fam_tc tc_args
   = ASSERT( ctEvEqRel old_ev == NomEq)
                -- ax_co :: F args ~ G tc_args
                -- old_ev :: F args ~ fsk
-    do { new_ev <- case ctEvFlavour old_ev of
-           Given -> newGivenEvVar deeper_loc
+    do { new_ev <- case old_ev of
+           CtGiven {} -> newGivenEvVar deeper_loc
                          ( mkPrimEqPred (mkTyConApp fam_tc tc_args) (mkTyVarTy fsk)
                          , evCoercion (mkTcSymCo ax_co
                                        `mkTcTransCo` ctEvCoercion old_ev) )
 
-           Wanted {} ->
+           CtWanted { ctev_born_as = born_as } ->
              -- See TcCanonical Note [Equalities with incompatible kinds] about NoBlockSubst
-             do { (new_ev, new_co) <- newWantedEq_SI NoBlockSubst WDeriv deeper_loc Nominal
+             do { (new_ev, new_co) <- newWantedEq_SI NoBlockSubst WDeriv deeper_loc born_as
+                                        Nominal
                                         (mkTyConApp fam_tc tc_args) (mkTyVarTy fsk)
                 ; setWantedEq (ctev_dest old_ev) $ ax_co `mkTcTransCo` new_co
                 ; return new_ev }
 
-           Derived -> pprPanic "shortCutReduction" (ppr old_ev)
+           CtDerived {} -> pprPanic "shortCutReduction" (ppr old_ev)
 
        ; let new_ct = CFunEqCan { cc_ev = new_ev, cc_fun = fam_tc
                                 , cc_tyargs = tc_args, cc_fsk = fsk }
@@ -2697,3 +2699,18 @@ matchLocalInst pred loc
         qtv_set = mkVarSet qtvs
         this_unif = mightMatchLater qpred (ctEvLoc ev) pred loc
         (matches, unif) = match_local_inst qcis
+
+-------------------------------------------------------------
+-- | Bring givens into scope and execute a TcS monad action;
+-- discards any evidence created.
+withGivens :: [Ct]  -- all givens; use mkGivens to make this
+           -> TcS a -> TcM a
+  -- really should be in GHC.Tc.Solver, but here, we avoid module
+  -- loops with GHC.Tc.Errors
+withGivens givens thing_inside
+  = fmap fst $ runTcS $
+    do { traceTcS "withGivens {" (ppr givens)
+       ; solveSimpleGivens givens
+       ; result <- thing_inside
+       ; traceTcS "withGivens }" empty
+       ; return result }

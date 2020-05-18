@@ -68,7 +68,7 @@ module GHC.Tc.Utils.TcMType (
   --------------------------------
   -- Zonking and tidying
   zonkTidyTcType, zonkTidyTcTypes, zonkTidyOrigin,
-  tidyEvVar, tidyCt, tidyCtEvidence, tidyHole, tidySkolemInfo,
+  tidyEvVar, tidyCt, tidyHole, tidySkolemInfo,
     zonkTcTyVar, zonkTcTyVars,
   zonkTcTyVarToTyVar, zonkTyVarTyVarPairs,
   zonkTyCoVarsAndFV, zonkTcTypeAndFV, zonkDTyCoVarSetAndFV,
@@ -189,7 +189,8 @@ newWanted orig t_or_k pty
        return $ CtWanted { ctev_dest = d
                          , ctev_pred = pty
                          , ctev_nosh = WDeriv
-                         , ctev_loc = loc }
+                         , ctev_loc = loc
+                         , ctev_born_as = pty }
 
 newWanteds :: CtOrigin -> ThetaType -> TcM [CtEvidence]
 newWanteds orig = mapM (newWanted orig Nothing)
@@ -256,7 +257,8 @@ emitWantedEq origin t_or_k role ty1 ty2
        ; loc <- getCtLocM origin (Just t_or_k)
        ; emitSimple $ mkNonCanonical $
          CtWanted { ctev_pred = pty, ctev_dest = HoleDest hole
-                  , ctev_nosh = WDeriv, ctev_loc = loc }
+                  , ctev_nosh = WDeriv, ctev_loc = loc
+                  , ctev_born_as = pty }
        ; return (HoleCo hole) }
   where
     pty = mkPrimEqPredRole role ty1 ty2
@@ -270,7 +272,8 @@ emitWantedEvVar origin ty
        ; let ctev = CtWanted { ctev_dest = EvVarDest new_cv
                              , ctev_pred = ty
                              , ctev_nosh = WDeriv
-                             , ctev_loc  = loc }
+                             , ctev_loc  = loc
+                             , ctev_born_as = ty }
        ; emitSimple $ mkNonCanonical ctev
        ; return new_cv }
 
@@ -2270,15 +2273,9 @@ tidyCt env ct = ct { cc_ev = tidyCtEvidence env (ctEvidence ct) }
 tidyCtEvidence :: TidyEnv -> CtEvidence -> CtEvidence
      -- NB: we do not tidy the ctev_evar field because we don't
      --     show it in error messages
-tidyCtEvidence env ctev = ctev { ctev_pred = tidyType env ty
-                               , ctev_loc  = tidyCtLoc env loc }
+tidyCtEvidence env ctev = ctev { ctev_pred = tidyType env ty }
   where
     ty  = ctev_pred ctev
-    loc = ctev_loc ctev
-
-tidyCtLoc :: TidyEnv -> CtLoc -> CtLoc
-tidyCtLoc env ctl@(CtLoc { ctl_ancestor = m_ancestor })
-  = ctl { ctl_ancestor = fmap @Maybe (tidyCtEvidence env) m_ancestor }
 
 tidyHole :: TidyEnv -> Hole -> Hole
 tidyHole env h@(Hole { hole_ty = ty }) = h { hole_ty = tidyType env ty }

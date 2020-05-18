@@ -1070,11 +1070,9 @@ parseInstanceHead str = withSession $ \hsc_env0 -> do
 -- Get all the constraints required of a dictionary binding
 getDictionaryBindings :: PredType -> TcM WantedConstraints
 getDictionaryBindings theta = do
-  dictName <- newName (mkDictOcc (mkVarOcc "magic"))
-  let dict_var = mkVanillaGlobal dictName theta
   loc <- getCtLocM (GivenOrigin UnkSkol) Nothing
   let wCs = mkSimpleWC [CtDerived
-          { ctev_pred = varType dict_var
+          { ctev_pred = theta
           , ctev_loc = loc
           }]
 

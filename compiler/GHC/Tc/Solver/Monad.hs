@@ -36,7 +36,7 @@ module GHC.Tc.Solver.Monad (
 
     newTcEvBinds, newNoTcEvBinds,
     newWantedEq, newWantedEq_SI, emitNewWantedEq,
-    newWanted, newWanted_SI, newWantedEvVar,
+    newWanted, newWanted_SI,
     newWantedNC, newWantedEvVarNC,
     newDerivedNC,
     newBoundEvVarId,
@@ -140,7 +140,8 @@ import qualified GHC.Tc.Utils.Monad    as TcM
 import qualified GHC.Tc.Utils.TcMType  as TcM
 import qualified GHC.Tc.Instance.Class as TcM( matchGlobalInst, ClsInstResult(..) )
 import qualified GHC.Tc.Utils.Env      as TcM
-       ( checkWellStaged, tcGetDefaultTys, tcLookupClass, tcLookupId, topIdLvl )
+       ( checkWellStaged, tcGetDefaultTys, tcLookupClass, tcLookupId, topIdLvl
+       , tcInitTidyEnv )
 import GHC.Tc.Instance.Class( InstanceWhat(..), safeOverlap, instanceReturnsDictCon )
 import GHC.Tc.Utils.TcType
 import GHC.Driver.Session
@@ -152,7 +153,6 @@ import GHC.Utils.Error
 import GHC.Tc.Types.Evidence
 import GHC.Core.Class
 import GHC.Core.TyCon
-import GHC.Tc.Errors   ( solverDepthErrorTcS )
 
 import GHC.Types.Name
 import GHC.Types.Module ( HasModule, getModule )
@@ -3230,8 +3230,9 @@ newFlattenSkolem flav loc tc xis
       = do { fmv <- wrapTcS (TcM.newFmvTyVar fam_ty)
               -- See (2a) in TcCanonical
               -- Note [Equalities with incompatible kinds]
-           ; (ev, hole_co) <- newWantedEq_SI NoBlockSubst WDeriv loc Nominal
-                                             fam_ty (mkTyVarTy fmv)
+           ; let pred_ty = mkPrimEqPred fam_ty (mkTyVarTy fmv)
+           ; (ev, hole_co) <- newWantedEq_SI NoBlockSubst WDeriv loc pred_ty
+                                             Nominal fam_ty (mkTyVarTy fmv)
            ; return (ev, hole_co, fmv) }
 
 ----------------------------
@@ -3504,61 +3505,67 @@ emitNewWantedEq loc role ty1 ty2
 -- | Make a new equality CtEvidence
 newWantedEq :: CtLoc -> Role -> TcType -> TcType
             -> TcS (CtEvidence, Coercion)
-newWantedEq = newWantedEq_SI YesBlockSubst WDeriv
+newWantedEq loc role ty1 ty2
+  = newWantedEq_SI YesBlockSubst WDeriv loc pty role ty1 ty2
+  where
+    pty = mkPrimEqPredRole role ty1 ty2
 
-newWantedEq_SI :: BlockSubstFlag -> ShadowInfo -> CtLoc -> Role
+newWantedEq_SI :: BlockSubstFlag -> ShadowInfo -> CtLoc -> PredType -> Role
                -> TcType -> TcType
                -> TcS (CtEvidence, Coercion)
-newWantedEq_SI blocker si loc role ty1 ty2
+newWantedEq_SI blocker si loc born_as role ty1 ty2
   = do { hole <- wrapTcS $ TcM.newCoercionHole blocker pty
        ; traceTcS "Emitting new coercion hole" (ppr hole <+> dcolon <+> ppr pty)
        ; return ( CtWanted { ctev_pred = pty, ctev_dest = HoleDest hole
                            , ctev_nosh = si
-                           , ctev_loc = loc}
+                           , ctev_loc = loc
+                           , ctev_born_as = born_as }
                 , mkHoleCo hole ) }
   where
     pty = mkPrimEqPredRole role ty1 ty2
 
 -- no equalities here. Use newWantedEq instead
-newWantedEvVarNC :: CtLoc -> TcPredType -> TcS CtEvidence
+newWantedEvVarNC :: CtLoc -> TcPredType   -- how this wanted was born
+                 -> TcPredType -> TcS CtEvidence
 newWantedEvVarNC = newWantedEvVarNC_SI WDeriv
 
-newWantedEvVarNC_SI :: ShadowInfo -> CtLoc -> TcPredType -> TcS CtEvidence
+newWantedEvVarNC_SI :: ShadowInfo -> CtLoc -> TcPredType  -- how this wanted was born
+                    -> TcPredType -> TcS CtEvidence
 -- Don't look up in the solved/inerts; we know it's not there
-newWantedEvVarNC_SI si loc pty
+newWantedEvVarNC_SI si loc born_as pty
   = do { new_ev <- newEvVar pty
        ; traceTcS "Emitting new wanted" (ppr new_ev <+> dcolon <+> ppr pty $$
                                          pprCtLoc loc)
        ; return (CtWanted { ctev_pred = pty, ctev_dest = EvVarDest new_ev
                           , ctev_nosh = si
-                          , ctev_loc = loc })}
+                          , ctev_loc = loc
+                          , ctev_born_as = born_as })}
 
-newWantedEvVar :: CtLoc -> TcPredType -> TcS MaybeNew
-newWantedEvVar = newWantedEvVar_SI WDeriv
-
-newWantedEvVar_SI :: ShadowInfo -> CtLoc -> TcPredType -> TcS MaybeNew
+newWantedEvVar_SI :: ShadowInfo -> CtLoc -> TcPredType  -- how this Wanted was born
+                  -> TcPredType -> TcS MaybeNew
 -- For anything except ClassPred, this is the same as newWantedEvVarNC
-newWantedEvVar_SI si loc pty
+newWantedEvVar_SI si loc born_as pty
   = do { mb_ct <- lookupInInerts loc pty
        ; case mb_ct of
             Just ctev
               | not (isDerived ctev)
               -> do { traceTcS "newWantedEvVar/cache hit" $ ppr ctev
                     ; return $ Cached (ctEvExpr ctev) }
-            _ -> do { ctev <- newWantedEvVarNC_SI si loc pty
+            _ -> do { ctev <- newWantedEvVarNC_SI si loc born_as pty
                     ; return (Fresh ctev) } }
 
 newWanted :: CtLoc -> PredType -> TcS MaybeNew
 -- Deals with both equalities and non equalities. Tries to look
 -- up non-equalities in the cache
-newWanted = newWanted_SI WDeriv
+newWanted loc pty = newWanted_SI WDeriv loc pty pty
 
-newWanted_SI :: ShadowInfo -> CtLoc -> PredType -> TcS MaybeNew
-newWanted_SI si loc pty
+newWanted_SI :: ShadowInfo -> CtLoc -> PredType  -- how this wanted was born
+             -> PredType -> TcS MaybeNew
+newWanted_SI si loc born_as pty
   | Just (role, ty1, ty2) <- getEqPredTys_maybe pty
-  = Fresh . fst <$> newWantedEq_SI YesBlockSubst si loc role ty1 ty2
+  = Fresh . fst <$> newWantedEq_SI YesBlockSubst si loc born_as role ty1 ty2
   | otherwise
-  = newWantedEvVar_SI si loc pty
+  = newWantedEvVar_SI si loc born_as pty
 
 -- deals with both equalities and non equalities. Doesn't do any cache lookups.
 newWantedNC :: CtLoc -> PredType -> TcS CtEvidence
@@ -3566,7 +3573,7 @@ newWantedNC loc pty
   | Just (role, ty1, ty2) <- getEqPredTys_maybe pty
   = fst <$> newWantedEq loc role ty1 ty2
   | otherwise
-  = newWantedEvVarNC loc pty
+  = newWantedEvVarNC loc pty pty
 
 emitNewDeriveds :: CtLoc -> [TcPredType] -> TcS ()
 emitNewDeriveds loc preds
@@ -3600,8 +3607,7 @@ checkReductionDepth :: CtLoc -> TcType   -- ^ type being reduced
 checkReductionDepth loc ty
   = do { dflags <- getDynFlags
        ; when (subGoalDepthExceeded dflags (ctLocDepth loc)) $
-         wrapErrTcS $
-         solverDepthErrorTcS loc ty }
+         wrapErrTcS $ solverDepthError loc ty }
 
 matchFam :: TyCon -> [Type] -> TcS (Maybe (CoercionN, TcType))
 -- Given (F tys) return (ty, co), where co :: F tys ~N ty
@@ -3634,3 +3640,24 @@ from which we get the implication
    (forall a. t1 ~ t2)
 See GHC.Tc.Solver.Monad.deferTcSForAllEq
 -}
+
+solverDepthError :: CtLoc -> TcType -> TcM a
+solverDepthError loc ty
+  = TcM.setCtLocM loc $
+    do { ty <- TcM.zonkTcType ty
+       ; env0 <- TcM.tcInitTidyEnv
+       ; let tidy_env     = tidyFreeTyCoVars env0 (tyCoVarsOfTypeList ty)
+             tidy_ty      = tidyType tidy_env ty
+             msg
+               = vcat [ text "Reduction stack overflow; size =" <+> ppr depth
+                      , hang (text "When simplifying the following type:")
+                           2 (ppr tidy_ty)
+                      , note ]
+       ; TcM.failWithTcM (tidy_env, msg) }
+  where
+    depth = ctLocDepth loc
+    note = vcat
+      [ text "Use -freduction-depth=0 to disable this check"
+      , text "(any upper bound you could choose might fail unpredictably with"
+      , text " minor updates to GHC, so disabling the check is recommended if"
+      , text " you're sure that type checking should terminate)" ]

@@ -4,7 +4,7 @@
 
 module GHC.Tc.Solver.Flatten(
    FlattenMode(..),
-   flatten, flattenArgsNom,
+   flatten, flattenKind, flattenArgsNom,
    rewriteTyVar, flattenType,
 
    unflattenWanteds
@@ -461,8 +461,7 @@ data FlattenEnv
                       -- unbanged because it's bogus in rewriteTyVar
        , fe_flavour :: !CtFlavour
        , fe_eq_rel  :: !EqRel             -- See Note [Flattener EqRels]
-       , fe_work    :: !FlatWorkListRef   -- See Note [The flattening work list]
-       , fe_wrw     :: !(TcRef WRWFlag) }   -- See Note [Flattening wanteds]
+       , fe_work    :: !FlatWorkListRef } -- See Note [The flattening work list]
 
 data FlattenMode  -- Postcondition for all three: inert wrt the type substitution
   = FM_FlattenAll          -- Postcondition: function-free
@@ -512,30 +511,26 @@ emitFlatWork ct = FlatM $ \env -> updTcRef (fe_work env) (ct :)
 
 -- convenient wrapper when you have a CtEvidence describing
 -- the flattening operation
-runFlattenCtEv :: FlattenMode -> CtEvidence -> FlatM a -> TcS (a, WRWFlag)
+runFlattenCtEv :: FlattenMode -> CtEvidence -> FlatM a -> TcS a
 runFlattenCtEv mode ev
   = runFlatten mode (ctEvLoc ev) (ctEvFlavour ev) (ctEvEqRel ev)
 
 -- Run thing_inside (which does flattening), and put all
 -- the work it generates onto the main work list
 -- See Note [The flattening work list]
--- Also returns whether a wanted rewrote a wanted; see Note [Flattening wanteds]
-runFlatten :: FlattenMode -> CtLoc -> CtFlavour -> EqRel -> FlatM a -> TcS (a, WRWFlag)
+runFlatten :: FlattenMode -> CtLoc -> CtFlavour -> EqRel -> FlatM a -> TcS a
 runFlatten mode loc flav eq_rel thing_inside
   = do { flat_ref <- newTcRef []
-       ; wrw_ref <- newTcRef NoWRW
        ; let fmode = FE { fe_mode = mode
                         , fe_loc  = bumpCtLocDepth loc
                             -- See Note [Flatten when discharging CFunEqCan]
                         , fe_flavour = flav
                         , fe_eq_rel = eq_rel
-                        , fe_work = flat_ref
-                        , fe_wrw = wrw_ref }
+                        , fe_work = flat_ref }
        ; res <- runFlatM thing_inside fmode
        ; new_flats <- readTcRef flat_ref
        ; updWorkListTcS (add_flats new_flats)
-       ; wrw <- readTcRef wrw_ref
-       ; return (res, wrw) }
+       ; return res }
   where
     add_flats new_flats wl
       = wl { wl_funeqs = add_funeqs new_flats (wl_funeqs wl) }
@@ -616,11 +611,6 @@ bumpDepth (FlatM thing_inside)
       { let !env' = env { fe_loc = bumpCtLocDepth (fe_loc env) }
       ; thing_inside env' }
 
--- See Note [Flattening wanteds]
-recordWRW :: WRWFlag -> FlatM ()
-recordWRW YesWRW = FlatM $ \env -> writeTcRef (fe_wrw env) YesWRW
-recordWRW NoWRW  = return ()
-
 {-
 Note [The flattening work list]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -699,20 +689,6 @@ will be essentially impossible. So, the official recommendation if a
 stack limit is hit is to disable the check entirely. Otherwise, there
 will be baffling, unpredictable errors.
 
-Note [Flattening wanteds]
-~~~~~~~~~~~~~~~~~~~~~~~~~
-Note [Wanteds rewrite wanteds] tells us that wanteds rewriting wanteds
-can lead to poor error messages. But we really need wanteds to rewrite
-wanteds in order to saturate our equalities. So, we need to know when
-we have done this step (call it w-r-w), so that we can record an ancestor
-constraint. W-r-w will happen in flattenTyVar2, deeply buried within
-the flattener algorithm. And, when flattening a large type, we might
-w-r-w several times in several different places. We thus record, in the
-FlatM monad, a WRWFlag that says whether or not any w-r-w has taken place.
-
-Then, in all calls to the flattener, we check this result and record
-the ancestor constraint if necessary. We use a mutable WRWFlag for efficiency.
-
 Note [Lazy flattening]
 ~~~~~~~~~~~~~~~~~~~~~~
 The idea of FM_Avoid mode is to flatten less aggressively.  If we have
@@ -787,23 +763,17 @@ when trying to find derived equalities arising from injectivity.
 -}
 
 -- | See Note [Flattening].
--- If (xi, co, wrw) <- flatten mode ev ty, then co :: xi ~r ty
+-- If (xi, co) <- flatten mode ev ty, then co :: xi ~r ty
 -- where r is the role in @ev@. If @mode@ is 'FM_FlattenAll',
 -- then 'xi' is almost function-free (Note [Almost function-free]
 -- in GHC.Tc.Types).
--- wrw is True <=> a wanted rewrote a wanted.
--- See Note [Wanteds rewrite wanteds] in GHC.Tc.Types.Constraint
--- and Note [Flattening wanteds]
 flatten :: FlattenMode -> CtEvidence -> TcType
-        -> TcS (Xi, TcCoercion, WRWFlag)
+        -> TcS (Xi, TcCoercion)
 flatten mode ev ty
   = do { traceTcS "flatten {" (ppr mode <+> ppr ty)
-       ; ((ty', co), wrw) <- runFlattenCtEv mode ev (flatten_one ty)
-       ; traceTcS "flatten }" (ppr ty' $$ pp_wrw wrw)
-       ; return (ty', co, wrw) }
-  where
-    pp_wrw YesWRW = text "YesWRW: wanted rewrote wanted"
-    pp_wrw _      = empty
+       ; (ty', co) <- runFlattenCtEv mode ev (flatten_one ty)
+       ; traceTcS "flatten }" (ppr ty')
+       ; return (ty', co) }
 
 -- Apply the inert set as an *inert generalised substitution* to
 -- a variable, zonking along the way.
@@ -816,16 +786,28 @@ flatten mode ev ty
 rewriteTyVar :: TcTyVar -> TcS TcType
 rewriteTyVar tv
   = do { traceTcS "rewriteTyVar {" (ppr tv)
-       ; ((ty, _), _) <- runFlatten FM_SubstOnly fake_loc Derived NomEq $
-                         flattenTyVar tv
+       ; (ty, _) <- runFlatten FM_SubstOnly fake_loc Derived NomEq $
+                    flattenTyVar tv
        ; traceTcS "rewriteTyVar }" (ppr ty)
        ; return ty }
   where
     fake_loc = pprPanic "rewriteTyVar used a CtLoc" (ppr tv)
 
+-- specialized to flattening kinds: never Derived, always Nominal
+-- See Note [No derived kind equalities]
 -- See Note [Flattening]
-flattenArgsNom :: CtEvidence -> TyCon -> [TcType]
-               -> TcS ([Xi], [TcCoercion], TcCoercionN, WRWFlag)
+flattenKind :: CtLoc -> CtFlavour -> TcType -> TcS (Xi, TcCoercionN)
+flattenKind loc flav ty
+  = do { traceTcS "flattenKind {" (ppr flav <+> ppr ty)
+       ; let flav' = case flav of
+                       Derived -> Wanted WDeriv  -- the WDeriv/WOnly choice matters not
+                       _       -> flav
+       ; (ty', co) <- runFlatten FM_FlattenAll loc flav' NomEq (flatten_one ty)
+       ; traceTcS "flattenKind }" (ppr ty' $$ ppr co) -- co is never a panic
+       ; return (ty', co) }
+
+-- See Note [Flattening]
+flattenArgsNom :: CtEvidence -> TyCon -> [TcType] -> TcS ([Xi], [TcCoercion], TcCoercionN)
 -- Externally-callable, hence runFlatten
 -- Flatten a vector of types all at once; in fact they are
 -- always the arguments of type family or class, so
@@ -836,15 +818,12 @@ flattenArgsNom :: CtEvidence -> TyCon -> [TcType]
 --
 -- For Derived constraints the returned coercion may be undefined
 -- because flattening may use a Derived equality ([D] a ~ ty)
---
--- Final Bool returned says whether a wanted rewrote a wanted
--- See Note [Flattening wanteds]
 flattenArgsNom ev tc tys
   = do { traceTcS "flatten_args {" (vcat (map ppr tys))
-       ; ((tys', cos, kind_co), wrw)
+       ; (tys', cos, kind_co)
            <- runFlattenCtEv FM_FlattenAll ev (flatten_args_tc tc (repeat Nominal) tys)
        ; traceTcS "flatten }" (vcat (map ppr tys'))
-       ; return (tys', cos, kind_co, wrw) }
+       ; return (tys', cos, kind_co) }
 
 -- | Flatten a type w.r.t. nominal equality. This is useful to rewrite
 -- a type w.r.t. any givens. It does not do type-family reduction. This
@@ -853,8 +832,8 @@ flattenArgsNom ev tc tys
 flattenType :: CtLoc -> TcType -> TcS TcType
 flattenType loc ty
           -- More info about FM_SubstOnly in Note [Holes] in GHC.Tc.Types.Constraint
-  = do { ((xi, _), _) <- runFlatten FM_SubstOnly loc Given NomEq $
-                         flatten_one ty
+  = do { (xi, _) <- runFlatten FM_SubstOnly loc Given NomEq $
+                    flatten_one ty
                      -- use Given flavor so that it is rewritten
                      -- only w.r.t. Givens, never Wanteds/Deriveds
                      -- (Shouldn't matter, if only Givens are present
@@ -1405,7 +1384,7 @@ flatten_fam_app tc tys  -- Can be over-saturated
          ; flatten_app_ty_args xi1 co1 tys_rest } } }
 
 -- the [TcType] exactly saturate the TyCon
--- See note [flatten_exact_fam_app_fully performance]
+-- See Note [flatten_exact_fam_app_fully performance]
 flatten_exact_fam_app_fully :: TyCon -> [TcType] -> FlatM (Xi, Coercion)
 flatten_exact_fam_app_fully tc tys
   -- See Note [Reduce type family applications eagerly]
@@ -1655,26 +1634,24 @@ flatten_tyvar2 tv fr@(_, eq_rel)
                         , cc_rhs = rhs_ty, cc_eq_rel = ct_eq_rel } <- ct
              , let ct_fr = (ctEvFlavour ctev, ct_eq_rel)
              , ct_fr `eqCanRewriteFR` fr  -- This is THE key call of eqCanRewriteFR
-             -> do { let wrw = ct_fr `wantedRewriteWanted` fr
-                   ; traceFlat "Following inert tyvar" $
-                     vcat [ sep [ ppr mode, ppr tv, equals, ppr rhs_ty]
-                          , ppr ctev
-                          , text "wanted_rewrite_wanted:" <+> ppr wrw ]
-                   ; recordWRW wrw
+             -> do { traceFlat "Following inert tyvar"
+                        (ppr mode <+>
+                         ppr tv <+>
+                         equals <+>
+                         ppr rhs_ty $$ ppr ctev)
+                    ; let rewrite_co1 = mkSymCo (ctEvCoercion ctev)
+                          rewrite_co  = case (ct_eq_rel, eq_rel) of
+                            (ReprEq, _rel)  -> ASSERT( _rel == ReprEq )
+                                    -- if this ASSERT fails, then
+                                    -- eqCanRewriteFR answered incorrectly
+                                               rewrite_co1
+                            (NomEq, NomEq)  -> rewrite_co1
+                            (NomEq, ReprEq) -> mkSubCo rewrite_co1
 
-                   ; let rewrite_co1 = mkSymCo (ctEvCoercion ctev)
-                         rewrite_co  = case (ct_eq_rel, eq_rel) of
-                           (ReprEq, _rel)  -> ASSERT( _rel == ReprEq )
-                                   -- if this ASSERT fails, then
-                                   -- eqCanRewriteFR answered incorrectly
-                                              rewrite_co1
-                           (NomEq, NomEq)  -> rewrite_co1
-                           (NomEq, ReprEq) -> mkSubCo rewrite_co1
-
-                   ; return (FTRFollowed rhs_ty rewrite_co) }
-                   -- NB: ct is Derived then fmode must be also, hence
-                   -- we are not going to touch the returned coercion
-                   -- so ctEvCoercion is fine.
+                    ; return (FTRFollowed rhs_ty rewrite_co) }
+                    -- NB: ct is Derived then fmode must be also, hence
+                    -- we are not going to touch the returned coercion
+                    -- so ctEvCoercion is fine.
 
            _other -> return FTRNotFollowed }
 
