@@ -93,7 +93,7 @@ withEventlog logAction = do
 --
 -- @since 4.5.0.0
 traceIO :: String -> IO ()
-traceIO msg = do
+traceIO msg = withEventlog $ do
     withCString "%s\n" $ \cfmt -> do
      -- NB: debugBelch can't deal with null bytes, so filter them
      -- out so we don't accidentally truncate the message.  See #9395
@@ -270,7 +270,7 @@ traceStack str expr = unsafePerformIO $ do
 -- @since 4.5.0.0
 traceEvent :: String -> a -> a
 traceEvent msg expr = unsafeDupablePerformIO $ do
-    traceEventIO msg
+    withEventlog $ traceEventIO msg
     return expr
 
 -- | The 'traceEventIO' function emits a message to the eventlog, if eventlog
@@ -282,7 +282,7 @@ traceEvent msg expr = unsafeDupablePerformIO $ do
 -- @since 4.5.0.0
 traceEventIO :: String -> IO ()
 traceEventIO msg =
-  GHC.Foreign.withCString utf8 msg $ \(Ptr p) -> IO $ \s ->
+  withEventlog $ GHC.Foreign.withCString utf8 msg $ \(Ptr p) -> IO $ \s ->
     case traceEvent# p s of s' -> (# s', () #)
 
 -- $markers
@@ -320,7 +320,7 @@ traceEventIO msg =
 -- @since 4.7.0.0
 traceMarker :: String -> a -> a
 traceMarker msg expr = unsafeDupablePerformIO $ do
-    traceMarkerIO msg
+    withEventlog $ traceMarkerIO msg
     return expr
 
 -- | The 'traceMarkerIO' function emits a marker to the eventlog, if eventlog
@@ -332,5 +332,5 @@ traceMarker msg expr = unsafeDupablePerformIO $ do
 -- @since 4.7.0.0
 traceMarkerIO :: String -> IO ()
 traceMarkerIO msg =
-  GHC.Foreign.withCString utf8 msg $ \(Ptr p) -> IO $ \s ->
+  withEventlog $ GHC.Foreign.withCString utf8 msg $ \(Ptr p) -> IO $ \s ->
     case traceMarker# p s of s' -> (# s', () #)
