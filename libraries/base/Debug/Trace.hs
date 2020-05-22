@@ -81,6 +81,7 @@ foreign import ccall "&eventlog_enabled" eventlog_enabled :: Ptr CBool
 -- if RTS eventlog (+RTS -l) is enabled.
 --
 -- @since 4.14.0.0
+{-# INLINE whenEventlog #-}
 whenEventlog :: IO () -> IO ()
 whenEventlog logAction = do
   ee <- peek eventlog_enabled
