@@ -271,7 +271,7 @@ traceStack str expr = unsafePerformIO $ do
 -- @since 4.5.0.0
 traceEvent :: String -> a -> a
 traceEvent msg expr = unsafeDupablePerformIO $ do
-    whenEventlog $ traceEventIO msg
+    traceEventIO msg
     return expr
 
 -- | The 'traceEventIO' function emits a message to the eventlog, if eventlog
@@ -321,7 +321,7 @@ traceEventIO msg =
 -- @since 4.7.0.0
 traceMarker :: String -> a -> a
 traceMarker msg expr = unsafeDupablePerformIO $ do
-    whenEventlog $ traceMarkerIO msg
+    traceMarkerIO msg
     return expr
 
 -- | The 'traceMarkerIO' function emits a marker to the eventlog, if eventlog
