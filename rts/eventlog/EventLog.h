@@ -15,6 +15,8 @@
 
 #include "BeginPrivate.h"
 
+extern bool eventlog_enabled;
+
 #if defined(TRACING)
 
 /*
@@ -22,7 +24,6 @@
  */
 extern char *EventTagDesc[];
 
-extern bool eventlog_enabled;
 
 void initEventLogging(void);
 void restartEventLogging(void);

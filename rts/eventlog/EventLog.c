@@ -26,7 +26,12 @@
 #include <unistd.h>
 #endif
 
+#endif /* TRACING */
+
+// for ghc-pkg is build without TRACING
 bool eventlog_enabled;
+
+#if defined(TRACING)
 
 static const EventLogWriter *event_log_writer = NULL;
 
