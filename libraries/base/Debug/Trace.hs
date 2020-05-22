@@ -46,7 +46,9 @@ module Debug.Trace (
 
 import System.IO.Unsafe
 
+import Foreign
 import Foreign.C.String
+import Foreign.C.Types
 import GHC.Base
 import qualified GHC.Foreign
 import GHC.IO.Encoding
@@ -72,6 +74,19 @@ import Data.List (null, partition)
 -- (that have no stderr) the output is directed to the Windows debug console.
 -- Some implementations of these functions may decorate the string that\'s
 -- output to indicate that you\'re tracing.
+
+foreign import ccall "&eventlog_enabled" eventlog_enabled :: Ptr CBool
+
+-- | The 'withEventlog' function evals argument action
+-- if RTS eventlog (+RTS -l) is enabled.
+--
+-- @since 4.14.0.0
+withEventlog :: IO () -> IO ()
+withEventlog logAction = do
+  ee <- peek eventlog_enabled
+  if toBool ee
+  then logAction
+  else return ()
 
 -- | The 'traceIO' function outputs the trace message from the IO monad.
 -- This sequences the output with respect to other IO actions.
