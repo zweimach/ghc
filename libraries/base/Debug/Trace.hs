@@ -53,6 +53,7 @@ import GHC.Base
 import qualified GHC.Foreign
 import GHC.IO.Encoding
 import GHC.Ptr
+import GHC.Real
 import GHC.Show
 import GHC.Stack
 import Data.List (null, partition)
@@ -75,7 +76,7 @@ import Data.List (null, partition)
 -- Some implementations of these functions may decorate the string that\'s
 -- output to indicate that you\'re tracing.
 
-foreign import ccall "&eventlog_enabled" eventlog_enabled :: Ptr CBool
+foreign import ccall "&TRACE_user" traceUser :: Ptr CBool
 
 -- | The 'whenEventlog' function evals argument action
 -- if RTS eventlog (+RTS -l) is enabled.
@@ -84,8 +85,8 @@ foreign import ccall "&eventlog_enabled" eventlog_enabled :: Ptr CBool
 {-# INLINE whenEventlog #-}
 whenEventlog :: IO () -> IO ()
 whenEventlog logAction = do
-  ee <- peek eventlog_enabled
-  if toBool ee
+  ee <- peek traceUser
+  if 0 < fromIntegral ee
   then logAction
   else return ()
 

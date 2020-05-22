@@ -33,7 +33,9 @@ int TRACE_gc;
 int TRACE_nonmoving_gc;
 int TRACE_spark_sampled;
 int TRACE_spark_full;
+#endif /* TRACING */
 int TRACE_user;
+#if defined(TRACING)
 int TRACE_cap;
 
 #if defined(THREADED_RTS)
