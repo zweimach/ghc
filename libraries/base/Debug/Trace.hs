@@ -94,7 +94,7 @@ whenEventlog logAction = do
 --
 -- @since 4.5.0.0
 traceIO :: String -> IO ()
-traceIO msg = whenEventlog $ do
+traceIO msg =
     withCString "%s\n" $ \cfmt -> do
      -- NB: debugBelch can't deal with null bytes, so filter them
      -- out so we don't accidentally truncate the message.  See #9395
