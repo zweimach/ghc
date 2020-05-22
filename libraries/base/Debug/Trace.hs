@@ -77,12 +77,12 @@ import Data.List (null, partition)
 
 foreign import ccall "&eventlog_enabled" eventlog_enabled :: Ptr CBool
 
--- | The 'withEventlog' function evals argument action
+-- | The 'whenEventlog' function evals argument action
 -- if RTS eventlog (+RTS -l) is enabled.
 --
 -- @since 4.14.0.0
-withEventlog :: IO () -> IO ()
-withEventlog logAction = do
+whenEventlog :: IO () -> IO ()
+whenEventlog logAction = do
   ee <- peek eventlog_enabled
   if toBool ee
   then logAction
@@ -93,7 +93,7 @@ withEventlog logAction = do
 --
 -- @since 4.5.0.0
 traceIO :: String -> IO ()
-traceIO msg = withEventlog $ do
+traceIO msg = whenEventlog $ do
     withCString "%s\n" $ \cfmt -> do
      -- NB: debugBelch can't deal with null bytes, so filter them
      -- out so we don't accidentally truncate the message.  See #9395
@@ -270,7 +270,7 @@ traceStack str expr = unsafePerformIO $ do
 -- @since 4.5.0.0
 traceEvent :: String -> a -> a
 traceEvent msg expr = unsafeDupablePerformIO $ do
-    withEventlog $ traceEventIO msg
+    whenEventlog $ traceEventIO msg
     return expr
 
 -- | The 'traceEventIO' function emits a message to the eventlog, if eventlog
@@ -282,7 +282,7 @@ traceEvent msg expr = unsafeDupablePerformIO $ do
 -- @since 4.5.0.0
 traceEventIO :: String -> IO ()
 traceEventIO msg =
-  withEventlog $ GHC.Foreign.withCString utf8 msg $ \(Ptr p) -> IO $ \s ->
+  whenEventlog $ GHC.Foreign.withCString utf8 msg $ \(Ptr p) -> IO $ \s ->
     case traceEvent# p s of s' -> (# s', () #)
 
 -- $markers
@@ -320,7 +320,7 @@ traceEventIO msg =
 -- @since 4.7.0.0
 traceMarker :: String -> a -> a
 traceMarker msg expr = unsafeDupablePerformIO $ do
-    withEventlog $ traceMarkerIO msg
+    whenEventlog $ traceMarkerIO msg
     return expr
 
 -- | The 'traceMarkerIO' function emits a marker to the eventlog, if eventlog
@@ -332,5 +332,5 @@ traceMarker msg expr = unsafeDupablePerformIO $ do
 -- @since 4.7.0.0
 traceMarkerIO :: String -> IO ()
 traceMarkerIO msg =
-  withEventlog $ GHC.Foreign.withCString utf8 msg $ \(Ptr p) -> IO $ \s ->
+  whenEventlog $ GHC.Foreign.withCString utf8 msg $ \(Ptr p) -> IO $ \s ->
     case traceMarker# p s of s' -> (# s', () #)
