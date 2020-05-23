@@ -57,8 +57,10 @@ extern "C" {
 // library.
 #if defined(HAS_VISIBILITY_HIDDEN)
 #define RTS_PRIVATE  GNUC3_ATTRIBUTE(visibility("hidden"))
+#define RTS_DEFAULT  GNUC3_ATTRIBUTE(visibility("default"))
 #else
 #define RTS_PRIVATE  /* disabled: RTS_PRIVATE */
+#define RTS_DEFAULT
 #endif
 
 #if __GNUC__ >= 4
