@@ -34,7 +34,7 @@ int TRACE_nonmoving_gc;
 int TRACE_spark_sampled;
 int TRACE_spark_full;
 #endif /* TRACING */
-int TRACE_user;
+RTS_DEFAULT int TRACE_user; // used in Debug.Trace
 #if defined(TRACING)
 int TRACE_cap;
 
