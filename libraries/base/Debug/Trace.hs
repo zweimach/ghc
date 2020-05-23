@@ -76,7 +76,7 @@ import Data.List (null, partition)
 -- Some implementations of these functions may decorate the string that\'s
 -- output to indicate that you\'re tracing.
 
-foreign import ccall "&TRACE_user" traceUser :: Ptr CBool
+foreign import ccall "&TRACE_user" traceUser :: Ptr CInt
 
 -- | The 'whenEventlog' function evals argument action
 -- if RTS eventlog (+RTS -l) is enabled.
@@ -86,7 +86,7 @@ foreign import ccall "&TRACE_user" traceUser :: Ptr CBool
 whenEventlog :: IO () -> IO ()
 whenEventlog logAction = do
   ee <- peek traceUser
-  if 0 < fromIntegral ee
+  if 0 < (fromIntegral ee :: Int)
   then logAction
   else return ()
 
