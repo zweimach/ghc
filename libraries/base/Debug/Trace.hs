@@ -78,8 +78,8 @@ import Data.List (null, partition)
 
 foreign import ccall "&TRACE_user" traceUser :: Ptr CInt
 
--- | The 'whenEventlog' function evals argument action
--- if RTS eventlog (+RTS -l) is enabled.
+-- | The 'whenEventlog' function runs the argument action
+-- if eventlogging (+RTS -l) is enabled.
 --
 -- @since 4.14.0.0
 {-# INLINE whenEventlog #-}
