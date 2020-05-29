@@ -46,14 +46,13 @@ module Debug.Trace (
 
 import System.IO.Unsafe
 
-import Foreign
+import Control.Monad ((<$!>))
 import Foreign.C.String
-import Foreign.C.Types
 import GHC.Base
 import qualified GHC.Foreign
 import GHC.IO.Encoding
 import GHC.Ptr
-import GHC.Real
+import GHC.RTS.Flags
 import GHC.Show
 import GHC.Stack
 import Data.List (null, partition)
@@ -76,7 +75,8 @@ import Data.List (null, partition)
 -- Some implementations of these functions may decorate the string that\'s
 -- output to indicate that you\'re tracing.
 
-foreign import ccall "&TRACE_user" traceUser :: Ptr CInt
+userTracingEnabled :: Bool
+userTracingEnabled = unsafeDupablePerformIO $ user <$!> inline getTraceFlags
 
 -- | The 'whenEventlog' function runs the argument action
 -- if eventlogging (+RTS -l) is enabled.
@@ -85,8 +85,7 @@ foreign import ccall "&TRACE_user" traceUser :: Ptr CInt
 {-# INLINE whenEventlog #-}
 whenEventlog :: IO () -> IO ()
 whenEventlog logAction = do
-  ee <- peek traceUser
-  if 0 < (fromIntegral ee :: Int)
+  if userTracingEnabled
   then logAction
   else return ()
 
