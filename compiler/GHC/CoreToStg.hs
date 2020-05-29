@@ -1,4 +1,4 @@
-{-# LANGUAGE CPP, DeriveFunctor #-}
+{-# LANGUAGE CPP, DeriveFunctor, TupleSections #-}
 
 --
 -- (c) The GRASP/AQUA Project, Glasgow University, 1993-1998
@@ -33,7 +33,7 @@ import GHC.Core.DataCon
 import GHC.Types.CostCentre
 import GHC.Types.Var.Env
 import GHC.Unit.Module
-import GHC.Types.Name   ( isExternalName, nameModule_maybe )
+import GHC.Types.Name   ( getName, getOccName, occNameString, nameSrcSpan, isExternalName, nameModule_maybe )
 import GHC.Types.Basic  ( Arity )
 import GHC.Builtin.Types ( unboxedUnitDataCon, unitDataConId )
 import GHC.Types.Literal
@@ -48,6 +48,7 @@ import GHC.Types.Demand    ( isUsedOnce )
 import GHC.Builtin.PrimOps ( PrimCall(..), primOpWrapperId )
 import GHC.Types.SrcLoc    ( mkGeneralSrcSpan )
 import GHC.Builtin.Names   ( unsafeEqualityProofName )
+import GHC.Data.Maybe
 
 import Data.List.NonEmpty (nonEmpty, toList)
 import Data.Maybe    (fromMaybe)
@@ -229,12 +230,12 @@ import GHC.Types.SrcLoc
 
 
 coreToStg :: DynFlags -> Module -> CoreProgram
-          -> ([StgTopBinding], DCMap, CollectedCCs)
+          -> ([StgTopBinding], InfoTableProvMap, CollectedCCs)
 coreToStg dflags this_mod pgm
   = (pgm', denv, final_ccs)
   where
     (_, denv, (local_ccs, local_cc_stacks), pgm')
-      = coreTopBindsToStg dflags this_mod emptyVarEnv emptyUniqMap emptyCollectedCCs pgm
+      = coreTopBindsToStg dflags this_mod emptyVarEnv emptyInfoTableProvMap emptyCollectedCCs pgm
 
     prof = WayProf `Set.member` ways dflags
 
@@ -252,10 +253,10 @@ coreTopBindsToStg
     :: DynFlags
     -> Module
     -> IdEnv HowBound           -- environment for the bindings
-    -> DCMap
+    -> InfoTableProvMap
     -> CollectedCCs
     -> CoreProgram
-    -> (IdEnv HowBound, DCMap,CollectedCCs, [StgTopBinding])
+    -> (IdEnv HowBound, InfoTableProvMap,CollectedCCs, [StgTopBinding])
 
 coreTopBindsToStg _      _        env denv ccs []
   = (env, denv, ccs, [])
@@ -271,10 +272,10 @@ coreTopBindToStg
         :: DynFlags
         -> Module
         -> IdEnv HowBound
-        -> DCMap
+        -> InfoTableProvMap
         -> CollectedCCs
         -> CoreBind
-        -> (IdEnv HowBound, DCMap, CollectedCCs, StgTopBinding)
+        -> (IdEnv HowBound, InfoTableProvMap, CollectedCCs, StgTopBinding)
 
 coreTopBindToStg _ _ env dcenv ccs (NonRec id e)
   | Just str <- exprIsTickedString_maybe e
@@ -339,7 +340,9 @@ coreToTopStgRhs dflags ccs this_mod (bndr, rhs)
                mkTopStgRhs dflags this_mod ccs bndr new_rhs
              stg_arity =
                stgRhsArity stg_rhs
-
+       ; case stg_rhs of
+            StgRhsClosure {} -> recordStgIdPosition bndr (((, occNameString (getOccName bndr))) <$> (srcSpanToRealSrcSpan (nameSrcSpan (getName bndr))))
+            _ -> return ()
        ; return (ASSERT2( arity_ok stg_arity, mk_arity_msg stg_arity) stg_rhs,
                  ccs') }
   where
@@ -686,13 +689,16 @@ coreToStgRhs :: (Id,CoreExpr)
 
 coreToStgRhs (bndr, rhs) = do
     new_rhs <- coreToStgExpr rhs
+    recordStgIdPosition bndr (quickSourcePos rhs)
     return (mkStgRhs bndr new_rhs)
+
+quickSourcePos (Tick (SourceNote ss m) _) =  Just (ss, m)
+quickSourcePos _ = Nothing
 
 -- Generate a top-level RHS. Any new cost centres generated for CAFs will be
 -- appended to `CollectedCCs` argument.
 mkTopStgRhs :: DynFlags -> Module -> CollectedCCs
             -> Id -> StgExpr -> (StgRhs, CollectedCCs)
-
 mkTopStgRhs dflags this_mod ccs bndr rhs
   | StgLam bndrs body <- rhs
   = -- StgLam can't have empty arguments, so not CAF
@@ -833,7 +839,7 @@ isPAP env _               = False
 newtype CtsM a = CtsM
     { unCtsM :: DynFlags -- Needed for checking for bad coercions in coreToStgArgs
              -> IdEnv HowBound
-             -> RWS (Maybe (RealSrcSpan, String)) () DCMap a
+             -> RWS (Maybe (RealSrcSpan, String)) () InfoTableProvMap a
     }
     deriving (Functor)
 
@@ -869,7 +875,7 @@ data LetInfo
 
 -- The std monad functions:
 
-initCts :: DynFlags -> IdEnv HowBound -> DCMap -> CtsM a -> (a, DCMap)
+initCts :: DynFlags -> IdEnv HowBound -> InfoTableProvMap -> CtsM a -> (a, InfoTableProvMap)
 initCts dflags env u m =
   let (a, d, ()) = runRWS (unCtsM m dflags env) Nothing u
   in (a, d)
@@ -918,10 +924,18 @@ incDc :: DataCon -> CtsM Int
 incDc dc = CtsM $ \_ _ -> do
           env <- get
           cc <- ask
-          let env' = alterUniqMap (maybe (Just [(0, cc)]) (\xs@((k, _):_) -> Just ((k + 1, cc) : xs))) env dc
-          put env'
-          let Just r = lookupUniqMap env' dc
+          let dcMap' = alterUniqMap (maybe (Just [(0, cc)]) (\xs@((k, _):_) -> Just ((k + 1, cc) : xs))) (provDC env) dc
+          put (env { provDC = dcMap' })
+          let Just r = lookupUniqMap dcMap' dc
           return (fst (head r))
+
+recordStgIdPosition :: Id -> Maybe (RealSrcSpan, String) -> CtsM ()
+recordStgIdPosition id ss = CtsM $ \_ _ -> do
+  cc <- ask
+  pprTraceM "recordStgIdPosition" (ppr id $$ ppr cc $$ ppr ss)
+  case firstJust ss cc of
+    Nothing -> return ()
+    Just r -> modify (\env -> env { provClosure = addToUniqMap (provClosure env) id r})
 
 withSpan :: (RealSrcSpan, String) -> CtsM a -> CtsM a
 withSpan s (CtsM act) = CtsM (\a b -> local (const $ Just s) (act a b))

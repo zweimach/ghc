@@ -64,7 +64,7 @@ import Data.Maybe
 
 codeGen :: DynFlags
         -> Module
-        -> DCMap
+        -> InfoTableProvMap
         -> [TyCon]
         -> CollectedCCs                -- (Local/global) cost-centres needing declaring/registering.
         -> [CgStgTopBinding]           -- Bindings to convert
@@ -72,7 +72,7 @@ codeGen :: DynFlags
         -> Stream IO CmmGroup ()       -- Output as a stream, so codegen can
                                        -- be interleaved with output
 
-codeGen dflags this_mod dcmap@(UniqMap denv) data_tycons
+codeGen dflags this_mod (InfoTableProvMap (dcmap@(UniqMap denv)) _) data_tycons
         cost_centre_info stg_binds hpc_info
   = do  {     -- cg: run the code generator, and yield the resulting CmmGroup
               -- Using an IORef to store the state is a bit crude, but otherwise

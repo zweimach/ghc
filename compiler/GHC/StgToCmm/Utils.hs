@@ -45,7 +45,7 @@ module GHC.StgToCmm.Utils (
         emitUpdRemSetPush,
         emitUpdRemSetPushThunk,
 
-        convertDCMap
+        convertDCMap, convertClosureMap
   ) where
 
 #include "HsVersions.h"
@@ -91,6 +91,7 @@ import GHC.Types.Unique.Map
 import GHC.Types.Unique.FM
 import Data.Maybe
 import GHC.Core.DataCon
+import GHC.Types.Id
 
 
 -------------------------------------------------------------------------
@@ -632,11 +633,15 @@ emitUpdRemSetPushThunk ptr = do
       False
 
 
+convertClosureMap :: Module -> ClosureMap -> [InfoTableEnt]
+convertClosureMap this_mod (UniqMap denv) =
+  map (\(bndr, (ss, l)) -> InfoTableEnt (mkClosureTableLabel (idName bndr) (idCafInfo bndr)) (this_mod, ss, l)) (nonDetEltsUFM denv)
+
 convertDCMap :: Module -> DCMap -> [InfoTableEnt]
 convertDCMap this_mod (UniqMap denv) =
-  concatMap (\(dc, ns) -> mapMaybe (\(k, mss) -> 
+  concatMap (\(dc, ns) -> mapMaybe (\(k, mss) ->
       case mss of
         Nothing -> Nothing
-        Just (ss, l) -> Just $ 
-          InfoTableEnt (mkConInfoTableLabel (dataConName dc) (Just (this_mod, k)))  
+        Just (ss, l) -> Just $
+          InfoTableEnt (mkConInfoTableLabel (dataConName dc) (Just (this_mod, k)))
                        (this_mod, ss, l)) ns) (nonDetEltsUFM denv)

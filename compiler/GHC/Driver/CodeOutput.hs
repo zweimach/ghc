@@ -321,8 +321,8 @@ profilingInitCode dflags this_mod (local_CCs, singleton_CCSs)
 
 
 -- | Generate code to initialise info pointer origin
-ipInitCode :: DynFlags -> Module -> DCMap -> SDoc
-ipInitCode dflags this_mod dcmap
+ipInitCode :: DynFlags -> Module -> InfoTableProvMap -> SDoc
+ipInitCode dflags this_mod (InfoTableProvMap dcmap closure_map)
  = pprTraceIt "codeOutput" $ if not (gopt Opt_SccProfilingOn dflags)
    then empty
    else vcat
@@ -336,7 +336,9 @@ ipInitCode dflags this_mod dcmap
                  ])
        ]
  where
-   ents = convertDCMap this_mod dcmap
+   dc_ents = convertDCMap this_mod dcmap
+   closure_ents = convertClosureMap this_mod closure_map
+   ents = closure_ents ++ dc_ents
    emit_ipe_decl ipe =
        text "extern InfoProvEnt" <+> ipe_lbl <> text "[];"
      where ipe_lbl = ppr (mkIPELabel ipe)
