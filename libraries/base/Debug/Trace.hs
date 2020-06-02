@@ -75,19 +75,13 @@ import Data.List (null, partition)
 -- Some implementations of these functions may decorate the string that\'s
 -- output to indicate that you\'re tracing.
 
-userTracingEnabled :: Bool
-userTracingEnabled = unsafeDupablePerformIO $ user <$!> inline getTraceFlags
-
--- | The 'whenEventlog' function runs the argument action
+-- | The 'userTracingEnabled' function returns True
 -- if eventlogging (+RTS -l) is enabled.
+-- It doens't reflect following getTraceFlags updates.
 --
 -- @since 4.14.0.0
-{-# INLINE whenEventlog #-}
-whenEventlog :: IO () -> IO ()
-whenEventlog logAction = do
-  if userTracingEnabled
-  then logAction
-  else return ()
+userTracingEnabled :: Bool
+userTracingEnabled = unsafeDupablePerformIO $ user <$!> inline getTraceFlags
 
 -- | The 'traceIO' function outputs the trace message from the IO monad.
 -- This sequences the output with respect to other IO actions.
