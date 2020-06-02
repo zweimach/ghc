@@ -42,6 +42,8 @@ module Debug.Trace (
         -- $markers
         traceMarker,
         traceMarkerIO,
+
+        userTracingEnabled,
   ) where
 
 import System.IO.Unsafe
