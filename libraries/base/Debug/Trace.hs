@@ -277,8 +277,10 @@ traceEvent msg expr = unsafeDupablePerformIO $ do
 -- @since 4.5.0.0
 traceEventIO :: String -> IO ()
 traceEventIO msg =
-  whenEventlog $ GHC.Foreign.withCString utf8 msg $ \(Ptr p) -> IO $ \s ->
-    case traceEvent# p s of s' -> (# s', () #)
+  if userTracingEnabled
+     then GHC.Foreign.withCString utf8 msg $ \(Ptr p) -> IO $ \s ->
+            case traceEvent# p s of s' -> (# s', () #)
+     else return ()
 
 -- $markers
 --
@@ -327,5 +329,7 @@ traceMarker msg expr = unsafeDupablePerformIO $ do
 -- @since 4.7.0.0
 traceMarkerIO :: String -> IO ()
 traceMarkerIO msg =
-  whenEventlog $ GHC.Foreign.withCString utf8 msg $ \(Ptr p) -> IO $ \s ->
-    case traceMarker# p s of s' -> (# s', () #)
+  if userTracingEnabled
+     then GHC.Foreign.withCString utf8 msg $ \(Ptr p) -> IO $ \s ->
+            case traceMarker# p s of s' -> (# s', () #)
+     else return ()
