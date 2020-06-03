@@ -236,7 +236,6 @@ hadrian-ghc-in-ghci:
     - git submodule update --init --recursive
     - git checkout .gitmodules
   variables:
-    GHC_FLAGS: -Werror
   tags:
     - x86_64-linux
   script:
@@ -261,7 +260,6 @@ hadrian-ghc-in-ghci:
 .validate:
   variables:
     TEST_TYPE: test
-    MAKE_ARGS: "-Werror"
   script:
     - .gitlab/ci.sh setup
     - .gitlab/ci.sh configure
