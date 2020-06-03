@@ -72,7 +72,7 @@ codeGen :: DynFlags
         -> Stream IO CmmGroup ()       -- Output as a stream, so codegen can
                                        -- be interleaved with output
 
-codeGen dflags this_mod (InfoTableProvMap (dcmap@(UniqMap denv)) _) data_tycons
+codeGen dflags this_mod (InfoTableProvMap (dcmap@(UniqMap denv)) clmap) data_tycons
         cost_centre_info stg_binds hpc_info
   = do  {     -- cg: run the code generator, and yield the resulting CmmGroup
               -- Using an IORef to store the state is a bit crude, but otherwise
@@ -95,7 +95,9 @@ codeGen dflags this_mod (InfoTableProvMap (dcmap@(UniqMap denv)) _) data_tycons
                -- FIRST.  This is because when -split-objs is on we need to
                -- combine this block with its initialisation routines; see
                -- Note [pipeline-split-init].
-        ; cg (mkModuleInit cost_centre_info this_mod hpc_info (convertDCMap this_mod dcmap))
+        ; cg (mkModuleInit cost_centre_info this_mod hpc_info
+                (((convertDCMap this_mod dcmap))
+                 ++ (convertClosureMap this_mod clmap)))
 
         ; mapM_ (cg . cgTopBinding dflags) stg_binds
 
@@ -215,8 +217,8 @@ cgDataCon :: Maybe (Module, Int) -> Maybe (RealSrcSpan, String) -> DataCon -> FC
 -- the static closure, for a constructor.
 cgDataCon _ _ data_con | isUnboxedTupleCon data_con = return ()
 cgDataCon mn ms data_con
-  = do  {  pprTraceM "cgDataCon" (ppr mn <+> ppr ms <+> ppr data_con)
-        ; dflags <- getDynFlags
+  = do  { -- pprTraceM "cgDataCon" (ppr mn <+> ppr ms <+> ppr data_con)
+          dflags <- getDynFlags
         ; platform <- getPlatform
         ; let
             (tot_wds, --  #ptr_wds + #nonptr_wds

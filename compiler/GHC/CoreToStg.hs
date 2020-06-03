@@ -548,7 +548,7 @@ coreToStgApp f args ticks = do
             DataConWorkId dc
               | saturated    -> do
                   u <- incDc dc
-                  return $ StgConApp dc (Just u) args'
+                  return $ StgConApp dc u args' --(Just u) args'
                     (dropRuntimeRepArgs (fromMaybe [] (tyConAppArgs_maybe res_ty)))
 
             -- Some primitive operator that might be implemented as a library call.
@@ -920,19 +920,20 @@ lookupBinding env v = case lookupVarEnv env v of
                         Just xx -> xx
                         Nothing -> ASSERT2( isGlobalId v, ppr v ) ImportBound
 
-incDc :: DataCon -> CtsM Int
+incDc :: DataCon -> CtsM (Maybe Int)
+incDc dc | isUnboxedTupleCon dc = return Nothing
 incDc dc = CtsM $ \_ _ -> do
           env <- get
           cc <- ask
           let dcMap' = alterUniqMap (maybe (Just [(0, cc)]) (\xs@((k, _):_) -> Just ((k + 1, cc) : xs))) (provDC env) dc
           put (env { provDC = dcMap' })
-          let Just r = lookupUniqMap dcMap' dc
-          return (fst (head r))
+          let r = lookupUniqMap dcMap' dc
+          return (fst . head <$> r)
 
 recordStgIdPosition :: Id -> Maybe (RealSrcSpan, String) -> CtsM ()
 recordStgIdPosition id ss = CtsM $ \_ _ -> do
   cc <- ask
-  pprTraceM "recordStgIdPosition" (ppr id $$ ppr cc $$ ppr ss)
+  --pprTraceM "recordStgIdPosition" (ppr id $$ ppr cc $$ ppr ss)
   case firstJust ss cc of
     Nothing -> return ()
     Just r -> modify (\env -> env { provClosure = addToUniqMap (provClosure env) id r})

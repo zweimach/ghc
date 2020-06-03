@@ -672,6 +672,9 @@ data InfoTableEnt = InfoTableEnt { infoTablePtr :: CLabel
                                  , infoTableProv :: (Module, RealSrcSpan, String) }
                                  deriving (Eq, Ord)
 
+instance Outputable InfoTableEnt where
+  ppr (InfoTableEnt l p) = ppr l <> colon <> ppr p
+
 -- Constructing Cost Center Labels
 mkCCLabel  :: CostCentre      -> CLabel
 mkCCSLabel :: CostCentreStack -> CLabel

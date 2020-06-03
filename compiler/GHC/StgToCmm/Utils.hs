@@ -635,7 +635,7 @@ emitUpdRemSetPushThunk ptr = do
 
 convertClosureMap :: Module -> ClosureMap -> [InfoTableEnt]
 convertClosureMap this_mod (UniqMap denv) =
-  map (\(bndr, (ss, l)) -> InfoTableEnt (mkClosureTableLabel (idName bndr) (idCafInfo bndr)) (this_mod, ss, l)) (nonDetEltsUFM denv)
+  map (\(bndr, (ss, l)) -> InfoTableEnt (mkClosureLabel (idName bndr) (idCafInfo bndr)) (this_mod, ss, l)) (nonDetEltsUFM denv)
 
 convertDCMap :: Module -> DCMap -> [InfoTableEnt]
 convertDCMap this_mod (UniqMap denv) =

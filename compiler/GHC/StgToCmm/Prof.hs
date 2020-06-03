@@ -278,7 +278,8 @@ initInfoTableProv :: [InfoTableEnt] -> FCode ()
 -- Emit the declarations
 initInfoTableProv ents
   = do dflags <- getDynFlags
-       pprTraceM "initInfoTable" (ppr (length ents))
+--       pprTraceM "initInfoTable" (ppr (length ents))
+--       pprTraceM "initInfoTable" (vcat (map ppr ents))
        mapM_ emitInfoTableProv ents
 
 --- Info Table Prov stuff
