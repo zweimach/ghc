@@ -183,7 +183,7 @@ emitPrimOp dflags = \case
         , (mkIntExpr platform (nonHdrSizeW (arrPtrsRep dflags (fromInteger n))),
            fixedHdrSize dflags + oFFSET_StgMutArrPtrs_size dflags)
         ]
-        (fromInteger n) init
+        (replicate (fromIntegral n) init)
     _ -> PrimopCmmEmit_External
 
   CopyArrayOp -> \case
@@ -238,7 +238,7 @@ emitPrimOp dflags = \case
         [ (mkIntExpr platform (fromInteger n),
            fixedHdrSize dflags + oFFSET_StgSmallMutArrPtrs_ptrs dflags)
         ]
-        (fromInteger n) init
+        (replicate (fromIntegral n) init)
     _ -> PrimopCmmEmit_External
 
   CopySmallArrayOp -> \case
@@ -2534,10 +2534,9 @@ doNewArrayOp :: CmmFormal             -- ^ return register
              -> SMRep                 -- ^ representation of the array
              -> CLabel                -- ^ info pointer
              -> [(CmmExpr, ByteOff)]  -- ^ header payload
-             -> WordOff               -- ^ array size
-             -> CmmExpr               -- ^ initial element
+             -> [CmmExpr]             -- ^ initial elements
              -> FCode ()
-doNewArrayOp res_r rep info payload n init = do
+doNewArrayOp res_r rep info payload inits = do
     dflags <- getDynFlags
     platform <- getPlatform
 
@@ -2554,7 +2553,7 @@ doNewArrayOp res_r rep info payload n init = do
 
     -- Initialise all elements of the array
     let mkOff off = cmmOffsetW platform (CmmReg arr) (hdrSizeW dflags rep + off)
-        initialization = [ mkStore (mkOff off) init | off <- [0.. n - 1] ]
+        initialization = [ mkStore (mkOff off) init | (init, off) <- zip inits [0..] ]
     emit (catAGraphs initialization)
 
     emit $ mkAssign (CmmLocal res_r) (CmmReg arr)
