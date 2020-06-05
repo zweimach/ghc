@@ -266,9 +266,14 @@ traceStack str expr = unsafePerformIO $ do
 --
 -- @since 4.5.0.0
 traceEvent :: String -> a -> a
-traceEvent msg expr = unsafeDupablePerformIO $ do
-    traceEventIO msg
-    return expr
+traceEvent msg expr =
+    if userTracingEnabled
+    then
+        unsafeDupablePerformIO $ do
+            traceEventIO msg
+            return expr
+    else
+        expr
 
 -- | The 'traceEventIO' function emits a message to the eventlog, if eventlog
 -- profiling is available and enabled at runtime.
@@ -318,9 +323,14 @@ traceEventIO msg =
 --
 -- @since 4.7.0.0
 traceMarker :: String -> a -> a
-traceMarker msg expr = unsafeDupablePerformIO $ do
-    traceMarkerIO msg
-    return expr
+traceMarker msg expr =
+    if userTracingEnabled
+    then
+        unsafeDupablePerformIO $ do
+          traceMarkerIO msg
+          return expr
+    else
+        expr
 
 -- | The 'traceMarkerIO' function emits a marker to the eventlog, if eventlog
 -- profiling is available and enabled at runtime.
