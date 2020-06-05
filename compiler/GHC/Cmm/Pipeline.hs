@@ -21,6 +21,7 @@ import GHC.Cmm.ContFlowOpt
 import GHC.Cmm.LayoutStack
 import GHC.Cmm.Sink
 import GHC.Cmm.Dataflow.Collections
+import GHC.Types.Name.Set
 
 import GHC.Types.Unique.Supply
 import GHC.Driver.Session

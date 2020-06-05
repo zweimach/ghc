@@ -189,7 +189,7 @@ data CostCentreStack
 
 type DCMap = UniqMap DataCon [(Int, Maybe (RealSrcSpan, String))]
 
-type ClosureMap = UniqMap Id (RealSrcSpan, String)
+type ClosureMap = UniqMap Name (RealSrcSpan, String)
 
 data InfoTableProvMap = InfoTableProvMap
                           { provDC  :: DCMap

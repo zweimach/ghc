@@ -92,6 +92,7 @@ import GHC.Types.Unique.FM
 import Data.Maybe
 import GHC.Core.DataCon
 import GHC.Types.Id
+import GHC.Types.Name.Set
 
 
 -------------------------------------------------------------------------
@@ -633,9 +634,12 @@ emitUpdRemSetPushThunk ptr = do
       False
 
 
-convertClosureMap :: Module -> ClosureMap -> [InfoTableEnt]
-convertClosureMap this_mod (UniqMap denv) =
-  map (\(bndr, (ss, l)) -> InfoTableEnt (mkClosureLabel (idName bndr) (idCafInfo bndr)) (this_mod, ss, l)) (nonDetEltsUFM denv)
+convertClosureMap :: [CLabel] -> Module -> ClosureMap -> [InfoTableEnt]
+convertClosureMap defns this_mod denv =
+  mapMaybe (\cl -> do
+    n <- hasHaskellName cl
+    (ss, l) <- lookupUniqMap denv n
+    return (InfoTableEnt cl (this_mod, ss, l))) defns
 
 convertDCMap :: Module -> DCMap -> [InfoTableEnt]
 convertDCMap this_mod (UniqMap denv) =

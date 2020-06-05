@@ -89,11 +89,11 @@ cgTopRhsClosure dflags rec id ccs upd_flag args body =
   -- hole detection from working in that case.  Test
   -- concurrent/should_run/4030 fails, for instance.
   --
-  gen_code _ _ closure_label
-    | StgApp f [] <- body, null args, isNonRec rec
-    = do
-         cg_info <- getCgIdInfo f
-         emitDataCon closure_label indStaticInfoTable ccs [unLit (idInfoToAmode cg_info)]
+  --gen_code _ _ closure_label
+  -- | StgApp f [] <- body, null args, isNonRec rec
+  -- = do
+  --      cg_info <- getCgIdInfo f
+   --      emitDataCon closure_label indStaticInfoTable ccs [unLit (idInfoToAmode cg_info)]
 
   gen_code dflags lf_info _closure_label
    = do { let name = idName id
@@ -124,14 +124,16 @@ cgTopRhsClosure dflags rec id ccs upd_flag args body =
 
 cgBind :: CgStgBinding -> FCode ()
 cgBind (StgNonRec name rhs)
-  = do  { (info, fcode) <- cgRhs name rhs
+  = do  { --pprTraceM "cgBind" (ppr name)
+        ; (info, fcode) <- cgRhs name rhs
         ; addBindC info
         ; init <- fcode
         ; emit init }
         -- init cannot be used in body, so slightly better to sink it eagerly
 
 cgBind (StgRec pairs)
-  = do  {  r <- sequence $ unzipWith cgRhs pairs
+  = do  { --pprTraceM "cgBindRec" (ppr $ map fst pairs)
+        ; r <- sequence $ unzipWith cgRhs pairs
         ;  let (id_infos, fcodes) = unzip r
         ;  addBindsC id_infos
         ;  (inits, body) <- getCodeR $ sequence fcodes
@@ -314,7 +316,7 @@ mkRhsClosure    dflags bndr _cc
   , idArity fun_id == unknownArity -- don't spoil a known call
 
           -- Ha! an Ap thunk
-  = cgRhsStdThunk bndr lf_info payload
+  = pprTrace "AP" (ppr bndr) cgRhsStdThunk bndr lf_info payload
 
   where
     n_fvs   = length fvs
@@ -340,7 +342,7 @@ mkRhsClosure dflags bndr cc fvs upd_flag args body
         -- stored in the closure itself, so it will make sure that
         -- Node points to it...
         ; let   reduced_fvs = filter (NonVoid bndr /=) fvs
-
+        ; -- pprTraceM "DEF" (ppr bndr)
         -- MAKE CLOSURE INFO FOR THIS CLOSURE
         ; mod_name <- getModuleName
         ; let   name  = idName bndr

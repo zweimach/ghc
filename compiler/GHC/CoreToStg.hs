@@ -689,8 +689,12 @@ coreToStgRhs :: (Id,CoreExpr)
 
 coreToStgRhs (bndr, rhs) = do
     new_rhs <- coreToStgExpr rhs
-    recordStgIdPosition bndr (quickSourcePos rhs)
-    return (mkStgRhs bndr new_rhs)
+    let new_stg_rhs = (mkStgRhs bndr new_rhs)
+    case new_stg_rhs of
+      StgRhsClosure {} -> recordStgIdPosition bndr (((, occNameString (getOccName bndr))) <$> (srcSpanToRealSrcSpan (nameSrcSpan (getName bndr))))
+      _ -> return ()
+    return new_stg_rhs
+
 
 quickSourcePos (Tick (SourceNote ss m) _) =  Just (ss, m)
 quickSourcePos _ = Nothing
@@ -936,7 +940,7 @@ recordStgIdPosition id ss = CtsM $ \_ _ -> do
   --pprTraceM "recordStgIdPosition" (ppr id $$ ppr cc $$ ppr ss)
   case firstJust ss cc of
     Nothing -> return ()
-    Just r -> modify (\env -> env { provClosure = addToUniqMap (provClosure env) id r})
+    Just r -> modify (\env -> env { provClosure = addToUniqMap (provClosure env) (idName id) r})
 
 withSpan :: (RealSrcSpan, String) -> CtsM a -> CtsM a
 withSpan s (CtsM act) = CtsM (\a b -> local (const $ Just s) (act a b))

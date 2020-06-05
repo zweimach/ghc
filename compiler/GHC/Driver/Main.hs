@@ -151,6 +151,7 @@ import GHC.Runtime.Loader   ( initializePlugins )
 
 import GHC.Driver.Session
 import GHC.Utils.Error
+import Data.IORef
 
 import GHC.Utils.Outputable
 import GHC.Types.Name.Env
@@ -1419,11 +1420,9 @@ hscGenHardCode hsc_env cgguts location output_filename = do
         let cost_centre_info =
               (S.toList local_ccs ++ caf_ccs, caf_cc_stacks)
             prof_init = profilingInitCode dflags this_mod cost_centre_info
-            ip_init = ipInitCode dflags this_mod denv
-            foreign_stubs = foreign_stubs0 `appendStubC` prof_init `appendStubC` ip_init
 
         ------------------  Code generation ------------------
-
+        lref <- newIORef []
         -- The back-end is streamed: each top-level function goes
         -- from Stg all the way to asm before dealing with the next
         -- top-level function, so showPass isn't very useful here.
@@ -1435,7 +1434,7 @@ hscGenHardCode hsc_env cgguts location output_filename = do
             cmms <- {-# SCC "StgToCmm" #-}
                             doCodeGen hsc_env this_mod denv data_tycons
                                 cost_centre_info
-                                stg_binds hpc_info
+                                stg_binds hpc_info lref
 
             ------------------  Code output -----------------------
             rawcmms0 <- {-# SCC "cmmToRawCmm" #-}
@@ -1448,10 +1447,16 @@ hscGenHardCode hsc_env cgguts location output_filename = do
                   return a
                 rawcmms1 = Stream.mapM dump rawcmms0
 
+            let foreign_stubs = do
+                  used_info <- readIORef lref
+                  pprTraceM "used_info" (ppr (length used_info))
+                  let ip_init = ipInitCode used_info dflags this_mod denv
+                  return $ foreign_stubs0 `appendStubC` prof_init `appendStubC` ip_init
+
             (output_filename, (_stub_h_exists, stub_c_exists), foreign_fps, caf_infos)
                 <- {-# SCC "codeOutput" #-}
                   codeOutput dflags this_mod output_filename location
-                  foreign_stubs foreign_files dependencies rawcmms1
+                  foreign_files dependencies foreign_stubs rawcmms1
             return (output_filename, stub_c_exists, foreign_fps, caf_infos)
 
 
@@ -1513,7 +1518,7 @@ hscCompileCmmFile hsc_env filename output_filename = runHsc hsc_env $ do
             FormatCMM (ppr cmmgroup)
         rawCmms <- lookupHook cmmToRawCmmHook
                      (\dflgs _ -> cmmToRawCmm dflgs) dflags dflags Nothing (Stream.yield cmmgroup)
-        _ <- codeOutput dflags cmm_mod output_filename no_loc NoStubs [] []
+        _ <- codeOutput dflags cmm_mod output_filename no_loc [] [] (return NoStubs)
              rawCmms
         return ()
   where
@@ -1546,23 +1551,23 @@ doCodeGen   :: HscEnv -> Module -> InfoTableProvMap -> [TyCon]
             -> CollectedCCs
             -> [StgTopBinding]
             -> HpcInfo
+            -> IORef [CLabel]
             -> IO (Stream IO CmmGroupSRTs NameSet)
          -- Note we produce a 'Stream' of CmmGroups, so that the
          -- backend can be run incrementally.  Otherwise it generates all
          -- the C-- up front, which has a significant space cost.
 doCodeGen hsc_env this_mod denv data_tycons
-              cost_centre_info stg_binds hpc_info = do
+              cost_centre_info stg_binds hpc_info lref = do
     let dflags = hsc_dflags hsc_env
 
     let stg_binds_w_fvs = annTopBindingsFreeVars stg_binds
 
     dumpIfSet_dyn dflags Opt_D_dump_stg_final "Final STG:" FormatSTG (pprGenStgTopBindings stg_binds_w_fvs)
-
     let cmm_stream :: Stream IO CmmGroup ()
         -- See Note [Forcing of stg_binds]
         cmm_stream = stg_binds_w_fvs `seqList` {-# SCC "StgToCmm" #-}
             lookupHook stgToCmmHook StgToCmm.codeGen dflags dflags this_mod denv data_tycons
-                           cost_centre_info stg_binds_w_fvs hpc_info
+                           cost_centre_info stg_binds_w_fvs hpc_info lref
 
         -- codegen consumes a stream of CmmGroup, and produces a new
         -- stream of CmmGroup (not necessarily synchronised: one

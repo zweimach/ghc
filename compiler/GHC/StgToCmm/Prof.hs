@@ -44,6 +44,11 @@ import GHC.Driver.Session
 import GHC.Data.FastString
 import GHC.Unit.Module as Module
 import GHC.Utils.Outputable
+import GHC.Types.Var.Env
+import GHC.Types.Unique.FM
+import GHC.Types.Unique.Set
+import Control.Monad.IO.Class
+import Data.IORef
 
 import Control.Monad
 import Data.Char (ord)
@@ -274,12 +279,20 @@ sizeof_ccs_words dflags
    (ws,ms) = sIZEOF_CostCentreStack dflags `divMod` platformWordSizeInBytes platform
 
 
-initInfoTableProv :: [InfoTableEnt] -> FCode ()
+initInfoTableProv ::  InfoTableProvMap -> Module -> FCode ()
 -- Emit the declarations
-initInfoTableProv ents
+initInfoTableProv (InfoTableProvMap dcmap clmap) this_mod
   = do dflags <- getDynFlags
---       pprTraceM "initInfoTable" (ppr (length ents))
---       pprTraceM "initInfoTable" (vcat (map ppr ents))
+       binds <- getBinds
+       infos <- getUsedInfo
+
+       let ents = (((convertDCMap this_mod dcmap))
+                   ++ (convertClosureMap infos this_mod clmap))
+       pprTraceM "binds" (ppr (sizeUFM binds))
+
+       pprTraceM "UsedInfo" (ppr (length infos))
+
+       pprTraceM "initInfoTable" (ppr (length ents))
        mapM_ emitInfoTableProv ents
 
 --- Info Table Prov stuff

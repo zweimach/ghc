@@ -1092,7 +1092,7 @@ labelDynamic config this_mod lbl =
 
    -- CCS_Label always contains a CostCentre defined in the current module
    CCS_Label _ -> False
-   IPE_Label {} -> False
+   IPE_Label {} -> True
 
    HpcTicksLabel m ->
      externalDynamicRefs && this_mod /= m
@@ -1316,7 +1316,7 @@ pprCLbl dflags = \case
 
    (CC_Label cc)       -> ppr cc
    (CCS_Label ccs)     -> ppr ccs
-   (IPE_Label (InfoTableEnt l _)) -> ppr l <> text "_ipe"
+   (IPE_Label (InfoTableEnt l (m, _, _))) -> pprCode CStyle (ppr l) <> text "_" <> ppr m <> text "_ipe"
    (HpcTicksLabel mod) -> text "_hpc_tickboxes_"  <> ppr mod <> ptext (sLit "_hpc")
 
    (AsmTempLabel {})        -> panic "pprCLbl AsmTempLabel"

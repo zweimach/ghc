@@ -20,7 +20,7 @@ Executable check-api-annotations
 
     Main-Is: Main.hs
 
-    Ghc-Options: -Wall
+    Ghc-Options: -Wall -g3 -ddump-cmm -ddump-stg -fforce-recomp
 
     Build-Depends: base       >= 4   && < 5,
                    containers,

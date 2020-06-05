@@ -87,7 +87,8 @@ cgExpr (StgLit lit)       = do cmm_lit <- cgLit lit
 
 cgExpr (StgLet _ binds expr) = do { cgBind binds;     cgExpr expr }
 cgExpr (StgLetNoEscape _ binds expr) =
-  do { u <- newUnique
+  do { -- pprTraceM "JOIN" (ppr binds)
+     ; u <- newUnique
      ; let join_id = mkBlockId u
      ; cgLneBinds join_id binds
      ; r <- cgExpr expr

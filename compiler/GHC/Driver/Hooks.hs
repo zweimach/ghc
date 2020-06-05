@@ -57,6 +57,9 @@ import GHC.Cmm
 import GHC.Hs.Extension
 import GHC.Types.Unique.Map
 import GHC.Core.DataCon
+import GHC.Types.Name.Set
+import Data.IORef
+import GHC.Cmm.CLabel
 
 import Data.Maybe
 
@@ -112,7 +115,7 @@ data Hooks = Hooks
   , createIservProcessHook :: Maybe (CreateProcess -> IO ProcessHandle)
   , stgToCmmHook           :: Maybe (DynFlags -> Module -> InfoTableProvMap -> [TyCon] -> CollectedCCs
 
-                                 -> [CgStgTopBinding] -> HpcInfo -> Stream IO CmmGroup ())
+                                 -> [CgStgTopBinding] -> HpcInfo -> IORef [CLabel] -> Stream IO CmmGroup ())
   , cmmToRawCmmHook        :: forall a . Maybe (DynFlags -> Maybe Module -> Stream IO CmmGroupSRTs a
                                  -> IO (Stream IO RawCmmGroup a))
   }

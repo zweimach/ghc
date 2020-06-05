@@ -48,6 +48,7 @@ import GHC.Types.Basic
 import GHC.Types.Var.Set ( isEmptyDVarSet )
 import GHC.SysTools.FileCleanup
 import GHC.Types.Unique.FM
+import GHC.Types.Name.Set
 
 import GHC.Data.OrdList
 import GHC.Cmm.Graph
@@ -69,11 +70,12 @@ codeGen :: DynFlags
         -> CollectedCCs                -- (Local/global) cost-centres needing declaring/registering.
         -> [CgStgTopBinding]           -- Bindings to convert
         -> HpcInfo
+        -> IORef [CLabel]
         -> Stream IO CmmGroup ()       -- Output as a stream, so codegen can
                                        -- be interleaved with output
 
-codeGen dflags this_mod (InfoTableProvMap (dcmap@(UniqMap denv)) clmap) data_tycons
-        cost_centre_info stg_binds hpc_info
+codeGen dflags this_mod ip_map@(InfoTableProvMap (dcmap@(UniqMap denv)) _) data_tycons
+        cost_centre_info stg_binds hpc_info lref
   = do  {     -- cg: run the code generator, and yield the resulting CmmGroup
               -- Using an IORef to store the state is a bit crude, but otherwise
               -- we would need to add a state monad layer.
@@ -88,19 +90,19 @@ codeGen dflags this_mod (InfoTableProvMap (dcmap@(UniqMap denv)) clmap) data_tyc
                          -- a big space leak.  DO NOT REMOVE!
                          writeIORef cgref $! st'{ cgs_tops = nilOL,
                                                   cgs_stmts = mkNop }
-                         return a
+                         return a --cgs_used_info st')
                 yield cmm
 
                -- Note [codegen-split-init] the cmm_init block must come
                -- FIRST.  This is because when -split-objs is on we need to
                -- combine this block with its initialisation routines; see
                -- Note [pipeline-split-init].
-        ; cg (mkModuleInit cost_centre_info this_mod hpc_info
-                (((convertDCMap this_mod dcmap))
-                 ++ (convertClosureMap this_mod clmap)))
+        ; cg (mkModuleInit cost_centre_info this_mod hpc_info [])
 
         ; mapM_ (cg . cgTopBinding dflags) stg_binds
-
+        ; cgs <- liftIO (readIORef  cgref)
+        ; liftIO $ writeIORef lref (cgs_used_info cgs)
+        ; cg (initInfoTableProv ip_map this_mod)
                 -- Put datatype_stuff after code_stuff, because the
                 -- datatype closure table (for enumeration types) to
                 -- (say) PrelBase_True_closure, which is defined in
@@ -170,6 +172,7 @@ cgTopBinding dflags (StgTopStringLit id str) = do
 cgTopRhs :: DynFlags -> RecFlag -> Id -> CgStgRhs -> (CgIdInfo, FCode ())
         -- The Id is passed along for setting up a binding...
 
+--cgTopRhs _ _ bndr _ | pprTrace "cgTopRhs" (ppr bndr) False = undefined
 cgTopRhs dflags _rec bndr (StgRhsCon _cc con mn args)
   = cgTopRhsCon dflags bndr con mn (assertNonVoidStgArgs args)
       -- con args are always non-void,
@@ -194,7 +197,7 @@ mkModuleInit
 mkModuleInit cost_centre_info this_mod hpc_info info_ents
   = do  { initHpc this_mod hpc_info
         ; initCostCentres cost_centre_info
-        ; initInfoTableProv info_ents
+       -- ; initInfoTableProv info_ents
         }
 
 

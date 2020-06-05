@@ -42,11 +42,13 @@ import GHC.Utils.Outputable
 import GHC.Unit
 import GHC.Types.SrcLoc
 import GHC.Types.CostCentre
+import GHC.Types.Name.Set
 
 import Control.Exception
 import System.Directory
 import System.FilePath
 import System.IO
+import Data.IORef
 
 {-
 ************************************************************************
@@ -60,17 +62,17 @@ codeOutput :: DynFlags
            -> Module
            -> FilePath
            -> ModLocation
-           -> ForeignStubs
            -> [(ForeignSrcLang, FilePath)]
            -- ^ additional files to be compiled with with the C compiler
            -> [UnitId]
+           -> IO ForeignStubs
            -> Stream IO RawCmmGroup a                       -- Compiled C--
            -> IO (FilePath,
                   (Bool{-stub_h_exists-}, Maybe FilePath{-stub_c_exists-}),
                   [(ForeignSrcLang, FilePath)]{-foreign_fps-},
                   a)
 
-codeOutput dflags this_mod filenm location foreign_stubs foreign_fps pkg_deps
+codeOutput dflags this_mod filenm location foreign_fps pkg_deps genForeignStubs
   cmm_stream
   =
     do  {
@@ -97,7 +99,6 @@ codeOutput dflags this_mod filenm location foreign_stubs foreign_fps pkg_deps
                 ; return cmm
                 }
 
-        ; stubs_exist <- outputForeignStubs dflags this_mod location foreign_stubs
         ; a <- case hscTarget dflags of
                  HscAsm         -> outputAsm dflags this_mod location filenm
                                              linted_cmm_stream
@@ -105,6 +106,8 @@ codeOutput dflags this_mod filenm location foreign_stubs foreign_fps pkg_deps
                  HscLlvm        -> outputLlvm dflags filenm linted_cmm_stream
                  HscInterpreted -> panic "codeOutput: HscInterpreted"
                  HscNothing     -> panic "codeOutput: HscNothing"
+        ; stubs <- genForeignStubs
+        ; stubs_exist <- outputForeignStubs dflags this_mod location stubs
         ; return (filenm, stubs_exist, foreign_fps, a)
         }
 
@@ -321,11 +324,11 @@ profilingInitCode dflags this_mod (local_CCs, singleton_CCSs)
 
 
 -- | Generate code to initialise info pointer origin
-ipInitCode :: DynFlags -> Module -> InfoTableProvMap -> SDoc
-ipInitCode dflags this_mod (InfoTableProvMap dcmap closure_map)
- = pprTraceIt "codeOutput" $ if not (gopt Opt_SccProfilingOn dflags)
-   then empty
-   else vcat
+ipInitCode :: [CLabel] -> DynFlags -> Module -> InfoTableProvMap -> SDoc
+ipInitCode used_info dflags this_mod (InfoTableProvMap dcmap closure_map)
+ = if not (gopt Opt_SccProfilingOn dflags)
+    then empty
+    else withPprStyle (mkCodeStyle CStyle) $ pprTraceIt "ipInitCode" $ vcat
     $  map emit_ipe_decl ents
     ++ [emit_ipe_list ents]
     ++ [ text "static void ip_init_" <> ppr this_mod
@@ -337,7 +340,7 @@ ipInitCode dflags this_mod (InfoTableProvMap dcmap closure_map)
        ]
  where
    dc_ents = convertDCMap this_mod dcmap
-   closure_ents = convertClosureMap this_mod closure_map
+   closure_ents = convertClosureMap used_info this_mod closure_map
    ents = closure_ents ++ dc_ents
    emit_ipe_decl ipe =
        text "extern InfoProvEnt" <+> ipe_lbl <> text "[];"
