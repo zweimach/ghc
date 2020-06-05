@@ -48,7 +48,7 @@ module Debug.Trace (
 
 import System.IO.Unsafe
 
-import Control.Monad ((<$!>))
+import Control.Monad ((<$!>), when)
 import Foreign.C.String
 import GHC.Base
 import qualified GHC.Foreign
@@ -279,10 +279,10 @@ traceEvent msg expr = unsafeDupablePerformIO $ do
 -- @since 4.5.0.0
 traceEventIO :: String -> IO ()
 traceEventIO msg =
-  if userTracingEnabled
-     then GHC.Foreign.withCString utf8 msg $ \(Ptr p) -> IO $ \s ->
-            case traceEvent# p s of s' -> (# s', () #)
-     else return ()
+  when userTracingEnabled
+       (GHC.Foreign.withCString utf8 msg $ \(Ptr p) -> IO $ \s ->
+            case traceEvent# p s of s' -> (# s', () #))
+
 
 -- $markers
 --
@@ -331,7 +331,6 @@ traceMarker msg expr = unsafeDupablePerformIO $ do
 -- @since 4.7.0.0
 traceMarkerIO :: String -> IO ()
 traceMarkerIO msg =
-  if userTracingEnabled
-     then GHC.Foreign.withCString utf8 msg $ \(Ptr p) -> IO $ \s ->
-            case traceMarker# p s of s' -> (# s', () #)
-     else return ()
+  when userTracingEnabled
+       (GHC.Foreign.withCString utf8 msg $ \(Ptr p) -> IO $ \s ->
+            case traceMarker# p s of s' -> (# s', () #))
