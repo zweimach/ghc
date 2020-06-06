@@ -115,7 +115,7 @@ data Hooks = Hooks
   , createIservProcessHook :: Maybe (CreateProcess -> IO ProcessHandle)
   , stgToCmmHook           :: Maybe (DynFlags -> Module -> InfoTableProvMap -> [TyCon] -> CollectedCCs
 
-                                 -> [CgStgTopBinding] -> HpcInfo -> IORef [CLabel] -> Stream IO CmmGroup ())
+                                 -> [CgStgTopBinding] -> HpcInfo -> IORef [CmmInfoTable] -> Stream IO CmmGroup ())
   , cmmToRawCmmHook        :: forall a . Maybe (DynFlags -> Maybe Module -> Stream IO CmmGroupSRTs a
                                  -> IO (Stream IO RawCmmGroup a))
   }

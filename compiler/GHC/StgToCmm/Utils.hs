@@ -634,12 +634,14 @@ emitUpdRemSetPushThunk ptr = do
       False
 
 
-convertClosureMap :: [CLabel] -> Module -> ClosureMap -> [InfoTableEnt]
+convertClosureMap :: [CmmInfoTable] -> Module -> ClosureMap -> [InfoTableEnt]
 convertClosureMap defns this_mod denv =
-  mapMaybe (\cl -> do
+  mapMaybe (\cmit -> do
+    let cl = cit_lbl cmit
+        cn  = rtsClosureType (cit_rep cmit)
     n <- hasHaskellName cl
     (ss, l) <- lookupUniqMap denv n
-    return (InfoTableEnt cl (this_mod, ss, l))) defns
+    return (InfoTableEnt cl cn (this_mod, ss, l))) defns
 
 convertDCMap :: Module -> DCMap -> [InfoTableEnt]
 convertDCMap this_mod (UniqMap denv) =
@@ -648,4 +650,4 @@ convertDCMap this_mod (UniqMap denv) =
         Nothing -> Nothing
         Just (ss, l) -> Just $
           InfoTableEnt (mkConInfoTableLabel (dataConName dc) (Just (this_mod, k)))
-                       (this_mod, ss, l)) ns) (nonDetEltsUFM denv)
+                       0 (this_mod, ss, l)) ns) (nonDetEltsUFM denv)

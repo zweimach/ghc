@@ -74,6 +74,8 @@ typedef struct CostCentreStack_ {
 
 
 typedef struct InfoProv_{
+    char * table_name;
+    char * closure_desc;
     char * label;
     char * module;
     char * srcloc;

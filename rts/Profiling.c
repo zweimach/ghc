@@ -154,7 +154,7 @@ dumpIPEToEventLog(void)
     InfoProvEnt *ip, *next;
     for (ip = IPE_LIST; ip != NULL; ip = next) {
         next = ip->link;
-        traceIPE(ip->info, ip->prov.label, 
+        traceIPE(ip->info, ip->prov.table_name, ip->prov.closure_desc, ip->prov.label,
                 ip->prov.module, ip->prov.srcloc);
     }
 #endif
@@ -358,6 +358,7 @@ static void
 registerInfoProvEnt(InfoProvEnt *ipe)
 {
     //if (ipe->link == NULL) {
+    //
         ipe->link = IPE_LIST;
         IPE_LIST = ipe;
     //}

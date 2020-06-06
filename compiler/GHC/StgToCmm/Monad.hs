@@ -315,7 +315,7 @@ data CgState
 
      cgs_uniqs :: UniqSupply,
      -- | These are IDs which have an info table
-     cgs_used_info :: [CLabel]
+     cgs_used_info :: [CmmInfoTable]
      }
 
 data HeapUsage   -- See Note [Virtual and real heap pointers]
@@ -385,7 +385,7 @@ s1 `addCodeBlocksFrom` s2
          cgs_used_info =  (cgs_used_info s1) ++ (cgs_used_info s2)
                           }
 
-addUsedInfo :: CLabel -> CgState -> CgState
+addUsedInfo :: CmmInfoTable -> CgState -> CgState
 addUsedInfo cl cg = cg { cgs_used_info  = cl : cgs_used_info cg }
 
 -- The heap high water mark is the larger of virtHp and hwHp.  The latter is
@@ -439,7 +439,7 @@ setRealHp new_realHp
   = do  { hp_usage <- getHpUsage
         ; setHpUsage (hp_usage {realHp = new_realHp}) }
 
-getUsedInfo :: FCode [CLabel]
+getUsedInfo :: FCode [CmmInfoTable]
 getUsedInfo = cgs_used_info <$> getState
 
 getBinds :: FCode CgBindings
@@ -805,7 +805,7 @@ emitProc mb_info lbl live blocks offset do_layout
 
         ; state <- getState
         ; setState $ state { cgs_tops = cgs_tops state `snocOL` proc_block
-                           , cgs_used_info = maybe (cgs_used_info state) ((: cgs_used_info state). cit_lbl) mb_info } }
+                           , cgs_used_info = maybe (cgs_used_info state) (: cgs_used_info state) mb_info } }
 
 getCmm :: FCode () -> FCode CmmGroup
 -- Get all the CmmTops (there should be no stmts)

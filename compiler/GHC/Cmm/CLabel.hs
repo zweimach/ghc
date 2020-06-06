@@ -669,11 +669,12 @@ mkBitmapLabel   uniq            = LargeBitmapLabel uniq
 
 
 data InfoTableEnt = InfoTableEnt { infoTablePtr :: CLabel
+                                 , infoTableEntClosureType :: Int
                                  , infoTableProv :: (Module, RealSrcSpan, String) }
                                  deriving (Eq, Ord)
 
 instance Outputable InfoTableEnt where
-  ppr (InfoTableEnt l p) = ppr l <> colon <> ppr p
+  ppr (InfoTableEnt l ct p) = ppr l <> colon <> ppr ct <> colon <> ppr p
 
 -- Constructing Cost Center Labels
 mkCCLabel  :: CostCentre      -> CLabel
@@ -1316,7 +1317,7 @@ pprCLbl dflags = \case
 
    (CC_Label cc)       -> ppr cc
    (CCS_Label ccs)     -> ppr ccs
-   (IPE_Label (InfoTableEnt l (m, _, _))) -> pprCode CStyle (ppr l) <> text "_" <> ppr m <> text "_ipe"
+   (IPE_Label (InfoTableEnt l _ (m, _, _))) -> pprCode CStyle (ppr l) <> text "_" <> ppr m <> text "_ipe"
    (HpcTicksLabel mod) -> text "_hpc_tickboxes_"  <> ppr mod <> ptext (sLit "_hpc")
 
    (AsmTempLabel {})        -> panic "pprCLbl AsmTempLabel"

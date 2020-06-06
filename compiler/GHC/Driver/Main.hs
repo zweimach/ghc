@@ -1551,7 +1551,7 @@ doCodeGen   :: HscEnv -> Module -> InfoTableProvMap -> [TyCon]
             -> CollectedCCs
             -> [StgTopBinding]
             -> HpcInfo
-            -> IORef [CLabel]
+            -> IORef [CmmInfoTable]
             -> IO (Stream IO CmmGroupSRTs NameSet)
          -- Note we produce a 'Stream' of CmmGroups, so that the
          -- backend can be run incrementally.  Otherwise it generates all

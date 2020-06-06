@@ -309,8 +309,15 @@ emitInfoTableProv ip = do
   ; loc <- newByteStringCLit $ bytesFS $ mkFastString $
                    showPpr dflags src
            -- XXX going via FastString to get UTF-8 encoding is silly
+  ; table_name <- newByteStringCLit $ bytesFS $ mkFastString $
+                    showPpr dflags (infoTablePtr ip)
+
+  ; closure_type <- newByteStringCLit $ bytesFS $ mkFastString $
+                    showPpr dflags (text $ show $ infoTableEntClosureType ip)
   ; let
      lits = [ CmmLabel (infoTablePtr ip), -- Info table pointer
+              table_name,     -- char *table_name
+              closure_type,   -- char *closure_desc -- Filled in from the InfoTable
               label,          -- char *label,
               modl,           -- char *module,
               loc,            -- char *srcloc,

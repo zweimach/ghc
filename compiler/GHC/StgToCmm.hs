@@ -70,7 +70,7 @@ codeGen :: DynFlags
         -> CollectedCCs                -- (Local/global) cost-centres needing declaring/registering.
         -> [CgStgTopBinding]           -- Bindings to convert
         -> HpcInfo
-        -> IORef [CLabel]
+        -> IORef [CmmInfoTable]
         -> Stream IO CmmGroup ()       -- Output as a stream, so codegen can
                                        -- be interleaved with output
 

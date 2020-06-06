@@ -27,7 +27,7 @@ import GHC.Types.Unique.Supply ( mkSplitUniqSupply )
 import GHC.Driver.Finder    ( mkStubPaths )
 import GHC.CmmToC           ( writeC )
 import GHC.Cmm.Lint         ( cmmLint )
-import GHC.Cmm              ( RawCmmGroup )
+import GHC.Cmm              ( RawCmmGroup , CmmInfoTable )
 import GHC.Cmm.CLabel
 import GHC.Driver.Types
 import GHC.Driver.Session
@@ -324,7 +324,7 @@ profilingInitCode dflags this_mod (local_CCs, singleton_CCSs)
 
 
 -- | Generate code to initialise info pointer origin
-ipInitCode :: [CLabel] -> DynFlags -> Module -> InfoTableProvMap -> SDoc
+ipInitCode :: [CmmInfoTable] -> DynFlags -> Module -> InfoTableProvMap -> SDoc
 ipInitCode used_info dflags this_mod (InfoTableProvMap dcmap closure_map)
  = if not (gopt Opt_SccProfilingOn dflags)
     then empty

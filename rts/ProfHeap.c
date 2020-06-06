@@ -240,18 +240,8 @@ closureIdentity( const StgClosure *p )
     }
     case HEAP_BY_INFO_TABLE: {
         const StgInfoTable *info;
-        info = get_itbl(p);
-        switch (info->type) {
-        case THUNK:
-        case THUNK_1_1:
-        case THUNK_0_2:
-        case THUNK_2_0:
-        case THUNK_1_0:
-        case THUNK_0_1:
-        case THUNK_SELECTOR:
-          return get_itbl(p);
-        default: return NULL;
-        }}
+        return get_itbl(p);
+        }
 
     default:
         barf("closureIdentity");
