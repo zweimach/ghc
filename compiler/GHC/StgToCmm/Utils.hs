@@ -91,9 +91,6 @@ import GHC.Types.Unique.Map
 import GHC.Types.Unique.FM
 import Data.Maybe
 import GHC.Core.DataCon
-import GHC.Types.Id
-import GHC.Types.Name.Set
-
 
 -------------------------------------------------------------------------
 --
