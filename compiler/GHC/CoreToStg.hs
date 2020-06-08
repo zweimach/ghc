@@ -11,7 +11,7 @@
 -- And, as we have the info in hand, we may convert some lets to
 -- let-no-escapes.
 
-module GHC.CoreToStg ( coreToStg  ) where
+module GHC.CoreToStg ( coreToStg ) where
 
 #include "HsVersions.h"
 
@@ -46,12 +46,10 @@ import GHC.Driver.Ways
 import GHC.Types.ForeignCall
 import GHC.Types.Demand    ( isUsedOnce )
 import GHC.Builtin.PrimOps ( PrimCall(..), primOpWrapperId )
-import GHC.Types.SrcLoc    ( mkGeneralSrcSpan )
 import GHC.Builtin.Names   ( unsafeEqualityProofName )
 import GHC.Data.Maybe
 
 import Data.List.NonEmpty (nonEmpty, toList)
-import Data.Maybe    (fromMaybe)
 import Control.Monad (ap)
 import qualified Data.Set as Set
 import Control.Monad.Trans.RWS
@@ -696,13 +694,15 @@ coreToStgRhs (bndr, rhs) = do
     return new_stg_rhs
 
 
-quickSourcePos (Tick (SourceNote ss m) _) =  Just (ss, m)
-quickSourcePos _ = Nothing
+_quickSourcePos :: Expr b -> Maybe (RealSrcSpan, String)
+_quickSourcePos (Tick (SourceNote ss m) _) =  Just (ss, m)
+_quickSourcePos _ = Nothing
 
 -- Generate a top-level RHS. Any new cost centres generated for CAFs will be
 -- appended to `CollectedCCs` argument.
 mkTopStgRhs :: DynFlags -> Module -> CollectedCCs
             -> Id -> StgExpr -> (StgRhs, CollectedCCs)
+
 mkTopStgRhs dflags this_mod ccs bndr rhs
   | StgLam bndrs body <- rhs
   = -- StgLam can't have empty arguments, so not CAF

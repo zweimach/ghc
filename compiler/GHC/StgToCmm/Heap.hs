@@ -52,14 +52,13 @@ import GHC.Data.FastString( mkFastString, fsLit )
 import Control.Monad (when)
 import Data.Maybe (isJust)
 import GHC.Utils.Outputable
-import GHC.Stack (HasCallStack)
 
 -----------------------------------------------------------
 --              Initialise dynamic heap objects
 -----------------------------------------------------------
 
 allocDynClosure
-        :: HasCallStack => Maybe Id
+        :: Maybe Id
         -> CmmInfoTable
         -> LambdaFormInfo
         -> CmmExpr              -- Cost Centre to stick in the object
@@ -97,7 +96,6 @@ allocDynClosureCmm
 allocDynClosure mb_id info_tbl lf_info use_cc _blame_cc args_w_offsets = do
   let (args, offsets) = unzip args_w_offsets
   cmm_args <- mapM getArgAmode args     -- No void args
-  --pprTraceM "allocDynClosure" (text (show callStack))
   allocDynClosureCmm mb_id info_tbl lf_info
                      use_cc _blame_cc (zip cmm_args offsets)
 
@@ -106,7 +104,6 @@ allocDynClosureCmm mb_id info_tbl lf_info use_cc _blame_cc amodes_w_offsets = do
   -- SAY WHAT WE ARE ABOUT TO DO
   let rep = cit_rep info_tbl
   tickyDynAlloc mb_id rep lf_info
-  --pprTraceM "allocHeapClosure" (ppr info_tbl)
   let info_ptr = CmmLit (CmmLabel (cit_lbl info_tbl))
   allocHeapClosure rep info_ptr use_cc amodes_w_offsets
 
@@ -132,7 +129,6 @@ allocHeapClosure rep info_ptr use_cc payload = do
 
   base <- getHpRelOffset info_offset
   emitComment $ mkFastString "allocHeapClosure"
-  --pprTraceM "allocHeapClosure" (ppr info_ptr)
   emitSetDynHdr base info_ptr use_cc
 
   -- Fill in the fields

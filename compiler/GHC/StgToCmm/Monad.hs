@@ -54,7 +54,6 @@ module GHC.StgToCmm.Monad (
         -- more localised access to monad state
         CgIdInfo(..),
         getBinds, setBinds,
-        withEnclosingSpan, getEnclosingSpan,
         getUsedInfo, addUsedInfo,
         -- out of general friendliness, we also export ...
         CgInfoDownwards(..), CgState(..)        -- non-abstract
@@ -81,7 +80,6 @@ import GHC.Types.Unique.Supply
 import GHC.Data.FastString
 import GHC.Utils.Outputable
 import GHC.Utils.Misc
-import GHC.Types.SrcLoc
 
 import Control.Monad
 import Data.List
@@ -168,8 +166,7 @@ data CgInfoDownwards        -- information only passed *downwards* by the monad
                                             -- as local jumps? See Note
                                             -- [Self-recursive tail calls] in
                                             -- GHC.StgToCmm.Expr
-        cgd_tick_scope:: CmmTickScope,      -- Tick scope for new blocks & ticks
-        cgd_enclosing_span :: Maybe (RealSrcSpan, String) --
+        cgd_tick_scope:: CmmTickScope       -- Tick scope for new blocks & ticks
   }
 
 type CgBindings = IdEnv CgIdInfo
@@ -284,8 +281,7 @@ initCgInfoDown dflags mod
                  , cgd_ticky     = mkTopTickyCtrLabel
                  , cgd_sequel    = initSequel
                  , cgd_self_loop = Nothing
-                 , cgd_tick_scope= GlobalScope
-                 , cgd_enclosing_span = Nothing }
+                 , cgd_tick_scope= GlobalScope }
 
 initSequel :: Sequel
 initSequel = Return
@@ -468,13 +464,6 @@ newUnique = do
         let (u,us') = takeUniqFromSupply (cgs_uniqs state)
         setState $ state { cgs_uniqs = us' }
         return u
-
-------------------
-withEnclosingSpan :: RealSrcSpan -> String -> FCode a -> FCode a
-withEnclosingSpan ss s (FCode f)= FCode $ \info_down st -> f (info_down { cgd_enclosing_span = Just (ss, s) }) st
-
-getEnclosingSpan :: FCode (Maybe (RealSrcSpan, String))
-getEnclosingSpan = FCode $ \info_down st -> (cgd_enclosing_span info_down, st)
 
 getInfoDown :: FCode CgInfoDownwards
 getInfoDown = FCode $ \info_down state -> (info_down,state)

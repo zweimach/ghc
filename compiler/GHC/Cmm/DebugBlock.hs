@@ -189,7 +189,7 @@ cmmDebugGen modLoc decls = map (blocksForScope Nothing) topScopes
               ticks = nubBy (flip tickishContains) $
                       bCtxsTicks bctxs ++ ticksToCopy scope
               stick = case filter isSourceTick ticks of
-                []     -> cstick --pprTraceIt "DWARF-C" cstick
+                []     -> cstick
                 sticks -> Just $! bestSrcTick (sticks ++ maybeToList cstick)
 
 -- | Build a map of blocks sorted by their tick scopes

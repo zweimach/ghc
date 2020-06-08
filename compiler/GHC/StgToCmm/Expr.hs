@@ -87,8 +87,7 @@ cgExpr (StgLit lit)       = do cmm_lit <- cgLit lit
 
 cgExpr (StgLet _ binds expr) = do { cgBind binds;     cgExpr expr }
 cgExpr (StgLetNoEscape _ binds expr) =
-  do { -- pprTraceM "JOIN" (ppr binds)
-     ; u <- newUnique
+  do { u <- newUnique
      ; let join_id = mkBlockId u
      ; cgLneBinds join_id binds
      ; r <- cgExpr expr
@@ -1090,6 +1089,6 @@ cgTick tick k
        ; case tick of
            ProfNote   cc t p -> emitSetCCC cc t p >> k
            HpcTick    m n    -> emit (mkTickBox platform m n) >> k
-           SourceNote s n    -> emitTick (SourceNote s n) >> withEnclosingSpan s n k
+           SourceNote s n    -> emitTick (SourceNote s n) >> k
            _other            -> k
        }

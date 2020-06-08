@@ -1445,7 +1445,6 @@ hscGenHardCode hsc_env cgguts location output_filename = do
 
             let foreign_stubs = do
                   used_info <- readIORef lref
-                  pprTraceM "used_info" (ppr (length used_info))
                   let ip_init = ipInitCode used_info dflags this_mod denv
                   return $ foreign_stubs0 `appendStubC` prof_init `appendStubC` ip_init
 

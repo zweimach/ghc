@@ -58,7 +58,6 @@ import GHC.Utils.Misc
 import System.IO.Unsafe
 import qualified Data.ByteString as BS
 import GHC.Types.Unique.Map
-import GHC.Types.SrcLoc
 
 
 codeGen :: DynFlags
@@ -88,7 +87,7 @@ codeGen dflags this_mod ip_map@(InfoTableProvMap ((UniqMap denv)) _) data_tycons
                          -- a big space leak.  DO NOT REMOVE!
                          writeIORef cgref $! st'{ cgs_tops = nilOL,
                                                   cgs_stmts = mkNop }
-                         return a --cgs_used_info st')
+                         return a
                 yield cmm
 
                -- Note [codegen-split-init] the cmm_init block must come
@@ -111,11 +110,11 @@ codeGen dflags this_mod ip_map@(InfoTableProvMap ((UniqMap denv)) _) data_tycons
                 -- tagged.
                  when (isEnumerationTyCon tycon) $ cg (cgEnumerationTyCon tycon)
                  -- Emit normal info_tables, just in case
-                 mapM_ (cg . cgDataCon Nothing Nothing) (tyConDataCons tycon)
+                 mapM_ (cg . cgDataCon Nothing) (tyConDataCons tycon)
                  -- Emit special info tables for everything used in this module
 
         ; mapM_ do_tycon data_tycons
-        ; mapM_ (\(dc, ns) -> forM_ ns $ \(k, ss) -> cg (cgDataCon (Just (this_mod, k)) ss dc)) (nonDetEltsUFM denv)
+        ; mapM_ (\(dc, ns) -> forM_ ns $ \(k, _ss) -> cg (cgDataCon (Just (this_mod, k)) dc)) (nonDetEltsUFM denv)
         }
 
 ---------------------------------------------------------------
@@ -170,7 +169,6 @@ cgTopBinding dflags (StgTopStringLit id str) = do
 cgTopRhs :: DynFlags -> RecFlag -> Id -> CgStgRhs -> (CgIdInfo, FCode ())
         -- The Id is passed along for setting up a binding...
 
---cgTopRhs _ _ bndr _ | pprTrace "cgTopRhs" (ppr bndr) False = undefined
 cgTopRhs dflags _rec bndr (StgRhsCon _cc con mn args)
   = cgTopRhsCon dflags bndr con mn (assertNonVoidStgArgs args)
       -- con args are always non-void,
@@ -211,13 +209,12 @@ cgEnumerationTyCon tycon
              | con <- tyConDataCons tycon]
 
 
-cgDataCon :: Maybe (Module, Int) -> Maybe (RealSrcSpan, String) -> DataCon -> FCode ()
+cgDataCon :: Maybe (Module, Int) -> DataCon -> FCode ()
 -- Generate the entry code, info tables, and (for niladic constructor)
 -- the static closure, for a constructor.
-cgDataCon _ _ data_con | isUnboxedTupleCon data_con = return ()
-cgDataCon mn ms data_con
-  = do  { -- pprTraceM "cgDataCon" (ppr mn <+> ppr ms <+> ppr data_con)
-          dflags <- getDynFlags
+cgDataCon _ data_con | isUnboxedTupleCon data_con = return ()
+cgDataCon mn data_con
+  = do  { dflags <- getDynFlags
         ; platform <- getPlatform
         ; let
             (tot_wds, --  #ptr_wds + #nonptr_wds
@@ -227,7 +224,7 @@ cgDataCon mn ms data_con
             nonptr_wds   = tot_wds - ptr_wds
 
             dyn_info_tbl =
-              mkDataConInfoTable dflags data_con mn ms False ptr_wds nonptr_wds
+              mkDataConInfoTable dflags data_con mn False ptr_wds nonptr_wds
 
             -- We're generating info tables, so we don't know and care about
             -- what the actual arguments are. Using () here as the place holder.

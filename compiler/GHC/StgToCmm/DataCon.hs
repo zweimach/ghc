@@ -30,8 +30,6 @@ import GHC.StgToCmm.Layout
 import GHC.StgToCmm.Utils
 import GHC.StgToCmm.Closure
 
-import GHC.Types.SrcLoc
-
 import GHC.Cmm.Expr
 import GHC.Cmm.Utils
 import GHC.Cmm.CLabel
@@ -114,7 +112,7 @@ cgTopRhsCon dflags id con mn args
              -- we're not really going to emit an info table, so having
              -- to make a CmmInfoTable is a bit overkill, but mkStaticClosureFields
              -- needs to poke around inside it.
-            info_tbl = mkDataConInfoTable dflags con ((this_mod,) <$> mn) Nothing True ptr_wds nonptr_wds
+            info_tbl = mkDataConInfoTable dflags con ((this_mod,) <$> mn) True ptr_wds nonptr_wds
 
 
         ; payload <- mapM mk_payload nv_args_w_offsets
@@ -147,12 +145,11 @@ buildDynCon :: Id                 -- Name of the thing to which this constr will
                -- Return details about how to find it and initialization code
 buildDynCon binder mn actually_bound cc con args
     = do dflags <- getDynFlags
-         spn <- getEnclosingSpan
-         buildDynCon' dflags binder mn spn actually_bound cc con args
+         buildDynCon' dflags binder mn actually_bound cc con args
 
 
 buildDynCon' :: DynFlags
-             -> Id -> Maybe Int -> Maybe (RealSrcSpan, String)
+             -> Id -> Maybe Int
              -> Bool
              -> CostCentreStack
              -> DataCon
@@ -170,13 +167,13 @@ the addr modes of the args is that we may be in a "knot", and
 premature looking at the args will cause the compiler to black-hole!
 -}
 
-buildDynCon' dflags binder _ _ _ _cc con args
+buildDynCon' dflags binder _ _ _cc con args
   | Just cgInfo <- precomputedStaticConInfo_maybe dflags binder con args
   -- , pprTrace "noCodeLocal:" (ppr (binder,con,args,cgInfo)) True
   = return (cgInfo, return mkNop)
 
 -------- buildDynCon': the general case -----------
-buildDynCon' dflags binder mn spn actually_bound ccs con args
+buildDynCon' dflags binder mn actually_bound ccs con args
   = do  { (id_info, reg) <- rhsIdInfo binder lf_info
         ; return (id_info, gen_code reg)
         }
@@ -188,7 +185,7 @@ buildDynCon' dflags binder mn spn actually_bound ccs con args
           ; let (tot_wds, ptr_wds, args_w_offsets)
                   = mkVirtConstrOffsets dflags (addArgReps args)
                 nonptr_wds = tot_wds - ptr_wds
-                info_tbl = mkDataConInfoTable dflags con ((modu,) <$> mn) spn False
+                info_tbl = mkDataConInfoTable dflags con ((modu,) <$> mn) False
                                 ptr_wds nonptr_wds
           ; let ticky_name | actually_bound = Just binder
                            | otherwise = Nothing

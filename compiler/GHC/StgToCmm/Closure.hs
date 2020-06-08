@@ -71,8 +71,6 @@ import GHC.Runtime.Heap.Layout
 import GHC.Cmm
 import GHC.Cmm.Ppr.Expr() -- For Outputable instances
 
-import GHC.Types.SrcLoc
-
 import GHC.Types.CostCentre
 import GHC.Cmm.BlockId
 import GHC.Cmm.CLabel
@@ -949,8 +947,8 @@ getTyLitDescription l =
 --   CmmInfoTable-related things
 --------------------------------------
 
-mkDataConInfoTable :: DynFlags -> DataCon -> Maybe (Module, Int) -> Maybe (RealSrcSpan, String) -> Bool -> Int -> Int -> CmmInfoTable
-mkDataConInfoTable dflags data_con mn mspn is_static ptr_wds nonptr_wds
+mkDataConInfoTable :: DynFlags -> DataCon -> Maybe (Module, Int) -> Bool -> Int -> Int -> CmmInfoTable
+mkDataConInfoTable dflags data_con mn is_static ptr_wds nonptr_wds
  = CmmInfoTable { cit_lbl  = info_lbl
                 , cit_rep  = sm_rep
                 , cit_prof = prof
@@ -958,7 +956,7 @@ mkDataConInfoTable dflags data_con mn mspn is_static ptr_wds nonptr_wds
                 , cit_clo  = Nothing }
  where
    name = dataConName data_con
-   info_lbl = mkConInfoTableLabel name mn 
+   info_lbl = mkConInfoTableLabel name mn
    sm_rep = mkHeapRep dflags is_static ptr_wds nonptr_wds cl_type
    cl_type = Constr (dataConTagZ data_con) (dataConIdentity data_con)
                   -- We keep the *zero-indexed* tag in the srt_len field
@@ -968,11 +966,7 @@ mkDataConInfoTable dflags data_con mn mspn is_static ptr_wds nonptr_wds
         | otherwise                            = ProfilingInfo ty_descr val_descr
 
    ty_descr  = BS8.pack $ occNameString $ getOccName $ dataConTyCon data_con
-   val_descr = BS8.pack $ (occNameString $ getOccName data_con) ++ span_string
-
-   span_string = case mspn of
-                    Nothing -> ""
-                    Just (spn, f) -> f ++ ":" ++ show (srcSpanStartLine spn) ++ ":" ++ show (srcSpanStartCol spn)
+   val_descr = BS8.pack $ (occNameString $ getOccName data_con)
 
 -- We need a black-hole closure info to pass to @allocDynClosure@ when we
 -- want to allocate the black hole on entry to a CAF.
