@@ -42,13 +42,11 @@ import GHC.Utils.Outputable
 import GHC.Unit
 import GHC.Types.SrcLoc
 import GHC.Types.CostCentre
-import GHC.Types.Name.Set
 
 import Control.Exception
 import System.Directory
 import System.FilePath
 import System.IO
-import Data.IORef
 
 {-
 ************************************************************************

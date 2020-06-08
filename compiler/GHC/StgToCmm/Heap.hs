@@ -48,12 +48,11 @@ import GHC.Unit
 import GHC.Driver.Session
 import GHC.Platform
 import GHC.Data.FastString( mkFastString, fsLit )
-import GHC.Utils.Panic( sorry )
 
 import Control.Monad (when)
 import Data.Maybe (isJust)
 import GHC.Utils.Outputable
-import GHC.Stack (HasCallStack, callStack)
+import GHC.Stack (HasCallStack)
 
 -----------------------------------------------------------
 --              Initialise dynamic heap objects

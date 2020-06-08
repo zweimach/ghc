@@ -82,8 +82,6 @@ import GHC.Data.FastString
 import GHC.Utils.Outputable
 import GHC.Utils.Misc
 import GHC.Types.SrcLoc
-import GHC.Types.Name.Set
-import GHC.Types.Unique.FM
 
 import Control.Monad
 import Data.List

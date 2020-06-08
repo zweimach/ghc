@@ -651,7 +651,7 @@ void traceIPE(StgInfoTable * info,
               const char *srcloc )
 {
     if (eventlog_enabled) {
-        postIPE(info, table_name, closure_desc, label, module, srcloc);
+        postIPE(INFO_PTR_TO_STRUCT(info), table_name, closure_desc, label, module, srcloc);
     }
 }
 

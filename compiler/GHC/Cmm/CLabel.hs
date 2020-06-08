@@ -13,7 +13,6 @@
 module GHC.Cmm.CLabel (
         CLabel, -- abstract type
         ForeignLabelSource(..),
-        InfoTableEnt(..),
         pprDebugCLabel,
 
         mkClosureLabel,
@@ -387,7 +386,7 @@ pprDebugCLabel :: CLabel -> SDoc
 pprDebugCLabel lbl
  = case lbl of
         IdLabel _ _ info-> ppr lbl <> (parens $ text "IdLabel")
-                                       -- <> whenPprDebug (text ":" <> text (show info)))
+                                        <> whenPprDebug (text ":" <> ppr info)
         CmmLabel pkg _name _info
          -> ppr lbl <> (parens $ text "CmmLabel" <+> ppr pkg)
 
@@ -425,6 +424,23 @@ data IdLabelInfo
                         -- See Note [Proc-point local block entry-point].
 
   deriving (Eq, Ord)
+
+instance Outputable IdLabelInfo where
+  ppr Closure    = text "Closure"
+  ppr InfoTable  = text "InfoTable"
+  ppr Entry      = text "Entry"
+  ppr Slow       = text "Slow"
+
+  ppr LocalInfoTable  = text "LocalInfoTable"
+  ppr LocalEntry      = text "LocalEntry"
+
+  ppr RednCounts      = text "RednCounts"
+
+  ppr (ConEntry mn) = text "ConEntry" <+> ppr mn
+  ppr (ConInfoTable mn) = text "ConInfoTable" <+> ppr mn
+  ppr ClosureTable = text "ClosureTable"
+  ppr Bytes        = text "Bytes"
+  ppr BlockInfoTable  = text "BlockInfoTable"
 
 
 data RtsLabelInfo

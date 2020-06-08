@@ -48,7 +48,6 @@ import GHC.Types.Basic
 import GHC.Types.Var.Set ( isEmptyDVarSet )
 import GHC.SysTools.FileCleanup
 import GHC.Types.Unique.FM
-import GHC.Types.Name.Set
 
 import GHC.Data.OrdList
 import GHC.Cmm.Graph
@@ -60,7 +59,6 @@ import System.IO.Unsafe
 import qualified Data.ByteString as BS
 import GHC.Types.Unique.Map
 import GHC.Types.SrcLoc
-import Data.Maybe
 
 
 codeGen :: DynFlags
@@ -74,7 +72,7 @@ codeGen :: DynFlags
         -> Stream IO CmmGroup ()       -- Output as a stream, so codegen can
                                        -- be interleaved with output
 
-codeGen dflags this_mod ip_map@(InfoTableProvMap (dcmap@(UniqMap denv)) _) data_tycons
+codeGen dflags this_mod ip_map@(InfoTableProvMap ((UniqMap denv)) _) data_tycons
         cost_centre_info stg_binds hpc_info lref
   = do  {     -- cg: run the code generator, and yield the resulting CmmGroup
               -- Using an IORef to store the state is a bit crude, but otherwise
@@ -97,7 +95,7 @@ codeGen dflags this_mod ip_map@(InfoTableProvMap (dcmap@(UniqMap denv)) _) data_
                -- FIRST.  This is because when -split-objs is on we need to
                -- combine this block with its initialisation routines; see
                -- Note [pipeline-split-init].
-        ; cg (mkModuleInit cost_centre_info this_mod hpc_info [])
+        ; cg (mkModuleInit cost_centre_info this_mod hpc_info) 
 
         ; mapM_ (cg . cgTopBinding dflags) stg_binds
         ; cgs <- liftIO (readIORef  cgref)
@@ -191,13 +189,11 @@ mkModuleInit
         :: CollectedCCs         -- cost centre info
         -> Module
         -> HpcInfo
-        -> [InfoTableEnt]
         -> FCode ()
 
-mkModuleInit cost_centre_info this_mod hpc_info info_ents
+mkModuleInit cost_centre_info this_mod hpc_info 
   = do  { initHpc this_mod hpc_info
         ; initCostCentres cost_centre_info
-       -- ; initInfoTableProv info_ents
         }
 
 

@@ -138,7 +138,6 @@ import GHC.Cmm.Parser       ( parseCmmFile )
 import GHC.Cmm.Info.Build
 import GHC.Cmm.Pipeline
 import GHC.Cmm.Info
-import GHC.Cmm.CLabel
 import GHC.Driver.CodeOutput
 import GHC.Core.InstEnv
 import GHC.Core.FamInstEnv
@@ -168,7 +167,6 @@ import GHC.Utils.Misc
 
 import Data.List        ( nub, isPrefixOf, partition )
 import Control.Monad
-import Data.IORef
 import System.FilePath as FilePath
 import System.Directory
 import System.IO (fixIO)
@@ -182,8 +180,6 @@ import GHC.Iface.Ext.Ast    ( mkHieFile )
 import GHC.Iface.Ext.Types  ( getAsts, hie_asts, hie_module )
 import GHC.Iface.Ext.Binary ( readHieFile, writeHieFile , hie_file_result)
 import GHC.Iface.Ext.Debug  ( diffFile, validateScopes )
-import GHC.Types.Unique.Map
-import GHC.Core.DataCon
 
 #include "HsVersions.h"
 
