@@ -355,6 +355,8 @@ instance Ord CLabel where
   compare _ HpcTicksLabel{} = GT
   compare SRTLabel{} _ = LT
   compare _ SRTLabel{} = GT
+  compare (IPE_Label {}) _ = LT
+  compare  _ (IPE_Label{}) = GT
 
 -- | Record where a foreign label is stored.
 data ForeignLabelSource

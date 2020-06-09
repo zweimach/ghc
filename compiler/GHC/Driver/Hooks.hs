@@ -55,11 +55,7 @@ import GHC.Stg.Syntax
 import GHC.Data.Stream
 import GHC.Cmm
 import GHC.Hs.Extension
-import GHC.Types.Unique.Map
-import GHC.Core.DataCon
-import GHC.Types.Name.Set
 import Data.IORef
-import GHC.Cmm.CLabel
 
 import Data.Maybe
 

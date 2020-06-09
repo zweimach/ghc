@@ -195,6 +195,7 @@ data InfoTableProvMap = InfoTableProvMap
                           { provDC  :: DCMap
                           , provClosure :: ClosureMap }
 
+emptyInfoTableProvMap :: InfoTableProvMap
 emptyInfoTableProvMap = InfoTableProvMap emptyUniqMap emptyUniqMap
 
 -- synonym for triple which describes the cost centre info in the generated
