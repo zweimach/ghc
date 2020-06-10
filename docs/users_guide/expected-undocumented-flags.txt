@@ -122,6 +122,7 @@
 -fstg-lift-lams-rec-args-any
 -fth
 -ftype-function-depth
+-funfolding-keeness-factor
 -fuse-rpaths
 -fversion-macros
 -fvia-c
