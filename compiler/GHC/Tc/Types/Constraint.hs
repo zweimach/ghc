@@ -1689,6 +1689,14 @@ eqMayRewriteFR :: CtFlavourRole -> CtFlavourRole -> Bool
 eqMayRewriteFR (Derived,       NomEq) (Wanted WDeriv, NomEq) = True
 eqMayRewriteFR fr1 fr2 = eqCanRewriteFR fr1 fr2
 
+-- | Checks if the first flavour rewriting the second is a wanted
+-- rewriting a wanted. See Note [Wanteds rewrite Wanteds]
+wantedRewriteWanted :: CtFlavourRole -> CtFlavourRole -> WRWFlag
+wantedRewriteWanted (Wanted _, _) _ = YesWRW
+wantedRewriteWanted _             _ = NoWRW
+  -- It doesn't matter what the second argument is; it can only
+  -- be Wanted or Derived anyway
+
 -----------------
 {- Note [funEqCanDischarge]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~

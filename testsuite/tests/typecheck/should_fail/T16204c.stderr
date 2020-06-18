@@ -1,6 +1,6 @@
 
 T16204c.hs:16:8: error:
-    • Couldn't match kind ‘*’ with ‘Rep’
+    • Couldn't match kind ‘Rep’ with ‘*’
       When matching types
         a0 :: Rep
         a :: *
