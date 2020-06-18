@@ -1461,7 +1461,7 @@ flatten_exact_fam_app_fully tc tys
                                Nothing -> do
                                  { loc <- getLoc
                                  ; (ev, co, fsk) <- liftTcS $
-                                     newFlattenSkolem cur_flav loc tc xis
+                                     newFlattenSkolem cur_flav loc CtReportAsSame tc xis
 
                                  -- The new constraint (F xis ~ fsk) is not
                                  -- necessarily inert (e.g. the LHS may be a

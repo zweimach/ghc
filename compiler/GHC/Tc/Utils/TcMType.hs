@@ -2082,13 +2082,19 @@ zonkCtEvidence :: CtEvidence -> TcM CtEvidence
 zonkCtEvidence ctev@(CtGiven { ctev_pred = pred })
   = do { pred' <- zonkTcType pred
        ; return (ctev { ctev_pred = pred'}) }
-zonkCtEvidence ctev@(CtWanted { ctev_pred = pred, ctev_dest = dest })
+zonkCtEvidence ctev@(CtWanted { ctev_pred = pred
+                              , ctev_dest = dest
+                              , ctev_report_as = report_as })
   = do { pred' <- zonkTcType pred
        ; let dest' = case dest of
                        EvVarDest ev -> EvVarDest $ setVarType ev pred'
                          -- necessary in simplifyInfer
                        HoleDest h   -> HoleDest h
-       ; return (ctev { ctev_pred = pred', ctev_dest = dest' }) }
+       ; report_as' <- case report_as of
+           CtReportAsSame              -> return CtReportAsSame
+           CtReportAsOther report_pred -> CtReportAsOther <$> zonkTcType report_pred
+       ; return (ctev { ctev_pred = pred', ctev_dest = dest'
+                      , ctev_report_as = report_as' }) }
 zonkCtEvidence ctev@(CtDerived { ctev_pred = pred })
   = do { pred' <- zonkTcType pred
        ; return (ctev { ctev_pred = pred' }) }
@@ -2275,6 +2281,12 @@ tidyCt env ct = ct { cc_ev = tidyCtEvidence env (ctEvidence ct) }
 tidyCtEvidence :: TidyEnv -> CtEvidence -> CtEvidence
      -- NB: we do not tidy the ctev_evar field because we don't
      --     show it in error messages
+     -- But definitely do tidy the report_as field, as that's reported.
+tidyCtEvidence env ctev@(CtWanted { ctev_pred = pred, ctev_report_as = report_as })
+  = ctev { ctev_pred = tidyType env pred, ctev_report_as = tidy_report_as report_as }
+  where tidy_report_as CtReportAsSame = CtReportAsSame
+        tidy_report_as (CtReportAsOther report_pred)
+          = CtReportAsOther (tidyType env report_pred)
 tidyCtEvidence env ctev = ctev { ctev_pred = tidyType env ty }
   where
     ty  = ctev_pred ctev

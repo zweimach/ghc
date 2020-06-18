@@ -34,7 +34,7 @@ import GHC.Core.TyCo.Ppr  ( pprTyVars, pprWithExplicitKindsWhen, pprSourceTyCon,
 import GHC.Core.Unify     ( tcMatchTys )
 import GHC.Types.Module
 import GHC.Tc.Instance.Family
-import GHC.Core.FamInstEnv ( flattenTys, normaliseType, topNormaliseType_maybe )
+import GHC.Core.FamInstEnv ( flattenTys )
 import GHC.Tc.Utils.Instantiate
 import GHC.Core.InstEnv
 import GHC.Core.TyCon
@@ -42,9 +42,6 @@ import GHC.Core.Class
 import GHC.Core.DataCon
 import GHC.Tc.Types.Evidence
 import GHC.Tc.Types.EvTerm
-import GHC.Tc.Solver.Monad     ( TcS )
-import GHC.Tc.Solver.Flatten   ( flattenType )
-import GHC.Tc.Solver.Interact  ( withGivens )
 import GHC.Hs.Binds ( PatSynBind(..) )
 import GHC.Types.Name
 import GHC.Types.Name.Reader ( lookupGRE_Name, GlobalRdrEnv, mkRdrUnqual )
@@ -578,11 +575,11 @@ mkErrorItem ct = EI { ei_pred    = tyvar_first pred
       | otherwise
       = pred
 
-
+{- "RAE"
 tidyErrorItem :: TidyEnv -> ErrorItem -> ErrorItem
 tidyErrorItem env item@(EI { ei_pred = pred })
   = item { ei_pred = tidyType env pred }
-
+-}
 errorItemOrigin :: ErrorItem -> CtOrigin
 errorItemOrigin = ctLocOrigin . ei_loc
 
@@ -595,8 +592,9 @@ reportWanteds ctxt tc_lvl (WC { wc_simple = simples, wc_impl = implics
                               , wc_holes = holes })
   = do { traceTc "reportWanteds 1" (vcat [ text "Simples =" <+> ppr simples
                                          , text "Suppress =" <+> ppr (cec_suppress ctxt)
-                                         , text "wc_holes = " <+> ppr holes ])
-
+                                         , text "tidy_items =" <+> ppr tidy_items
+                                         , text "tidy_holes =" <+> ppr tidy_holes ])
+{- "RAE"
          -- rewrite all the errors with respect to the givens
        ; let givens  = errCtxtGivens ctxt
              raw_items = map mkErrorItem (bagToList simples)
@@ -613,7 +611,7 @@ reportWanteds ctxt tc_lvl (WC { wc_simple = simples, wc_impl = implics
              tidy_holes = map (tidyHole env)      rewritten_holes
        ; traceTc "reportWanteds 2" (vcat [ text "tidy_items =" <+> ppr tidy_items
                                          , text "tidy_holes =" <+> ppr tidy_holes ])
-
+-}
          -- First, deal with any out-of-scope errors:
        ; let (out_of_scope, other_holes) = partition isOutOfScopeHole tidy_holes
                -- don't suppress out-of-scope errors
@@ -649,7 +647,9 @@ reportWanteds ctxt tc_lvl (WC { wc_simple = simples, wc_impl = implics
             -- wanted insoluble here; but do suppress inner insolubles
             -- if there's a *given* insoluble here (= inaccessible code)
  where
-    env = cec_tidy ctxt
+    env        = cec_tidy ctxt
+    tidy_items = bagToList (mapBag (mkErrorItem . tidyCt env)   simples)
+    tidy_holes = bagToList (mapBag (tidyHole env) holes)
 
     -- report1: ones that should *not* be suppressed by
     --          an insoluble somewhere else in the tree
@@ -3129,7 +3129,7 @@ are created by in GHC.Runtime.Heap.Inspect.zonkRTTIType.
 See Note [Wanteds rewrite Wanteds] in GHC.Tc.Types.Constraint for the
 motivation why we need these.
 -}
-
+{- "RAE"
 -- | Extract out all the givens from enclosing implications; order of
 -- result does not matter.
 errCtxtGivens :: ReportErrCtxt -> [Ct]
@@ -3161,3 +3161,5 @@ simplifyHole :: Hole -> TcS Hole
 simplifyHole h@(Hole { hole_ty = ty, hole_loc = loc })
   = do { ty' <- flattenType loc ty
        ; return (h { hole_ty = ty' }) }
+
+-}

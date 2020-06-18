@@ -6,6 +6,7 @@
 module GHC.Tc.Solver.Interact (
      solveSimpleGivens,   -- Solves [Ct]
      solveSimpleWanteds,  -- Solves Cts
+     withGivens
   ) where
 
 #include "HsVersions.h"
@@ -2698,3 +2699,18 @@ matchLocalInst pred loc
         qtv_set = mkVarSet qtvs
         this_unif = mightMatchLater qpred (ctEvLoc ev) pred loc
         (matches, unif) = match_local_inst qcis
+
+-------------------------------------------------------------
+-- | Bring givens into scope and execute a TcS monad action;
+-- discards any evidence created.
+withGivens :: [Ct]  -- all givens; use mkGivens to make this
+           -> TcS a -> TcM a
+  -- really should be in GHC.Tc.Solver, but here, we avoid module
+  -- loops with GHC.Tc.Errors
+withGivens givens thing_inside
+  = fmap fst $ runTcS $
+    do { traceTcS "withGivens {" (ppr givens)
+       ; solveSimpleGivens givens
+       ; result <- thing_inside
+       ; traceTcS "withGivens }" empty
+       ; return result }

@@ -1885,7 +1885,7 @@ canCFunEqCan :: CtEvidence
 -- Instead, flatten the args. The RHS is an fsk, which we
 -- must *not* substitute.
 canCFunEqCan ev fn tys fsk
-  = do { (tys', cos, kind_co) <- flattenArgsNom ev fn tys
+  = do { (tys', cos, kind_co, wrw) <- flattenArgsNom ev fn tys
                         -- cos :: tys' ~ tys
 
        ; let lhs_co  = mkTcTyConAppCo Nominal fn cos
@@ -1893,6 +1893,8 @@ canCFunEqCan ev fn tys fsk
              new_lhs = mkTyConApp fn tys'
 
              flav    = ctEvFlavour ev
+
+             report_as = updateReportAs wrw (ctEvPred ev) (ctEvReportAs ev)
        ; (ev', fsk')
            <- if isTcReflexiveCo kind_co   -- See Note [canCFunEqCan]
               then do { traceTcS "canCFunEqCan: refl" (ppr new_lhs)
@@ -1908,7 +1910,7 @@ canCFunEqCan ev fn tys fsk
                              , text "New LHS" <+> hang (ppr new_lhs)
                                                      2 (dcolon <+> ppr (tcTypeKind new_lhs)) ]
                       ; (ev', new_co, new_fsk)
-                          <- newFlattenSkolem flav (setCtLocAncestor wrw (ctEvLoc ev) ev) fn tys'
+                          <- newFlattenSkolem flav (ctEvLoc ev) report_as fn tys'
                       ; let xi = mkTyVarTy new_fsk `mkCastTy` kind_co
                                -- sym lhs_co :: F tys ~ F tys'
                                -- new_co     :: F tys' ~ new_fsk
@@ -2337,7 +2339,7 @@ as well as in old_pred; that is important for good error messages.
  -}
 
 
-rewriteEvidence wrw old_ev@(CtDerived { ctev_loc = loc }) new_pred _co
+rewriteEvidence wrw old_ev@(CtDerived {}) new_pred _co
   = -- If derived, don't even look at the coercion.
     -- This is very important, DO NOT re-order the equations for
     -- rewriteEvidence to put the isTcReflCo test first!
@@ -2345,18 +2347,15 @@ rewriteEvidence wrw old_ev@(CtDerived { ctev_loc = loc }) new_pred _co
     -- was produced by flattening, may contain suspended calls to
     -- (ctEvExpr c), which fails for Derived constraints.
     -- (Getting this wrong caused #7384.)
-    continueWith (old_ev { ctev_pred = new_pred
-                         , ctev_loc  = setCtLocAncestor wrw loc old_ev })
+    ASSERT( wrw == NoWRW )
+    continueWith (old_ev { ctev_pred = new_pred })
 
-rewriteEvidence wrw old_ev new_pred co
+rewriteEvidence _wrw old_ev new_pred co
   | isTcReflCo co -- See Note [Rewriting with Refl]
-  = continueWith (old_ev { ctev_pred = new_pred
-                         , ctev_loc  = setCtLocAncestor wrw loc old_ev })
-  where
-    loc = ctEvLoc old_ev
+  = continueWith (old_ev { ctev_pred = new_pred })
 
 rewriteEvidence wrw ev@(CtGiven { ctev_evar = old_evar, ctev_loc = loc }) new_pred co
-  = ASSERT( wrw /= YesWRW )  -- this is a Given, not a wanted
+  = ASSERT( wrw == NoWRW )  -- this is a Given, not a wanted
     do { new_ev <- newGivenEvVar loc (new_pred, new_tm)
        ; continueWith new_ev }
   where
@@ -2365,11 +2364,12 @@ rewriteEvidence wrw ev@(CtGiven { ctev_evar = old_evar, ctev_loc = loc }) new_pr
                                                        (ctEvRole ev)
                                                        (mkTcSymCo co))
 
-rewriteEvidence ev@(CtWanted { ctev_dest = dest
-                             , ctev_nosh = si
-                             , ctev_loc = loc
-                             , ctev_report_as = report_as }) new_pred co
-  = do { mb_new_ev <- newWanted_SI si loc report_as new_pred
+rewriteEvidence wrw ev@(CtWanted { ctev_pred = old_pred
+                                 , ctev_dest = dest
+                                 , ctev_nosh = si
+                                 , ctev_loc = loc
+                                 , ctev_report_as = report_as }) new_pred co
+  = do { mb_new_ev <- newWanted_SI si loc report_as' new_pred
                -- The "_SI" variant ensures that we make a new Wanted
                -- with the same shadow-info as the existing one
                -- with the same shadow-info as the existing one (#16735)
@@ -2380,6 +2380,8 @@ rewriteEvidence ev@(CtWanted { ctev_dest = dest
        ; case mb_new_ev of
             Fresh  new_ev -> continueWith new_ev
             Cached _      -> stopWith ev "Cached wanted" }
+  where
+    report_as' = updateReportAs wrw old_pred report_as
 
 
 rewriteEqEvidence :: WRWFlag            -- YesWRW <=> a wanted rewrote a wanted
@@ -2405,7 +2407,7 @@ rewriteEqEvidence :: WRWFlag            -- YesWRW <=> a wanted rewrote a wanted
 --      w : orhs ~ olhs = sym rhs_co ; sym w1 ; lhs_co
 --
 -- It's all a form of rewwriteEvidence, specialised for equalities
-rewriteEqEvidence old_ev swapped nlhs nrhs lhs_co rhs_co
+rewriteEqEvidence wrw old_ev swapped nlhs nrhs lhs_co rhs_co
   | CtDerived {} <- old_ev  -- Don't force the evidence for a Derived
   = return (old_ev { ctev_pred = new_pred })
 
@@ -2420,10 +2422,14 @@ rewriteEqEvidence old_ev swapped nlhs nrhs lhs_co rhs_co
                                   `mkTcTransCo` mkTcSymCo rhs_co)
        ; newGivenEvVar loc' (new_pred, new_tm) }
 
-  | CtWanted { ctev_dest = dest, ctev_nosh = si, ctev_report_as = report_as } <- old_ev
+  | CtWanted { ctev_pred = old_pred
+             , ctev_dest = dest
+             , ctev_nosh = si
+             , ctev_report_as = report_as } <- old_ev
+  , let report_as' = updateReportAs wrw old_pred report_as
   = case dest of
       HoleDest hole ->
-        do { (new_ev, hole_co) <- newWantedEq_SI (ch_blocker hole) si loc' report_as
+        do { (new_ev, hole_co) <- newWantedEq_SI (ch_blocker hole) si loc' report_as'
                                                  (ctEvRole old_ev) nlhs nrhs
                    -- The "_SI" variant ensures that we make a new Wanted
                    -- with the same shadow-info as the existing one (#16735)

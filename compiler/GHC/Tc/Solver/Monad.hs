@@ -3201,10 +3201,10 @@ zonkTyCoVarKind tv = wrapTcS (TcM.zonkTyCoVarKind tv)
 *                                                                      *
 ********************************************************************* -}
 
-newFlattenSkolem :: CtFlavour -> CtLoc
+newFlattenSkolem :: CtFlavour -> CtLoc -> CtReportAs
                  -> TyCon -> [TcType]                    -- F xis
                  -> TcS (CtEvidence, Coercion, TcTyVar)  -- [G/WD] x:: F xis ~ fsk
-newFlattenSkolem flav loc tc xis
+newFlattenSkolem flav loc report_as tc xis
   = do { stuff@(ev, co, fsk) <- new_skolem
        ; let fsk_ty = mkTyVarTy fsk
        ; extendFlatCache tc xis (co, fsk_ty, ctEvFlavour ev)
@@ -3230,8 +3230,7 @@ newFlattenSkolem flav loc tc xis
       = do { fmv <- wrapTcS (TcM.newFmvTyVar fam_ty)
               -- See (2a) in TcCanonical
               -- Note [Equalities with incompatible kinds]
-           ; let pred_ty = mkPrimEqPred fam_ty (mkTyVarTy fmv)
-           ; (ev, hole_co) <- newWantedEq_SI NoBlockSubst WDeriv loc CtReportAsSame
+           ; (ev, hole_co) <- newWantedEq_SI NoBlockSubst WDeriv loc report_as
                                              Nominal fam_ty (mkTyVarTy fmv)
            ; return (ev, hole_co, fmv) }
 

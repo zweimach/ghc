@@ -51,8 +51,10 @@ module GHC.Tc.Types.Constraint (
         isWanted, isGiven, isDerived, isGivenOrWDeriv,
         ctEvRole, setCtEvLoc, arisesFromGivens,
         tyCoVarsOfCtEvList, tyCoVarsOfCtEv, tyCoVarsOfCtEvsList,
+        ctEvReportAs,
 
         CtReportAs(..), ctPredToReport, substCtReportAs,
+        updateReportAs, WRWFlag(..), wantedRewriteWanted,
 
         wrapType,
 
@@ -101,6 +103,7 @@ import GHC.Types.SrcLoc
 import GHC.Data.Bag
 import GHC.Utils.Misc
 
+import qualified Data.Semigroup
 import Control.Monad ( msum )
 
 {-
@@ -1410,6 +1413,17 @@ data CtReportAs
   = CtReportAsSame               -- just report the predicate in the Ct
   | CtReportAsOther TcPredType   -- report this other type
 
+-- | Did a wanted rewrite a wanted?
+-- See Note [Wanteds rewrite Wanteds]
+data WRWFlag
+  = YesWRW
+  | NoWRW
+  deriving Eq
+
+instance Semigroup WRWFlag where
+  NoWRW <> NoWRW = NoWRW
+  _     <> _     = YesWRW
+
 data CtEvidence
   = CtGiven    -- Truly given, not depending on subgoals
       { ctev_pred :: TcPredType      -- See Note [Ct/evidence invariant]
@@ -1482,6 +1496,12 @@ arisesFromGivens Given       _   = True
 arisesFromGivens (Wanted {}) _   = False
 arisesFromGivens Derived     loc = isGivenLoc loc
 
+-- | Return a 'CtReportAs' from a 'CtEvidence'. Returns
+-- 'CtReportAsSame' for non-wanteds.
+ctEvReportAs :: CtEvidence -> CtReportAs
+ctEvReportAs (CtWanted { ctev_report_as = report_as }) = report_as
+ctEvReportAs _                                         = CtReportAsSame
+
 -- | Given the pred in a CtWanted and its 'CtReportAs', get
 -- the pred to report. See Note [Wanteds rewrite Wanteds]
 ctPredToReport :: TcPredType -> CtReportAs -> TcPredType
@@ -1493,6 +1513,15 @@ substCtReportAs :: TCvSubst -> CtReportAs -> CtReportAs
 substCtReportAs _     CtReportAsSame         = CtReportAsSame
 substCtReportAs subst (CtReportAsOther pred) = CtReportAsOther (substTy subst pred)
 
+-- | After rewriting a Wanted, update the 'CtReportAs' for the new Wanted.
+-- If the old CtReportAs is CtReportAsSame and a wanted rewrote a wanted,
+-- record the old pred as the new CtReportAs.
+-- See Note [Wanteds rewrite Wanteds]
+updateReportAs :: WRWFlag -> TcPredType   -- _old_ pred type
+               -> CtReportAs -> CtReportAs
+updateReportAs YesWRW old_pred CtReportAsSame = CtReportAsOther old_pred
+updateReportAs _      _        report_as      = report_as
+
 instance Outputable TcEvDest where
   ppr (HoleDest h)   = text "hole" <> ppr h
   ppr (EvVarDest ev) = ppr ev
@@ -1500,6 +1529,10 @@ instance Outputable TcEvDest where
 instance Outputable CtReportAs where
   ppr CtReportAsSame         = text "CtReportAsSame"
   ppr (CtReportAsOther pred) = parens $ text "CtReportAsOther" <+> ppr pred
+
+instance Outputable WRWFlag where
+  ppr NoWRW  = text "NoWRW"
+  ppr YesWRW = text "YesWRW"
 
 instance Outputable CtEvidence where
   ppr ev = ppr (ctEvFlavour ev)
