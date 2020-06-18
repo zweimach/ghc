@@ -22,7 +22,7 @@ import GHC.Tc.Utils.Monad
 import GHC.Tc.Types.Constraint
 import GHC.Core.Predicate
 import GHC.Tc.Utils.TcMType
-import GHC.Tc.Utils.Unify( occCheckForErrors, MetaTyVarUpdateResult(..) )
+import GHC.Tc.Utils.Unify( occCheckForErrors, MetaTyVarUpdateResult(..), swapOverTyVars )
 import GHC.Tc.Utils.Env( tcInitTidyEnv )
 import GHC.Tc.Utils.TcType
 import GHC.Tc.Types.Origin
@@ -566,12 +566,20 @@ mkErrorItem ct = EI { ei_pred    = tyvar_first pred
       = (Nothing, ctPred ct)
 
       -- We reorient any tyvar equalities to put the tyvar first; this
-      -- allows fewer cases when choosing how to treat errors
+      -- allows fewer cases when choosing how to treat errors. Forgetting
+      -- to do this causes mischaracterization of errors.
     tyvar_first pred
       | Just (r, ty1, ty2) <- getEqPredTys_maybe pred
       , Just (tv2, co2) <- getCastedTyVar_maybe ty2
-      , Nothing <- getCastedTyVar_maybe ty1  -- no need to swap unnecessarily
-      = mkPrimEqPredRole r (mkTyVarTy tv2) (ty1 `mkCastTy` mkSymCo co2)
+      = let swapped_pred = mkPrimEqPredRole r (mkTyVarTy tv2)
+                                              (ty1 `mkCastTy` mkSymCo co2)
+        in
+        case getCastedTyVar_maybe ty1 of
+            -- tyvar originally on right; non-tyvar originally on left: swap
+          Nothing -> swapped_pred
+          Just (tv1, _)
+            | swapOverTyVars tv1 tv2 -> swapped_pred
+            | otherwise              -> pred
       | otherwise
       = pred
 

@@ -2339,7 +2339,7 @@ as well as in old_pred; that is important for good error messages.
  -}
 
 
-rewriteEvidence wrw old_ev@(CtDerived {}) new_pred _co
+rewriteEvidence _wrw old_ev@(CtDerived {}) new_pred _co
   = -- If derived, don't even look at the coercion.
     -- This is very important, DO NOT re-order the equations for
     -- rewriteEvidence to put the isTcReflCo test first!
@@ -2347,7 +2347,6 @@ rewriteEvidence wrw old_ev@(CtDerived {}) new_pred _co
     -- was produced by flattening, may contain suspended calls to
     -- (ctEvExpr c), which fails for Derived constraints.
     -- (Getting this wrong caused #7384.)
-    ASSERT( wrw == NoWRW )
     continueWith (old_ev { ctev_pred = new_pred })
 
 rewriteEvidence _wrw old_ev new_pred co
