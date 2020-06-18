@@ -1247,6 +1247,12 @@ primop  NewSmallArrayOp "newSmallArray#" GenPrimOp
    out_of_line = True
    has_side_effects = True
 
+primop SmallArrayOfOp "smallArrayOf#" GenPrimOp
+   o -> SmallArray# b
+   {Create a new immutable array with two elements.}
+   with
+   has_side_effects = True
+
 primop  SameSmallMutableArrayOp "sameSmallMutableArray#" GenPrimOp
    SmallMutableArray# s a -> SmallMutableArray# s a -> Int#
 
@@ -3420,7 +3426,7 @@ pseudoop   "unsafeCoerce#"
 
          * Casting an unboxed type to another unboxed type of the same size.
            (Casting between floating-point and integral types does not work.
-           See the {\tt GHC.Float} module for functions to do work.)
+           See the {\tt GHC.Float} module for functions to do this.)
 
          * Casting between two types that have the same runtime representation.  One case is when
            the two types differ only in "phantom" type parameters, for example
