@@ -3231,7 +3231,7 @@ newFlattenSkolem flav loc tc xis
               -- See (2a) in TcCanonical
               -- Note [Equalities with incompatible kinds]
            ; let pred_ty = mkPrimEqPred fam_ty (mkTyVarTy fmv)
-           ; (ev, hole_co) <- newWantedEq_SI NoBlockSubst WDeriv loc pred_ty
+           ; (ev, hole_co) <- newWantedEq_SI NoBlockSubst WDeriv loc CtReportAsSame
                                              Nominal fam_ty (mkTyVarTy fmv)
            ; return (ev, hole_co, fmv) }
 
@@ -3495,85 +3495,85 @@ newBoundEvVarId pred rhs
 newGivenEvVars :: CtLoc -> [(TcPredType, EvTerm)] -> TcS [CtEvidence]
 newGivenEvVars loc pts = mapM (newGivenEvVar loc) pts
 
-emitNewWantedEq :: CtLoc -> Role -> TcType -> TcType -> TcS Coercion
+emitNewWantedEq :: CtLoc -> CtReportAs -> Role -> TcType -> TcType -> TcS Coercion
 -- | Emit a new Wanted equality into the work-list
-emitNewWantedEq loc role ty1 ty2
-  = do { (ev, co) <- newWantedEq loc role ty1 ty2
+emitNewWantedEq loc report_as role ty1 ty2
+  = do { (ev, co) <- newWantedEq loc report_as role ty1 ty2
        ; updWorkListTcS (extendWorkListEq (mkNonCanonical ev))
        ; return co }
 
 -- | Make a new equality CtEvidence
-newWantedEq :: CtLoc -> Role -> TcType -> TcType
+newWantedEq :: CtLoc -> CtReportAs -> Role -> TcType -> TcType
             -> TcS (CtEvidence, Coercion)
-newWantedEq loc role ty1 ty2
-  = newWantedEq_SI YesBlockSubst WDeriv loc pty role ty1 ty2
-  where
-    pty = mkPrimEqPredRole role ty1 ty2
+newWantedEq loc report_as role ty1 ty2
+  = newWantedEq_SI YesBlockSubst WDeriv loc report_as role ty1 ty2
 
-newWantedEq_SI :: BlockSubstFlag -> ShadowInfo -> CtLoc -> PredType -> Role
+newWantedEq_SI :: BlockSubstFlag -> ShadowInfo -> CtLoc -> CtReportAs -> Role
                -> TcType -> TcType
                -> TcS (CtEvidence, Coercion)
-newWantedEq_SI blocker si loc born_as role ty1 ty2
+newWantedEq_SI blocker si loc report_as role ty1 ty2
   = do { hole <- wrapTcS $ TcM.newCoercionHole blocker pty
        ; traceTcS "Emitting new coercion hole" (ppr hole <+> dcolon <+> ppr pty)
-       ; return ( CtWanted { ctev_pred = pty, ctev_dest = HoleDest hole
-                           , ctev_nosh = si
-                           , ctev_loc = loc
-                           , ctev_born_as = born_as }
+       ; return ( CtWanted { ctev_pred      = pty
+                           , ctev_dest      = HoleDest hole
+                           , ctev_nosh      = si
+                           , ctev_loc       = loc
+                           , ctev_report_as = report_as }
                 , mkHoleCo hole ) }
   where
     pty = mkPrimEqPredRole role ty1 ty2
 
 -- no equalities here. Use newWantedEq instead
-newWantedEvVarNC :: CtLoc -> TcPredType   -- how this wanted was born
+newWantedEvVarNC :: CtLoc -> CtReportAs
                  -> TcPredType -> TcS CtEvidence
 newWantedEvVarNC = newWantedEvVarNC_SI WDeriv
 
-newWantedEvVarNC_SI :: ShadowInfo -> CtLoc -> TcPredType  -- how this wanted was born
+newWantedEvVarNC_SI :: ShadowInfo -> CtLoc -> CtReportAs
                     -> TcPredType -> TcS CtEvidence
 -- Don't look up in the solved/inerts; we know it's not there
-newWantedEvVarNC_SI si loc born_as pty
+newWantedEvVarNC_SI si loc report_as pty
   = do { new_ev <- newEvVar pty
        ; traceTcS "Emitting new wanted" (ppr new_ev <+> dcolon <+> ppr pty $$
                                          pprCtLoc loc)
-       ; return (CtWanted { ctev_pred = pty, ctev_dest = EvVarDest new_ev
-                          , ctev_nosh = si
-                          , ctev_loc = loc
-                          , ctev_born_as = born_as })}
+       ; return (CtWanted { ctev_pred      = pty
+                          , ctev_dest      = EvVarDest new_ev
+                          , ctev_nosh      = si
+                          , ctev_loc       = loc
+                          , ctev_report_as = report_as })}
 
-newWantedEvVar_SI :: ShadowInfo -> CtLoc -> TcPredType  -- how this Wanted was born
+newWantedEvVar_SI :: ShadowInfo -> CtLoc -> CtReportAs
                   -> TcPredType -> TcS MaybeNew
 -- For anything except ClassPred, this is the same as newWantedEvVarNC
-newWantedEvVar_SI si loc born_as pty
+newWantedEvVar_SI si loc report_as pty
   = do { mb_ct <- lookupInInerts loc pty
        ; case mb_ct of
             Just ctev
               | not (isDerived ctev)
               -> do { traceTcS "newWantedEvVar/cache hit" $ ppr ctev
                     ; return $ Cached (ctEvExpr ctev) }
-            _ -> do { ctev <- newWantedEvVarNC_SI si loc born_as pty
+            _ -> do { ctev <- newWantedEvVarNC_SI si loc report_as pty
                     ; return (Fresh ctev) } }
 
-newWanted :: CtLoc -> PredType -> TcS MaybeNew
+newWanted :: CtLoc -> CtReportAs -> PredType -> TcS MaybeNew
 -- Deals with both equalities and non equalities. Tries to look
 -- up non-equalities in the cache
-newWanted loc pty = newWanted_SI WDeriv loc pty pty
+newWanted = newWanted_SI WDeriv
 
-newWanted_SI :: ShadowInfo -> CtLoc -> PredType  -- how this wanted was born
+newWanted_SI :: ShadowInfo -> CtLoc -> CtReportAs
              -> PredType -> TcS MaybeNew
-newWanted_SI si loc born_as pty
+newWanted_SI si loc report_as pty
   | Just (role, ty1, ty2) <- getEqPredTys_maybe pty
-  = Fresh . fst <$> newWantedEq_SI YesBlockSubst si loc born_as role ty1 ty2
+  = Fresh . fst <$> newWantedEq_SI YesBlockSubst si loc report_as role ty1 ty2
   | otherwise
-  = newWantedEvVar_SI si loc born_as pty
+  = newWantedEvVar_SI si loc report_as pty
 
 -- deals with both equalities and non equalities. Doesn't do any cache lookups.
 newWantedNC :: CtLoc -> PredType -> TcS CtEvidence
 newWantedNC loc pty
   | Just (role, ty1, ty2) <- getEqPredTys_maybe pty
-  = fst <$> newWantedEq loc role ty1 ty2
+  = fst <$> newWantedEq loc CtReportAsSame role ty1 ty2
   | otherwise
-  = newWantedEvVarNC loc pty pty
+  = newWantedEvVarNC loc CtReportAsSame pty
 
 emitNewDeriveds :: CtLoc -> [TcPredType] -> TcS ()
 emitNewDeriveds loc preds

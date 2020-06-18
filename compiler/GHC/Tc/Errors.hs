@@ -561,8 +561,9 @@ mkErrorItem ct = EI { ei_pred    = tyvar_first pred
     loc = ctLoc ct
     (m_evdest, pred)
       | CtWanted { ctev_dest = dest
-                 , ctev_born_as = born_as } <- ctEvidence ct
-      = (Just dest, born_as)
+                 , ctev_report_as = report_as
+                 , ctev_pred = ct_pred } <- ctEvidence ct
+      = (Just dest, ctPredToReport ct_pred report_as)
 
       | otherwise
       = (Nothing, ctPred ct)
@@ -1362,11 +1363,11 @@ validHoleFits ctxt@(CEC {cec_encl = implics
   where
     mk_wanted :: ErrorItem -> CtEvidence
     mk_wanted (EI { ei_pred = pred, ei_evdest = Just dest, ei_loc = loc })
-         = CtWanted { ctev_pred    = pred
-                    , ctev_dest    = dest
-                    , ctev_nosh    = WDeriv
-                    , ctev_loc     = loc
-                    , ctev_born_as = pred }
+         = CtWanted { ctev_pred      = pred
+                    , ctev_dest      = dest
+                    , ctev_nosh      = WDeriv
+                    , ctev_loc       = loc
+                    , ctev_report_as = CtReportAsSame }
     mk_wanted item = pprPanic "validHoleFits no evdest" (ppr item)
 
 -- See Note [Constraints include ...]

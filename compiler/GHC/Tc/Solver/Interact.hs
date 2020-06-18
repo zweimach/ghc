@@ -2103,10 +2103,10 @@ shortCutReduction old_ev fsk ax_co fam_tc tc_args
                          , evCoercion (mkTcSymCo ax_co
                                        `mkTcTransCo` ctEvCoercion old_ev) )
 
-           CtWanted { ctev_born_as = born_as } ->
+           CtWanted { ctev_report_as = report_as } ->
              -- See TcCanonical Note [Equalities with incompatible kinds] about NoBlockSubst
-             do { (new_ev, new_co) <- newWantedEq_SI NoBlockSubst WDeriv deeper_loc born_as
-                                        Nominal
+             do { (new_ev, new_co) <- newWantedEq_SI NoBlockSubst WDeriv deeper_loc
+                                        report_as Nominal
                                         (mkTyConApp fam_tc tc_args) (mkTyVarTy fsk)
                 ; setWantedEq (ctev_dest old_ev) $ ax_co `mkTcTransCo` new_co
                 ; return new_ev }
@@ -2392,7 +2392,7 @@ chooseInstance work_item
                then -- See Note [Instances in no-evidence implications]
                     continueWith work_item
                else
-          do { evc_vars <- mapM (newWanted loc) theta
+          do { evc_vars <- mapM (newWanted loc (ctReportAs work_item)) theta
              ; setEvBindIfWanted ev (mk_ev (map getEvExpr evc_vars))
              ; emitWorkNC (freshGoals evc_vars)
              ; stopWith ev "Dict/Top (solved wanted)" } }

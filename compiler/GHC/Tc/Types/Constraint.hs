@@ -22,6 +22,7 @@ module GHC.Tc.Types.Constraint (
         mkIrredCt,
         ctEvPred, ctEvLoc, ctEvOrigin, ctEvEqRel,
         ctEvExpr, ctEvTerm, ctEvCoercion, ctEvEvId,
+        ctReportAs,
         tyCoVarsOfCt, tyCoVarsOfCts,
         tyCoVarsOfCtList, tyCoVarsOfCtsList,
 
@@ -50,6 +51,8 @@ module GHC.Tc.Types.Constraint (
         isWanted, isGiven, isDerived, isGivenOrWDeriv,
         ctEvRole, setCtEvLoc, arisesFromGivens,
         tyCoVarsOfCtEvList, tyCoVarsOfCtEv, tyCoVarsOfCtEvsList,
+
+        CtReportAs(..), ctPredToReport, substCtReportAs,
 
         wrapType,
 
@@ -453,6 +456,13 @@ ctFlavour = ctEvFlavour . ctEvidence
 -- | Get the equality relation for the given 'Ct'
 ctEqRel :: Ct -> EqRel
 ctEqRel = ctEvEqRel . ctEvidence
+
+-- | Extract a 'CtReportAs' from a 'Ct'. Works only for Wanteds;
+-- will panic on other arguments
+ctReportAs :: Ct -> CtReportAs
+ctReportAs ct = case ctEvidence ct of
+  CtWanted { ctev_report_as = report_as } -> report_as
+  _                                       -> pprPanic "ctReportAs" (ppr ct)
 
 instance Outputable Ct where
   ppr ct = ppr (ctEvidence ct) <+> parens pp_sort
@@ -1394,6 +1404,12 @@ data TcEvDest
               -- HoleDest is always used for type-equalities
               -- See Note [Coercion holes] in GHC.Core.TyCo.Rep
 
+-- | What should we report to the user when reporting this Wanted?
+-- See Note [Wanteds rewrite Wanteds]
+data CtReportAs
+  = CtReportAsSame               -- just report the predicate in the Ct
+  | CtReportAsOther TcPredType   -- report this other type
+
 data CtEvidence
   = CtGiven    -- Truly given, not depending on subgoals
       { ctev_pred :: TcPredType      -- See Note [Ct/evidence invariant]
@@ -1402,11 +1418,11 @@ data CtEvidence
 
 
   | CtWanted   -- Wanted goal
-      { ctev_pred    :: TcPredType     -- See Note [Ct/evidence invariant]
-      , ctev_dest    :: TcEvDest
-      , ctev_nosh    :: ShadowInfo     -- See Note [Constraint flavours]
-      , ctev_loc     :: CtLoc
-      , ctev_born_as :: TcPredType }  -- See Note [Wanteds rewrite Wanteds]
+      { ctev_pred      :: TcPredType     -- See Note [Ct/evidence invariant]
+      , ctev_dest      :: TcEvDest
+      , ctev_nosh      :: ShadowInfo     -- See Note [Constraint flavours]
+      , ctev_loc       :: CtLoc
+      , ctev_report_as :: CtReportAs }  -- See Note [Wanteds rewrite Wanteds]
 
   | CtDerived  -- A goal that we don't really have to solve and can't
                -- immediately rewrite anything other than a derived
@@ -1466,9 +1482,24 @@ arisesFromGivens Given       _   = True
 arisesFromGivens (Wanted {}) _   = False
 arisesFromGivens Derived     loc = isGivenLoc loc
 
+-- | Given the pred in a CtWanted and its 'CtReportAs', get
+-- the pred to report. See Note [Wanteds rewrite Wanteds]
+ctPredToReport :: TcPredType -> CtReportAs -> TcPredType
+ctPredToReport pred CtReportAsSame         = pred
+ctPredToReport _    (CtReportAsOther pred) = pred
+
+-- | Substitute in a 'CtReportAs'
+substCtReportAs :: TCvSubst -> CtReportAs -> CtReportAs
+substCtReportAs _     CtReportAsSame         = CtReportAsSame
+substCtReportAs subst (CtReportAsOther pred) = CtReportAsOther (substTy subst pred)
+
 instance Outputable TcEvDest where
   ppr (HoleDest h)   = text "hole" <> ppr h
   ppr (EvVarDest ev) = ppr ev
+
+instance Outputable CtReportAs where
+  ppr CtReportAsSame         = text "CtReportAsSame"
+  ppr (CtReportAsOther pred) = parens $ text "CtReportAsOther" <+> ppr pred
 
 instance Outputable CtEvidence where
   ppr ev = ppr (ctEvFlavour ev)

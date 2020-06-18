@@ -810,11 +810,11 @@ simplifyInfer rhs_tclvl infer_mode sigs name_taus wanteds
        -- used them in evidence bindings constructed by solveWanteds earlier
        -- Easiest way to do this is to emit them as new Wanteds (#14643)
        ; ct_loc <- getCtLocM AnnOrigin Nothing
-       ; let psig_wanted = [ CtWanted { ctev_pred = idType psig_theta_var
-                                      , ctev_dest = EvVarDest psig_theta_var
-                                      , ctev_nosh = WDeriv
-                                      , ctev_loc  = ct_loc
-                                      , ctev_born_as = idType psig_theta_var }
+       ; let psig_wanted = [ CtWanted { ctev_pred      = idType psig_theta_var
+                                      , ctev_dest      = EvVarDest psig_theta_var
+                                      , ctev_nosh      = WDeriv
+                                      , ctev_loc       = ct_loc
+                                      , ctev_report_as = CtReportAsSame }
                            | psig_theta_var <- psig_theta_vars ]
 
        -- Now construct the residual constraint
@@ -2636,13 +2636,13 @@ disambigGroup (default_ty:default_tys) group@(the_tv, wanteds)
       = do { lcl_env <- TcS.getLclEnv
            ; tc_lvl <- TcS.getTcLevel
            ; let loc = mkGivenLoc tc_lvl UnkSkol lcl_env
-           ; wanted_evs <- sequence [ newWantedEvVarNC loc born_as' pred'
+           ; wanted_evs <- sequence [ newWantedEvVarNC loc report_as' pred'
                                     | wanted <- wanteds
                                     , CtWanted { ctev_pred = pred
-                                               , ctev_born_as = born_as }
+                                               , ctev_report_as = report_as }
                                         <- return (ctEvidence wanted)
-                                    , let pred'    = substTy subst pred
-                                          born_as' = substTy subst born_as ]
+                                    , let pred'      = substTy subst pred
+                                          report_as' = substCtReportAs subst report_as ]
            ; fmap isEmptyWC $
              solveSimpleWanteds $ listToBag $
              map mkNonCanonical wanted_evs }

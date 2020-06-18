@@ -153,7 +153,7 @@ canClassNC ev cls tys
        ; emitWork sc_cts
        ; canClass ev cls tys False }
 
-  | CtWanted { ctev_born_as = born_as } <- ev
+  | CtWanted { ctev_report_as = report_as } <- ev
   , Just ip_name <- isCallStackPred cls tys
   , OccurrenceOf func <- ctLocOrigin loc
   -- If we're given a CallStack constraint that arose from a function
@@ -168,7 +168,7 @@ canClassNC ev cls tys
                             -- this rule does not fire again.
                             -- See Note [Overview of implicit CallStacks]
 
-       ; new_ev <- newWantedEvVarNC new_loc born_as pred
+       ; new_ev <- newWantedEvVarNC new_loc report_as pred
 
          -- Then we solve the wanted by pushing the call-site
          -- onto the newly emitted CallStack
@@ -828,7 +828,7 @@ canForAll ev pend_sc
 solveForAll :: CtEvidence -> [TyVar] -> TcThetaType -> PredType -> Bool
             -> TcS (StopOrContinue Ct)
 solveForAll ev tvs theta pred pend_sc
-  | CtWanted { ctev_dest = dest, ctev_born_as = born_as } <- ev
+  | CtWanted { ctev_dest = dest, ctev_report_as = report_as } <- ev
   = -- See Note [Solving a Wanted forall-constraint]
     do { let skol_info = QuantCtxtSkol
              empty_subst = mkEmptyTCvSubst $ mkInScopeSet $
@@ -838,7 +838,7 @@ solveForAll ev tvs theta pred pend_sc
 
        ; (lvl, (w_id, wanteds))
              <- pushLevelNoWorkList (ppr skol_info) $
-                do { wanted_ev <- newWantedEvVarNC loc born_as $
+                do { wanted_ev <- newWantedEvVarNC loc report_as $
                                   substTy subst pred
                    ; return ( ctEvEvId wanted_ev
                             , unitBag (mkNonCanonical wanted_ev)) }
@@ -1065,7 +1065,7 @@ can_eq_nc_forall :: CtEvidence -> EqRel
 --  so we must proceed one binder at a time (#13879)
 
 can_eq_nc_forall ev eq_rel s1 s2
- | CtWanted { ctev_loc = loc, ctev_dest = orig_dest } <- ev
+ | CtWanted { ctev_loc = loc, ctev_dest = orig_dest, ctev_report_as = report_as } <- ev
  = do { let free_tvs       = tyCoVarsOfTypes [s1,s2]
             (bndrs1, phi1) = tcSplitForAllVarBndrs s1
             (bndrs2, phi2) = tcSplitForAllVarBndrs s2
@@ -1089,7 +1089,7 @@ can_eq_nc_forall ev eq_rel s1 s2
                -> TcS (TcCoercion, Cts)
             go (skol_tv:skol_tvs) subst (bndr2:bndrs2)
               = do { let tv2 = binderVar bndr2
-                   ; (kind_co, wanteds1) <- unify loc Nominal (tyVarKind skol_tv)
+                   ; (kind_co, wanteds1) <- unify loc report_as Nominal (tyVarKind skol_tv)
                                                   (substTy subst (tyVarKind tv2))
                    ; let subst' = extendTvSubstAndInScope subst tv2
                                        (mkCastTy (mkTyVarTy skol_tv) kind_co)
@@ -1102,7 +1102,7 @@ can_eq_nc_forall ev eq_rel s1 s2
             -- Done: unify phi1 ~ phi2
             go [] subst bndrs2
               = ASSERT( null bndrs2 )
-                unify loc (eqRelRole eq_rel) phi1' (substTyUnchecked subst phi2)
+                unify loc report_as (eqRelRole eq_rel) phi1' (substTyUnchecked subst phi2)
 
             go _ _ _ = panic "cna_eq_nc_forall"  -- case (s:ss) []
 
@@ -1121,14 +1121,14 @@ can_eq_nc_forall ev eq_rel s1 s2
       ; stopWith ev "Discard given polytype equality" }
 
  where
-    unify :: CtLoc -> Role -> TcType -> TcType -> TcS (TcCoercion, Cts)
+    unify :: CtLoc -> CtReportAs -> Role -> TcType -> TcType -> TcS (TcCoercion, Cts)
     -- This version returns the wanted constraint rather
     -- than putting it in the work list
-    unify loc role ty1 ty2
+    unify loc report_as role ty1 ty2
       | ty1 `tcEqType` ty2
       = return (mkTcReflCo role ty1, emptyBag)
       | otherwise
-      = do { (wanted, co) <- newWantedEq loc role ty1 ty2
+      = do { (wanted, co) <- newWantedEq loc report_as role ty1 ty2
            ; return (co, unitBag (mkNonCanonical wanted)) }
 
 ---------------------------------
@@ -1386,12 +1386,12 @@ can_eq_app ev s1 t1 s2 t2
   = do { unifyDeriveds loc [Nominal, Nominal] [s1, t1] [s2, t2]
        ; stopWith ev "Decomposed [D] AppTy" }
 
-  | CtWanted { ctev_dest = dest } <- ev
-  = do { co_s <- unifyWanted loc Nominal s1 s2
+  | CtWanted { ctev_dest = dest, ctev_report_as = report_as } <- ev
+  = do { co_s <- unifyWanted report_as loc Nominal s1 s2
        ; let arg_loc
                | isNextArgVisible s1 = loc
                | otherwise           = updateCtLocOrigin loc toInvisibleOrigin
-       ; co_t <- unifyWanted arg_loc Nominal t1 t2
+       ; co_t <- unifyWanted report_as arg_loc Nominal t1 t2
        ; let co = mkAppCo co_s co_t
        ; setWantedEq dest co
        ; stopWith ev "Decomposed [W] AppTy" }
@@ -1681,11 +1681,11 @@ canDecomposableTyConAppOK ev eq_rel tc tys1 tys2
      CtDerived {}
         -> unifyDeriveds loc tc_roles tys1 tys2
 
-     CtWanted { ctev_dest = dest }
+     CtWanted { ctev_dest = dest, ctev_report_as = report_as }
                    -- new_locs and tc_roles are both infinite, so
                    -- we are guaranteed that cos has the same length
                    -- as tys1 and tys2
-        -> do { cos <- zipWith4M unifyWanted new_locs tc_roles tys1 tys2
+        -> do { cos <- zipWith4M (unifyWanted report_as) new_locs tc_roles tys1 tys2
               ; setWantedEq dest (mkTyConAppCo role tc cos) }
 
      CtGiven { ctev_evar = evar }
@@ -1973,15 +1973,18 @@ canEqTyVarHetero ev eq_rel swapped tv1 ps_tv1 ki1 xi2 ps_xi2 ki2
        ; canEqTyVarHomo type_ev eq_rel NotSwapped tv1 ps_tv1 rhs' ps_rhs' }
   where
     emit_kind_co :: TcS CoercionN
-    emit_kind_co
-      | CtGiven { ctev_evar = evar } <- ev
-      = do { let kind_co = maybe_sym $ mkTcKindCo (mkTcCoVarCo evar)  -- :: k2 ~ k1
-           ; kind_ev <- newGivenEvVar kind_loc (kind_pty, evCoercion kind_co)
-           ; emitWorkNC [kind_ev]
-           ; return (ctEvCoercion kind_ev) }
+    emit_kind_co = case ev of
+      CtGiven { ctev_evar = evar }
+        -> do { let kind_co = maybe_sym $ mkTcKindCo (mkTcCoVarCo evar)  -- :: k2 ~ k1
+              ; kind_ev <- newGivenEvVar kind_loc (kind_pty, evCoercion kind_co)
+              ; emitWorkNC [kind_ev]
+              ; return (ctEvCoercion kind_ev) }
 
-      | otherwise
-      = unifyWanted kind_loc Nominal ki2 ki1
+      CtWanted { ctev_report_as = report_as }
+        -> unifyWanted report_as kind_loc Nominal ki2 ki1
+
+      CtDerived {}
+        -> unifyWanted CtReportAsSame kind_loc Nominal ki2 ki1
 
     loc      = ctev_loc ev
     role     = eqRelRole eq_rel
@@ -2354,8 +2357,8 @@ rewriteEvidence ev@(CtGiven { ctev_evar = old_evar, ctev_loc = loc }) new_pred c
 rewriteEvidence ev@(CtWanted { ctev_dest = dest
                              , ctev_nosh = si
                              , ctev_loc = loc
-                             , ctev_born_as = born_as }) new_pred co
-  = do { mb_new_ev <- newWanted_SI si loc born_as new_pred
+                             , ctev_report_as = report_as }) new_pred co
+  = do { mb_new_ev <- newWanted_SI si loc report_as new_pred
                -- The "_SI" variant ensures that we make a new Wanted
                -- with the same shadow-info as the existing one
                -- with the same shadow-info as the existing one (#16735)
@@ -2405,10 +2408,10 @@ rewriteEqEvidence old_ev swapped nlhs nrhs lhs_co rhs_co
                                   `mkTcTransCo` mkTcSymCo rhs_co)
        ; newGivenEvVar loc' (new_pred, new_tm) }
 
-  | CtWanted { ctev_dest = dest, ctev_nosh = si, ctev_born_as = born_as } <- old_ev
+  | CtWanted { ctev_dest = dest, ctev_nosh = si, ctev_report_as = report_as } <- old_ev
   = case dest of
       HoleDest hole ->
-        do { (new_ev, hole_co) <- newWantedEq_SI (ch_blocker hole) si loc' born_as
+        do { (new_ev, hole_co) <- newWantedEq_SI (ch_blocker hole) si loc' report_as
                                                  (ctEvRole old_ev) nlhs nrhs
                    -- The "_SI" variant ensures that we make a new Wanted
                    -- with the same shadow-info as the existing one (#16735)
@@ -2448,31 +2451,31 @@ But where it succeeds in finding common structure, it just builds a coercion
 to reflect it.
 -}
 
-unifyWanted :: CtLoc -> Role
-            -> TcType -> TcType -> TcS Coercion
+unifyWanted :: CtReportAs -> CtLoc
+            -> Role -> TcType -> TcType -> TcS Coercion
 -- Return coercion witnessing the equality of the two types,
 -- emitting new work equalities where necessary to achieve that
 -- Very good short-cut when the two types are equal, or nearly so
 -- See Note [unifyWanted and unifyDerived]
 -- The returned coercion's role matches the input parameter
-unifyWanted loc Phantom ty1 ty2
-  = do { kind_co <- unifyWanted loc Nominal (tcTypeKind ty1) (tcTypeKind ty2)
+unifyWanted report_as loc Phantom ty1 ty2
+  = do { kind_co <- unifyWanted report_as loc Nominal (tcTypeKind ty1) (tcTypeKind ty2)
        ; return (mkPhantomCo kind_co ty1 ty2) }
 
-unifyWanted loc role orig_ty1 orig_ty2
+unifyWanted report_as loc role orig_ty1 orig_ty2
   = go orig_ty1 orig_ty2
   where
     go ty1 ty2 | Just ty1' <- tcView ty1 = go ty1' ty2
     go ty1 ty2 | Just ty2' <- tcView ty2 = go ty1 ty2'
 
     go (FunTy _ s1 t1) (FunTy _ s2 t2)
-      = do { co_s <- unifyWanted loc role s1 s2
-           ; co_t <- unifyWanted loc role t1 t2
+      = do { co_s <- unifyWanted report_as loc role s1 s2
+           ; co_t <- unifyWanted report_as loc role t1 t2
            ; return (mkFunCo role co_s co_t) }
     go (TyConApp tc1 tys1) (TyConApp tc2 tys2)
       | tc1 == tc2, tys1 `equalLength` tys2
       , isInjectiveTyCon tc1 role -- don't look under newtypes at Rep equality
-      = do { cos <- zipWith3M (unifyWanted loc)
+      = do { cos <- zipWith3M (unifyWanted report_as loc)
                               (tyConRolesX role tc1) tys1 tys2
            ; return (mkTyConAppCo role tc1 cos) }
 
@@ -2495,7 +2498,7 @@ unifyWanted loc role orig_ty1 orig_ty2
     bale_out ty1 ty2
        | ty1 `tcEqType` ty2 = return (mkTcReflCo role ty1)
         -- Check for equality; e.g. a ~ a, or (m a) ~ (m a)
-       | otherwise = emitNewWantedEq loc role orig_ty1 orig_ty2
+       | otherwise = emitNewWantedEq loc report_as role orig_ty1 orig_ty2
 
 unifyDeriveds :: CtLoc -> [Role] -> [TcType] -> [TcType] -> TcS ()
 -- See Note [unifyWanted and unifyDerived]

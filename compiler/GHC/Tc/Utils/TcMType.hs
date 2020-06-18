@@ -186,11 +186,11 @@ newWanted orig t_or_k pty
   = do loc <- getCtLocM orig t_or_k
        d <- if isEqPrimPred pty then HoleDest  <$> newCoercionHole YesBlockSubst pty
                                 else EvVarDest <$> newEvVar pty
-       return $ CtWanted { ctev_dest = d
-                         , ctev_pred = pty
-                         , ctev_nosh = WDeriv
-                         , ctev_loc = loc
-                         , ctev_born_as = pty }
+       return $ CtWanted { ctev_dest      = d
+                         , ctev_pred      = pty
+                         , ctev_nosh      = WDeriv
+                         , ctev_loc       = loc
+                         , ctev_report_as = CtReportAsSame }
 
 newWanteds :: CtOrigin -> ThetaType -> TcM [CtEvidence]
 newWanteds orig = mapM (newWanted orig Nothing)
@@ -256,9 +256,11 @@ emitWantedEq origin t_or_k role ty1 ty2
   = do { hole <- newCoercionHole YesBlockSubst pty
        ; loc <- getCtLocM origin (Just t_or_k)
        ; emitSimple $ mkNonCanonical $
-         CtWanted { ctev_pred = pty, ctev_dest = HoleDest hole
-                  , ctev_nosh = WDeriv, ctev_loc = loc
-                  , ctev_born_as = pty }
+         CtWanted { ctev_pred = pty
+                  , ctev_dest = HoleDest hole
+                  , ctev_nosh = WDeriv
+                  , ctev_loc = loc
+                  , ctev_report_as = CtReportAsSame }
        ; return (HoleCo hole) }
   where
     pty = mkPrimEqPredRole role ty1 ty2
@@ -269,11 +271,11 @@ emitWantedEvVar :: CtOrigin -> TcPredType -> TcM EvVar
 emitWantedEvVar origin ty
   = do { new_cv <- newEvVar ty
        ; loc <- getCtLocM origin Nothing
-       ; let ctev = CtWanted { ctev_dest = EvVarDest new_cv
-                             , ctev_pred = ty
-                             , ctev_nosh = WDeriv
-                             , ctev_loc  = loc
-                             , ctev_born_as = ty }
+       ; let ctev = CtWanted { ctev_dest      = EvVarDest new_cv
+                             , ctev_pred      = ty
+                             , ctev_nosh      = WDeriv
+                             , ctev_loc       = loc
+                             , ctev_report_as = CtReportAsSame }
        ; emitSimple $ mkNonCanonical ctev
        ; return new_cv }
 
