@@ -4,7 +4,7 @@
 
 module GHC.Tc.Solver.Flatten(
    FlattenMode(..),
-   flatten, flattenKind, flattenArgsNom,
+   flatten, flattenArgsNom,
    rewriteTyVar, flattenType,
 
    unflattenWanteds
@@ -792,19 +792,6 @@ rewriteTyVar tv
        ; return ty }
   where
     fake_loc = pprPanic "rewriteTyVar used a CtLoc" (ppr tv)
-
--- specialized to flattening kinds: never Derived, always Nominal
--- See Note [No derived kind equalities]
--- See Note [Flattening]
-flattenKind :: CtLoc -> CtFlavour -> TcType -> TcS (Xi, TcCoercionN)
-flattenKind loc flav ty
-  = do { traceTcS "flattenKind {" (ppr flav <+> ppr ty)
-       ; let flav' = case flav of
-                       Derived -> Wanted WDeriv  -- the WDeriv/WOnly choice matters not
-                       _       -> flav
-       ; (ty', co) <- runFlatten FM_FlattenAll loc flav' NomEq (flatten_one ty)
-       ; traceTcS "flattenKind }" (ppr ty' $$ ppr co) -- co is never a panic
-       ; return (ty', co) }
 
 -- See Note [Flattening]
 flattenArgsNom :: CtEvidence -> TyCon -> [TcType] -> TcS ([Xi], [TcCoercion], TcCoercionN)
