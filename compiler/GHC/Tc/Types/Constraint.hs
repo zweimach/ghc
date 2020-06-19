@@ -1024,10 +1024,11 @@ insolubleCt :: Ct -> Bool
 -- Definitely insoluble, in particular /excluding/ type-hole constraints
 -- Namely: a) an equality constraint
 --         b) that is insoluble
---         c) and does not arise from a Given
+--         c) and does not arise from a Given or a Wanted/Wanted fundep interaction
 insolubleCt ct
   | not (insolubleEqCt ct)                     = False
   | arisesFromGivens (ctFlavour ct) (ctLoc ct) = False  -- See Note [Given insolubles]
+  | isWantedWantedFunDepOrigin (ctOrigin ct)   = False
   | otherwise                                  = True
 
 insolubleEqCt :: Ct -> Bool
@@ -1493,7 +1494,7 @@ setCtEvLoc ctev loc = ctev { ctev_loc = loc }
 
 arisesFromGivens :: CtFlavour -> CtLoc -> Bool
 arisesFromGivens Given       _   = True
-arisesFromGivens (Wanted {}) _   = False
+arisesFromGivens (Wanted {}) loc = isGivenLoc loc  -- could be a Given FunDep
 arisesFromGivens Derived     loc = isGivenLoc loc
 
 -- | Return a 'CtReportAs' from a 'CtEvidence'. Returns

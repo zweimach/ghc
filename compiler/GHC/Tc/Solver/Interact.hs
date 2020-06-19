@@ -1587,7 +1587,7 @@ inertsCanDischarge inerts tv rhs fr
     keep_deriv ev_i
       | Wanted WOnly  <- ctEvFlavour ev_i  -- inert is [W]
       , (Wanted WDeriv, _) <- fr           -- work item is [WD]
-      = True   -- Keep a derived version of the work item
+      = False  -- "RAE" True   -- Keep a derived version of the work item
       | otherwise
       = False  -- Work item is fully discharged
 

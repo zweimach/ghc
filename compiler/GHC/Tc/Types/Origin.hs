@@ -16,7 +16,7 @@ module GHC.Tc.Types.Origin (
   -- CtOrigin
   CtOrigin(..), exprCtOrigin, lexprCtOrigin, matchesCtOrigin, grhssCtOrigin,
   isVisibleOrigin, toInvisibleOrigin,
-  pprCtOrigin, isGivenOrigin
+  pprCtOrigin, isGivenOrigin, isWantedWantedFunDepOrigin
 
   ) where
 
@@ -461,6 +461,12 @@ isGivenOrigin (GivenOrigin {})              = True
 isGivenOrigin (FunDepOrigin1 _ o1 _ _ o2 _) = isGivenOrigin o1 && isGivenOrigin o2
 isGivenOrigin (FunDepOrigin2 _ o1 _ _)      = isGivenOrigin o1
 isGivenOrigin _                             = False
+
+-- See Note [Suppressing confusing errors] in GHC.Tc.Errors
+isWantedWantedFunDepOrigin :: CtOrigin -> Bool
+isWantedWantedFunDepOrigin (FunDepOrigin1 _ orig1 _ _ orig2 _)
+  = not (isGivenOrigin orig1) && not (isGivenOrigin orig2)
+isWantedWantedFunDepOrigin _ = False
 
 instance Outputable CtOrigin where
   ppr = pprCtOrigin

@@ -636,7 +636,11 @@ reportWanteds ctxt tc_lvl (WC { wc_simple = simples, wc_impl = implics
        ; reportHoles tidy_items ctxt_for_insols other_holes
           -- holes never suppress
 
-       ; (ctxt1, items1) <- tryReporters ctxt_for_insols report1 tidy_items
+          -- See Note [Suppressing confusing errors]
+       ; dflags <- getDynFlags
+       ; let (suppressed_items, items0) = partition (suppress dflags) tidy_items
+       ; traceTc "reportWanteds suppressed:" (ppr suppressed_items)
+       ; (ctxt1, items1) <- tryReporters ctxt_for_insols report1 items0
 
          -- Now all the other constraints.  We suppress errors here if
          -- any of the first batch failed, or if the enclosing context
@@ -650,14 +654,44 @@ reportWanteds ctxt tc_lvl (WC { wc_simple = simples, wc_impl = implics
             -- to report unsolved Derived goals as errors
             -- See Note [Do not report derived but soluble errors]
 
-     ; mapBagM_ (reportImplic ctxt2) implics }
+       ; mapBagM_ (reportImplic ctxt2) implics
             -- NB ctxt2: don't suppress inner insolubles if there's only a
             -- wanted insoluble here; but do suppress inner insolubles
             -- if there's a *given* insoluble here (= inaccessible code)
+
+            -- Only now, if there are no errors, do we report suppressed ones
+            -- See Note [Suppressing confusing errors]
+            -- We don't need to update the context further because of the
+            -- whenNoErrs guard
+       ; whenNoErrs $
+         do { (_, more_leftovers) <- tryReporters ctxt2 report3 suppressed_items
+            ; MASSERT2( null more_leftovers, ppr more_leftovers ) } }
  where
     env        = cec_tidy ctxt
     tidy_items = bagToList (mapBag (mkErrorItem . tidyCt env)   simples)
     tidy_holes = bagToList (mapBag (tidyHole env) holes)
+
+      -- See Note [Suppressing confusing errors]
+    suppress :: DynFlags -> ErrorItem -> Bool
+    suppress dflags item@(EI { ei_pred = pred })
+      | badCoercionHole pred
+      = True
+
+         -- See Note [Equalities with incompatible kinds] in GHC.Tc.Solver.Canonical;
+         -- point (4c)
+      | Just (_, ty1, ty2) <- getEqPredTys_maybe pred
+      , Just tv1           <- getTyVar_maybe ty1
+      , isTouchableMetaTyVar tc_lvl tv1
+      , MTVU_OK ()         <- occCheckForErrors dflags tv1 ty2
+         -- this last line checks for e.g. impredicative situations; we don't
+         -- want to suppress an error if the problem is impredicativity
+      = True
+
+      | is_ww_fundep_item item
+      = True
+
+      | otherwise
+      = False
 
     -- report1: ones that should *not* be suppressed by
     --          an insoluble somewhere else in the tree
@@ -665,34 +699,32 @@ reportWanteds ctxt tc_lvl (WC { wc_simple = simples, wc_impl = implics
     -- (see GHC.Tc.Utils.insolubleCt) is caught here, otherwise
     -- we might suppress its error message, and proceed on past
     -- type checking to get a Lint error later
-    report1 = [ ("custom_error", unblocked is_user_type_error, True,  mkUserTypeErrorReporter)
+    report1 = [ ("custom_error", is_user_type_error, True,  mkUserTypeErrorReporter)
 
               , given_eq_spec
-              , ("insoluble2",   unblocked utterly_wrong,  True, mkGroupReporter mkEqErr)
-              , ("skolem eq1",   unblocked very_wrong,     True, mkSkolReporter)
-              , ("skolem eq2",   unblocked skolem_eq,      True, mkSkolReporter)
-              , ("non-tv eq",    unblocked non_tv_eq,      True, mkSkolReporter)
+              , ("insoluble2",   utterly_wrong,  True, mkGroupReporter mkEqErr)
+              , ("skolem eq1",   very_wrong,     True, mkSkolReporter)
+              , ("skolem eq2",   skolem_eq,      True, mkSkolReporter)
+              , ("non-tv eq",    non_tv_eq,      True, mkSkolReporter)
 
                   -- The only remaining equalities are alpha ~ ty,
                   -- where alpha is untouchable; and representational equalities
                   -- Prefer homogeneous equalities over hetero, because the
                   -- former might be holding up the latter.
                   -- See Note [Equalities with incompatible kinds] in GHC.Tc.Solver.Canonical
-              , ("Homo eqs",      unblocked is_homo_equality,             True,  mkGroupReporter mkEqErr)
-              , ("Other eqs",     unblocked is_non_blocked_equality,      True,  mkGroupReporter mkEqErr)
-              , ("Blocked eqs",   is_equality,           False, mkSuppressReporter mkBlockedEqErr)]
+              , ("Homo eqs",      is_homo_equality,  True,  mkGroupReporter mkEqErr)
+              , ("Other eqs",     is_equality,       True,  mkGroupReporter mkEqErr)
+              ]
 
     -- report2: we suppress these if there are insolubles elsewhere in the tree
     report2 = [ ("Implicit params", is_ip,           False, mkGroupReporter mkIPErr)
               , ("Irreds",          is_irred,        False, mkGroupReporter mkIrredErr)
               , ("Dicts",           is_dict,         False, mkGroupReporter mkDictErr) ]
 
-    -- also checks to make sure the constraint isn't BlockedCIS
-    -- See GHC.Tc.Solver.Canonical Note [Equalities with incompatible kinds], (4)
-    unblocked :: (ErrorItem -> Pred -> Bool) -> ErrorItem -> Pred -> Bool
-    unblocked checker item pred
-      | badCoercionHole (ei_pred item) = False
-      | otherwise                      = checker item pred
+    -- report3: suppressed errors should be reported as categorized by either report1
+    -- or report2.
+    report3 = [ ("wanted/wanted fundeps", is_ww_fundep, True, mkGroupReporter mkEqErr)
+              , ("Blocked eqs",           is_equality,  True, mkGroupReporter mkBlockedEqErr) ]
 
     -- rigid_nom_eq, rigid_nom_tv_eq,
     is_dict, is_equality, is_ip, is_irred :: ErrorItem -> Pred -> Bool
@@ -723,15 +755,6 @@ reportWanteds ctxt tc_lvl (WC { wc_simple = simples, wc_impl = implics
     is_homo_equality _ (EqPred _ ty1 ty2) = tcTypeKind ty1 `tcEqType` tcTypeKind ty2
     is_homo_equality _ _                  = False
 
-      -- we've already checked homogeneous equalities, so this one must be hetero
-    is_non_blocked_equality _ (EqPred _ ty1 _)
-      | Just tv1 <- getTyVar_maybe ty1
-      , isTouchableMetaTyVar tc_lvl tv1
-      = False  -- See Note [Equalities with incompatible kinds] in GHC.Tc.Solver.Canonical,
-               -- wrinkle (4c).
-    is_non_blocked_equality _ (EqPred {}) = True
-    is_non_blocked_equality _ _           = False
-
     is_equality _ (EqPred {}) = True
     is_equality _ _           = False
 
@@ -743,6 +766,10 @@ reportWanteds ctxt tc_lvl (WC { wc_simple = simples, wc_impl = implics
 
     is_irred _ (IrredPred {}) = True
     is_irred _ _              = False
+
+     -- See situation (2) of Note [Suppress confusing errors]
+    is_ww_fundep item _ = is_ww_fundep_item item
+    is_ww_fundep_item = isWantedWantedFunDepOrigin . errorItemOrigin
 
     given_eq_spec  -- See Note [Given errors]
       | has_gadt_match (cec_encl ctxt)
@@ -784,6 +811,54 @@ isTyFun_maybe :: Type -> Maybe TyCon
 isTyFun_maybe ty = case tcSplitTyConApp_maybe ty of
                       Just (tc,_) | isTypeFamilyTyCon tc -> Just tc
                       _ -> Nothing
+
+{- Note [Suppressing confusing errors]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Certain errors we might encounter are potentially confusing to users.
+If there are any other errors to report, at all, we want to suppress these.
+
+Which errors:
+
+1) Errors which are blocked by a coercion hole. This is described
+   in point (4) of Note [Equalities with incompatible kinds] in Tc.Solver.Canonical.
+
+2) Errors which arise from the interaction of two Wanted fun-dep constraints.
+   Example:
+
+     class C a b | a -> b where
+       op :: a -> b -> b
+
+     foo _ = op True Nothing
+
+     bar _ = op False []
+
+   Here, we could infer
+     foo :: C Bool (Maybe a) => p -> Maybe a
+     bar :: C Bool [a]       => p -> [a]
+
+   (The unused arguments suppress the monomorphism restriction.) The problem
+   is that these types can't both be correct, as they violate the functional
+   dependency. Yet reporting an error here is awkward: we must
+   non-deterministically choose either foo or bar to reject. We thus want
+   to report this problem only when there is nothing else to report.
+   See typecheck/should_fail/T13506 for an example of when to suppress
+   the error. The case above is actually accepted, because foo and bar
+   are checked separately, and thus the two fundep constraints never
+   encounter each other. It is test case typecheck/should_compile/FunDepOrigin1.
+
+   This case applies only when both fundeps are *Wanted* fundeps; when
+   both are givens, the error represents unreachable code. For
+   a Given/Wanted case, see #9612.
+
+Mechanism:
+
+We use the `suppress` function within reportWanteds to filter out these two
+cases, then report all other errors. Lastly, we return to these suppressed
+ones and report them only if there have been no errors so far.
+
+-}
+
+
 
 --------------------------------------------
 --      Reporters
@@ -910,11 +985,6 @@ mkGroupReporter :: (ReportErrCtxt -> [ErrorItem] -> TcM ErrMsg)
 mkGroupReporter mk_err ctxt items
   = mapM_ (reportGroup mk_err ctxt . toList) (equivClasses cmp_loc items)
 
--- Like mkGroupReporter, but doesn't actually print error messages
-mkSuppressReporter :: (ReportErrCtxt -> [ErrorItem] -> TcM ErrMsg) -> Reporter
-mkSuppressReporter mk_err ctxt items
-  = mapM_ (suppressGroup mk_err ctxt . toList) (equivClasses cmp_loc items)
-
 eq_lhs_type :: ErrorItem -> ErrorItem -> Bool
 eq_lhs_type item1 item2
   = case (classifyPredType (ei_pred item1), classifyPredType (ei_pred item2)) of
@@ -941,14 +1011,6 @@ reportGroup mk_err ctxt items =
          -- Redundant if we are going to abort compilation,
          -- but that's hard to know for sure, and if we don't
          -- abort, we need bindings for all (e.g. #12156)
-
--- like reportGroup, but does not actually report messages. It still adds
--- -fdefer-type-errors bindings, though.
-suppressGroup :: (ReportErrCtxt -> [ErrorItem] -> TcM ErrMsg) -> Reporter
-suppressGroup mk_err ctxt items
- = do { err <- mk_err ctxt items
-      ; traceTc "Suppressing errors for" (ppr items)
-      ; mapM_ (addDeferredBinding ctxt err) items }
 
 maybeReportHoleError :: ReportErrCtxt -> Hole -> ErrMsg -> TcM ()
 maybeReportHoleError ctxt hole err

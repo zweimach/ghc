@@ -242,13 +242,7 @@ emitDerivedEqs origin pairs
   | null pairs
   = return ()
   | otherwise
-  = do { loc <- getCtLocM origin Nothing
-       ; emitSimples (listToBag (map (mk_one loc) pairs)) }
-  where
-    mk_one loc (ty1, ty2)
-       = mkNonCanonical $
-         CtDerived { ctev_pred = mkPrimEqPred ty1 ty2
-                   , ctev_loc = loc }
+  = mapM_ (uncurry (emitWantedEq origin TypeLevel Nominal)) pairs
 
 -- | Emits a new equality constraint
 emitWantedEq :: CtOrigin -> TypeOrKind -> Role -> TcType -> TcType -> TcM Coercion

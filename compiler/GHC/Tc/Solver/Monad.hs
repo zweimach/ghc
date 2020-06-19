@@ -1416,17 +1416,17 @@ maybeEmitShadow :: InertCans -> Ct -> TcS Ct
 -- See Note [The improvement story and derived shadows]
 maybeEmitShadow ics ct
   | let ev = ctEvidence ct
-  , CtWanted { ctev_pred = pred, ctev_loc = loc
-             , ctev_nosh = WDeriv } <- ev
+  , CtWanted { {- "RAE" ctev_pred = pred, ctev_loc = loc
+             , -} ctev_nosh = WDeriv } <- ev
   , shouldSplitWD (inert_eqs ics) ct
-  = do { traceTcS "Emit derived shadow" (ppr ct)
-       ; let derived_ev = CtDerived { ctev_pred = pred
+  = do { traceTcS "RAE: NO: Emit derived shadow" (ppr ct)
+    {-   ; let derived_ev = CtDerived { ctev_pred = pred
                                     , ctev_loc  = loc }
              shadow_ct = ct { cc_ev = derived_ev }
                -- Te shadow constraint keeps the canonical shape.
                -- This just saves work, but is sometimes important;
                -- see Note [Keep CDictCan shadows as CDictCan]
-       ; emitWork [shadow_ct]
+       ; emitWork [shadow_ct] -}
 
        ; let ev' = ev { ctev_nosh = WOnly }
              ct' = ct { cc_ev = ev' }
@@ -3594,9 +3594,9 @@ emitNewDerivedEq loc role ty1 ty2
          -- See Note [Prioritise equalities] (Avoiding fundep iteration)
 
 newDerivedNC :: CtLoc -> TcPredType -> TcS CtEvidence
-newDerivedNC loc pred
+newDerivedNC = newWantedNC {- "RAE"
   = do { -- checkReductionDepth loc pred
-       ; return (CtDerived { ctev_pred = pred, ctev_loc = loc }) }
+       ; return (CtDerived { ctev_pred = pred, ctev_loc = loc }) } -}
 
 -- --------- Check done in GHC.Tc.Solver.Interact.selectNewWorkItem???? ---------
 -- | Checks if the depth of the given location is too much. Fails if
