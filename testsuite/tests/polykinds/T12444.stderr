@@ -1,6 +1,6 @@
 
 T12444.hs:19:11: error:
-    • Couldn't match type ‘b’ with ‘'Succ (c :+: b)’
+    • Couldn't match type ‘b’ with ‘'Succ t0’
       ‘b’ is a rigid type variable bound by
         the type signature for:
           foo :: forall (c :: Nat) (b :: Nat).

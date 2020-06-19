@@ -1513,7 +1513,9 @@ solveWanteds wc@(WC { wc_simple = simples, wc_impl = implics, wc_holes = holes }
        ; solved_wc <- simpl_loop 0 (solverIterations dflags) floated_eqs
                                 (wc1 { wc_impl = implics2 })
 
-       ; let final_wc = solved_wc { wc_holes = holes }
+       ; holes' <- simplifyHoles holes
+       ; let final_wc = solved_wc { wc_holes = holes' }
+
        ; ev_binds_var <- getTcEvBindsVar
        ; bb <- TcS.getTcEvBindsMap ev_binds_var
        ; traceTcS "solveWanteds }" $
@@ -1879,6 +1881,15 @@ neededEvVars implic@(Implic { ic_given = givens
    add_wanted (EvBind { eb_is_given = is_given, eb_rhs = rhs }) needs
      | is_given  = needs  -- Add the rhs vars of the Wanted bindings only
      | otherwise = evVarsOfTerm rhs `unionVarSet` needs
+
+-------------------------------------------------
+simplifyHoles :: Bag Hole -> TcS (Bag Hole)
+simplifyHoles = mapBagM simpl_hole
+  where
+    simpl_hole :: Hole -> TcS Hole
+    simpl_hole h@(Hole { hole_ty = ty, hole_loc = loc })
+      = do { ty' <- flattenType loc ty
+           ; return (h { hole_ty = ty' }) }
 
 {- Note [Delete dead Given evidence bindings]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

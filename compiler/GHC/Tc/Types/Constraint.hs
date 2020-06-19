@@ -22,7 +22,7 @@ module GHC.Tc.Types.Constraint (
         mkIrredCt,
         ctEvPred, ctEvLoc, ctEvOrigin, ctEvEqRel,
         ctEvExpr, ctEvTerm, ctEvCoercion, ctEvEvId,
-        ctReportAs,
+        ctReportAs, ctUnique,
         tyCoVarsOfCt, tyCoVarsOfCts,
         tyCoVarsOfCtList, tyCoVarsOfCtsList,
 
@@ -51,7 +51,7 @@ module GHC.Tc.Types.Constraint (
         isWanted, isGiven, isDerived, isGivenOrWDeriv,
         ctEvRole, setCtEvLoc, arisesFromGivens,
         tyCoVarsOfCtEvList, tyCoVarsOfCtEv, tyCoVarsOfCtEvsList,
-        ctEvReportAs,
+        ctEvReportAs, ctEvUnique, tcEvDestUnique,
 
         CtReportAs(..), ctPredToReport, substCtReportAs,
         updateReportAs, WRWFlag(..), wantedRewriteWanted,
@@ -97,6 +97,7 @@ import GHC.Utils.FV
 import GHC.Types.Var.Set
 import GHC.Driver.Session
 import GHC.Types.Basic
+import GHC.Types.Unique
 
 import GHC.Utils.Outputable
 import GHC.Types.SrcLoc
@@ -466,6 +467,10 @@ ctReportAs :: Ct -> CtReportAs
 ctReportAs ct = case ctEvidence ct of
   CtWanted { ctev_report_as = report_as } -> report_as
   _                                       -> pprPanic "ctReportAs" (ppr ct)
+
+-- | Extract a Unique from a 'Ct'
+ctUnique :: Ct -> Unique
+ctUnique = ctEvUnique . ctEvidence
 
 instance Outputable Ct where
   ppr ct = ppr (ctEvidence ct) <+> parens pp_sort
@@ -1411,8 +1416,9 @@ data TcEvDest
 -- | What should we report to the user when reporting this Wanted?
 -- See Note [Wanteds rewrite Wanteds]
 data CtReportAs
-  = CtReportAsSame               -- just report the predicate in the Ct
-  | CtReportAsOther TcPredType   -- report this other type
+  = CtReportAsSame                      -- just report the predicate in the Ct
+  | CtReportAsOther Unique TcPredType   -- report this other type
+     -- See GHC.Tc.Errors Note [Avoid reporting duplicates] about the Unique
 
 -- | Did a wanted rewrite a wanted?
 -- See Note [Wanteds rewrite Wanteds]
@@ -1489,6 +1495,15 @@ ctEvEvId (CtWanted { ctev_dest = HoleDest h })   = coHoleCoVar h
 ctEvEvId (CtGiven  { ctev_evar = ev })           = ev
 ctEvEvId ctev@(CtDerived {}) = pprPanic "ctEvId:" (ppr ctev)
 
+ctEvUnique :: CtEvidence -> Unique
+ctEvUnique (CtGiven { ctev_evar = ev })    = varUnique ev
+ctEvUnique (CtWanted { ctev_dest = dest }) = tcEvDestUnique dest
+ctEvUnique (CtDerived {})                  = mkUniqueGrimily 0  -- "RAE" this is evil.
+
+tcEvDestUnique :: TcEvDest -> Unique
+tcEvDestUnique (EvVarDest ev_var) = varUnique ev_var
+tcEvDestUnique (HoleDest co_hole) = varUnique (coHoleCoVar co_hole)
+
 setCtEvLoc :: CtEvidence -> CtLoc -> CtEvidence
 setCtEvLoc ctev loc = ctev { ctev_loc = loc }
 
@@ -1505,31 +1520,31 @@ ctEvReportAs _                                         = CtReportAsSame
 
 -- | Given the pred in a CtWanted and its 'CtReportAs', get
 -- the pred to report. See Note [Wanteds rewrite Wanteds]
-ctPredToReport :: TcPredType -> CtReportAs -> TcPredType
-ctPredToReport pred CtReportAsSame         = pred
-ctPredToReport _    (CtReportAsOther pred) = pred
+ctPredToReport :: TcEvDest -> TcPredType -> CtReportAs -> (Unique, TcPredType)
+ctPredToReport dest pred CtReportAsSame           = (tcEvDestUnique dest, pred)
+ctPredToReport _    _    (CtReportAsOther u pred) = (u, pred)
 
 -- | Substitute in a 'CtReportAs'
 substCtReportAs :: TCvSubst -> CtReportAs -> CtReportAs
-substCtReportAs _     CtReportAsSame         = CtReportAsSame
-substCtReportAs subst (CtReportAsOther pred) = CtReportAsOther (substTy subst pred)
+substCtReportAs _     CtReportAsSame           = CtReportAsSame
+substCtReportAs subst (CtReportAsOther u pred) = CtReportAsOther u (substTy subst pred)
 
 -- | After rewriting a Wanted, update the 'CtReportAs' for the new Wanted.
 -- If the old CtReportAs is CtReportAsSame and a wanted rewrote a wanted,
 -- record the old pred as the new CtReportAs.
 -- See Note [Wanteds rewrite Wanteds]
-updateReportAs :: WRWFlag -> TcPredType   -- _old_ pred type
+updateReportAs :: WRWFlag -> Unique -> TcPredType   -- _old_ pred type
                -> CtReportAs -> CtReportAs
-updateReportAs YesWRW old_pred CtReportAsSame = CtReportAsOther old_pred
-updateReportAs _      _        report_as      = report_as
+updateReportAs YesWRW unique old_pred CtReportAsSame = CtReportAsOther unique old_pred
+updateReportAs _      _      _        report_as      = report_as
 
 instance Outputable TcEvDest where
   ppr (HoleDest h)   = text "hole" <> ppr h
   ppr (EvVarDest ev) = ppr ev
 
 instance Outputable CtReportAs where
-  ppr CtReportAsSame         = text "CtReportAsSame"
-  ppr (CtReportAsOther pred) = parens $ text "CtReportAsOther" <+> ppr pred
+  ppr CtReportAsSame           = text "CtReportAsSame"
+  ppr (CtReportAsOther u pred) = parens $ text "CtReportAsOther" <+> ppr u <+> ppr pred
 
 instance Outputable WRWFlag where
   ppr NoWRW  = text "NoWRW"
@@ -1676,6 +1691,9 @@ happens during solving. Then, when reporting errors, we rewrite this
 predicate with respect to any givens (only). That rewritten predicate
 is reported to the user. Simple, and it costs time only when errors
 are being reported.
+
+"RAE": Givens don't rewrite CtReportAs. But that's OK because givens
+get there first.
 
 Note [Deriveds do rewrite Deriveds]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

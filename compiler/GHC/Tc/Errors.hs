@@ -22,7 +22,8 @@ import GHC.Tc.Utils.Monad
 import GHC.Tc.Types.Constraint
 import GHC.Core.Predicate
 import GHC.Tc.Utils.TcMType
-import GHC.Tc.Utils.Unify( occCheckForErrors, MetaTyVarUpdateResult(..), swapOverTyVars )
+import GHC.Tc.Utils.Unify( occCheckForErrors, MetaTyVarUpdateResult(..), swapOverTyVars
+                         , canSolveByUnification )
 import GHC.Tc.Utils.Env( tcInitTidyEnv )
 import GHC.Tc.Utils.TcType
 import GHC.Tc.Types.Origin
@@ -45,11 +46,12 @@ import GHC.Tc.Types.EvTerm
 import GHC.Hs.Binds ( PatSynBind(..) )
 import GHC.Types.Name
 import GHC.Types.Name.Reader ( lookupGRE_Name, GlobalRdrEnv, mkRdrUnqual )
-import GHC.Builtin.Names ( typeableClassName )
+import GHC.Builtin.Names
 import GHC.Types.Id
 import GHC.Types.Var
 import GHC.Types.Var.Set
 import GHC.Types.Var.Env
+import GHC.Types.Unique.Set
 import GHC.Types.Name.Set
 import GHC.Data.Bag
 import GHC.Utils.Error  ( ErrMsg, errDoc, pprLocErrMsg )
@@ -234,7 +236,8 @@ report_unsolved type_errors expr_holes
                                  -- See #15539 and c.f. setting ic_status
                                  -- in GHC.Tc.Solver.setImplicationStatus
                             , cec_warn_redundant = warn_redundant
-                            , cec_binds    = binds_var }
+                            , cec_binds    = binds_var
+                            , cec_already_reported = emptyUniqSet }
 
        ; tc_lvl <- getTcLevel
        ; reportWanteds err_ctxt tc_lvl wanted
@@ -342,6 +345,8 @@ data ReportErrCtxt
                                     --          so create bindings if need be, but
                                     --          don't issue any more errors/warnings
                                     -- See Note [Suppressing error messages]
+          , cec_already_reported :: UniqSet Unique
+                                    -- See Note [Avoid reporting duplicates]
       }
 
 instance Outputable ReportErrCtxt where
@@ -535,6 +540,8 @@ data ErrorItem
        , ei_evdest  :: Maybe TcEvDest   -- for Wanteds, where to put evidence
        , ei_flavour :: CtFlavour
        , ei_loc     :: CtLoc
+       , ei_unique  :: Unique
+         -- for deduplication; see Note [Avoid reporting duplicates]
        }
 
 instance Outputable ErrorItem where
@@ -553,17 +560,19 @@ mkErrorItem ct = EI { ei_pred    = tyvar_first pred
                     , ei_type    = ctPred ct
                     , ei_evdest  = m_evdest
                     , ei_flavour = ctFlavour ct
-                    , ei_loc     = loc }
+                    , ei_loc     = loc
+                    , ei_unique  = unique }
   where
     loc = ctLoc ct
-    (m_evdest, pred)
+    (m_evdest, pred, unique)
       | CtWanted { ctev_dest = dest
                  , ctev_report_as = report_as
                  , ctev_pred = ct_pred } <- ctEvidence ct
-      = (Just dest, ctPredToReport ct_pred report_as)
+      , (u, p) <- ctPredToReport dest ct_pred report_as
+      = (Just dest, p, u)
 
       | otherwise
-      = (Nothing, ctPred ct)
+      = (Nothing, ctPred ct, ctUnique ct)
 
       -- We reorient any tyvar equalities to put the tyvar first; this
       -- allows fewer cases when choosing how to treat errors. Forgetting
@@ -645,8 +654,8 @@ reportWanteds ctxt tc_lvl (WC { wc_simple = simples, wc_impl = implics
          -- Now all the other constraints.  We suppress errors here if
          -- any of the first batch failed, or if the enclosing context
          -- says to suppress
-       ; let ctxt2 = ctxt { cec_suppress = cec_suppress ctxt || cec_suppress ctxt1 }
-       ; (_, leftovers) <- tryReporters ctxt2 report2 items1
+       ; let ctxt2 = ctxt1 { cec_suppress = cec_suppress ctxt || cec_suppress ctxt1 }
+       ; (ctxt3, leftovers) <- tryReporters ctxt2 report2 items1
        ; MASSERT2( null leftovers, ppr leftovers )
 
             -- All the Derived ones have been filtered out of simples
@@ -654,17 +663,19 @@ reportWanteds ctxt tc_lvl (WC { wc_simple = simples, wc_impl = implics
             -- to report unsolved Derived goals as errors
             -- See Note [Do not report derived but soluble errors]
 
-       ; mapBagM_ (reportImplic ctxt2) implics
+       ; let inner_ctxt = ctxt2 { cec_already_reported = cec_already_reported ctxt3 }
             -- NB ctxt2: don't suppress inner insolubles if there's only a
             -- wanted insoluble here; but do suppress inner insolubles
             -- if there's a *given* insoluble here (= inaccessible code)
+
+       ; mapBagM_ (reportImplic inner_ctxt) implics
 
             -- Only now, if there are no errors, do we report suppressed ones
             -- See Note [Suppressing confusing errors]
             -- We don't need to update the context further because of the
             -- whenNoErrs guard
        ; whenNoErrs $
-         do { (_, more_leftovers) <- tryReporters ctxt2 report3 suppressed_items
+         do { (_, more_leftovers) <- tryReporters ctxt3 report3 suppressed_items
             ; MASSERT2( null more_leftovers, ppr more_leftovers ) } }
  where
     env        = cec_tidy ctxt
@@ -681,7 +692,7 @@ reportWanteds ctxt tc_lvl (WC { wc_simple = simples, wc_impl = implics
          -- point (4c)
       | Just (_, ty1, ty2) <- getEqPredTys_maybe pred
       , Just tv1           <- getTyVar_maybe ty1
-      , isTouchableMetaTyVar tc_lvl tv1
+      , canSolveByUnification tc_lvl tv1 ty2
       , MTVU_OK ()         <- occCheckForErrors dflags tv1 ty2
          -- this last line checks for e.g. impredicative situations; we don't
          -- want to suppress an error if the problem is impredicativity
@@ -856,6 +867,27 @@ We use the `suppress` function within reportWanteds to filter out these two
 cases, then report all other errors. Lastly, we return to these suppressed
 ones and report them only if there have been no errors so far.
 
+Note [Avoid reporting duplicates]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+It would be embarrassing to report two identical errors to the user. We
+avoid doing so by logging a Unique associated with every error, in the
+cec_already_reported field of a ReportErrCtxt. These Uniques come from:
+
+ * For Givens: it's the Unique on the ctev_evar storing the Given evidence.
+
+ * For Wanteds with CtReportAsSame: it's the Unique associated with the
+   TcEvDest.
+
+ * For Wanteds with CtReportAsOther: it's the Unique in the CtReportAsOther,
+   which in turn comes from the TcEvDest of the originating Wanted, as placed
+   there in updateReportAs.
+
+We still must be sure to process all errors, including duplicates, because
+of the possibility of -fdefer-type-errors; each duplicate may carry its own
+evidence (in the case of several constraints sharing the same CtReportAsOther).
+But when an error appears already in the cec_already_reported, we suppress
+the user-visible error report.
+
 -}
 
 
@@ -897,7 +929,7 @@ reportHoles tidy_items ctxt
 mkUserTypeErrorReporter :: Reporter
 mkUserTypeErrorReporter ctxt
   = mapM_ $ \item -> do { err <- mkUserTypeError ctxt item
-                        ; maybeReportError ctxt err
+                        ; maybeReportError ctxt [item] err
                         ; addDeferredBinding ctxt err item }
 
 mkUserTypeError :: ReportErrCtxt -> ErrorItem -> TcM ErrMsg
@@ -1003,7 +1035,7 @@ reportGroup mk_err ctxt items =
        vcat [ text "Constraint:"             <+> ppr items
             , text "cec_suppress ="          <+> ppr (cec_suppress ctxt)
             , text "cec_defer_type_errors =" <+> ppr (cec_defer_type_errors ctxt) ]
-     ; maybeReportError ctxt err
+     ; maybeReportError ctxt items err
          -- But see Note [Always warn with -fdefer-type-errors]
      ; traceTc "reportGroup" (ppr items)
      ; mapM_ (addDeferredBinding ctxt err) items }
@@ -1051,11 +1083,18 @@ maybeReportHoleError ctxt hole@(Hole { hole_sort = ExprHole _ }) err
        HoleWarn  -> reportWarning (Reason Opt_WarnTypedHoles) err
        HoleDefer -> return ()
 
-maybeReportError :: ReportErrCtxt -> ErrMsg -> TcM ()
+maybeReportError :: ReportErrCtxt -> [ErrorItem] -> ErrMsg -> TcM ()
 -- Report the error and/or make a deferred binding for it
-maybeReportError ctxt err
+maybeReportError ctxt items err
   | cec_suppress ctxt    -- Some worse error has occurred;
   = return ()            -- so suppress this error/warning
+
+  | any ((`elementOfUniqSet` cec_already_reported ctxt) . ei_unique) items
+  = return ()
+    -- suppress the group if any have been reported. Ideally, we'd like
+    -- to suppress exactly those that have been reported, but this is
+    -- awkward, and it's more embarrassing to report the same error
+    -- twice than to suppress too eagerly
 
   | otherwise
   = case cec_defer_type_errors ctxt of
@@ -1136,9 +1175,15 @@ tryReporter ctxt (str, keep_me,  suppress_after, reporter) items
   | otherwise
   = do { traceTc "tryReporter{ " (text str <+> ppr yeses)
        ; (_, no_errs) <- askNoErrs (reporter ctxt yeses)
-       ; let suppress_now = not no_errs && suppress_after
+       ; let suppress_these = cec_suppress ctxt
+             suppress_now   = not no_errs && suppress_after
                             -- See Note [Suppressing error messages]
-             ctxt' = ctxt { cec_suppress = suppress_now || cec_suppress ctxt }
+             already_reported = cec_already_reported ctxt
+             already_reported'
+               | suppress_these = already_reported
+               | otherwise      = addListToUniqSet already_reported (map ei_unique yeses)
+             ctxt' = ctxt { cec_suppress = suppress_now || suppress_these
+                          , cec_already_reported = already_reported' }
        ; traceTc "tryReporter end }" (text str <+> ppr (cec_suppress ctxt) <+> ppr suppress_after)
        ; return (ctxt', nos) }
   where
@@ -1426,7 +1471,7 @@ validHoleFits :: ReportErrCtxt -- The context we're in, i.e. the
                                                     -- with a possibly updated
                                                     -- tidy environment, and
                                                     -- the message.
-validHoleFits ctxt@(CEC {cec_encl = implics
+validHoleFits ctxt@(CEC { cec_encl = implics
                         , cec_tidy = lcl_env}) simps hole
   = do { (tidy_env, msg) <- findValidHoleFits lcl_env implics (map mk_wanted simps) hole
        ; return (ctxt {cec_tidy = tidy_env}, msg) }
@@ -1694,7 +1739,7 @@ reportEqErr ctxt report item oriented ty1 ty2
 
 mkTyVarEqErr, mkTyVarEqErr'
   :: DynFlags -> ReportErrCtxt -> Report -> ErrorItem
-             -> Maybe SwapFlag -> TcTyVar -> TcType -> TcM ErrMsg
+              -> Maybe SwapFlag -> TcTyVar -> TcType -> TcM ErrMsg
 -- tv1 and ty2 are already tidied
 mkTyVarEqErr dflags ctxt report item oriented tv1 ty2
   = do { traceTc "mkTyVarEqErr" (ppr item $$ ppr tv1 $$ ppr ty2)

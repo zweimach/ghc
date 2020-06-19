@@ -1894,7 +1894,7 @@ canCFunEqCan ev fn tys fsk
 
              flav    = ctEvFlavour ev
 
-             report_as = updateReportAs wrw (ctEvPred ev) (ctEvReportAs ev)
+             report_as = updateReportAs wrw (ctEvUnique ev) (ctEvPred ev) (ctEvReportAs ev)
        ; (ev', fsk')
            <- if isTcReflexiveCo kind_co   -- See Note [canCFunEqCan]
               then do { traceTcS "canCFunEqCan: refl" (ppr new_lhs)
@@ -2380,7 +2380,7 @@ rewriteEvidence wrw ev@(CtWanted { ctev_pred = old_pred
             Fresh  new_ev -> continueWith new_ev
             Cached _      -> stopWith ev "Cached wanted" }
   where
-    report_as' = updateReportAs wrw old_pred report_as
+    report_as' = updateReportAs wrw (tcEvDestUnique dest) old_pred report_as
 
 
 rewriteEqEvidence :: WRWFlag            -- YesWRW <=> a wanted rewrote a wanted
@@ -2425,7 +2425,7 @@ rewriteEqEvidence wrw old_ev swapped nlhs nrhs lhs_co rhs_co
              , ctev_dest = dest
              , ctev_nosh = si
              , ctev_report_as = report_as } <- old_ev
-  , let report_as' = updateReportAs wrw old_pred report_as
+  , let report_as' = updateReportAs wrw (tcEvDestUnique dest) old_pred report_as
   = case dest of
       HoleDest hole ->
         do { (new_ev, hole_co) <- newWantedEq_SI (ch_blocker hole) si loc' report_as'

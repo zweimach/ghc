@@ -2085,8 +2085,8 @@ zonkCtEvidence ctev@(CtWanted { ctev_pred = pred
                          -- necessary in simplifyInfer
                        HoleDest h   -> HoleDest h
        ; report_as' <- case report_as of
-           CtReportAsSame              -> return CtReportAsSame
-           CtReportAsOther report_pred -> CtReportAsOther <$> zonkTcType report_pred
+           CtReportAsSame                -> return CtReportAsSame
+           CtReportAsOther u report_pred -> CtReportAsOther u <$> zonkTcType report_pred
        ; return (ctev { ctev_pred = pred', ctev_dest = dest'
                       , ctev_report_as = report_as' }) }
 zonkCtEvidence ctev@(CtDerived { ctev_pred = pred })
@@ -2279,8 +2279,8 @@ tidyCtEvidence :: TidyEnv -> CtEvidence -> CtEvidence
 tidyCtEvidence env ctev@(CtWanted { ctev_pred = pred, ctev_report_as = report_as })
   = ctev { ctev_pred = tidyType env pred, ctev_report_as = tidy_report_as report_as }
   where tidy_report_as CtReportAsSame = CtReportAsSame
-        tidy_report_as (CtReportAsOther report_pred)
-          = CtReportAsOther (tidyType env report_pred)
+        tidy_report_as (CtReportAsOther u report_pred)
+          = CtReportAsOther u (tidyType env report_pred)
 tidyCtEvidence env ctev = ctev { ctev_pred = tidyType env ty }
   where
     ty  = ctev_pred ctev
