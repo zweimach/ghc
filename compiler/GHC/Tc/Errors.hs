@@ -686,6 +686,7 @@ reportWanteds ctxt tc_lvl (WC { wc_simple = simples, wc_impl = implics
     suppress :: DynFlags -> ErrorItem -> Bool
     suppress dflags item@(EI { ei_pred = pred })
       | badCoercionHole pred
+      , isEqPred pred
       = True
 
          -- See Note [Equalities with incompatible kinds] in GHC.Tc.Solver.Canonical;
