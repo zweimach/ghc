@@ -32,6 +32,7 @@ import GHC.Utils.Outputable
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Trans.State.Strict
+import Data.Maybe (catMaybes)
 
 newtype StgM a = StgM { _unStgM :: StateT Char IO a }
   deriving (Functor, Applicative, Monad, MonadIO)
@@ -80,9 +81,6 @@ stg2stg dflags this_mod binds
     do_stg_pass :: [StgTopBinding] -> StgToDo -> StgM [StgTopBinding]
     do_stg_pass binds to_do
       = case to_do of
-          StgDoNothing ->
-            return binds
-
           StgStats ->
             trace (showStgStats binds) (return binds)
 
@@ -126,24 +124,20 @@ data StgToDo
   | StgStats
   | StgUnarise
   -- ^ Mandatory unarise pass, desugaring unboxed tuple and sum binders
-  | StgDoNothing
-  -- ^ Useful for building up 'getStgToDo'
   deriving Eq
 
 -- | Which Stg-to-Stg passes to run. Depends on flags, ways etc.
 getStgToDo :: DynFlags -> [StgToDo]
-getStgToDo dflags =
-  filter (/= StgDoNothing)
+getStgToDo dflags = catMaybes
     [ mandatory StgUnarise
     -- Important that unarisation comes first
     -- See Note [StgCse after unarisation] in GHC.Stg.CSE
     , optional Opt_StgCSE StgCSE
     , optional Opt_StgLiftLams StgLiftLams
     , optional Opt_StgStats StgStats
-    ] where
-      optional opt = runWhen (gopt opt dflags)
-      mandatory = id
-
-runWhen :: Bool -> StgToDo -> StgToDo
-runWhen True todo = todo
-runWhen _    _    = StgDoNothing
+    ]
+    where
+      optional opt x
+        | gopt opt dflags = Just x
+        | otherwise = Nothing
+      mandatory = Just

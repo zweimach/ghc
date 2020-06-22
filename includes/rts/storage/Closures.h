@@ -166,7 +166,7 @@ typedef struct {
 
 typedef struct {
     StgHeader   header;
-    StgWord     ptrs;
+    StgWord     ptrs; // number of elems
     StgWord     size; // ptrs plus card table
     StgClosure *payload[];
     // see also: StgMutArrPtrs macros in ClosureMacros.h
@@ -174,7 +174,7 @@ typedef struct {
 
 typedef struct {
     StgHeader   header;
-    StgWord     ptrs;
+    StgWord     ptrs; // number of elems
     StgClosure *payload[];
 } StgSmallMutArrPtrs;
 

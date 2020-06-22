@@ -97,6 +97,7 @@ data GenCmmDecl d h g
         d
 
 type CmmDecl     = GenCmmDecl CmmStatics    CmmTopInfo CmmGraph
+
 type CmmDeclSRTs = GenCmmDecl RawCmmStatics CmmTopInfo CmmGraph
 
 type RawCmmDecl
@@ -264,4 +265,3 @@ instance Outputable instr => Outputable (GenBasicBlock instr) where
 pprBBlock :: Outputable stmt => GenBasicBlock stmt -> SDoc
 pprBBlock (BasicBlock ident stmts) =
     hang (ppr ident <> colon) 4 (vcat (map ppr stmts))
-
