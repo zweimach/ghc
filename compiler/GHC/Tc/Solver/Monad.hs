@@ -3201,10 +3201,10 @@ zonkTyCoVarKind tv = wrapTcS (TcM.zonkTyCoVarKind tv)
 *                                                                      *
 ********************************************************************* -}
 
-newFlattenSkolem :: CtFlavour -> CtLoc -> CtReportAs
+newFlattenSkolem :: CtFlavour -> CtLoc -> RewriterSet
                  -> TyCon -> [TcType]                    -- F xis
                  -> TcS (CtEvidence, Coercion, TcTyVar)  -- [G/WD] x:: F xis ~ fsk
-newFlattenSkolem flav loc report_as tc xis
+newFlattenSkolem flav loc rewriters tc xis
   = do { stuff@(ev, co, fsk) <- new_skolem
        ; let fsk_ty = mkTyVarTy fsk
        ; extendFlatCache tc xis (co, fsk_ty, ctEvFlavour ev)
@@ -3230,7 +3230,7 @@ newFlattenSkolem flav loc report_as tc xis
       = do { fmv <- wrapTcS (TcM.newFmvTyVar fam_ty)
               -- See (2a) in TcCanonical
               -- Note [Equalities with incompatible kinds]
-           ; (ev, hole_co) <- newWantedEq_SI NoBlockSubst WDeriv loc report_as
+           ; (ev, hole_co) <- newWantedEq_SI NoBlockSubst WDeriv loc rewriters
                                              Nominal fam_ty (mkTyVarTy fmv)
            ; return (ev, hole_co, fmv) }
 
@@ -3494,43 +3494,43 @@ newBoundEvVarId pred rhs
 newGivenEvVars :: CtLoc -> [(TcPredType, EvTerm)] -> TcS [CtEvidence]
 newGivenEvVars loc pts = mapM (newGivenEvVar loc) pts
 
-emitNewWantedEq :: CtLoc -> CtReportAs -> Role -> TcType -> TcType -> TcS Coercion
+emitNewWantedEq :: CtLoc -> RewriterSet -> Role -> TcType -> TcType -> TcS Coercion
 -- | Emit a new Wanted equality into the work-list
-emitNewWantedEq loc report_as role ty1 ty2
-  = do { (ev, co) <- newWantedEq loc report_as role ty1 ty2
+emitNewWantedEq loc rewriters role ty1 ty2
+  = do { (ev, co) <- newWantedEq loc rewriters role ty1 ty2
        ; updWorkListTcS (extendWorkListEq (mkNonCanonical ev))
        ; return co }
 
 -- | Make a new equality CtEvidence
-newWantedEq :: CtLoc -> CtReportAs -> Role -> TcType -> TcType
+newWantedEq :: CtLoc -> RewriterSet -> Role -> TcType -> TcType
             -> TcS (CtEvidence, Coercion)
-newWantedEq loc report_as role ty1 ty2
-  = newWantedEq_SI YesBlockSubst WDeriv loc report_as role ty1 ty2
+newWantedEq loc rewriters role ty1 ty2
+  = newWantedEq_SI YesBlockSubst WDeriv loc rewriters role ty1 ty2
 
-newWantedEq_SI :: BlockSubstFlag -> ShadowInfo -> CtLoc -> CtReportAs -> Role
+newWantedEq_SI :: BlockSubstFlag -> ShadowInfo -> CtLoc -> RewriterSet -> Role
                -> TcType -> TcType
                -> TcS (CtEvidence, Coercion)
-newWantedEq_SI blocker si loc report_as role ty1 ty2
+newWantedEq_SI blocker si loc rewriters role ty1 ty2
   = do { hole <- wrapTcS $ TcM.newCoercionHole blocker pty
        ; traceTcS "Emitting new coercion hole" (ppr hole <+> dcolon <+> ppr pty)
        ; return ( CtWanted { ctev_pred      = pty
                            , ctev_dest      = HoleDest hole
                            , ctev_nosh      = si
                            , ctev_loc       = loc
-                           , ctev_report_as = report_as }
+                           , ctev_rewriters = rewriters }
                 , mkHoleCo hole ) }
   where
     pty = mkPrimEqPredRole role ty1 ty2
 
 -- no equalities here. Use newWantedEq instead
-newWantedEvVarNC :: CtLoc -> CtReportAs
+newWantedEvVarNC :: CtLoc -> RewriterSet
                  -> TcPredType -> TcS CtEvidence
 newWantedEvVarNC = newWantedEvVarNC_SI WDeriv
 
-newWantedEvVarNC_SI :: ShadowInfo -> CtLoc -> CtReportAs
+newWantedEvVarNC_SI :: ShadowInfo -> CtLoc -> RewriterSet
                     -> TcPredType -> TcS CtEvidence
 -- Don't look up in the solved/inerts; we know it's not there
-newWantedEvVarNC_SI si loc report_as pty
+newWantedEvVarNC_SI si loc rewriters pty
   = do { new_ev <- newEvVar pty
        ; traceTcS "Emitting new wanted" (ppr new_ev <+> dcolon <+> ppr pty $$
                                          pprCtLoc loc)
@@ -3538,41 +3538,41 @@ newWantedEvVarNC_SI si loc report_as pty
                           , ctev_dest      = EvVarDest new_ev
                           , ctev_nosh      = si
                           , ctev_loc       = loc
-                          , ctev_report_as = report_as })}
+                          , ctev_rewriters = rewriters })}
 
-newWantedEvVar_SI :: ShadowInfo -> CtLoc -> CtReportAs
+newWantedEvVar_SI :: ShadowInfo -> CtLoc -> RewriterSet
                   -> TcPredType -> TcS MaybeNew
 -- For anything except ClassPred, this is the same as newWantedEvVarNC
-newWantedEvVar_SI si loc report_as pty
+newWantedEvVar_SI si loc rewriters pty
   = do { mb_ct <- lookupInInerts loc pty
        ; case mb_ct of
             Just ctev
               | not (isDerived ctev)
               -> do { traceTcS "newWantedEvVar/cache hit" $ ppr ctev
                     ; return $ Cached (ctEvExpr ctev) }
-            _ -> do { ctev <- newWantedEvVarNC_SI si loc report_as pty
+            _ -> do { ctev <- newWantedEvVarNC_SI si loc rewriters pty
                     ; return (Fresh ctev) } }
 
-newWanted :: CtLoc -> CtReportAs -> PredType -> TcS MaybeNew
+newWanted :: CtLoc -> RewriterSet -> PredType -> TcS MaybeNew
 -- Deals with both equalities and non equalities. Tries to look
 -- up non-equalities in the cache
 newWanted = newWanted_SI WDeriv
 
-newWanted_SI :: ShadowInfo -> CtLoc -> CtReportAs
+newWanted_SI :: ShadowInfo -> CtLoc -> RewriterSet
              -> PredType -> TcS MaybeNew
-newWanted_SI si loc report_as pty
+newWanted_SI si loc rewriters pty
   | Just (role, ty1, ty2) <- getEqPredTys_maybe pty
-  = Fresh . fst <$> newWantedEq_SI YesBlockSubst si loc report_as role ty1 ty2
+  = Fresh . fst <$> newWantedEq_SI YesBlockSubst si loc rewriters role ty1 ty2
   | otherwise
-  = newWantedEvVar_SI si loc report_as pty
+  = newWantedEvVar_SI si loc rewriters pty
 
 -- deals with both equalities and non equalities. Doesn't do any cache lookups.
 newWantedNC :: CtLoc -> PredType -> TcS CtEvidence
 newWantedNC loc pty
   | Just (role, ty1, ty2) <- getEqPredTys_maybe pty
-  = fst <$> newWantedEq loc CtReportAsSame role ty1 ty2
+  = fst <$> newWantedEq loc emptyRewriterSet role ty1 ty2
   | otherwise
-  = newWantedEvVarNC loc CtReportAsSame pty
+  = newWantedEvVarNC loc emptyRewriterSet pty
 
 emitNewDeriveds :: CtLoc -> [TcPredType] -> TcS ()
 emitNewDeriveds loc preds

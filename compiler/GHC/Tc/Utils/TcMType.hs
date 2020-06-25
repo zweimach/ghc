@@ -89,7 +89,11 @@ module GHC.Tc.Utils.TcMType (
 
   ------------------------------
   -- Levity polymorphism
-  ensureNotLevPoly, checkForLevPoly, checkForLevPolyX, formatLevPolyErr
+  ensureNotLevPoly, checkForLevPoly, checkForLevPolyX, formatLevPolyErr,
+
+  ------------------------------
+  -- Other
+  anyUnfilledCoercionHoles
   ) where
 
 #include "HsVersions.h"
@@ -190,7 +194,7 @@ newWanted orig t_or_k pty
                          , ctev_pred      = pty
                          , ctev_nosh      = WDeriv
                          , ctev_loc       = loc
-                         , ctev_report_as = CtReportAsSame }
+                         , ctev_rewriters = emptyRewriterSet }
 
 newWanteds :: CtOrigin -> ThetaType -> TcM [CtEvidence]
 newWanteds orig = mapM (newWanted orig Nothing)
@@ -254,7 +258,7 @@ emitWantedEq origin t_or_k role ty1 ty2
                   , ctev_dest = HoleDest hole
                   , ctev_nosh = WDeriv
                   , ctev_loc = loc
-                  , ctev_report_as = CtReportAsSame }
+                  , ctev_rewriters = emptyRewriterSet }
        ; return (HoleCo hole) }
   where
     pty = mkPrimEqPredRole role ty1 ty2
@@ -269,7 +273,7 @@ emitWantedEvVar origin ty
                              , ctev_pred      = ty
                              , ctev_nosh      = WDeriv
                              , ctev_loc       = loc
-                             , ctev_report_as = CtReportAsSame }
+                             , ctev_rewriters = emptyRewriterSet }
        ; emitSimple $ mkNonCanonical ctev
        ; return new_cv }
 
@@ -2077,18 +2081,13 @@ zonkCtEvidence ctev@(CtGiven { ctev_pred = pred })
   = do { pred' <- zonkTcType pred
        ; return (ctev { ctev_pred = pred'}) }
 zonkCtEvidence ctev@(CtWanted { ctev_pred = pred
-                              , ctev_dest = dest
-                              , ctev_report_as = report_as })
+                              , ctev_dest = dest })
   = do { pred' <- zonkTcType pred
        ; let dest' = case dest of
                        EvVarDest ev -> EvVarDest $ setVarType ev pred'
                          -- necessary in simplifyInfer
                        HoleDest h   -> HoleDest h
-       ; report_as' <- case report_as of
-           CtReportAsSame                -> return CtReportAsSame
-           CtReportAsOther u report_pred -> CtReportAsOther u <$> zonkTcType report_pred
-       ; return (ctev { ctev_pred = pred', ctev_dest = dest'
-                      , ctev_report_as = report_as' }) }
+       ; return (ctev { ctev_pred = pred', ctev_dest = dest' }) }
 zonkCtEvidence ctev@(CtDerived { ctev_pred = pred })
   = do { pred' <- zonkTcType pred
        ; return (ctev { ctev_pred = pred' }) }
@@ -2103,14 +2102,11 @@ zonkSkolemInfo (InferSkol ntys) = do { ntys' <- mapM do_one ntys
 zonkSkolemInfo skol_info = return skol_info
 
 {-
-%************************************************************************
-%*                                                                      *
-\subsection{Zonking -- the main work-horses: zonkTcType, zonkTcTyVar}
+************************************************************************
 *                                                                      *
-*              For internal use only!                                  *
+     Zonking -- the main work-horses: zonkTcType, zonkTcTyVar
 *                                                                      *
 ************************************************************************
-
 -}
 
 -- For unbound, mutable tyvars, zonkType uses the function given to it
@@ -2275,12 +2271,6 @@ tidyCt env ct = ct { cc_ev = tidyCtEvidence env (ctEvidence ct) }
 tidyCtEvidence :: TidyEnv -> CtEvidence -> CtEvidence
      -- NB: we do not tidy the ctev_evar field because we don't
      --     show it in error messages
-     -- But definitely do tidy the report_as field, as that's reported.
-tidyCtEvidence env ctev@(CtWanted { ctev_pred = pred, ctev_report_as = report_as })
-  = ctev { ctev_pred = tidyType env pred, ctev_report_as = tidy_report_as report_as }
-  where tidy_report_as CtReportAsSame = CtReportAsSame
-        tidy_report_as (CtReportAsOther u report_pred)
-          = CtReportAsOther u (tidyType env report_pred)
 tidyCtEvidence env ctev = ctev { ctev_pred = tidyType env ty }
   where
     ty  = ctev_pred ctev
@@ -2330,11 +2320,11 @@ tidySigSkol env cx ty tv_prs
 
 -------------------------------------------------------------------------
 {-
-%************************************************************************
-%*                                                                      *
+************************************************************************
+*                                                                      *
              Levity polymorphism checks
-*                                                                       *
-*************************************************************************
+*                                                                      *
+************************************************************************
 
 See Note [Levity polymorphism checking] in GHC.HsToCore.Monad
 
@@ -2424,3 +2414,46 @@ naughtyQuantification orig_ty tv escapees
                         ]
 
        ; failWithTcM (env, doc) }
+
+{-
+************************************************************************
+*                                                                      *
+             Checking for coercion holes
+*                                                                      *
+************************************************************************
+-}
+
+-- | Check whether any coercion hole in a RewriterSet is still unsolved.
+-- Does this by recursively looking through filled coercion holes until
+-- one is found that is not yet filled in, at which point this aborts.
+anyUnfilledCoercionHoles :: RewriterSet -> TcM Bool
+anyUnfilledCoercionHoles (RewriterSet set)
+  = nonDetFoldUniqSet go (return False) set
+  where
+    go :: CoercionHole -> TcM Bool -> TcM Bool
+    go hole m_acc = m_acc <||> check_hole hole
+
+    check_hole :: CoercionHole -> TcM Bool
+    check_hole hole = do { m_co <- unpackCoercionHole_maybe hole
+                         ; case m_co of
+                             Nothing -> return True  -- unfilled hole
+                             Just co -> unUCHM (check_co co) }
+
+    check_ty :: Type -> UnfilledCoercionHoleMonoid
+    check_co :: Coercion -> UnfilledCoercionHoleMonoid
+    (check_ty, _, check_co, _) = foldTyCo folder ()
+
+    folder :: TyCoFolder () UnfilledCoercionHoleMonoid
+    folder = TyCoFolder { tcf_view  = noView
+                        , tcf_tyvar = \ _ tv -> check_ty (tyVarKind tv)
+                        , tcf_covar = \ _ cv -> check_ty (varType cv)
+                        , tcf_hole  = \ _ -> UCHM . check_hole
+                        , tcf_tycobinder = \ _ _ _ -> () }
+
+newtype UnfilledCoercionHoleMonoid = UCHM { unUCHM :: TcM Bool }
+
+instance Semigroup UnfilledCoercionHoleMonoid where
+  UCHM l <> UCHM r = UCHM (l <||> r)
+
+instance Monoid UnfilledCoercionHoleMonoid where
+  mempty = UCHM (return False)

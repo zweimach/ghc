@@ -62,7 +62,7 @@ module GHC.Core.TyCo.Rep (
         pickLR,
 
         -- ** Analyzing types
-        TyCoFolder(..), foldTyCo,
+        TyCoFolder(..), foldTyCo, noView,
 
         -- * Sizes
         typeSize, coercionSize, provSize
@@ -87,6 +87,7 @@ import GHC.Core.TyCon
 import GHC.Core.Coercion.Axiom
 
 -- others
+import GHC.Types.Unique ( Uniquable(..) )
 import GHC.Types.Basic ( LeftOrRight(..), pickLR )
 import GHC.Utils.Outputable
 import GHC.Data.FastString
@@ -1567,6 +1568,9 @@ instance Data.Data CoercionHole where
 instance Outputable CoercionHole where
   ppr (CoercionHole { ch_co_var = cv }) = braces (ppr cv)
 
+instance Uniquable CoercionHole where
+  getUnique (CoercionHole { ch_co_var = v }) = getUnique v
+
 instance Outputable BlockSubstFlag where
   ppr YesBlockSubst = text "YesBlockSubst"
   ppr NoBlockSubst  = text "NoBlockSubst"
@@ -1775,7 +1779,7 @@ We were also worried about
                                      `extendVarSet` tv
 
 Here deep_fvs and deep_tcf are mutually recursive, unlike fvs and tcf.
-But, amazingly, we get good code here too. GHC is careful not to makr
+But, amazingly, we get good code here too. GHC is careful not to mark
 TyCoFolder data constructor for deep_tcf as a loop breaker, so the
 record selections still cancel.  And eta expansion still happens too.
 -}
@@ -1784,8 +1788,8 @@ data TyCoFolder env a
   = TyCoFolder
       { tcf_view  :: Type -> Maybe Type   -- Optional "view" function
                                           -- E.g. expand synonyms
-      , tcf_tyvar :: env -> TyVar -> a
-      , tcf_covar :: env -> CoVar -> a
+      , tcf_tyvar :: env -> TyVar -> a    -- Does not automatically recur
+      , tcf_covar :: env -> CoVar -> a    -- into kinds of variables
       , tcf_hole  :: env -> CoercionHole -> a
           -- ^ What to do with coercion holes.
           -- See Note [Coercion holes] in GHC.Core.TyCo.Rep.
@@ -1853,6 +1857,10 @@ foldTyCo (TyCoFolder { tcf_view       = view
     go_prov env (PhantomProv co)    = go_co env co
     go_prov env (ProofIrrelProv co) = go_co env co
     go_prov _   (PluginProv _)      = mempty
+
+-- | A view function that looks through nothing.
+noView :: Type -> Maybe Type
+noView _ = Nothing
 
 {- *********************************************************************
 *                                                                      *

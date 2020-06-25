@@ -48,7 +48,6 @@ module GHC.Tc.Gen.HsType (
         tcHsLiftedTypeNC, tcHsOpenTypeNC,
         tcLHsType, tcLHsTypeUnsaturated, tcCheckLHsType,
         tcHsMbContext, tcHsContext, tcLHsPredType, tcInferApps,
-        failIfEmitsConstraints,
         solveEqualities, -- useful re-export
 
         typeLevelMode, kindLevelMode,
@@ -84,7 +83,6 @@ import GHC.Tc.Solver
 import GHC.Tc.Utils.Zonk
 import GHC.Core.TyCo.Rep
 import GHC.Core.TyCo.Ppr
-import GHC.Tc.Errors      ( reportAllUnsolved )
 import GHC.Tc.Utils.TcType
 import GHC.Tc.Utils.Instantiate ( tcInstInvisibleTyBinders, tcInstInvisibleTyBinder )
 import GHC.Core.Type
@@ -3512,19 +3510,6 @@ promotionErr name err
 ************************************************************************
 -}
 
-
--- | If the inner action emits constraints, report them as errors and fail;
--- otherwise, propagates the return value. Useful as a wrapper around
--- 'tcImplicitTKBndrs', which uses solveLocalEqualities, when there won't be
--- another chance to solve constraints
-failIfEmitsConstraints :: TcM a -> TcM a
-failIfEmitsConstraints thing_inside
-  = checkNoErrs $  -- We say that we fail if there are constraints!
-                   -- c.f same checkNoErrs in solveEqualities
-    do { (res, lie) <- captureConstraints thing_inside
-       ; reportAllUnsolved lie
-       ; return res
-       }
 
 -- | Make an appropriate message for an error in a function argument.
 -- Used for both expressions and types.

@@ -456,13 +456,13 @@ wanteds, we will
 type FlatWorkListRef = TcRef [Ct]  -- See Note [The flattening work list]
 
 data FlattenEnv
-  = FE { fe_mode    :: !FlattenMode
-       , fe_loc     :: CtLoc              -- See Note [Flattener CtLoc]
+  = FE { fe_mode      :: !FlattenMode
+       , fe_loc       :: CtLoc              -- See Note [Flattener CtLoc]
                       -- unbanged because it's bogus in rewriteTyVar
-       , fe_flavour :: !CtFlavour
-       , fe_eq_rel  :: !EqRel             -- See Note [Flattener EqRels]
-       , fe_work    :: !FlatWorkListRef   -- See Note [The flattening work list]
-       , fe_wrw     :: !(TcRef WRWFlag) }   -- See Note [Flattening wanteds]
+       , fe_flavour   :: !CtFlavour
+       , fe_eq_rel    :: !EqRel             -- See Note [Flattener EqRels]
+       , fe_work      :: !FlatWorkListRef   -- See Note [The flattening work list]
+       , fe_rewriters :: !(TcRef RewriterSet) }   -- See Note [Flattening wanteds]
 
 data FlattenMode  -- Postcondition for all three: inert wrt the type substitution
   = FM_FlattenAll          -- Postcondition: function-free
@@ -512,7 +512,7 @@ emitFlatWork ct = FlatM $ \env -> updTcRef (fe_work env) (ct :)
 
 -- convenient wrapper when you have a CtEvidence describing
 -- the flattening operation
-runFlattenCtEv :: FlattenMode -> CtEvidence -> FlatM a -> TcS (a, WRWFlag)
+runFlattenCtEv :: FlattenMode -> CtEvidence -> FlatM a -> TcS (a, RewriterSet)
 runFlattenCtEv mode ev
   = runFlatten mode (ctEvLoc ev) (ctEvFlavour ev) (ctEvEqRel ev)
 
@@ -520,22 +520,23 @@ runFlattenCtEv mode ev
 -- the work it generates onto the main work list
 -- See Note [The flattening work list]
 -- Also returns whether a wanted rewrote a wanted; see Note [Flattening wanteds]
-runFlatten :: FlattenMode -> CtLoc -> CtFlavour -> EqRel -> FlatM a -> TcS (a, WRWFlag)
+runFlatten :: FlattenMode -> CtLoc -> CtFlavour -> EqRel -> FlatM a
+           -> TcS (a, RewriterSet)
 runFlatten mode loc flav eq_rel thing_inside
   = do { flat_ref <- newTcRef []
-       ; wrw_ref <- newTcRef NoWRW
+       ; rewriters_ref <- newTcRef emptyRewriterSet
        ; let fmode = FE { fe_mode = mode
                         , fe_loc  = bumpCtLocDepth loc
                             -- See Note [Flatten when discharging CFunEqCan]
                         , fe_flavour = flav
                         , fe_eq_rel = eq_rel
                         , fe_work = flat_ref
-                        , fe_wrw = wrw_ref }
+                        , fe_rewriters = rewriters_ref }
        ; res <- runFlatM thing_inside fmode
        ; new_flats <- readTcRef flat_ref
        ; updWorkListTcS (add_flats new_flats)
-       ; wrw <- readTcRef wrw_ref
-       ; return (res, wrw) }
+       ; rewriters <- readTcRef rewriters_ref
+       ; return (res, rewriters) }
   where
     add_flats new_flats wl
       = wl { wl_funeqs = add_funeqs new_flats (wl_funeqs wl) }
@@ -617,9 +618,11 @@ bumpDepth (FlatM thing_inside)
       ; thing_inside env' }
 
 -- See Note [Flattening wanteds]
-recordWRW :: WRWFlag -> FlatM ()
-recordWRW YesWRW = FlatM $ \env -> writeTcRef (fe_wrw env) YesWRW
-recordWRW NoWRW  = return ()
+-- Precondition: the CtEvidence is a CtWanted of an equality
+recordRewriter :: CtEvidence -> FlatM ()
+recordRewriter (CtWanted { ctev_dest = HoleDest hole })
+  = FlatM $ \env -> updTcRef (fe_rewriters env) (`addRewriterSet` hole)
+recordRewriter other = pprPanic "recordRewriter" (ppr other)
 
 {-
 Note [The flattening work list]
@@ -787,23 +790,20 @@ when trying to find derived equalities arising from injectivity.
 -}
 
 -- | See Note [Flattening].
--- If (xi, co, wrw) <- flatten mode ev ty, then co :: xi ~r ty
+-- If (xi, co, rewriters) <- flatten mode ev ty, then co :: xi ~r ty
 -- where r is the role in @ev@. If @mode@ is 'FM_FlattenAll',
 -- then 'xi' is almost function-free (Note [Almost function-free]
 -- in GHC.Tc.Types).
--- wrw is True <=> a wanted rewrote a wanted.
+-- rewriters is the set of coercion holes that have been used to rewrite
 -- See Note [Wanteds rewrite wanteds] in GHC.Tc.Types.Constraint
 -- and Note [Flattening wanteds]
 flatten :: FlattenMode -> CtEvidence -> TcType
-        -> TcS (Xi, TcCoercion, WRWFlag)
+        -> TcS (Xi, TcCoercion, RewriterSet)
 flatten mode ev ty
   = do { traceTcS "flatten {" (ppr mode <+> ppr ty)
-       ; ((ty', co), wrw) <- runFlattenCtEv mode ev (flatten_one ty)
-       ; traceTcS "flatten }" (ppr ty' $$ pp_wrw wrw)
-       ; return (ty', co, wrw) }
-  where
-    pp_wrw YesWRW = text "YesWRW: wanted rewrote wanted"
-    pp_wrw _      = empty
+       ; ((ty', co), rewriters) <- runFlattenCtEv mode ev (flatten_one ty)
+       ; traceTcS "flatten }" (ppr ty' $$ ppr rewriters)
+       ; return (ty', co, rewriters) }
 
 -- Apply the inert set as an *inert generalised substitution* to
 -- a variable, zonking along the way.
@@ -825,7 +825,7 @@ rewriteTyVar tv
 
 -- See Note [Flattening]
 flattenArgsNom :: CtEvidence -> TyCon -> [TcType]
-               -> TcS ([Xi], [TcCoercion], TcCoercionN, WRWFlag)
+               -> TcS ([Xi], [TcCoercion], TcCoercionN, RewriterSet)
 -- Externally-callable, hence runFlatten
 -- Flatten a vector of types all at once; in fact they are
 -- always the arguments of type family or class, so
@@ -841,10 +841,10 @@ flattenArgsNom :: CtEvidence -> TyCon -> [TcType]
 -- See Note [Flattening wanteds]
 flattenArgsNom ev tc tys
   = do { traceTcS "flatten_args {" (vcat (map ppr tys))
-       ; ((tys', cos, kind_co), wrw)
+       ; ((tys', cos, kind_co), rewriters)
            <- runFlattenCtEv FM_FlattenAll ev (flatten_args_tc tc (repeat Nominal) tys)
        ; traceTcS "flatten }" (vcat (map ppr tys'))
-       ; return (tys', cos, kind_co, wrw) }
+       ; return (tys', cos, kind_co, rewriters) }
 
 -- | Flatten a type w.r.t. nominal equality. This is useful to rewrite
 -- a type w.r.t. any givens. It does not do type-family reduction. This
@@ -1461,7 +1461,7 @@ flatten_exact_fam_app_fully tc tys
                                Nothing -> do
                                  { loc <- getLoc
                                  ; (ev, co, fsk) <- liftTcS $
-                                     newFlattenSkolem cur_flav loc CtReportAsSame tc xis
+                                     newFlattenSkolem cur_flav loc emptyRewriterSet tc xis
 
                                  -- The new constraint (F xis ~ fsk) is not
                                  -- necessarily inert (e.g. the LHS may be a
@@ -1660,7 +1660,7 @@ flatten_tyvar2 tv fr@(_, eq_rel)
                      vcat [ sep [ ppr mode, ppr tv, equals, ppr rhs_ty]
                           , ppr ctev
                           , text "wanted_rewrite_wanted:" <+> ppr wrw ]
-                   ; recordWRW wrw
+                   ; when wrw $ recordRewriter ctev
 
                    ; let rewrite_co1 = mkSymCo (ctEvCoercion ctev)
                          rewrite_co  = case (ct_eq_rel, eq_rel) of

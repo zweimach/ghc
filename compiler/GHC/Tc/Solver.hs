@@ -814,7 +814,7 @@ simplifyInfer rhs_tclvl infer_mode sigs name_taus wanteds
                                       , ctev_dest      = EvVarDest psig_theta_var
                                       , ctev_nosh      = WDeriv
                                       , ctev_loc       = ct_loc
-                                      , ctev_report_as = CtReportAsSame }
+                                      , ctev_rewriters = emptyRewriterSet }
                            | psig_theta_var <- psig_theta_vars ]
 
        -- Now construct the residual constraint
@@ -2647,13 +2647,12 @@ disambigGroup (default_ty:default_tys) group@(the_tv, wanteds)
       = do { lcl_env <- TcS.getLclEnv
            ; tc_lvl <- TcS.getTcLevel
            ; let loc = mkGivenLoc tc_lvl UnkSkol lcl_env
-           ; wanted_evs <- sequence [ newWantedEvVarNC loc report_as' pred'
+           ; wanted_evs <- sequence [ newWantedEvVarNC loc rewriters pred'
                                     | wanted <- wanteds
                                     , CtWanted { ctev_pred = pred
-                                               , ctev_report_as = report_as }
+                                               , ctev_rewriters = rewriters }
                                         <- return (ctEvidence wanted)
-                                    , let pred'      = substTy subst pred
-                                          report_as' = substCtReportAs subst report_as ]
+                                    , let pred' = substTy subst pred ]
            ; fmap isEmptyWC $
              solveSimpleWanteds $ listToBag $
              map mkNonCanonical wanted_evs }

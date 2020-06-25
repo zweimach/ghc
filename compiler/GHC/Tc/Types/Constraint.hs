@@ -1,4 +1,4 @@
-{-# LANGUAGE CPP, GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE CPP, GeneralizedNewtypeDeriving, DerivingStrategies, TypeApplications #-}
 
 {-# OPTIONS_GHC -Wno-incomplete-record-updates #-}
 
@@ -17,12 +17,13 @@ module GHC.Tc.Types.Constraint (
         isCNonCanonical, isWantedCt, isDerivedCt, isGivenCt,
         isUserTypeError, getUserTypeErrorMsg,
         ctEvidence, ctLoc, setCtLoc, ctPred, ctFlavour, ctEqRel, ctOrigin,
+        ctRewriters,
         ctEvId, mkTcEqPredLikeEv,
         mkNonCanonical, mkNonCanonicalCt, mkGivens,
         mkIrredCt,
         ctEvPred, ctEvLoc, ctEvOrigin, ctEvEqRel,
         ctEvExpr, ctEvTerm, ctEvCoercion, ctEvEvId,
-        ctReportAs, ctUnique,
+        ctEvRewriters,
         tyCoVarsOfCt, tyCoVarsOfCts,
         tyCoVarsOfCtList, tyCoVarsOfCtsList,
 
@@ -51,10 +52,11 @@ module GHC.Tc.Types.Constraint (
         isWanted, isGiven, isDerived, isGivenOrWDeriv,
         ctEvRole, setCtEvLoc, arisesFromGivens,
         tyCoVarsOfCtEvList, tyCoVarsOfCtEv, tyCoVarsOfCtEvsList,
-        ctEvReportAs, ctEvUnique, tcEvDestUnique,
+        ctEvUnique, tcEvDestUnique,
 
-        CtReportAs(..), ctPredToReport, substCtReportAs,
-        updateReportAs, WRWFlag(..), wantedRewriteWanted,
+        RewriterSet(..), emptyRewriterSet, isEmptyRewriterSet,
+           -- exported concretely only for anyUnfilledCoercionHoles
+        wantedRewriteWanted, rewriterSetFromCo, addRewriterSet,
 
         wrapType,
 
@@ -98,13 +100,16 @@ import GHC.Types.Var.Set
 import GHC.Driver.Session
 import GHC.Types.Basic
 import GHC.Types.Unique
+import GHC.Types.Unique.Set
 
 import GHC.Utils.Outputable
 import GHC.Types.SrcLoc
 import GHC.Data.Bag
 import GHC.Utils.Misc
 
-import qualified Data.Semigroup
+import Data.Coerce
+import Data.Monoid ( Endo(..) )
+import qualified Data.Semigroup as S
 import Control.Monad ( msum )
 
 {-
@@ -439,6 +444,9 @@ ctPred :: Ct -> PredType
 -- See Note [Ct/evidence invariant]
 ctPred ct = ctEvPred (ctEvidence ct)
 
+ctRewriters :: Ct -> RewriterSet
+ctRewriters = ctEvRewriters . ctEvidence
+
 ctEvId :: Ct -> EvVar
 -- The evidence Id for this Ct
 ctEvId ct = ctEvEvId (ctEvidence ct)
@@ -460,17 +468,6 @@ ctFlavour = ctEvFlavour . ctEvidence
 -- | Get the equality relation for the given 'Ct'
 ctEqRel :: Ct -> EqRel
 ctEqRel = ctEvEqRel . ctEvidence
-
--- | Extract a 'CtReportAs' from a 'Ct'. Works only for Wanteds;
--- will panic on other arguments
-ctReportAs :: Ct -> CtReportAs
-ctReportAs ct = case ctEvidence ct of
-  CtWanted { ctev_report_as = report_as } -> report_as
-  _                                       -> pprPanic "ctReportAs" (ppr ct)
-
--- | Extract a Unique from a 'Ct'
-ctUnique :: Ct -> Unique
-ctUnique = ctEvUnique . ctEvidence
 
 instance Outputable Ct where
   ppr ct = ppr (ctEvidence ct) <+> parens pp_sort
@@ -932,13 +929,8 @@ pprCts cts = vcat (map ppr (bagToList cts))
 ************************************************************************
 *                                                                      *
                 Wanted constraints
-     These are forced to be in GHC.Tc.Types because
-           TcLclEnv mentions WantedConstraints
-           WantedConstraint mentions CtLoc
-           CtLoc mentions ErrCtxt
-           ErrCtxt mentions TcM
 *                                                                      *
-v%************************************************************************
+************************************************************************
 -}
 
 data WantedConstraints
@@ -1413,24 +1405,6 @@ data TcEvDest
               -- HoleDest is always used for type-equalities
               -- See Note [Coercion holes] in GHC.Core.TyCo.Rep
 
--- | What should we report to the user when reporting this Wanted?
--- See Note [Wanteds rewrite Wanteds]
-data CtReportAs
-  = CtReportAsSame                      -- just report the predicate in the Ct
-  | CtReportAsOther Unique TcPredType   -- report this other type
-     -- See GHC.Tc.Errors Note [Avoid reporting duplicates] about the Unique
-
--- | Did a wanted rewrite a wanted?
--- See Note [Wanteds rewrite Wanteds]
-data WRWFlag
-  = YesWRW
-  | NoWRW
-  deriving Eq
-
-instance Semigroup WRWFlag where
-  NoWRW <> NoWRW = NoWRW
-  _     <> _     = YesWRW
-
 data CtEvidence
   = CtGiven    -- Truly given, not depending on subgoals
       { ctev_pred :: TcPredType      -- See Note [Ct/evidence invariant]
@@ -1443,7 +1417,7 @@ data CtEvidence
       , ctev_dest      :: TcEvDest
       , ctev_nosh      :: ShadowInfo     -- See Note [Constraint flavours]
       , ctev_loc       :: CtLoc
-      , ctev_report_as :: CtReportAs }  -- See Note [Wanteds rewrite Wanteds]
+      , ctev_rewriters :: RewriterSet }  -- See Note [Wanteds rewrite Wanteds]
 
   | CtDerived  -- A goal that we don't really have to solve and can't
                -- immediately rewrite anything other than a derived
@@ -1472,6 +1446,14 @@ ctEvRole = eqRelRole . ctEvEqRel
 
 ctEvTerm :: CtEvidence -> EvTerm
 ctEvTerm ev = EvExpr (ctEvExpr ev)
+
+-- | Extract the set of rewriters from a 'CtEvidence'
+-- See Note [Wanteds rewrite Wanteds]
+-- If the provided CtEvidence is not for a Wanted, just
+-- return an empty set.
+ctEvRewriters :: CtEvidence -> RewriterSet
+ctEvRewriters (CtWanted { ctev_rewriters = rewriters }) = rewriters
+ctEvRewriters _other                                    = emptyRewriterSet
 
 ctEvExpr :: CtEvidence -> EvExpr
 ctEvExpr ev@(CtWanted { ctev_dest = HoleDest _ })
@@ -1512,43 +1494,9 @@ arisesFromGivens Given       _   = True
 arisesFromGivens (Wanted {}) loc = isGivenLoc loc  -- could be a Given FunDep
 arisesFromGivens Derived     loc = isGivenLoc loc
 
--- | Return a 'CtReportAs' from a 'CtEvidence'. Returns
--- 'CtReportAsSame' for non-wanteds.
-ctEvReportAs :: CtEvidence -> CtReportAs
-ctEvReportAs (CtWanted { ctev_report_as = report_as }) = report_as
-ctEvReportAs _                                         = CtReportAsSame
-
--- | Given the pred in a CtWanted and its 'CtReportAs', get
--- the pred to report. See Note [Wanteds rewrite Wanteds]
-ctPredToReport :: TcEvDest -> TcPredType -> CtReportAs -> (Unique, TcPredType)
-ctPredToReport dest pred CtReportAsSame           = (tcEvDestUnique dest, pred)
-ctPredToReport _    _    (CtReportAsOther u pred) = (u, pred)
-
--- | Substitute in a 'CtReportAs'
-substCtReportAs :: TCvSubst -> CtReportAs -> CtReportAs
-substCtReportAs _     CtReportAsSame           = CtReportAsSame
-substCtReportAs subst (CtReportAsOther u pred) = CtReportAsOther u (substTy subst pred)
-
--- | After rewriting a Wanted, update the 'CtReportAs' for the new Wanted.
--- If the old CtReportAs is CtReportAsSame and a wanted rewrote a wanted,
--- record the old pred as the new CtReportAs.
--- See Note [Wanteds rewrite Wanteds]
-updateReportAs :: WRWFlag -> Unique -> TcPredType   -- _old_ pred type
-               -> CtReportAs -> CtReportAs
-updateReportAs YesWRW unique old_pred CtReportAsSame = CtReportAsOther unique old_pred
-updateReportAs _      _      _        report_as      = report_as
-
 instance Outputable TcEvDest where
   ppr (HoleDest h)   = text "hole" <> ppr h
   ppr (EvVarDest ev) = ppr ev
-
-instance Outputable CtReportAs where
-  ppr CtReportAsSame           = text "CtReportAsSame"
-  ppr (CtReportAsOther u pred) = parens $ text "CtReportAsOther" <+> ppr u <+> ppr pred
-
-instance Outputable WRWFlag where
-  ppr NoWRW  = text "NoWRW"
-  ppr YesWRW = text "YesWRW"
 
 instance Outputable CtEvidence where
   ppr ev = ppr (ctEvFlavour ev)
@@ -1575,11 +1523,50 @@ isDerived (CtDerived {}) = True
 isDerived _              = False
 
 {-
-%************************************************************************
-%*                                                                      *
-            CtFlavour
-%*                                                                      *
-%************************************************************************
+************************************************************************
+*                                                                      *
+           RewriterSet
+*                                                                      *
+************************************************************************
+-}
+
+-- | Stores a set of CoercionHoles that have been used to rewrite a constraint.
+-- See Note [Wanteds rewrite Wanteds].
+newtype RewriterSet = RewriterSet (UniqSet CoercionHole)
+  deriving newtype (Outputable, Semigroup, Monoid)
+
+emptyRewriterSet :: RewriterSet
+emptyRewriterSet = RewriterSet emptyUniqSet
+
+isEmptyRewriterSet :: RewriterSet -> Bool
+isEmptyRewriterSet (RewriterSet set) = isEmptyUniqSet set
+
+addRewriterSet :: RewriterSet -> CoercionHole -> RewriterSet
+addRewriterSet = coerce (addOneToUniqSet @CoercionHole)
+
+-- | Makes a 'RewriterSet' from all the coercion holes that occur in the
+-- given coercion.
+rewriterSetFromCo :: Coercion -> RewriterSet
+rewriterSetFromCo co = appEndo (go_co co) emptyRewriterSet
+  where
+    go_co :: Coercion -> Endo RewriterSet
+    (go_ty, _, go_co, _) = foldTyCo folder ()
+
+    folder :: TyCoFolder () (Endo RewriterSet)
+    folder = TyCoFolder
+               { tcf_view  = noView
+               , tcf_tyvar = \ _ tv -> go_ty (tyVarKind tv)
+               , tcf_covar = \ _ cv -> go_ty (varType cv)
+               , tcf_hole  = \ _ hole -> coerce (`addOneToUniqSet` hole) S.<>
+                                         go_ty (varType (coHoleCoVar hole))
+               , tcf_tycobinder = \ _ _ _ -> () }
+
+{-
+************************************************************************
+*                                                                      *
+           CtFlavour
+*                                                                      *
+************************************************************************
 
 Note [Constraint flavours]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1743,9 +1730,9 @@ eqMayRewriteFR fr1 fr2 = eqCanRewriteFR fr1 fr2
 
 -- | Checks if the first flavour rewriting the second is a wanted
 -- rewriting a wanted. See Note [Wanteds rewrite Wanteds]
-wantedRewriteWanted :: CtFlavourRole -> CtFlavourRole -> WRWFlag
-wantedRewriteWanted (Wanted _, _) _ = YesWRW
-wantedRewriteWanted _             _ = NoWRW
+wantedRewriteWanted :: CtFlavourRole -> CtFlavourRole -> Bool
+wantedRewriteWanted (Wanted _, _) _ = True
+wantedRewriteWanted _             _ = False
   -- It doesn't matter what the second argument is; it can only
   -- be Wanted or Derived anyway
 
