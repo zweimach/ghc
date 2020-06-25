@@ -1820,7 +1820,7 @@ emitFunDepDeriveds work_rewriters fd_eqns
 
 topReactionsStage :: WorkItem -> TcS (StopOrContinue Ct)
 -- The work item does not react with the inert set,
--- so try interaction with top-level instances. Note:
+-- so try interaction with top-level instances.
 topReactionsStage work_item
   = do { traceTcS "doTopReact" (ppr work_item)
        ; case work_item of

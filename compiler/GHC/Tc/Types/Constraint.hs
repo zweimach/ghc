@@ -56,7 +56,8 @@ module GHC.Tc.Types.Constraint (
 
         RewriterSet(..), emptyRewriterSet, isEmptyRewriterSet,
            -- exported concretely only for anyUnfilledCoercionHoles
-        wantedRewriteWanted, rewriterSetFromCo, addRewriterSet,
+        wantedRewriteWanted, rewriterSetFromType, rewriterSetFromTypes, rewriterSetFromCo,
+        addRewriterSet,
 
         wrapType,
 
@@ -1551,18 +1552,31 @@ addRewriterSet = coerce (addOneToUniqSet @CoercionHole)
 -- | Makes a 'RewriterSet' from all the coercion holes that occur in the
 -- given coercion.
 rewriterSetFromCo :: Coercion -> RewriterSet
-rewriterSetFromCo co = appEndo (go_co co) emptyRewriterSet
-  where
-    go_co :: Coercion -> Endo RewriterSet
-    (go_ty, _, go_co, _) = foldTyCo folder ()
+rewriterSetFromCo co = appEndo (rewriter_set_from_co co) emptyRewriterSet
 
+-- | Makes a 'RewriterSet' from all the coercion holes that occur in the
+-- given type.
+rewriterSetFromType :: Type -> RewriterSet
+rewriterSetFromType ty = appEndo (rewriter_set_from_ty ty) emptyRewriterSet
+
+-- | Makes a 'RewriterSet' from all the coercion holes that occur in the
+-- given types.
+rewriterSetFromTypes :: [Type] -> RewriterSet
+rewriterSetFromTypes tys = appEndo (rewriter_set_from_tys tys) emptyRewriterSet
+
+rewriter_set_from_ty :: Type -> Endo RewriterSet
+rewriter_set_from_tys :: [Type] -> Endo RewriterSet
+rewriter_set_from_co :: Coercion -> Endo RewriterSet
+(rewriter_set_from_ty, rewriter_set_from_tys, rewriter_set_from_co, _)
+  = foldTyCo folder ()
+  where
     folder :: TyCoFolder () (Endo RewriterSet)
     folder = TyCoFolder
                { tcf_view  = noView
-               , tcf_tyvar = \ _ tv -> go_ty (tyVarKind tv)
-               , tcf_covar = \ _ cv -> go_ty (varType cv)
+               , tcf_tyvar = \ _ tv -> rewriter_set_from_ty (tyVarKind tv)
+               , tcf_covar = \ _ cv -> rewriter_set_from_ty (varType cv)
                , tcf_hole  = \ _ hole -> coerce (`addOneToUniqSet` hole) S.<>
-                                         go_ty (varType (coHoleCoVar hole))
+                                         rewriter_set_from_ty (varType (coHoleCoVar hole))
                , tcf_tycobinder = \ _ _ _ -> () }
 
 {-

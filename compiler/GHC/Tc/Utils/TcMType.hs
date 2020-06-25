@@ -258,7 +258,7 @@ emitWantedEq origin t_or_k role ty1 ty2
                   , ctev_dest = HoleDest hole
                   , ctev_nosh = WDeriv
                   , ctev_loc = loc
-                  , ctev_rewriters = emptyRewriterSet }
+                  , ctev_rewriters = rewriterSetFromTypes [ty1, ty2] }
        ; return (HoleCo hole) }
   where
     pty = mkPrimEqPredRole role ty1 ty2

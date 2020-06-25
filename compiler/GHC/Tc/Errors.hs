@@ -662,7 +662,14 @@ reportWanteds ctxt tc_lvl (WC { wc_simple = simples, wc_impl = implics
 
       -- See Note [Suppressing confusing errors]
     suppress :: ErrorItem -> Bool
-    suppress item = is_ww_fundep_item item
+    suppress item
+      | Wanted _ <- ei_flavour item
+      = is_ww_fundep_item item
+{- "RAE"        || (not has_gadt_match_here &&
+            is_given_eq item (classifyPredType (ei_pred item)))
+-}
+      | otherwise
+      = False
 
     -- report1: ones that should *not* be suppressed by
     --          an insoluble somewhere else in the tree
@@ -693,14 +700,16 @@ reportWanteds ctxt tc_lvl (WC { wc_simple = simples, wc_impl = implics
               , ("Dicts",           is_dict,         False, mkGroupReporter mkDictErr) ]
 
     -- report3: suppressed errors should be reported as categorized by either report1
-    -- or report2.
-    report3 = [ ("wanted/wanted fundeps", is_ww_fundep, True, mkGroupReporter mkEqErr) ]
+    -- or report2. Keep this in sync with the suppress function above
+    report3 = [ ("wanted/wanted fundeps", is_ww_fundep, True, mkGroupReporter mkEqErr)
+              , ("insoluble1c", is_given_eq,            True, mkGivenErrorReporter ) ] -- "RAE"
 
     -- rigid_nom_eq, rigid_nom_tv_eq,
     is_dict, is_equality, is_ip, is_irred :: ErrorItem -> Pred -> Bool
 
     is_given_eq item pred
-       | EqPred {} <- pred = arisesFromGivens (ei_flavour item) (ei_loc item)
+       | Given <- ei_flavour item
+       , EqPred {} <- pred = True
        | otherwise         = False
        -- I think all given residuals are equalities
 
@@ -742,7 +751,7 @@ reportWanteds ctxt tc_lvl (WC { wc_simple = simples, wc_impl = implics
     is_ww_fundep_item = isWantedWantedFunDepOrigin . errorItemOrigin
 
     given_eq_spec  -- See Note [Given errors]
-      | has_gadt_match (cec_encl ctxt)
+      | has_gadt_match_here
       = ("insoluble1a", is_given_eq, True,  mkGivenErrorReporter)
       | otherwise
       = ("insoluble1b", is_given_eq, False, ignoreErrorReporter)
@@ -753,6 +762,7 @@ reportWanteds ctxt tc_lvl (WC { wc_simple = simples, wc_impl = implics
           --         #13446 is an example
 
     -- See Note [Given errors]
+    has_gadt_match_here = has_gadt_match (cec_encl ctxt)
     has_gadt_match [] = False
     has_gadt_match (implic : implics)
       | PatSkol {} <- ic_info implic
@@ -787,9 +797,9 @@ isTyFun_maybe ty = case tcSplitTyConApp_maybe ty of
 Certain errors we might encounter are potentially confusing to users.
 If there are any other errors to report, at all, we want to suppress these.
 
-Which errors (right now, only 1, but this may grow):
+Which errors:
 
-   Errors which arise from the interaction of two Wanted fun-dep constraints.
+1) Errors which arise from the interaction of two Wanted fun-dep constraints.
    Example:
 
      class C a b | a -> b where
@@ -816,6 +826,14 @@ Which errors (right now, only 1, but this may grow):
    This case applies only when both fundeps are *Wanted* fundeps; when
    both are givens, the error represents unreachable code. For
    a Given/Wanted case, see #9612.
+
+2) Errors which arise from given functional dependencies. Functional
+   dependencies have no evidence, and so they are always Wanted -- we have no
+   evidence to supply to build a Given. So we can have a Wanted that arises
+   from Givens. These can be surprising for users. However, we still must
+   report (in contrast to Note [Given errors]): the (non-existent) evidence
+   might have been used to rewrite another Wanted. If we fail to report, then
+   we get an unfilled coercion hole. This happened in typecheck/should_fail/FD1.
 
 Mechanism:
 

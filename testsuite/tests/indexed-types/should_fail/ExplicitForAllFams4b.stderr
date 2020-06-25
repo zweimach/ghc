@@ -44,40 +44,38 @@ ExplicitForAllFams4b.hs:16:25: error:
         but not bound on the LHS of the family instance
     • In the newtype instance declaration for ‘L’
 
-ExplicitForAllFams4b.hs:23:3: error:
-    • Type indexes must match class instance head
-      Expected: CT Int _
-        Actual: CT [a] (a, a)
+ExplicitForAllFams4b.hs:23:20: error:
+    • Couldn't match type ‘Int’ with ‘[a]’
+        when matching a family LHS with its class instance head
     • In the type instance declaration for ‘CT’
       In the instance declaration for ‘C Int’
 
-ExplicitForAllFams4b.hs:23:17: error:
-    • Type variable ‘b’ is bound by a forall,
-        but not used in the family instance
-    • In the type instance declaration for ‘CT’
-      In the instance declaration for ‘C Int’
-
-ExplicitForAllFams4b.hs:24:15: error:
-    • Type variable ‘b’ is mentioned in the RHS,
-        but not bound on the LHS of the family instance
-    • In the type instance declaration for ‘CT’
-      In the instance declaration for ‘C Int’
-
-ExplicitForAllFams4b.hs:26:3: error:
-    • Type indexes must match class instance head
-      Expected: CD Int _
-        Actual: CD [a] (a, a)
-    • In the data instance declaration for ‘CD’
-      In the instance declaration for ‘C Int’
-
-ExplicitForAllFams4b.hs:26:17: error:
-    • Type variable ‘b’ is mentioned in the RHS,
-        but not bound on the LHS of the family instance
+ExplicitForAllFams4b.hs:24:3: error:
+    • Couldn't match type ‘Int’ with ‘[a]’
+        when matching a family LHS with its class instance head
     • In the data instance declaration for ‘CD’
       In the instance declaration for ‘C Int’
 
 ExplicitForAllFams4b.hs:27:15: error:
     • Type variable ‘b’ is mentioned in the RHS,
         but not bound on the LHS of the family instance
+    • In the type instance declaration for ‘CT’
+      In the instance declaration for ‘C Bool’
+
+ExplicitForAllFams4b.hs:28:15: error:
+    • Type variable ‘b’ is mentioned in the RHS,
+        but not bound on the LHS of the family instance
     • In the data instance declaration for ‘CD’
-      In the instance declaration for ‘C Int’
+      In the instance declaration for ‘C Bool’
+
+ExplicitForAllFams4b.hs:31:15: error:
+    • Type variable ‘b’ is bound by a forall,
+        but not used in the family instance
+    • In the type instance declaration for ‘CT’
+      In the instance declaration for ‘C Double’
+
+ExplicitForAllFams4b.hs:32:15: error:
+    • Type variable ‘b’ is mentioned in the RHS,
+        but not bound on the LHS of the family instance
+    • In the data instance declaration for ‘CD’
+      In the instance declaration for ‘C Double’

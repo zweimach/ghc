@@ -1,12 +1,6 @@
 
 SimpleFail2a.hs:11:3: error:
-    • Type indexes must match class instance head
-      Expected: Sd Int
-        Actual: Sd a
+    • Couldn't match type ‘a’ with ‘Int’
+        when matching a family LHS with its class instance head
     • In the data instance declaration for ‘Sd’
       In the instance declaration for ‘C Int’
-
-SimpleFail2a.hs:11:11: error:
-    Conflicting family instance declarations:
-      Sd a -- Defined at SimpleFail2a.hs:11:11
-      Sd Int -- Defined at SimpleFail2a.hs:12:11
