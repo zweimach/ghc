@@ -3567,19 +3567,19 @@ newWanted_SI si loc rewriters pty
   = newWantedEvVar_SI si loc rewriters pty
 
 -- deals with both equalities and non equalities. Doesn't do any cache lookups.
-newWantedNC :: CtLoc -> PredType -> TcS CtEvidence
-newWantedNC loc pty
+newWantedNC :: CtLoc -> RewriterSet -> PredType -> TcS CtEvidence
+newWantedNC loc rewriters pty
   | Just (role, ty1, ty2) <- getEqPredTys_maybe pty
-  = fst <$> newWantedEq loc emptyRewriterSet role ty1 ty2
+  = fst <$> newWantedEq loc rewriters role ty1 ty2
   | otherwise
-  = newWantedEvVarNC loc emptyRewriterSet pty
+  = newWantedEvVarNC loc rewriters pty
 
 emitNewDeriveds :: CtLoc -> [TcPredType] -> TcS ()
 emitNewDeriveds loc preds
   | null preds
   = return ()
   | otherwise
-  = do { evs <- mapM (newDerivedNC loc) preds
+  = do { evs <- mapM (newDerivedNC loc emptyRewriterSet) preds
        ; traceTcS "Emitting new deriveds" (ppr evs)
        ; updWorkListTcS (extendWorkListDeriveds evs) }
 
@@ -3587,13 +3587,13 @@ emitNewDerivedEq :: CtLoc -> Role -> TcType -> TcType -> TcS ()
 -- Create new equality Derived and put it in the work list
 -- There's no caching, no lookupInInerts
 emitNewDerivedEq loc role ty1 ty2
-  = do { ev <- newDerivedNC loc (mkPrimEqPredRole role ty1 ty2)
+  = do { ev <- newDerivedNC loc emptyRewriterSet (mkPrimEqPredRole role ty1 ty2)
        ; traceTcS "Emitting new derived equality" (ppr ev $$ pprCtLoc loc)
        ; updWorkListTcS (extendWorkListEq (mkNonCanonical ev)) }
          -- Very important: put in the wl_eqs
          -- See Note [Prioritise equalities] (Avoiding fundep iteration)
 
-newDerivedNC :: CtLoc -> TcPredType -> TcS CtEvidence
+newDerivedNC :: CtLoc -> RewriterSet -> TcPredType -> TcS CtEvidence
 newDerivedNC = newWantedNC {- "RAE"
   = do { -- checkReductionDepth loc pred
        ; return (CtDerived { ctev_pred = pred, ctev_loc = loc }) } -}

@@ -3,7 +3,7 @@
 
 module GHC.Tc.Solver.Canonical(
      canonicalize,
-     unifyDerived,
+     unifyWanted,
      makeSuperClasses, maybeSym,
      StopOrContinue(..), stopWith, continueWith,
      solveCallStack    -- For GHC.Tc.Solver
@@ -598,7 +598,7 @@ mk_strict_superclasses rec_clss ev tvs theta cls tys
     loc = ctEvLoc ev
 
     do_one_derived sc_pred
-      = do { sc_ev <- newDerivedNC loc sc_pred
+      = do { sc_ev <- newDerivedNC loc (ctEvRewriters ev) sc_pred
            ; mk_superclasses rec_clss sc_ev [] [] sc_pred }
 
 {- Note [Improvement from Ground Wanteds]
@@ -2522,10 +2522,6 @@ unifyWanted rewriters loc role orig_ty1 orig_ty2
 unifyDeriveds :: CtLoc -> [Role] -> [TcType] -> [TcType] -> TcS ()
 -- See Note [unifyWanted and unifyDerived]
 unifyDeriveds loc roles tys1 tys2 = zipWith3M_ (unify_derived loc) roles tys1 tys2
-
-unifyDerived :: CtLoc -> Role -> Pair TcType -> TcS ()
--- See Note [unifyWanted and unifyDerived]
-unifyDerived loc role (Pair ty1 ty2) = unify_derived loc role ty1 ty2
 
 unify_derived :: CtLoc -> Role -> TcType -> TcType -> TcS ()
 -- Create new Derived and put it in the work list

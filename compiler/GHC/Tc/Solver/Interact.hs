@@ -52,6 +52,7 @@ import Data.List( partition, deleteFirstsBy )
 import GHC.Types.SrcLoc
 import GHC.Types.Var.Env
 
+import qualified Data.Semigroup as S
 import Control.Monad
 import GHC.Data.Maybe( isJust )
 import GHC.Data.Pair (Pair(..))
@@ -1124,7 +1125,7 @@ shortCutSolver dflags ev_w ev_i
                        ; lift $ traceTcS "shortCutSolver: found instance" (ppr preds)
                        ; loc' <- lift $ checkInstanceOK loc what pred
 
-                       ; evc_vs <- mapM (new_wanted_cached loc' solved_dicts') preds
+                       ; evc_vs <- mapM (new_wanted_cached ev loc' solved_dicts') preds
                                   -- Emit work for subgoals but use our local cache
                                   -- so we can solve recursive dictionaries.
 
@@ -1143,12 +1144,13 @@ shortCutSolver dflags ev_w ev_i
     -- Use a local cache of solved dicts while emitting EvVars for new work
     -- We bail out of the entire computation if we need to emit an EvVar for
     -- a subgoal that isn't a ClassPred.
-    new_wanted_cached :: CtLoc -> DictMap CtEvidence -> TcPredType -> MaybeT TcS MaybeNew
-    new_wanted_cached loc cache pty
+    new_wanted_cached :: CtEvidence -> CtLoc
+                      -> DictMap CtEvidence -> TcPredType -> MaybeT TcS MaybeNew
+    new_wanted_cached ev_w loc cache pty
       | ClassPred cls tys <- classifyPredType pty
       = lift $ case findDict cache loc_w cls tys of
           Just ctev -> return $ Cached (ctEvExpr ctev)
-          Nothing   -> Fresh <$> newWantedNC loc pty
+          Nothing   -> Fresh <$> newWantedNC loc (ctEvRewriters ev_w) pty
       | otherwise = mzero
 
 addFunDepWork :: InertCans -> CtEvidence -> Class -> TcS ()
@@ -1174,8 +1176,8 @@ addFunDepWork inerts work_ev cls
                 , pprCtLoc inert_loc, ppr (isGivenLoc inert_loc)
                 , pprCtLoc derived_loc, ppr (isGivenLoc derived_loc) ]) ;
 
-        emitFunDepDeriveds $
-        improveFromAnother derived_loc inert_pred work_pred
+        emitFunDepDeriveds (ctEvRewriters work_ev) $
+        improveFromAnother (derived_loc, inert_rewriters) inert_pred work_pred
                -- We don't really rewrite tys2, see below _rewritten_tys2, so that's ok
                -- NB: We do create FDs for given to report insoluble equations that arise
                -- from pairs of Givens, and also because of floating when we approximate
@@ -1187,6 +1189,7 @@ addFunDepWork inerts work_ev cls
         inert_ev   = ctEvidence inert_ct
         inert_pred = ctEvPred inert_ev
         inert_loc  = ctEvLoc inert_ev
+        inert_rewriters = ctRewriters inert_ct
         derived_loc = work_loc { ctl_depth  = ctl_depth work_loc `maxSubGoalDepth`
                                               ctl_depth inert_loc
                                , ctl_origin = FunDepOrigin1 work_pred
@@ -1355,7 +1358,7 @@ improveLocalFunEqs work_ev inerts fam_tc args fsk
                    vcat [ text "Eqns:" <+> ppr eqns
                         , text "Candidates:" <+> ppr funeqs_for_tc
                         , text "Inert eqs:" <+> ppr (inert_eqs inerts) ]
-                 ; emitFunDepDeriveds eqns }
+                 ; emitFunDepDeriveds (ctEvRewriters work_ev) eqns }
          else return () }
 
   where
@@ -1366,7 +1369,7 @@ improveLocalFunEqs work_ev inerts fam_tc args fsk
     fam_inj_info  = tyConInjectivityInfo fam_tc
 
     --------------------
-    improvement_eqns :: TcS [FunDepEqn CtLoc]
+    improvement_eqns :: TcS [FunDepEqn (CtLoc, RewriterSet)]
     improvement_eqns
       | Just ops <- isBuiltInSynFamTyCon_maybe fam_tc
       =    -- Try built-in families, notably for arithmethic
@@ -1390,6 +1393,7 @@ improveLocalFunEqs work_ev inerts fam_tc args fsk
 
     --------------------
     -- See Note [Type inference for type families with injectivity]
+    do_one_injective :: [Bool] -> TcType -> Ct -> TcS [FunDepEqn (CtLoc, RewriterSet)]
     do_one_injective inj_args rhs (CFunEqCan { cc_tyargs = inert_args
                                              , cc_fsk = ifsk, cc_ev = inert_ev })
       | isImprovable inert_ev
@@ -1405,15 +1409,16 @@ improveLocalFunEqs work_ev inerts fam_tc args fsk
     do_one_injective _ _ _ = pprPanic "interactFunEq 2" (ppr fam_tc)
 
     --------------------
-    mk_fd_eqns :: CtEvidence -> [TypeEqn] -> [FunDepEqn CtLoc]
+    mk_fd_eqns :: CtEvidence -> [TypeEqn] -> [FunDepEqn (CtLoc, RewriterSet)]
     mk_fd_eqns inert_ev eqns
       | null eqns  = []
       | otherwise  = [ FDEqn { fd_qtvs = [], fd_eqs = eqns
                              , fd_pred1 = work_pred
                              , fd_pred2 = ctEvPred inert_ev
-                             , fd_loc   = loc } ]
+                             , fd_loc   = (loc, inert_rewriters) } ]
       where
-        inert_loc = ctEvLoc inert_ev
+        inert_loc       = ctEvLoc inert_ev
+        inert_rewriters = ctEvRewriters inert_ev
         loc = inert_loc { ctl_depth = ctl_depth inert_loc `maxSubGoalDepth`
                                       ctl_depth work_loc }
 
@@ -1784,23 +1789,26 @@ as the fundeps.
 #7875 is a case in point.
 -}
 
-emitFunDepDeriveds :: [FunDepEqn CtLoc] -> TcS ()
+emitFunDepDeriveds :: RewriterSet  -- from the work item
+                   -> [FunDepEqn (CtLoc, RewriterSet)] -> TcS ()
 -- See Note [FunDep and implicit parameter reactions]
-emitFunDepDeriveds fd_eqns
+emitFunDepDeriveds work_rewriters fd_eqns
   = mapM_ do_one_FDEqn fd_eqns
   where
-    do_one_FDEqn (FDEqn { fd_qtvs = tvs, fd_eqs = eqs, fd_loc = loc })
+    do_one_FDEqn (FDEqn { fd_qtvs = tvs, fd_eqs = eqs, fd_loc = (loc, rewriters) })
      | null tvs  -- Common shortcut
      = do { traceTcS "emitFunDepDeriveds 1" (ppr (ctl_depth loc) $$ ppr eqs $$ ppr (isGivenLoc loc))
-          ; mapM_ (unifyDerived loc Nominal) eqs }
+          ; mapM_ (\(Pair ty1 ty2) -> unifyWanted all_rewriters loc Nominal ty1 ty2) eqs }
      | otherwise
      = do { traceTcS "emitFunDepDeriveds 2" (ppr (ctl_depth loc) $$ ppr tvs $$ ppr eqs)
           ; subst <- instFlexi tvs  -- Takes account of kind substitution
-          ; mapM_ (do_one_eq loc subst) eqs }
+          ; mapM_ (do_one_eq loc all_rewriters subst) eqs }
+     where
+       all_rewriters = work_rewriters S.<> rewriters
 
-    do_one_eq loc subst (Pair ty1 ty2)
-       = unifyDerived loc Nominal $
-         Pair (Type.substTyUnchecked subst ty1) (Type.substTyUnchecked subst ty2)
+    do_one_eq loc rewriters subst (Pair ty1 ty2)
+       = unifyWanted rewriters loc Nominal
+                     (Type.substTyUnchecked subst ty1) (Type.substTyUnchecked subst ty2)
 
 {-
 **********************************************************************
@@ -2008,11 +2016,12 @@ improveTopFunEqs ev fam_tc args fsk
        ; eqns <- improve_top_fun_eqs fam_envs fam_tc args rhs
        ; traceTcS "improveTopFunEqs" (vcat [ ppr fam_tc <+> ppr args <+> ppr rhs
                                           , ppr eqns ])
-       ; mapM_ (unifyDerived loc Nominal) eqns }
+       ; mapM_ (\(Pair ty1 ty2) -> unifyWanted rewriters loc Nominal ty1 ty2) eqns }
   where
     loc = bumpCtLocDepth (ctEvLoc ev)
         -- ToDo: this location is wrong; it should be FunDepOrigin2
         -- See #14778
+    rewriters = ctEvRewriters ev
 
 improve_top_fun_eqs :: FamInstEnvs
                     -> TyCon -> [TcType] -> TcType
@@ -2356,15 +2365,16 @@ doTopReactDict inerts work_item@(CDictCan { cc_ev = ev, cc_class = cls
      try_fundep_improvement
         = do { traceTcS "try_fundeps" (ppr work_item)
              ; instEnvs <- getInstEnvs
-             ; emitFunDepDeriveds $
+             ; emitFunDepDeriveds (ctEvRewriters ev) $
                improveFromInstEnv instEnvs mk_ct_loc dict_pred }
 
      mk_ct_loc :: PredType   -- From instance decl
                -> SrcSpan    -- also from instance deol
-               -> CtLoc
+               -> (CtLoc, RewriterSet)
      mk_ct_loc inst_pred inst_loc
-       = dict_loc { ctl_origin = FunDepOrigin2 dict_pred dict_origin
-                                               inst_pred inst_loc }
+       = ( dict_loc { ctl_origin = FunDepOrigin2 dict_pred dict_origin
+                                                 inst_pred inst_loc }
+         , emptyRewriterSet )
 
 doTopReactDict _ w = pprPanic "doTopReactDict" (ppr w)
 

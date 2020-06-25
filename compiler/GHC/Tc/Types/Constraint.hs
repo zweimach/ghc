@@ -1501,7 +1501,7 @@ instance Outputable TcEvDest where
 instance Outputable CtEvidence where
   ppr ev = ppr (ctEvFlavour ev)
            <+> pp_ev
-           <+> braces (ppr (ctl_depth (ctEvLoc ev))) <> dcolon
+           <+> braces (ppr (ctl_depth (ctEvLoc ev)) <> pp_rewriters) <> dcolon
                   -- Show the sub-goal depth too
            <+> ppr (ctEvPred ev)
     where
@@ -1509,6 +1509,10 @@ instance Outputable CtEvidence where
              CtGiven { ctev_evar = v } -> ppr v
              CtWanted {ctev_dest = d } -> ppr d
              CtDerived {}              -> text "_"
+
+      rewriters = ctEvRewriters ev
+      pp_rewriters | isEmptyRewriterSet rewriters = empty
+                   | otherwise                    = semi <> ppr rewriters
 
 isWanted :: CtEvidence -> Bool
 isWanted (CtWanted {}) = True
