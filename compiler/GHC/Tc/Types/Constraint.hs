@@ -1300,7 +1300,7 @@ untouchables, and therefore cannot be unified with anything at all,
 let alone the skolems.
 
 Instead, ic_skols is used only when considering floating a constraint
-outside the implication in GHC.Tc.Solver.floatEqualities or
+outside the implication in GHC.Tc.Solver.floatConstraints or
 GHC.Tc.Solver.approximateImplications
 
 Note [Insoluble constraints]

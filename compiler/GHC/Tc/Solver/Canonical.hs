@@ -595,7 +595,7 @@ mk_strict_superclasses rec_clss ev tvs theta cls tys
   = ASSERT2( null tvs && null theta, ppr tvs $$ ppr theta )
     concatMapM do_one_derived (immSuperClasses cls tys)
   where
-    loc = ctEvLoc ev
+    loc = ctEvLoc ev `updateCtLocOrigin` WantedSuperclassOrigin (ctEvPred ev)
 
     do_one_derived sc_pred
       = do { sc_ev <- newDerivedNC loc (ctEvRewriters ev) sc_pred

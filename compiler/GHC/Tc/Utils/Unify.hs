@@ -1756,7 +1756,7 @@ So we look for a positive reason to swap, using a three-step test:
   Generally speaking we always try to put a MetaTv on the left
   in preference to SkolemTv or RuntimeUnkTv:
      a) Because the MetaTv may be touchable and can be unified
-     b) Even if it's not touchable, GHC.Tc.Solver.floatEqualities
+     b) Even if it's not touchable, GHC.Tc.Solver.floatConstraints
         looks for meta tyvars on the left
 
   Tie-breaking rules for MetaTvs:

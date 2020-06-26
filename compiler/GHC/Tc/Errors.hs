@@ -548,8 +548,9 @@ instance Outputable ErrorItem where
 
       pp_supp = if supp then text "suppress:" else empty
 
--- | Makes an error item based on the predicate-at-birth of the provided
--- constraint. This should be rewritten w.r.t. givens before reported.
+-- | Makes an error item from a constraint, calculating whether or not
+-- the item should be suppressed. See Note [Wanteds rewrite Wanteds]
+-- in GHC.Tc.Types.Constraint
 mkErrorItem :: Ct -> TcM ErrorItem
 mkErrorItem ct
   = do { let loc = ctLoc ct
@@ -3168,9 +3169,12 @@ warnDefaulting :: [Ct] -> Type -> TcM ()
 warnDefaulting wanteds default_ty
   = do { warn_default <- woptM Opt_WarnTypeDefaults
        ; env0 <- tcInitTidyEnv
-       ; let tidy_env = tidyFreeTyCoVars env0 $
-                        tyCoVarsOfCtsList (listToBag wanteds)
-             tidy_wanteds = map (tidyCt tidy_env) wanteds
+            -- don't want to report all the superclass constraints, which
+            -- add unhelpful clutter
+       ; let filtered = filter (not . is_wanted_superclass . ctOrigin) wanteds
+             tidy_env = tidyFreeTyCoVars env0 $
+                        tyCoVarsOfCtsList (listToBag filtered)
+             tidy_wanteds = map (tidyCt tidy_env) filtered
              (loc, ppr_wanteds) = pprWithArising tidy_wanteds
              warn_msg =
                 hang (hsep [ text "Defaulting the following"
@@ -3180,6 +3184,9 @@ warnDefaulting wanteds default_ty
                      2
                      ppr_wanteds
        ; setCtLocM loc $ warnTc (Reason Opt_WarnTypeDefaults) warn_default warn_msg }
+  where
+    is_wanted_superclass (WantedSuperclassOrigin {}) = True
+    is_wanted_superclass _                           = False
 
 {-
 Note [Runtime skolems]

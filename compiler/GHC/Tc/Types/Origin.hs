@@ -441,6 +441,11 @@ data CtOrigin
   | InstProvidedOrigin Module ClsInst
         -- Skolem variable arose when we were testing if an instance
         -- is solvable or not.
+  | WantedSuperclassOrigin PredType CtOrigin
+        -- From expanding out the superclasses of a Wanted; the PredType
+        -- is the subclass predicate, and the origin
+        -- of the original Wanted is the CtOrigin
+
 -- An origin is visible if the place where the constraint arises is manifest
 -- in user code. Currently, all origins are visible except for invisible
 -- TypeEqOrigins. This is used when choosing which error of
@@ -540,7 +545,6 @@ lGRHSCtOrigin _ = Shouldn'tHappenOrigin "multi-way GRHS"
 
 pprCtOrigin :: CtOrigin -> SDoc
 -- "arising from ..."
--- Not an instance of Outputable because of the "arising from" prefix
 pprCtOrigin (GivenOrigin sk) = ctoHerald <+> ppr sk
 
 pprCtOrigin (SpecPragOrigin ctxt)
@@ -614,6 +618,10 @@ pprCtOrigin (InstProvidedOrigin mod cls_inst)
   = vcat [ text "arising when attempting to show that"
          , ppr cls_inst
          , text "is provided by" <+> quotes (ppr mod)]
+
+pprCtOrigin (WantedSuperclassOrigin subclass_pred subclass_orig)
+  = sep [ ctoHerald <+> text "a superclass required to satisfy" <+> quotes (ppr subclass_pred) <> comma
+        , pprCtOrigin subclass_orig ]
 
 pprCtOrigin simple_origin
   = ctoHerald <+> pprCtO simple_origin

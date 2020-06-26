@@ -29,7 +29,7 @@ module GHC.Tc.Solver(
 import GHC.Prelude
 
 import GHC.Data.Bag
-import GHC.Core.Class ( Class, classKey, classTyCon )
+import GHC.Core.Class ( Class, classKey, classTyCon, classHasFds )
 import GHC.Driver.Session
 import GHC.Types.Id   ( idType )
 import GHC.Tc.Utils.Instantiate
@@ -1655,7 +1655,7 @@ solveImplication imp@(Implic { ic_tclvl  = tclvl
                   ; residual_wanted <- solveWanteds wanteds
                         -- solveWanteds, *not* solveWantedsAndDrop, because
                         -- we want to retain derived equalities so we can float
-                        -- them out in floatEqualities
+                        -- them out in floatConstraints
 
                   ; (no_eqs, given_insols) <- getNoGivenEqs tclvl skols
                         -- Call getNoGivenEqs /after/ solveWanteds, because
@@ -1665,8 +1665,8 @@ solveImplication imp@(Implic { ic_tclvl  = tclvl
                   ; return (no_eqs, given_insols, residual_wanted) }
 
        ; (floated_eqs, residual_wanted)
-             <- floatEqualities skols given_ids ev_binds_var
-                                no_given_eqs residual_wanted
+             <- floatConstraints skols given_ids ev_binds_var
+                                 no_given_eqs residual_wanted
 
        ; traceTcS "solveImplication 2"
            (ppr given_insols $$ ppr residual_wanted)
@@ -2288,10 +2288,10 @@ beta! Concrete example is in indexed_types/should_fail/ExtraTcsUntch.hs:
 *                                                                               *
 *********************************************************************************
 
-Note [Float Equalities out of Implications]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Note [Float constraints out of implications]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 For ordinary pattern matches (including existentials) we float
-equalities out of implications, for instance:
+constraints out of implications, for instance:
      data T where
        MkT :: Eq a => a -> T
      f x y = case x of MkT _ -> (y::Int)
@@ -2300,7 +2300,7 @@ We get the implication constraint (x::T) (y::alpha):
 We want to float out the equality into a scope where alpha is no
 longer untouchable, to solve the implication!
 
-But we cannot float equalities out of implications whose givens may
+But we cannot float constraints out of implications whose givens may
 yield or contain equalities:
 
       data T a where
@@ -2326,7 +2326,7 @@ But if we just leave them inside the implications, we unify alpha := beta and
 solve everything.
 
 Principle:
-    We do not want to float equalities out which may
+    We do not want to float constraints out which may
     need the given *evidence* to become soluble.
 
 Consequence: classes with functional dependencies don't matter (since there is
@@ -2334,10 +2334,10 @@ no evidence for a fundep equality), but equality superclasses do matter (since
 they carry evidence).
 -}
 
-floatEqualities :: [TcTyVar] -> [EvId] -> EvBindsVar -> Bool
-                -> WantedConstraints
-                -> TcS (Cts, WantedConstraints)
--- Main idea: see Note [Float Equalities out of Implications]
+floatConstraints :: [TcTyVar] -> [EvId] -> EvBindsVar -> Bool
+                 -> WantedConstraints
+                 -> TcS (Cts, WantedConstraints)
+-- Main idea: see Note [Float constraints out of implications]
 --
 -- Precondition: the wc_simple of the incoming WantedConstraints are
 --               fully zonked, so that we can see their free variables
@@ -2352,10 +2352,10 @@ floatEqualities :: [TcTyVar] -> [EvId] -> EvBindsVar -> Bool
 -- Subtleties: Note [Float equalities from under a skolem binding]
 --             Note [Skolem escape]
 --             Note [What prevents a constraint from floating]
-floatEqualities skols given_ids ev_binds_var no_given_eqs
-                wanteds@(WC { wc_simple = simples })
+floatConstraints skols given_ids ev_binds_var no_given_eqs
+                 wanteds@(WC { wc_simple = simples })
   | not no_given_eqs  -- There are some given equalities, so don't float
-  = return (emptyBag, wanteds)   -- Note [Float Equalities out of Implications]
+  = return (emptyBag, wanteds)   -- Note [Float constraints out of implications]
 
   | otherwise
   = do { -- First zonk: the inert set (from whence they came) is fully
@@ -2367,7 +2367,7 @@ floatEqualities skols given_ids ev_binds_var no_given_eqs
 
        -- Now we can pick the ones to float
        -- The constraints are un-flattened and de-canonicalised
-       ; let (candidate_eqs, no_float_cts) = partitionBag is_float_eq_candidate simples
+       ; let (candidates, no_float_cts) = partitionBag is_float_candidate simples
 
              seed_skols = mkVarSet skols     `unionVarSet`
                           mkVarSet given_ids `unionVarSet`
@@ -2376,25 +2376,25 @@ floatEqualities skols given_ids ev_binds_var no_given_eqs
              -- seed_skols: See Note [What prevents a constraint from floating] (1,2,3)
              -- Include the EvIds of any non-floating constraints
 
-             extended_skols = transCloVarSet (add_captured_ev_ids candidate_eqs) seed_skols
+             extended_skols = transCloVarSet (add_captured_ev_ids candidates) seed_skols
                  -- extended_skols contains the EvIds of all the trapped constraints
                  -- See Note [What prevents a constraint from floating] (3)
 
-             (flt_eqs, no_flt_eqs) = partitionBag (is_floatable extended_skols)
-                                                  candidate_eqs
+             (flts, no_flts) = partitionBag (is_floatable extended_skols)
+                                            candidates
 
-             remaining_simples = no_float_cts `andCts` no_flt_eqs
+             remaining_simples = no_float_cts `andCts` no_flts
 
        -- Promote any unification variables mentioned in the floated equalities
        -- See Note [Promoting unification variables]
-       ; mapM_ promoteTyVarTcS (tyCoVarsOfCtsList flt_eqs)
+       ; mapM_ promoteTyVarTcS (tyCoVarsOfCtsList flts)
 
-       ; traceTcS "floatEqualities" (vcat [ text "Skols =" <+> ppr skols
-                                          , text "Extended skols =" <+> ppr extended_skols
-                                          , text "Simples =" <+> ppr simples
-                                          , text "Candidate eqs =" <+> ppr candidate_eqs
-                                          , text "Floated eqs =" <+> ppr flt_eqs])
-       ; return ( flt_eqs, wanteds { wc_simple = remaining_simples } ) }
+       ; traceTcS "floatConstraints" (vcat [ text "Skols =" <+> ppr skols
+                                           , text "Extended skols =" <+> ppr extended_skols
+                                           , text "Simples =" <+> ppr simples
+                                           , text "Candidate cts =" <+> ppr candidates
+                                           , text "Floated cts =" <+> ppr flts ])
+       ; return ( flts, wanteds { wc_simple = remaining_simples } ) }
 
   where
     add_one_bind :: EvBind -> VarSet -> VarSet
@@ -2417,25 +2417,26 @@ floatEqualities skols given_ids ev_binds_var no_given_eqs
            | tyCoVarsOfCt ct `intersectsVarSet` skols = extendVarSet acc (ctEvId ct)
            | otherwise                                = acc
 
-    -- Identify which equalities are candidates for floating
+    -- Identify which constraints are candidates for floating
     -- Float out alpha ~ ty, or ty ~ alpha which might be unified outside
-    -- See Note [Which equalities to float]
-    is_float_eq_candidate ct
-      | pred <- ctPred ct
-      , EqPred NomEq ty1 ty2 <- classifyPredType pred
-      = case (tcGetTyVar_maybe ty1, tcGetTyVar_maybe ty2) of
+    -- Also float out class constraints with functional dependencies
+    -- See Note [Which constraints to float]
+    is_float_candidate ct = case classifyPredType (ctPred ct) of
+      EqPred NomEq ty1 ty2 ->
+        case (tcGetTyVar_maybe ty1, tcGetTyVar_maybe ty2) of
           (Just tv1, _) -> float_tv_eq_candidate tv1 ty2
           (_, Just tv2) -> float_tv_eq_candidate tv2 ty1
           _             -> False
-      | otherwise = False
+      ClassPred cls _ -> classHasFds cls
+      _               -> False
 
-    float_tv_eq_candidate tv1 ty2  -- See Note [Which equalities to float]
+    float_tv_eq_candidate tv1 ty2  -- See Note [Which constraints to float]
       =  isMetaTyVar tv1
       && (not (isTyVarTyVar tv1) || isTyVarTy ty2)
 
 
 {- Note [Float equalities from under a skolem binding]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Which of the simple equalities can we float out?  Obviously, only
 ones that don't mention the skolem-bound variables.  But that is
 over-eager. Consider
@@ -2457,11 +2458,13 @@ We had a very complicated rule previously, but this is nice and
 simple.  (To see the notes, look at this Note in a version of
 GHC.Tc.Solver prior to Oct 2014).
 
-Note [Which equalities to float]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Which equalities should we float?  We want to float ones where there
+Note [Which constraints to float]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Which constraints should we float?  We want to float ones where there
 is a decent chance that floating outwards will allow unification to
-happen.  In particular, float out equalities that are:
+happen.
+
+1. Float out equalities that are:
 
 * Of form (alpha ~# ty) or (ty ~# alpha), where
    * alpha is a meta-tyvar.
@@ -2472,6 +2475,18 @@ happen.  In particular, float out equalities that are:
 * Nominal.  No point in floating (alpha ~R# ty), because we do not
   unify representational equalities even if alpha is touchable.
   See Note [Do not unify representational equalities] in GHC.Tc.Solver.Interact.
+
+2. Float out class constraints with functional dependencies. Example:
+
+  class C a b | a -> b
+
+  forall [1]. C a[sk] beta1[tau]
+  forall [1]. C a[sk] beta2[tau]
+
+We want the two class constraints to interact, so that we can unify beta1 := beta2.
+But since they are in separate implications, they won't find each other. Thus: float.
+
+This is tested in test case typecheck/should_compile/FloatFDs.
 
 Note [Skolem escape]
 ~~~~~~~~~~~~~~~~~~~~
