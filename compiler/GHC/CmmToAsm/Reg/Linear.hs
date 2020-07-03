@@ -202,7 +202,7 @@ regAlloc _ (CmmProc _ _ _ _)
 --   an entry in the block map or it is the first block.
 --
 linearRegAlloc
-        :: (Outputable instr, Instruction instr)
+        :: forall instr . (Outputable instr, Instruction instr)
         => NCGConfig
         -> [BlockId] -- ^ entry points
         -> BlockMap RegSet
@@ -228,6 +228,8 @@ linearRegAlloc config entry_ids block_live sccs
       ArchJavaScript -> panic "linearRegAlloc ArchJavaScript"
       ArchUnknown    -> panic "linearRegAlloc ArchUnknown"
  where
+  go :: (FR regs, Outputable regs)
+     => regs -> UniqSM ([NatBasicBlock instr], RegAllocStats, Int)
   go f = linearRegAlloc' config f entry_ids block_live sccs
   platform = ncgPlatform config
 
@@ -953,4 +955,3 @@ loadTemp vreg (ReadMem slot) hreg spills
 
 loadTemp _ _ _ spills =
    return spills
-

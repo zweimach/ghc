@@ -8,7 +8,7 @@
 -----------------------------------------------------------------------------
 -}
 
-{-# LANGUAGE CPP, MultiWayIf, ScopedTypeVariables #-}
+{-# LANGUAGE CPP, MultiWayIf, ScopedTypeVariables, NoMonoLocalBinds #-}
 
 module GHC.SysTools (
         -- * Initialisation
@@ -141,6 +141,7 @@ lazyInitLlvmConfig top_dir
       passes <- readAndParse "llvm-passes" id
       return $ LlvmConfig { llvmTargets = targets, llvmPasses = passes }
   where
+    -- This one has a really complicated type, hence -XNoMonoLocalBinds
     readAndParse name builder =
       do let llvmConfigFile = top_dir </> name
          llvmConfigStr <- readFile llvmConfigFile
