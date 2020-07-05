@@ -651,6 +651,7 @@ chunkify xs
 *                                                                      *
 ********************************************************************* -}
 
+-- TODO RGS: DELETE THIS
 mkLHsSigType :: LHsType GhcPs -> LHsSigType GhcPs
 mkLHsSigType ty = mkHsImplicitBndrs ty
 
@@ -1216,8 +1217,7 @@ hsLInstDeclBinders (L _ (TyFamInstD {})) = mempty
 hsDataFamInstBinders :: IsPass p
                      => DataFamInstDecl (GhcPass p)
                      -> ([Located (IdP (GhcPass p))], [LFieldOcc (GhcPass p)])
-hsDataFamInstBinders (DataFamInstDecl { dfid_eqn = HsIB { hsib_body =
-                       FamEqn { feqn_rhs = defn }}})
+hsDataFamInstBinders (DataFamInstDecl { dfid_eqn = FamEqn { feqn_rhs = defn }})
   = hsDataDefnBinders defn
   -- There can't be repeated symbols because only data instances have binders
 
