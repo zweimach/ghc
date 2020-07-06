@@ -32,6 +32,7 @@ import {-# SOURCE #-} GHC.Hs.Expr ( pprExpr, LHsExpr,
 import {-# SOURCE #-} GHC.Hs.Pat  ( LPat )
 
 import GHC.Hs.Extension
+import GHC.Parser.Annotation
 import GHC.Hs.Type
 import GHC.Core
 import GHC.Tc.Types.Evidence
@@ -70,6 +71,7 @@ type HsLocalBinds id = HsLocalBindsLR id id
 
 -- | Located Haskell local bindings
 type LHsLocalBinds id = XRec id (HsLocalBinds id)
+-- type LHsLocalBinds id = LocatedL (HsLocalBinds id) -- AZ: before
 
 -- | Haskell Local Bindings with separate Left and Right identifier types
 --
@@ -97,12 +99,13 @@ data HsLocalBindsLR idL idR
   | XHsLocalBindsLR
         !(XXHsLocalBindsLR idL idR)
 
-type instance XHsValBinds      (GhcPass pL) (GhcPass pR) = NoExtField
+type instance XHsValBinds      (GhcPass pL) (GhcPass pR) = ApiAnnCO
 type instance XHsIPBinds       (GhcPass pL) (GhcPass pR) = NoExtField
 type instance XEmptyLocalBinds (GhcPass pL) (GhcPass pR) = NoExtField
 type instance XXHsLocalBindsLR (GhcPass pL) (GhcPass pR) = NoExtCon
 
 type LHsLocalBindsLR idL idR = XRec idL (HsLocalBindsLR idL idR)
+-- type LHsLocalBindsLR idL idR = LocatedL (HsLocalBindsLR idL idR) -- AZ: before
 
 
 -- | Haskell Value Bindings
@@ -138,7 +141,7 @@ data NHsValBindsLR idL
       [(RecFlag, LHsBinds idL)]
       [LSig GhcRn]
 
-type instance XValBinds    (GhcPass pL) (GhcPass pR) = NoExtField
+type instance XValBinds    (GhcPass pL) (GhcPass pR) = AnnSortKey
 type instance XXValBindsLR (GhcPass pL) (GhcPass pR)
             = NHsValBindsLR (GhcPass pL)
 
@@ -158,6 +161,7 @@ type LHsBindsLR idL idR = Bag (LHsBindLR idL idR)
 
 -- | Located Haskell Binding with separate Left and Right identifier types
 type LHsBindLR  idL idR = XRec idL (HsBindLR idL idR)
+-- type LHsBindLR  idL idR = LocatedA (HsBindLR idL idR) -- AZ: before
 
 {- Note [FunBind vs PatBind]
    ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -242,6 +246,8 @@ data HsBindLR idL idR
           -- Notice that the coercion captures the free a'.
 
         fun_id :: XRec idL (IdP idL), -- Note [fun_id in Match] in GHC.Hs.Expr
+        -- fun_id :: LocatedN (IdP idL), -- Note [m_ctxt in Match] in GHC.Hs.Expr
+           --  AZ: old one
 
         fun_matches :: MatchGroup idR (LHsExpr idR),  -- ^ The payload
 
@@ -324,13 +330,13 @@ type instance XFunBind    (GhcPass pL) GhcPs = NoExtField
 type instance XFunBind    (GhcPass pL) GhcRn = NameSet    -- Free variables
 type instance XFunBind    (GhcPass pL) GhcTc = HsWrapper  -- See comments on FunBind.fun_ext
 
-type instance XPatBind    GhcPs (GhcPass pR) = NoExtField
+type instance XPatBind    GhcPs (GhcPass pR) = ApiAnn
 type instance XPatBind    GhcRn (GhcPass pR) = NameSet -- Free variables
 type instance XPatBind    GhcTc (GhcPass pR) = NPatBindTc
 
 type instance XVarBind    (GhcPass pL) (GhcPass pR) = NoExtField
 type instance XAbsBinds   (GhcPass pL) (GhcPass pR) = NoExtField
-type instance XPatSynBind (GhcPass pL) (GhcPass pR) = NoExtField
+type instance XPatSynBind (GhcPass pL) (GhcPass pR) = ApiAnn
 type instance XXHsBindsLR (GhcPass pL) (GhcPass pR) = NoExtCon
 
 
@@ -374,6 +380,9 @@ data PatSynBind idL idR
                                                -- See Note [Bind free vars]
           psb_id   :: XRec idL (IdP idL),       -- ^ Name of the pattern synonym
           psb_args :: HsPatSynDetails (XRec idR (IdP idR)),
+          -- psb_id   :: LocatedN (IdP idL),      -- ^ Name of the pattern synonym
+          -- psb_args :: HsPatSynDetails (LocatedN (IdP idR)),
+           -- AZ: old one
                                                -- ^ Formal parameter names
           psb_def  :: LPat idR,                -- ^ Right-hand side
           psb_dir  :: HsPatSynDir idR          -- ^ Directionality
@@ -662,7 +671,7 @@ pprLHsBindsForUser binds sigs
 
     decls :: [(SrcSpan, SDoc)]
     decls = [(loc, ppr sig)  | L loc sig <- sigs] ++
-            [(loc, ppr bind) | L loc bind <- bagToList binds]
+            [(locA loc, ppr bind) | L loc bind <- bagToList binds]
 
     sort_by_loc decls = sortBy (SrcLoc.leftmost_smallest `on` fst) decls
 
@@ -690,7 +699,7 @@ isEmptyValBinds (ValBinds _ ds sigs)  = isEmptyLHsBinds ds && null sigs
 isEmptyValBinds (XValBindsLR (NValBinds ds sigs)) = null ds && null sigs
 
 emptyValBindsIn, emptyValBindsOut :: HsValBindsLR (GhcPass a) (GhcPass b)
-emptyValBindsIn  = ValBinds noExtField emptyBag []
+emptyValBindsIn  = ValBinds NoAnnSortKey emptyBag []
 emptyValBindsOut = XValBindsLR (NValBinds [] [])
 
 emptyLHsBinds :: LHsBindsLR (GhcPass idL) idR
@@ -703,7 +712,7 @@ isEmptyLHsBinds = isEmptyBag
 plusHsValBinds :: HsValBinds (GhcPass a) -> HsValBinds (GhcPass a)
                -> HsValBinds(GhcPass a)
 plusHsValBinds (ValBinds _ ds1 sigs1) (ValBinds _ ds2 sigs2)
-  = ValBinds noExtField (ds1 `unionBags` ds2) (sigs1 ++ sigs2)
+  = ValBinds NoAnnSortKey (ds1 `unionBags` ds2) (sigs1 ++ sigs2)
 plusHsValBinds (XValBindsLR (NValBinds ds1 sigs1))
                (XValBindsLR (NValBinds ds2 sigs2))
   = XValBindsLR (NValBinds (ds1 ++ ds2) (sigs1 ++ sigs2))
@@ -824,6 +833,7 @@ isEmptyIPBindsTc (IPBinds ds is) = null is && isEmptyTcEvBinds ds
 
 -- | Located Implicit Parameter Binding
 type LIPBind id = XRec id (IPBind id)
+-- type LIPBind id = LocatedA (IPBind id) -- AZ: old one
 -- ^ May have 'GHC.Parser.Annotation.AnnKeywordId' : 'GHC.Parser.Annotation.AnnSemi' when in a
 --   list
 
@@ -846,7 +856,7 @@ data IPBind id
         (LHsExpr id)
   | XIPBind !(XXIPBind id)
 
-type instance XCIPBind    (GhcPass p) = NoExtField
+type instance XCIPBind    (GhcPass p) = ApiAnn
 type instance XXIPBind    (GhcPass p) = NoExtCon
 
 instance OutputableBndrId p
@@ -897,6 +907,8 @@ data Sig pass
     TypeSig
        (XTypeSig pass)
        [XRec pass (IdP pass)]  -- LHS of the signature; e.g.  f,g,h :: blah
+       -- [LocatedN (IdP pass)]   -- LHS of the signature; e.g.  f,g,h :: blah
+         -- AZ: old one
        (LHsSigWcType pass)   -- RHS of the signature; can have wildcards
 
       -- | A pattern synonym type signature
@@ -909,6 +921,7 @@ data Sig pass
 
       -- For details on above see note [Api annotations] in GHC.Parser.Annotation
   | PatSynSig (XPatSynSig pass) [XRec pass (IdP pass)] (LHsSigType pass)
+  -- | PatSynSig (XPatSynSig pass) [LocatedN (IdP pass)] (LHsSigType pass) -- AZ: old one
       -- P :: forall a b. Req => Prov => ty
 
       -- | A signature for a class method
@@ -922,6 +935,7 @@ data Sig pass
       --  - 'GHC.Parser.Annotation.AnnKeywordId' : 'GHC.Parser.Annotation.AnnDefault',
       --           'GHC.Parser.Annotation.AnnDcolon'
   | ClassOpSig (XClassOpSig pass) Bool [XRec pass (IdP pass)] (LHsSigType pass)
+  -- | ClassOpSig (XClassOpSig pass) Bool [LocatedN (IdP pass)] (LHsSigType pass) -- AZ: old one
 
         -- | A type signature in generated code, notably the code
         -- generated for record selectors.  We simply record
@@ -954,6 +968,8 @@ data Sig pass
         -- For details on above see note [Api annotations] in GHC.Parser.Annotation
   | InlineSig   (XInlineSig pass)
                 (XRec pass (IdP pass)) -- Function name
+                -- (LocatedN (IdP pass))   -- Function name
+                  -- AZ: old one
                 InlinePragma         -- Never defaultInlinePragma
 
         -- | A specialisation pragma
@@ -970,6 +986,8 @@ data Sig pass
         -- For details on above see note [Api annotations] in GHC.Parser.Annotation
   | SpecSig     (XSpecSig pass)
                 (XRec pass (IdP pass)) -- Specialise a function or datatype  ...
+                -- (LocatedN (IdP pass)) -- Specialise a function or datatype  ...
+                  -- AZ: old one
                 [LHsSigType pass]  -- ... to these types
                 InlinePragma       -- The pragma on SPECIALISE_INLINE form.
                                    -- If it's just defaultInlinePragma, then we said
@@ -1000,6 +1018,8 @@ data Sig pass
         -- For details on above see note [Api annotations] in GHC.Parser.Annotation
   | MinimalSig (XMinimalSig pass)
                SourceText (LBooleanFormula (XRec pass (IdP pass)))
+               -- SourceText (LBooleanFormula (LocatedN (IdP pass)))
+                  -- AZ: old one
                -- Note [Pragma source text] in GHC.Types.Basic
 
         -- | A "set cost centre" pragma for declarations
@@ -1013,7 +1033,11 @@ data Sig pass
   | SCCFunSig  (XSCCFunSig pass)
                SourceText              -- Note [Pragma source text] in GHC.Types.Basic
                (XRec pass (IdP pass))  -- Function name
+               -- (LocatedN (IdP pass))  -- Function name
+                 -- AZ: old one
                (Maybe (XRec pass StringLiteral))
+               -- (Maybe (Located StringLiteral))
+                 -- AZ: old one
        -- | A complete match pragma
        --
        -- > {-# COMPLETE C, D [:: T] #-}
@@ -1024,20 +1048,24 @@ data Sig pass
   | CompleteMatchSig (XCompleteMatchSig pass)
                      SourceText
                      (XRec pass [XRec pass (IdP pass)])
+                     -- (Located [LocatedN (IdP pass)])
+                       -- AZ: old one
                      (Maybe (XRec pass (IdP pass)))
+                     -- (Maybe (LocatedN (IdP pass)))
+                       -- AZ: old one
   | XSig !(XXSig pass)
 
-type instance XTypeSig          (GhcPass p) = NoExtField
-type instance XPatSynSig        (GhcPass p) = NoExtField
-type instance XClassOpSig       (GhcPass p) = NoExtField
-type instance XIdSig            (GhcPass p) = NoExtField
-type instance XFixSig           (GhcPass p) = NoExtField
-type instance XInlineSig        (GhcPass p) = NoExtField
-type instance XSpecSig          (GhcPass p) = NoExtField
-type instance XSpecInstSig      (GhcPass p) = NoExtField
-type instance XMinimalSig       (GhcPass p) = NoExtField
-type instance XSCCFunSig        (GhcPass p) = NoExtField
-type instance XCompleteMatchSig (GhcPass p) = NoExtField
+type instance XTypeSig          (GhcPass p) = ApiAnn
+type instance XPatSynSig        (GhcPass p) = ApiAnn
+type instance XClassOpSig       (GhcPass p) = ApiAnn
+type instance XIdSig            (GhcPass p) = NoExtField -- No anns, generated
+type instance XFixSig           (GhcPass p) = ApiAnn
+type instance XInlineSig        (GhcPass p) = ApiAnn
+type instance XSpecSig          (GhcPass p) = ApiAnn
+type instance XSpecInstSig      (GhcPass p) = ApiAnn
+type instance XMinimalSig       (GhcPass p) = ApiAnn
+type instance XSCCFunSig        (GhcPass p) = ApiAnn
+type instance XCompleteMatchSig (GhcPass p) = ApiAnn
 type instance XXSig             (GhcPass p) = NoExtCon
 
 -- | Located Fixity Signature
@@ -1045,6 +1073,8 @@ type LFixitySig pass = XRec pass (FixitySig pass)
 
 -- | Fixity Signature
 data FixitySig pass = FixitySig (XFixitySig pass) [XRec pass (IdP pass)] Fixity
+-- data FixitySig pass = FixitySig (XFixitySig pass) [LocatedN (IdP pass)] Fixity
+   -- AZ: old one
                     | XFixitySig !(XXFixitySig pass)
 
 type instance XFixitySig  (GhcPass p) = NoExtField
@@ -1220,7 +1250,7 @@ instance Outputable TcSpecPrag where
     = text "SPECIALIZE" <+> pprSpec var (text "<type>") inl
 
 pprMinimalSig :: (OutputableBndr name)
-              => LBooleanFormula (Located name) -> SDoc
+              => LBooleanFormula (LocatedN name) -> SDoc
 pprMinimalSig (L _ bf) = ppr (fmap unLoc bf)
 
 {-
