@@ -11,7 +11,7 @@ module GHC.Core.SimpleOpt (
         simpleOptPgm, simpleOptExpr, simpleOptExprWith,
 
         -- ** Join points
-        joinPointBinding_maybe, joinPointBindings_maybe,
+        tryJoinPointWW, tryJoinPointWWs,
 
         -- ** Predicates on expressions
         exprIsConApp_maybe, exprIsLiteral_maybe, exprIsLambda_maybe,
@@ -48,6 +48,7 @@ import GHC.Core.Type hiding ( substTy, extendTvSubst, extendCvSubst, extendTvSub
 import GHC.Core.Coercion hiding ( substCo, substCoVarBndr )
 import GHC.Core.TyCon ( tyConArity )
 import GHC.Core.Multiplicity
+import GHC.Core.Unify ( tcMatchTy )
 import GHC.Builtin.Types
 import GHC.Builtin.Names
 import GHC.Types.Basic
@@ -57,8 +58,10 @@ import GHC.Driver.Session
 import GHC.Utils.Outputable
 import GHC.Data.Pair
 import GHC.Utils.Misc
-import GHC.Data.Maybe       ( orElse )
+import GHC.Utils.Monad      ( mapAccumLM )
+import GHC.Data.Maybe
 import GHC.Data.FastString
+import Data.Bifunctor ( second )
 import Data.List
 import qualified Data.ByteString as BS
 
@@ -158,21 +161,22 @@ simpleOptPgm dflags this_mod binds rules
              -- hence paying just a substitution
 
     do_one (env, binds') bind
-      = case simple_opt_bind env bind TopLevel of
+      = case simple_opt_bind env bind of
           (env', Nothing)    -> (env', binds')
           (env', Just bind') -> (env', bind':binds')
 
 -- In these functions the substitution maps InVar -> OutExpr
 
 ----------------------
-type SimpleClo = (SimpleOptEnv, InExpr)
+type SimpleClo = (SimpleOptEnv, InExpr) -- Like SimplSR's ContEx
 
 data SimpleOptEnv
   = SOE { soe_dflags :: DynFlags
         , soe_inl   :: IdEnv SimpleClo
              -- Deals with preInlineUnconditionally; things
              -- that occur exactly once and are inlined
-             -- without having first been simplified
+             -- without having first been simplified or
+             -- substituted, thus the domain is InBndrs
 
         , soe_subst :: Subst
              -- Deals with cloning; includes the InScopeSet
@@ -226,9 +230,10 @@ simple_opt_expr env expr
     go (Lit lit)        = Lit lit
     go (Tick tickish e) = mkTick (substTickish subst tickish) (go e)
     go (Cast e co)      = mk_cast (go e) (go_co co)
-    go (Let bind body)  = case simple_opt_bind env bind NotTopLevel of
-                             (env', Nothing)   -> simple_opt_expr env' body
-                             (env', Just bind) -> Let bind (simple_opt_expr env' body)
+    go (Let bind body)  =
+      case simple_opt_local_bind env (exprType body) bind of
+        (env', Nothing)   -> simple_opt_expr env' body
+        (env', Just bind) -> Let bind (simple_opt_expr env' body)
 
     go lam@(Lam {})     = go_lam env [] lam
     go (Case e b ty as)
@@ -330,7 +335,7 @@ simple_app env (Tick t e) as
 -- However, do /not/ do this transformation for join points
 --    See Note [simple_app and join points]
 simple_app env (Let bind body) args
-  = case simple_opt_bind env bind NotTopLevel of
+  = case simple_opt_local_bind env (exprType body) bind of
       (env', Nothing)   -> simple_app env' body args
       (env', Just bind')
         | isJoinBind bind' -> finish_app env expr' args
@@ -348,29 +353,80 @@ finish_app env fun (arg:args)
   = finish_app env (App fun (simple_opt_clo env arg)) args
 
 ----------------------
-simple_opt_bind :: SimpleOptEnv -> InBind -> TopLevelFlag
-                -> (SimpleOptEnv, Maybe OutBind)
-simple_opt_bind env (NonRec b r) top_level
-  = (env', case mb_pr of
-            Nothing    -> Nothing
-            Just (b,r) -> Just (NonRec b r))
-  where
-    (b', r') = joinPointBinding_maybe b r `orElse` (b, r)
-    (env', mb_pr) = simple_bind_pair env b' Nothing (env,r') top_level
+extendInlEnv :: SimpleOptEnv -> InBndr -> SimpleClo -> SimpleOptEnv
+-- Like GHC.Core.Opt.Simplify.Env.extendIdSubst
+extendInlEnv env@(SOE { soe_inl = inl_env }) bndr clo
+  = ASSERT2( isId bndr && not (isCoVar bndr), ppr bndr )
+    env { soe_inl = extendVarEnv inl_env bndr clo }
 
-simple_opt_bind env (Rec prs) top_level
-  = (env'', res_bind)
+tryJoinPointWWs :: InScopeSet -> Type -> [(InBndr, InExpr)] -> ([(InBndr, InExpr)], [(InBndr, InExpr)])
+tryJoinPointWWs in_scope body_ty binds
+  = case joinPointBindings_maybe in_scope body_ty binds of
+      Nothing   -> (binds, [])     -- Common case: Not a join point
+      Just jphs -> foldMap go jphs -- Less common: Could be a join point
+  where
+    go jph = ([(join_bndr jph, join_rhs jph)], join_wrapper jph)
+    join_wrapper jph@JoinPointAfterMono{} -- Rare: A join point after we inline a wrapper
+      = [(join_wrapper_bndr jph, join_wrapper_body jph)]
+    join_wrapper DefinitelyJoinPoint{}    -- Regular join point
+      = []
+
+tryJoinPointWW :: InScopeSet -> Type -> InBndr -> InExpr -> (InBndr, InExpr, Maybe (InBndr, InExpr))
+tryJoinPointWW in_scope body_ty b r
+  | ([(b', r')], wrappers) <- tryJoinPointWWs in_scope body_ty [(b, r)]
+  = ASSERT( wrappers `lengthAtMost` 1 )
+    (b', r', listToMaybe wrappers)
+  | otherwise
+  = pprPanic "tryJoinPointWW" (ppr b $$ ppr r)
+
+simple_opt_local_bind
+  :: SimpleOptEnv -> Type -> InBind -> (SimpleOptEnv, Maybe OutBind)
+simple_opt_local_bind env body_ty (NonRec b r)
+  | (b', r', mb_wrap) <- tryJoinPointWW (substInScope (soe_subst env)) body_ty b r
+  = inline_wrapper mb_wrap
+  $ second (fmap (uncurry NonRec))
+  $ (simple_bind_pair env b' Nothing (env,r') NotTopLevel)
+  where
+    inline_wrapper mb_wrap res@(env, mb_pr) = case mb_wrap of
+      Nothing     -> res
+      Just (b, r) -> (extendInlEnv env b (env, r), mb_pr)
+
+simple_opt_local_bind env body_ty (Rec prs)
+  = (inline_wrappers env'' wrappers, res_bind)
   where
     res_bind          = Just (Rec (reverse rev_prs'))
-    prs'              = joinPointBindings_maybe prs `orElse` prs
+    (prs', wrappers)  = tryJoinPointWWs (substInScope (soe_subst env)) body_ty prs
     (env', bndrs')    = subst_opt_bndrs env (map fst prs')
-    (env'', rev_prs') = foldl' do_pr (env', []) (prs' `zip` bndrs')
-    do_pr (env, prs) ((b,r), b')
+    (env'', rev_prs') = foldl' simpl_pr (env', []) (prs' `zip` bndrs')
+    inline_wrappers   = foldl' (\env (b,r) -> extendInlEnv env b (env, r))
+    simpl_pr (env, prs) ((b,r), b')
        = (env', case mb_pr of
                   Just pr -> pr : prs
                   Nothing -> prs)
        where
-         (env', mb_pr) = simple_bind_pair env b (Just b') (env,r) top_level
+         (env', mb_pr) = simple_bind_pair env b (Just b') (env,r) TopLevel
+
+simple_opt_bind :: SimpleOptEnv -> InBind -> (SimpleOptEnv, Maybe OutBind)
+simple_opt_bind env (NonRec b r)
+  = (env', case mb_pr of
+            Nothing    -> Nothing
+            Just (b,r) -> Just (NonRec b r))
+  where
+    (env', mb_pr) = simple_bind_pair env b Nothing (env,r) TopLevel
+
+
+simple_opt_bind env (Rec prs)
+  = (env'', res_bind)
+  where
+    res_bind          = Just (Rec (reverse rev_prs'))
+    (env', bndrs')    = subst_opt_bndrs env (map fst prs)
+    (env'', rev_prs') = foldl' simpl_pr (env', []) (prs `zip` bndrs')
+    simpl_pr (env, prs) ((b,r), b')
+      = (env', case mb_pr of
+                 Just pr -> pr : prs
+                 Nothing -> prs)
+      where
+        (env', mb_pr) = simple_bind_pair env b (Just b') (env,r) TopLevel
 
 ----------------------
 simple_bind_pair :: SimpleOptEnv
@@ -754,6 +810,16 @@ a good cause. And it won't hurt other RULES and such that it comes across.
 ************************************************************************
 -}
 
+data JoinPointHood
+  = DefinitelyJoinPoint
+    { join_bndr :: !InBndr
+    , join_rhs :: !InExpr }
+  | JoinPointAfterMono
+    { join_bndr :: !InBndr
+    , join_rhs :: !InExpr
+    , join_wrapper_bndr :: !InBndr
+    , join_wrapper_body :: !InExpr }
+
 -- | Returns Just (bndr,rhs) if the binding is a join point:
 -- If it's a JoinId, just return it
 -- If it's not yet a JoinId but is always tail-called,
@@ -763,29 +829,105 @@ a good cause. And it won't hurt other RULES and such that it comes across.
 --
 -- Precondition: the InBndr has been occurrence-analysed,
 --               so its OccInfo is valid
-joinPointBinding_maybe :: InBndr -> InExpr -> Maybe (InBndr, InExpr)
-joinPointBinding_maybe bndr rhs
-  | not (isId bndr)
-  = Nothing
+joinPointBindings_maybe :: InScopeSet -> Type -> [(InBndr, InExpr)] -> Maybe [JoinPointHood]
+joinPointBindings_maybe in_scope body_type bndrs = snd <$> mapAccumLM go in_scope bndrs
+  where
+    go :: InScopeSet -> (InBndr, InExpr) -> Maybe (InScopeSet, JoinPointHood)
+    go in_scope (bndr, rhs)
+      | not (isId bndr)
+      = Nothing
 
-  | isJoinId bndr
-  = Just (bndr, rhs)
+      | isJoinId bndr
+      = Just (in_scope, DefinitelyJoinPoint bndr rhs)
 
-  | AlwaysTailCalled join_arity <- tailCallInfo (idOccInfo bndr)
-  , (bndrs, body) <- etaExpandToJoinPoint join_arity rhs
-  , let str_sig   = idStrictness bndr
-        str_arity = count isId bndrs  -- Strictness demands are for Ids only
-        join_bndr = bndr `asJoinId`        join_arity
-                         `setIdStrictness` etaConvertStrictSig str_arity str_sig
-  = Just (join_bndr, mkLams bndrs body)
+      | AlwaysTailCalled join_arity <- tailCallInfo (idOccInfo bndr)
+      , (lam_bndrs, rhs') <- etaExpandToJoinPoint join_arity rhs
+      , let inst_tys       = matchJoinResTy join_arity (idType bndr) body_type
+      , let new_join_arity = count isNothing inst_tys -- Nothing <=> forall not instantiated
+      , let no_mono        = new_join_arity == join_arity
+      , let new_bndr       = uniqAway in_scope bndr -- only used in else branch
+      = Just $! if no_mono
+          then ( in_scope
+               , DefinitelyJoinPoint
+                   { join_bndr = adjust_id_info bndr lam_bndrs join_arity
+                   , join_rhs = rhs' } )
+          else ( extendInScopeSet in_scope new_bndr
+               , JoinPointAfterMono
+                   { join_bndr = adjust_id_info new_bndr lam_bndrs new_join_arity
+                   , join_rhs = mk_worker_body lam_bndrs inst_tys rhs'
+                   , join_wrapper_bndr = bndr
+                   , join_wrapper_body = mk_wrapper_body new_bndr lam_bndrs inst_tys } )
 
-  | otherwise
-  = Nothing
+      -- if res ty of f polymorphic:
+      --   1. find out matching substitution, infer monorphisation call site
+      --   2. f @_ = f', f' = <f_rhs> @ty. Hence we need fresh f', wrt. in scope set that includes f
+      -- What do we return?
+      --   - new RHS of f, InExpr.
+      --   - In scope set is not necessary; will be rebuilt anyway.
+      --   - f' + <f_rhs> @ty, InBndr and InExpr.
+      -- Call sites can then pre-inline new RHS of f and simpl f' and its binding independently.
 
-joinPointBindings_maybe :: [(InBndr, InExpr)] -> Maybe [(InBndr, InExpr)]
-joinPointBindings_maybe bndrs
-  = mapM (uncurry joinPointBinding_maybe) bndrs
+      | otherwise
+      = Nothing
 
+    adjust_id_info :: InBndr -> [InBndr] -> JoinArity -> InBndr
+    adjust_id_info bndr lam_bndrs join_arity =
+      let str_sig   = idStrictness bndr
+          str_arity = count isId lam_bndrs  -- Strictness demands are for Ids only
+      in bndr `asJoinId`        join_arity
+              `setIdStrictness` etaConvertStrictSig str_arity str_sig
+
+    mk_wrapper_body :: InBndr -> [InBndr] -> [Maybe Type] -> InExpr
+    mk_wrapper_body new_bndr lam_bndrs inst_tys
+      = go (Var new_bndr) $ zipEqual "drop_inst_forall" lam_bndrs inst_tys
+      where
+        go e [] = e
+        go e ((lb,Nothing):prs) -- non-instantiated parameter
+          = Lam lb (go (App e (Var lb)) prs)
+        go e ((lb,Just _t):prs) --     instantiated parameter. lb is dead
+          = ASSERT( isTyVar lb )
+            Lam lb (go e prs)
+
+    mk_worker_body lam_bndrs inst_tys rhs
+      = go (mkLams lam_bndrs rhs) $ zipEqual "mk_worker_body" lam_bndrs inst_tys
+      where
+        go e [] = e
+        go e ((lb,Nothing):prs) -- non-instantiated parameter
+          = Lam lb (go (App e (Var lb)) prs)
+        go e ((_ ,Just ty):prs) --     instantiated paramater
+          = go (App e (Type ty)) prs
+
+-- | Figures out how to monomorphise the result type of a join point.
+--
+-- @matchJoinResTy ja join_ty body_ty@ computes the result type of @join_ty@ by
+-- skipping @ja@ binders and then matches it against @body_ty@.
+-- If a forall binder @a@ is mentioned in the resulting substitution @subst@,
+-- the corresponding entry in the returned list is @Just (subst a)@.
+--
+-- Postcondition: The returned list has length @ja@.
+matchJoinResTy
+  :: JoinArity    -- ^ Number of binders to skip
+  -> Type         -- ^ Type of the join point
+  -> Type         -- ^ Type of the join body
+  -> [Maybe Type] -- ^ An entry for each join binder, Just ty <=> instantiates
+                  --   corresponding forall to ty
+matchJoinResTy orig_ar orig_ty body_ty = snd (go (tyCoVarsOfType orig_ty) orig_ar orig_ty)
+  where
+    go :: VarSet -> Int -> Type -> (TCvSubst, [Maybe Type])
+    go in_scope 0 res_ty = (subst', [])
+      where
+        subst  = expectJust "matchJoinResTy" $ tcMatchTy res_ty body_ty
+        subst' = extendTCvInScopeSet subst in_scope
+    go in_scope n ty
+      | Just (arg_bndr, res_ty) <- splitPiTy_maybe ty
+      = case tyCoBinderVar_maybe arg_bndr of
+          Nothing -> second (Nothing:) $ go in_scope (n-1) res_ty
+          Just tcv
+            | (subst, inst_tys) <- go (extendVarSet in_scope tcv) (n-1) res_ty
+            -> if isTyVar tcv
+                then (delTCvSubst subst tcv, lookupTyVar subst tcv : inst_tys)
+                else (                subst, Nothing               : inst_tys)
+    go _ _ _ = pprPanic "matchJoinResTy" (ppr orig_ar <+> ppr orig_ty)
 
 {- Note [Strictness and join points]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
