@@ -1048,7 +1048,8 @@ simplExprF1 env (Case scrut bndr _ alts) cont
                                  , sc_env = env, sc_cont = cont })
 
 simplExprF1 env (Let (Rec pairs) body) cont
-  | (pairs', wrappers) <- tryJoinPointWWs (getInScope env) (exprType body) pairs
+  | Just (pairs', wrappers) <- tryJoinPointWWs (getInScope env) (exprType body) pairs
+  , pprTrace "simple join Rec" (ppr pairs'<+> ppr (exprType body)) True
   = {-#SCC "simplRecJoinPoin" #-} simplRecJoinPoint env pairs' wrappers body cont
 
   | otherwise
@@ -1061,8 +1062,8 @@ simplExprF1 env (Let (NonRec bndr rhs) body) cont
     do { ty' <- simplType env ty
        ; simplExprF (extendTvSubst env bndr ty') body cont }
 
-  | (bndr', rhs', mb_wrap) <- tryJoinPointWW (getInScope env) (exprType body) bndr rhs
-  , isJoinId bndr'
+  | Just (bndr', rhs', mb_wrap) <- tryJoinPointWW (getInScope env) (exprType body) bndr rhs
+  , pprTrace "simple join NonRec" (ppr bndr' <+> ppr (idType bndr') <+> ppr (exprType body) <+> ppr (isJoinId bndr)) True
   = {-#SCC "simplNonRecJoinPoint" #-} simplNonRecJoinPoint env bndr' rhs' mb_wrap body cont
 
   | otherwise

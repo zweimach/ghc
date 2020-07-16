@@ -359,30 +359,29 @@ extendInlEnv env@(SOE { soe_inl = inl_env }) bndr clo
   = ASSERT2( isId bndr && not (isCoVar bndr), ppr bndr )
     env { soe_inl = extendVarEnv inl_env bndr clo }
 
-tryJoinPointWWs :: InScopeSet -> Type -> [(InBndr, InExpr)] -> ([(InBndr, InExpr)], [(InBndr, InExpr)])
+tryJoinPointWWs :: InScopeSet -> Type -> [(InBndr, InExpr)] -> Maybe ([(InBndr, InExpr)], [(InBndr, InExpr)])
 tryJoinPointWWs in_scope body_ty binds
-  = case joinPointBindings_maybe in_scope body_ty binds of
-      Nothing   -> (binds, [])     -- Common case: Not a join point
-      Just jphs -> foldMap go jphs -- Less common: Could be a join point
+  = foldMap go <$> joinPointBindings_maybe in_scope body_ty binds
   where
     go jph = ([(join_bndr jph, join_rhs jph)], join_wrapper jph)
-    join_wrapper jph@JoinPointAfterMono{} -- Rare: A join point after we inline a wrapper
+    join_wrapper jph@JoinPointAfterMono{} -- Rare:   A join point after we inline a wrapper
       = [(join_wrapper_bndr jph, join_wrapper_body jph)]
-    join_wrapper DefinitelyJoinPoint{}    -- Regular join point
+    join_wrapper DefinitelyJoinPoint{}    -- Common: Regular join point. No wrapper
       = []
 
-tryJoinPointWW :: InScopeSet -> Type -> InBndr -> InExpr -> (InBndr, InExpr, Maybe (InBndr, InExpr))
+tryJoinPointWW :: InScopeSet -> Type -> InBndr -> InExpr -> Maybe (InBndr, InExpr, Maybe (InBndr, InExpr))
 tryJoinPointWW in_scope body_ty b r
-  | ([(b', r')], wrappers) <- tryJoinPointWWs in_scope body_ty [(b, r)]
+  | Just ([(b', r')], wrappers) <- tryJoinPointWWs in_scope body_ty [(b, r)]
   = ASSERT( wrappers `lengthAtMost` 1 )
-    (b', r', listToMaybe wrappers)
+    Just (b', r', listToMaybe wrappers)
   | otherwise
-  = pprPanic "tryJoinPointWW" (ppr b $$ ppr r)
+  = Nothing
 
 simple_opt_local_bind
   :: SimpleOptEnv -> Type -> InBind -> (SimpleOptEnv, Maybe OutBind)
 simple_opt_local_bind env body_ty (NonRec b r)
-  | (b', r', mb_wrap) <- tryJoinPointWW (substInScope (soe_subst env)) body_ty b r
+  | (b', r', mb_wrap) <- tryJoinPointWW (substInScope (soe_subst env)) body_ty b r `orElse` (b, r, Nothing)
+  , not (isJoinId b') || pprTrace "simple_opt_local_bind:join" (ppr b <+> ppr (idType b) <+> ppr body_ty) True
   = inline_wrapper mb_wrap
   $ second (fmap (uncurry NonRec))
   $ (simple_bind_pair env b' Nothing (env,r') NotTopLevel)
@@ -392,10 +391,11 @@ simple_opt_local_bind env body_ty (NonRec b r)
       Just (b, r) -> (extendInlEnv env b (env, r), mb_pr)
 
 simple_opt_local_bind env body_ty (Rec prs)
+  | not (isJoinId (fst $ head prs')) || pprTrace "simple_opt_local_bind:joinrec" (ppr prs <+> ppr body_ty) True
   = (inline_wrappers env'' wrappers, res_bind)
   where
     res_bind          = Just (Rec (reverse rev_prs'))
-    (prs', wrappers)  = tryJoinPointWWs (substInScope (soe_subst env)) body_ty prs
+    (prs', wrappers)  = tryJoinPointWWs (substInScope (soe_subst env)) body_ty prs `orElse` (prs, [])
     (env', bndrs')    = subst_opt_bndrs env (map fst prs')
     (env'', rev_prs') = foldl' simpl_pr (env', []) (prs' `zip` bndrs')
     inline_wrappers   = foldl' (\env (b,r) -> extendInlEnv env b (env, r))
@@ -841,6 +841,7 @@ joinPointBindings_maybe in_scope body_type bndrs = snd <$> mapAccumLM go in_scop
       = Just (in_scope, DefinitelyJoinPoint bndr rhs)
 
       | AlwaysTailCalled join_arity <- tailCallInfo (idOccInfo bndr)
+      , pprTrace "always tail called:" (ppr bndr <+> ppr join_arity) True
       , (lam_bndrs, rhs') <- etaExpandToJoinPoint join_arity rhs
       , let inst_tys       = matchJoinResTy join_arity (idType bndr) body_type
       , let new_join_arity = count isNothing inst_tys -- Nothing <=> forall not instantiated
