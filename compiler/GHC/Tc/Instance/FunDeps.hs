@@ -6,6 +6,7 @@
 -}
 
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE DeriveFunctor #-}
 
 -- | Functional dependencies
 --
@@ -18,6 +19,7 @@ module GHC.Tc.Instance.FunDeps
    , checkInstCoverage
    , checkFunDeps
    , pprFundeps
+   , oclose
    )
 where
 
@@ -118,6 +120,7 @@ data FunDepEqn loc
           , fd_pred1 :: PredType   -- The FunDepEqn arose from
           , fd_pred2 :: PredType   --  combining these two constraints
           , fd_loc   :: loc  }
+    deriving Functor
 
 {-
 Given a bunch of predicates that must hold, such as

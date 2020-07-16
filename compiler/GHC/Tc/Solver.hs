@@ -47,6 +47,7 @@ import GHC.Tc.Utils.TcMType   as TcM
 import GHC.Tc.Utils.Monad as TcM
 import GHC.Tc.Solver.Monad  as TcS
 import GHC.Tc.Types.Constraint
+import GHC.Tc.Instance.FunDeps   ( oclose )
 import GHC.Core.Predicate
 import GHC.Tc.Types.Origin
 import GHC.Tc.Utils.TcType
@@ -59,6 +60,7 @@ import GHC.Types.Var.Set
 import GHC.Types.Unique.Set
 import GHC.Types.Basic    ( IntWithInf, intGtLimit )
 import GHC.Utils.Error    ( emptyMessages )
+import GHC.Data.FastString ( FastString )
 import qualified GHC.LanguageExtensions as LangExt
 
 import Control.Monad
@@ -1061,8 +1063,9 @@ decideMonoTyVars infer_mode name_taus psigs candidates
 
        ; tc_lvl <- TcM.getTcLevel
        ; let psig_tys = mkTyVarTys psig_qtvs ++ psig_theta
+             all_tys  = candidates ++ psig_tys ++ taus
 
-             co_vars = coVarsOfTypes (psig_tys ++ taus)
+             co_vars = coVarsOfTypes all_tys
              co_var_tvs = closeOverKinds co_vars
                -- The co_var_tvs are tvs mentioned in the types of covars or
                -- coercion holes. We can't quantify over these covars, so we
@@ -1071,9 +1074,9 @@ decideMonoTyVars infer_mode name_taus psigs candidates
                --       quantify over k either!  Hence closeOverKinds
 
              mono_tvs0 = filterVarSet (not . isQuantifiableTv tc_lvl) $
-                         tyCoVarsOfTypes candidates
+                         tyCoVarsOfTypes all_tys
                -- We need to grab all the non-quantifiable tyvars in the
-               -- candidates so that we can grow this set to find other
+               -- types so that we can grow this set to find other
                -- non-quantifiable tyvars. This can happen with something
                -- like
                --    f x y = ...
@@ -1086,18 +1089,31 @@ decideMonoTyVars infer_mode name_taus psigs candidates
 
              mono_tvs1 = mono_tvs0 `unionVarSet` co_var_tvs
 
+               -- mono_tvs1 is now the set of variables from an outer scope
+               -- (that's mono_tvs0) and the set of covars, closed over kinds.
+               -- Given this set of variables we know we will not quantify,
+               -- we want to find any other variables that are determined by this
+               -- set, by functional dependencies or equalities. But we
+               -- want to look at only those constraints which we are unlikely
+               -- to quantify over, in the end. (If we quantify over the constraint
+               -- itself, then there is no need to avoid quantifying over its
+               -- variables.) This final determination is done by
+               -- pickQuantifiablePreds, but it needs to know the set of
+               -- quantified variables first. So we make an approximation here:
+               -- we guess that we will not quantify over equalities, but will
+               -- quantify over everything else.
+
              eq_constraints = filter isEqPrimPred candidates
-             mono_tvs2      = growThetaTyVars eq_constraints mono_tvs1
+             mono_tvs2 = oclose eq_constraints mono_tvs1
 
              constrained_tvs = filterVarSet (isQuantifiableTv tc_lvl) $
-                               (growThetaTyVars eq_constraints
-                                               (tyCoVarsOfTypes no_quant)
+                               (oclose eq_constraints (tyCoVarsOfTypes no_quant)
                                 `minusVarSet` mono_tvs2)
                                `delVarSetList` psig_qtvs
              -- constrained_tvs: the tyvars that we are not going to
              -- quantify solely because of the monomorphism restriction
              --
-             -- (`minusVarSet` mono_tvs2`): a type variable is only
+             -- (`minusVarSet` mono_tvs2): a type variable is only
              --   "constrained" (so that the MR bites) if it is not
              --   free in the environment (#13785)
              --
@@ -1118,10 +1134,12 @@ decideMonoTyVars infer_mode name_taus psigs candidates
                 mr_msg
 
        ; traceTc "decideMonoTyVars" $ vcat
-           [ text "mono_tvs0 =" <+> ppr mono_tvs0
+           [ text "candidates =" <+> ppr candidates
+           , text "mono_tvs0 =" <+> ppr mono_tvs0
+           , text "mono_tvs1 =" <+> ppr mono_tvs1
+           , text "mono_tvs2 =" <+> ppr mono_tvs2
            , text "no_quant =" <+> ppr no_quant
            , text "maybe_quant =" <+> ppr maybe_quant
-           , text "eq_constraints =" <+> ppr eq_constraints
            , text "mono_tvs =" <+> ppr mono_tvs
            , text "co_vars =" <+> ppr co_vars ]
 
@@ -1294,7 +1312,7 @@ quantify over all type variables that are
  * not forced to be monomorphic (mono_tvs),
    for example by being free in the environment.
 
-However, in the case of a partial type signature, be doing inference
+However, in the case of a partial type signature, we are doing inference
 *in the presence of a type signature*. For example:
    f :: _ -> a
    f x = ...
@@ -1308,7 +1326,7 @@ sure to quantify over them.  This leads to several wrinkles:
      f :: _ -> Maybe a
      f x = True && x
   The inferred type of 'f' is f :: Bool -> Bool, but there's a
-  left-over error of form (HoleCan (Maybe a ~ Bool)).  The error-reporting
+  left-over error of form (Maybe a ~ Bool).  The error-reporting
   machine expects to find a binding site for the skolem 'a', so we
   add it to the quantified tyvars.
 
@@ -1506,11 +1524,11 @@ solveWanteds wc@(WC { wc_simple = simples, wc_impl = implics, wc_holes = holes }
                 -- Any insoluble constraints are in 'simples' and so get rewritten
                 -- See Note [Rewrite insolubles] in GHC.Tc.Solver.Monad
 
-       ; (floated_eqs, implics2) <- solveNestedImplications $
-                                    implics `unionBags` wc_impl wc1
+       ; (floateds, implics2) <- solveNestedImplications $
+                                 implics `unionBags` wc_impl wc1
 
        ; dflags   <- getDynFlags
-       ; solved_wc <- simpl_loop 0 (solverIterations dflags) floated_eqs
+       ; solved_wc <- simpl_loop 0 (solverIterations dflags) floateds
                                 (wc1 { wc_impl = implics2 })
 
        ; holes' <- simplifyHoles holes
@@ -1526,7 +1544,7 @@ solveWanteds wc@(WC { wc_simple = simples, wc_impl = implics, wc_holes = holes }
 
 simpl_loop :: Int -> IntWithInf -> Cts
            -> WantedConstraints -> TcS WantedConstraints
-simpl_loop n limit floated_eqs wc@(WC { wc_simple = simples })
+simpl_loop n limit floateds wc@(WC { wc_simple = simples })
   | n `intGtLimit` limit
   = do { -- Add an error (not a warning) if we blow the limit,
          -- Typically if we blow the limit we are going to report some other error
@@ -1535,16 +1553,16 @@ simpl_loop n limit floated_eqs wc@(WC { wc_simple = simples })
          addErrTcS (hang (text "solveWanteds: too many iterations"
                    <+> parens (text "limit =" <+> ppr limit))
                 2 (vcat [ text "Unsolved:" <+> ppr wc
-                        , ppUnless (isEmptyBag floated_eqs) $
-                          text "Floated equalities:" <+> ppr floated_eqs
+                        , ppUnless (isEmptyBag floateds) $
+                          text "Floated constraints:" <+> ppr floateds
                         , text "Set limit with -fconstraint-solver-iterations=n; n=0 for no limit"
                   ]))
        ; return wc }
 
-  | not (isEmptyBag floated_eqs)
-  = simplify_again n limit True (wc { wc_simple = floated_eqs `unionBags` simples })
-            -- Put floated_eqs first so they get solved first
-            -- NB: the floated_eqs may include /derived/ equalities
+  | not (isEmptyBag floateds)
+  = simplify_again n limit True (wc { wc_simple = floateds `unionBags` simples })
+            -- Put floateds first so they get solved first
+            -- NB: the floateds may include /derived/ equalities
             -- arising from fundeps inside an implication
 
   | superClassesMightHelp wc
@@ -1608,20 +1626,20 @@ solveNestedImplications implics
   = return (emptyBag, emptyBag)
   | otherwise
   = do { traceTcS "solveNestedImplications starting {" empty
-       ; (floated_eqs_s, unsolved_implics) <- mapAndUnzipBagM solveImplication implics
-       ; let floated_eqs = concatBag floated_eqs_s
+       ; (floatedss, unsolved_implics) <- mapAndUnzipBagM solveImplication implics
+       ; let floateds = concatBag floatedss
 
        -- ... and we are back in the original TcS inerts
        -- Notice that the original includes the _insoluble_simples so it was safe to ignore
        -- them in the beginning of this function.
        ; traceTcS "solveNestedImplications end }" $
-                  vcat [ text "all floated_eqs ="  <+> ppr floated_eqs
+                  vcat [ text "all floateds ="     <+> ppr floateds
                        , text "unsolved_implics =" <+> ppr unsolved_implics ]
 
-       ; return (floated_eqs, catBagMaybes unsolved_implics) }
+       ; return (floateds, catBagMaybes unsolved_implics) }
 
 solveImplication :: Implication    -- Wanted
-                 -> TcS (Cts,      -- All wanted or derived floated equalities: var = type
+                 -> TcS (Cts,      -- All wanted or derived floated constraints
                          Maybe Implication) -- Simplified implication (empty or singleton)
 -- Precondition: The TcS monad contains an empty worklist and given-only inerts
 -- which after trying to solve this implication we must restore to their original value
@@ -2424,11 +2442,32 @@ floatConstraints skols given_ids ev_binds_var no_given_eqs
     is_float_candidate ct = case classifyPredType (ctPred ct) of
       EqPred NomEq ty1 ty2 ->
         case (tcGetTyVar_maybe ty1, tcGetTyVar_maybe ty2) of
-          (Just tv1, _) -> float_tv_eq_candidate tv1 ty2
-          (_, Just tv2) -> float_tv_eq_candidate tv2 ty1
-          _             -> False
-      ClassPred cls _ -> classHasFds cls
+          (Just tv1, _)  -> float_tv_eq_candidate tv1 ty2
+          (_, Just tv2)  -> float_tv_eq_candidate tv2 ty1
+          _              -> False
+
+          -- See Note [Kick out existing binding for implicit parameter]
+          -- in GHC.Tc.Solver.Monad
+      ClassPred cls args
+        | isIPClass cls
+        , [ip_name_strty, _ty] <- args
+        , Just ip_name <- isStrLitTy ip_name_strty
+        -> not (ip_name `elementOfUniqSet` given_ip_names)
+
+        | otherwise      -> classHasFds cls
       _               -> False
+
+    -- The set of implicit parameters bound in the enclosing implication
+    -- See Note [Kick out existing binding for implicit parameter]
+    -- in GHC.Tc.Solver.Monad
+    -- NB: This is forced only when we encounter an IP constraint in the
+    -- float candidates
+    given_ip_names :: UniqSet FastString
+    given_ip_names
+      = mkUniqSet [ ip_name
+                  | given_id <- given_ids
+                  , let given_pred = idType given_id
+                  , Just (ip_name, _) <- return (isIPPred_maybe given_pred) ]
 
     float_tv_eq_candidate tv1 ty2  -- See Note [Which constraints to float]
       =  isMetaTyVar tv1

@@ -3348,7 +3348,7 @@ dbinds  :: { Located [LIPBind GhcPs] }
 
 dbind   :: { LIPBind GhcPs }
 dbind   : ipvar '=' exp                {% runECP_P $3 >>= \ $3 ->
-                                          ams (sLL $1 $> (IPBind noExtField (Left $1) $3))
+                                          ams (sLL $1 $> (IPBind noExtField $1 $3))
                                               [mj AnnEqual $2] }
 
 ipvar   :: { Located HsIPName }

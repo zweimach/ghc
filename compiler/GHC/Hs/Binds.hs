@@ -828,22 +828,20 @@ type LIPBind id = Located (IPBind id)
 
 -- | Implicit parameter bindings.
 --
--- These bindings start off as (Left "x") in the parser and stay
--- that way until after type-checking when they are replaced with
--- (Right d), where "d" is the name of the dictionary holding the
--- evidence for the implicit parameter.
---
 -- - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnEqual'
 
 -- For details on above see note [Api annotations] in GHC.Parser.Annotation
 data IPBind id
   = IPBind
-        (XCIPBind id)
-        (Either (Located HsIPName) (IdP id))
+        (XCIPBind id)      -- unused in Ps, Rc; dictionary Id in Tc
+        (Located HsIPName)
         (LHsExpr id)
   | XIPBind !(XXIPBind id)
 
-type instance XCIPBind    (GhcPass p) = NoExtField
+type instance XCIPBind    GhcPs = NoExtField
+type instance XCIPBind    GhcRn = NoExtField
+type instance XCIPBind    GhcTc = Id
+
 type instance XXIPBind    (GhcPass p) = NoExtCon
 
 instance OutputableBndrId p
@@ -852,10 +850,11 @@ instance OutputableBndrId p
                         $$ whenPprDebug (pprIfTc @p $ ppr ds)
 
 instance OutputableBndrId p => Outputable (IPBind (GhcPass p)) where
-  ppr (IPBind _ lr rhs) = name <+> equals <+> pprExpr (unLoc rhs)
-    where name = case lr of
-                   Left (L _ ip) -> pprBndr LetBind ip
-                   Right     id  -> pprBndr LetBind id
+  ppr (IPBind x (L _ ip) rhs) = name <+> equals <+> pprExpr (unLoc rhs)
+    where name = case ghcPass @p of
+            GhcPs -> pprBndr LetBind ip
+            GhcRn -> pprBndr LetBind ip
+            GhcTc -> pprBndr LetBind x
 
 {-
 ************************************************************************

@@ -1,3 +1,5 @@
+-- This is the original inspiration for #18398
+
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE Safe #-}

@@ -5,9 +5,5 @@ tcfail204.hs:10:7: error: [-Wtype-defaults (in -Wall), -Werror=type-defaults]
           arising from a use of ‘ceiling’ at tcfail204.hs:10:7-17
         (Fractional a0)
           arising from the literal ‘6.3’ at tcfail204.hs:10:15-17
-        (Num a0) arising from the literal ‘6.3’ at tcfail204.hs:10:15-17
-        (Real a0) arising from a use of ‘ceiling’ at tcfail204.hs:10:7-17
-        (Ord a0) arising from a use of ‘ceiling’ at tcfail204.hs:10:7-17
-        (Eq a0) arising from a use of ‘ceiling’ at tcfail204.hs:10:7-17
     • In the expression: ceiling 6.3
       In an equation for ‘foo’: foo = ceiling 6.3

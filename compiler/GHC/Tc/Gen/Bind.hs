@@ -43,6 +43,7 @@ import GHC.Tc.Utils.TcMType
 import GHC.Core.FamInstEnv( normaliseType )
 import GHC.Tc.Instance.Family( tcGetFamInstEnvs )
 import GHC.Core.TyCon
+import GHC.Core.Class   ( Class )
 import GHC.Tc.Utils.TcType
 import GHC.Core.Type (mkStrLitTy, tidyOpenType, splitTyConApp_maybe, mkCastTy)
 import GHC.Builtin.Types.Prim
@@ -337,47 +338,35 @@ tcLocalBinds (HsIPBinds x (IPBinds _ ip_binds)) thing_inside
         ; (given_ips, ip_binds') <-
             mapAndUnzipM (wrapLocSndM (tc_ip_bind ipClass)) ip_binds
 
-        -- If the binding binds ?x = E, we  must now
-        -- discharge any ?x constraints in expr_lie
-        -- See Note [Implicit parameter untouchables]
+        -- Add all the IP bindings as givens for the body of the 'let'
         ; (ev_binds, result) <- checkConstraints (IPSkol ips)
                                   [] given_ips thing_inside
 
         ; return (HsIPBinds x (IPBinds ev_binds ip_binds') , result) }
   where
-    ips = [ip | (L _ (IPBind _ (Left (L _ ip)) _)) <- ip_binds]
+    ips = [ip | (L _ (IPBind _ (L _ ip) _)) <- ip_binds]
 
         -- I wonder if we should do these one at a time
         -- Consider     ?x = 4
         --              ?y = ?x + 1
-    tc_ip_bind ipClass (IPBind _ (Left (L _ ip)) expr)
+    tc_ip_bind :: Class -> IPBind GhcRn -> TcM (DictId, IPBind GhcTc)
+    tc_ip_bind ipClass (IPBind _ l_name@(L _ ip) expr)
        = do { ty <- newOpenFlexiTyVarTy
             ; let p = mkStrLitTy $ hsIPNameFS ip
             ; ip_id <- newDict ipClass [ p, ty ]
             ; expr' <- tcLExpr expr (mkCheckExpType ty)
-            ; let d = toDict ipClass p ty `fmap` expr'
-            ; return (ip_id, (IPBind noExtField (Right ip_id) d)) }
-    tc_ip_bind _ (IPBind _ (Right {}) _) = panic "tc_ip_bind"
+            ; let d = mapLoc (toDict ipClass p ty) expr'
+            ; return (ip_id, (IPBind ip_id l_name d)) }
 
     -- Coerces a `t` into a dictionary for `IP "x" t`.
     -- co : t -> IP "x" t
+    toDict :: Class  -- IP class
+           -> Type   -- type-level string for name of IP
+           -> Type   -- type of IP
+           -> HsExpr GhcTc   -- def'n of IP variable
+           -> HsExpr GhcTc   -- dictionary for IP
     toDict ipClass x ty = mkHsWrap $ mkWpCastR $
                           wrapIP $ mkClassPred ipClass [x,ty]
-
-{- Note [Implicit parameter untouchables]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-We add the type variables in the types of the implicit parameters
-as untouchables, not so much because we really must not unify them,
-but rather because we otherwise end up with constraints like this
-    Num alpha, Implic { wanted = alpha ~ Int }
-The constraint solver solves alpha~Int by unification, but then
-doesn't float that solved constraint out (it's not an unsolved
-wanted).  Result disaster: the (Num alpha) is again solved, this
-time by defaulting.  No no no.
-
-However [Oct 10] this is all handled automatically by the
-untouchable-range idea.
--}
 
 tcValBinds :: TopLevelFlag
            -> [(RecFlag, LHsBinds GhcRn)] -> [LSig GhcRn]

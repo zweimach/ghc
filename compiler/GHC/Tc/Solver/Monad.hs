@@ -1605,9 +1605,26 @@ eg in #9587.
 
 So in kickOutRewritable we look at all the tyvars of the
 CFunEqCan, including the fsk.
+
+Note [Kick out existing binding for implicit parameter]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Suppose we have (typecheck/should_compile/ImplicitParamFDs)
+  flub :: (?x :: Int) => (Int, Integer)
+  flub = (?x, let ?x = 5 in ?x)
+When we are checking the last ?x occurrence, we guess its type
+to be a fresh unification variable alpha and emit an (IP "x" alpha)
+constraint. But the given (?x :: Int) has been translated to an
+IP "x" Int constraint, which has a functional dependency from the
+name to the type. So fundep interaction tells us that alpha ~ Int,
+and we get a type error. This is bad.
+
+Instead, we wish to excise any old given for an IP when adding a
+new one. We also must make sure not to float out
+any IP constraints outside an implication that binds an IP of
+the same name; see GHC.Tc.Solver.floatConstraints.
 -}
 
-addInertCan :: Ct -> TcS ()  -- Constraints *other than* equalities
+addInertCan :: Ct -> TcS ()
 -- Precondition: item /is/ canonical
 -- See Note [Adding an equality to the InertCans]
 addInertCan ct
@@ -1627,6 +1644,26 @@ maybeKickOut ics ct
   | CTyEqCan { cc_tyvar = tv, cc_ev = ev, cc_eq_rel = eq_rel } <- ct
   = do { (_, ics') <- kickOutRewritable (ctEvFlavour ev, eq_rel) tv ics
        ; return ics' }
+
+     -- See [Kick out existing binding for implicit parameter]
+  | CDictCan { cc_class = cls, cc_tyargs = [ip_name_strty, _ip_ty] } <- ct
+  , isIPClass cls
+  , Just ip_name <- isStrLitTy ip_name_strty
+     -- Would this be more efficient if we used findDictsByClass and then delDict?
+  = let dict_map = inert_dicts ics
+        dict_map' = filterDicts doesn't_match_ip_name dict_map
+
+        doesn't_match_ip_name :: Ct -> Bool
+        doesn't_match_ip_name ct
+          | Just (inert_ip_name, _inert_ip_ty) <- isIPPred_maybe (ctPred ct)
+          = inert_ip_name /= ip_name
+
+          | otherwise
+          = True
+
+    in
+    return (ics { inert_dicts = dict_map' })
+
   | otherwise
   = return ics
 
@@ -2488,7 +2525,7 @@ We must /not/ solve this from the Given (?x::Int, C a), because of
 the intervening binding for (?x::Int).  #14218.
 
 We deal with this by arranging that we always fail when looking up a
-tuple constraint that hides an implicit parameter. Not that this applies
+tuple constraint that hides an implicit parameter. Note that this applies
   * both to the inert_dicts (lookupInertDict)
   * and to the solved_dicts (looukpSolvedDict)
 An alternative would be not to extend these sets with such tuple
@@ -2874,6 +2911,7 @@ nestImplicTcS ref inner_tclvl (TcS thing_inside)
                             { inert_cans = inert_cans inerts
                             , inert_solved_dicts = inert_solved_dicts inerts }
                               -- See Note [Do not inherit the flat cache]
+                              -- See Note [Do not inherit rebound implicit parameters]
        ; new_inert_var <- TcM.newTcRef nest_inert
        ; new_wl_var    <- TcM.newTcRef emptyWorkList
        ; let nest_env = TcSEnv { tcs_ev_binds      = ref
@@ -2894,7 +2932,7 @@ nestImplicTcS ref inner_tclvl (TcS thing_inside)
        ; return res }
 
 {- Note [Do not inherit the flat cache]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 We do not want to inherit the flat cache when processing nested
 implications.  Consider
    a ~ F b, forall c. b~Int => blah

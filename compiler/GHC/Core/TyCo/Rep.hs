@@ -207,6 +207,7 @@ data Type
   | ForAllTy
         {-# UNPACK #-} !TyCoVarBinder
         Type            -- ^ A Π type.
+             -- Note [When we quantify over a coercion variable]
              -- INVARIANT: If the binder is a coercion variable, it must
              -- be mentioned in the Type. See
              -- Note [Unused coercion variable in ForAllTy]
@@ -595,6 +596,35 @@ In sum, in order to uphold (EQ), we need the following invariants:
         See Note [Weird typing rule for ForAllTy]
 
 These invariants are all documented above, in the declaration for Type.
+
+Note [When we quantify over a coercion variable]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The TyCoVarBinder in a ForAllTy can be (most often) a TyVar or (rarely)
+a CoVar. We support quantifying over a CoVar here in order to support
+a homogeneous (~#) relation (someday -- not yet implemented). Here is
+the example:
+
+  type (:~~:) :: forall k1 k2. k1 -> k2 -> Type
+  data a :~~: b where
+    HRefl :: a :~~: a
+
+Assuming homogeneous equality (that is, with
+  (~#) :: forall k. k -> k -> TYPE (TupleRep '[])
+) after rejigging to make equalities explicit, we get a constructor that
+looks like
+
+  HRefl :: forall k1 k2 (a :: k1) (b :: k2).
+           forall (cv :: k1 ~# k2). (a |> cv) ~# b
+        => (:~~:) k1 k2 a b
+
+Note that we must cast `a` by a cv bound in the same type in order to
+make this work out.
+
+See also https://gitlab.haskell.org/ghc/ghc/-/wikis/dependent-haskell/phase2
+which gives a general road map that covers this space.
+
+Having this feature in Core does *not* mean we have it in source Haskell.
+See #15710 about that.
 
 Note [Unused coercion variable in ForAllTy]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -813,13 +813,14 @@ flatten mode ev ty
 -- most about of rewriting.) Returns no coercion, because we're
 -- using Derived constraints.
 -- See Note [rewriteTyVar]
-rewriteTyVar :: TcTyVar -> TcS TcType
+rewriteTyVar :: TcTyVar -> TcS (TcType, RewriterSet)
 rewriteTyVar tv
   = do { traceTcS "rewriteTyVar {" (ppr tv)
-       ; ((ty, _), _) <- runFlatten FM_SubstOnly fake_loc Derived NomEq $
-                         flattenTyVar tv
+       ; ((ty, _), rewriters)
+           <- runFlatten FM_SubstOnly fake_loc Derived NomEq $
+              flattenTyVar tv
        ; traceTcS "rewriteTyVar }" (ppr ty)
-       ; return ty }
+       ; return (ty, rewriters) }
   where
     fake_loc = pprPanic "rewriteTyVar used a CtLoc" (ppr tv)
 
@@ -1218,7 +1219,7 @@ flatten_one ty@(ForAllTy {})
 
 flatten_one (CastTy ty g)
   = do { (xi, co) <- flatten_one ty
-       ; (g', _)   <- flatten_co g
+       ; (g', _)  <- flatten_co g
 
        ; role <- getRole
        ; return (mkCastTy xi g', castCoercionKind co role xi ty g' g) }
@@ -1745,7 +1746,7 @@ is an example; all the constraints here are Givens
 
 Because the incoming given rewrites all the inert givens, we get more and
 more duplication in the inert set.  But this really only happens in pathological
-casee, so we don't care.
+cases, so we don't care.
 
 
 ************************************************************************

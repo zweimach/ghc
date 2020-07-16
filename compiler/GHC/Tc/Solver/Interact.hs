@@ -63,6 +63,7 @@ import qualified GHC.LanguageExtensions as LangExt
 
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Maybe
+import Control.Arrow ( second )
 
 {-
 **********************************************************************
@@ -1174,14 +1175,15 @@ addFunDepWork inerts work_ev cls
                 [ ppr work_ev
                 , pprCtLoc work_loc, ppr (isGivenLoc work_loc)
                 , pprCtLoc inert_loc, ppr (isGivenLoc inert_loc)
-                , pprCtLoc derived_loc, ppr (isGivenLoc derived_loc) ]) ;
+                , pprCtLoc derived_loc, ppr (isGivenLoc derived_loc) ])
 
-        emitFunDepDeriveds (ctEvRewriters work_ev) $
-        improveFromAnother (derived_loc, inert_rewriters) inert_pred work_pred
+           ; unless (isGiven work_ev && isGiven inert_ev) $
+             emitFunDepDeriveds (ctEvRewriters work_ev) $
+             improveFromAnother (derived_loc, inert_rewriters) inert_pred work_pred
                -- We don't really rewrite tys2, see below _rewritten_tys2, so that's ok
-               -- NB: We do create FDs for given to report insoluble equations that arise
-               -- from pairs of Givens, and also because of floating when we approximate
-               -- implications. The relevant test is: typecheck/should_fail/FDsFromGivens.hs
+               -- Do not create FDs from Given/Given interactions; these are inaccessible
+               -- code, and it is tricky to accurately figure out whether we should error;
+               -- See #12466 and typecheck/should_fail/FDsFromGivens.hs
         }
       | otherwise
       = return ()
@@ -1373,21 +1375,24 @@ improveLocalFunEqs work_ev inerts fam_tc args fsk
     improvement_eqns
       | Just ops <- isBuiltInSynFamTyCon_maybe fam_tc
       =    -- Try built-in families, notably for arithmethic
-        do { rhs <- rewriteTyVar fsk
-           ; concatMapM (do_one_built_in ops rhs) funeqs_for_tc }
+        do { (rhs, rewriters) <- rewriteTyVar fsk
+           ; addRewritersToFunDepEqns rewriters <$>
+             concatMapM (do_one_built_in ops rhs) funeqs_for_tc }
 
       | Injective injective_args <- fam_inj_info
       =    -- Try improvement from type families with injectivity annotations
-        do { rhs <- rewriteTyVar fsk
-           ; concatMapM (do_one_injective injective_args rhs) funeqs_for_tc }
+        do { (rhs, rewriters) <- rewriteTyVar fsk
+           ; addRewritersToFunDepEqns rewriters <$>
+             concatMapM (do_one_injective injective_args rhs) funeqs_for_tc }
 
       | otherwise
       = return []
 
     --------------------
     do_one_built_in ops rhs (CFunEqCan { cc_tyargs = iargs, cc_fsk = ifsk, cc_ev = inert_ev })
-      = do { inert_rhs <- rewriteTyVar ifsk
-           ; return $ mk_fd_eqns inert_ev (sfInteractInert ops args rhs iargs inert_rhs) }
+      = do { (inert_rhs, rewriters) <- rewriteTyVar ifsk
+           ; return $ addRewritersToFunDepEqns rewriters $
+                      mk_fd_eqns inert_ev (sfInteractInert ops args rhs iargs inert_rhs) }
 
     do_one_built_in _ _ _ = pprPanic "interactFunEq 1" (ppr fam_tc)
 
@@ -1397,9 +1402,10 @@ improveLocalFunEqs work_ev inerts fam_tc args fsk
     do_one_injective inj_args rhs (CFunEqCan { cc_tyargs = inert_args
                                              , cc_fsk = ifsk, cc_ev = inert_ev })
       | isImprovable inert_ev
-      = do { inert_rhs <- rewriteTyVar ifsk
+      = do { (inert_rhs, rewriters) <- rewriteTyVar ifsk
            ; return $ if rhs `tcEqType` inert_rhs
-                      then mk_fd_eqns inert_ev $
+                      then addRewritersToFunDepEqns rewriters $
+                           mk_fd_eqns inert_ev $
                              [ Pair arg iarg
                              | (arg, iarg, True) <- zip3 args inert_args inj_args ]
                       else [] }
@@ -1421,6 +1427,13 @@ improveLocalFunEqs work_ev inerts fam_tc args fsk
         inert_rewriters = ctEvRewriters inert_ev
         loc = inert_loc { ctl_depth = ctl_depth inert_loc `maxSubGoalDepth`
                                       ctl_depth work_loc }
+
+-- Adds a RewriterSet to all the FunDepEqns given
+addRewritersToFunDepEqns :: RewriterSet
+                         -> [FunDepEqn (CtLoc, RewriterSet)]
+                         -> [FunDepEqn (CtLoc, RewriterSet)]
+addRewritersToFunDepEqns rewriters
+  = map (fmap (second (rewriters S.<>)))
 
 -------------
 reactFunEq :: CtEvidence -> TcTyVar    -- From this  :: F args1 ~ fsk1
@@ -2012,11 +2025,12 @@ improveTopFunEqs ev fam_tc args fsk
 
   | otherwise
   = do { fam_envs <- getFamInstEnvs
-       ; rhs <- rewriteTyVar fsk
+       ; (rhs, new_rewriters) <- rewriteTyVar fsk
        ; eqns <- improve_top_fun_eqs fam_envs fam_tc args rhs
        ; traceTcS "improveTopFunEqs" (vcat [ ppr fam_tc <+> ppr args <+> ppr rhs
                                           , ppr eqns ])
-       ; mapM_ (\(Pair ty1 ty2) -> unifyWanted rewriters loc Nominal ty1 ty2) eqns }
+       ; mapM_ (\(Pair ty1 ty2) -> unifyWanted (new_rewriters S.<> rewriters)
+                                               loc Nominal ty1 ty2) eqns }
   where
     loc = bumpCtLocDepth (ctEvLoc ev)
         -- ToDo: this location is wrong; it should be FunDepOrigin2
@@ -2335,8 +2349,8 @@ doTopReactDict :: InertSet -> Ct -> TcS (StopOrContinue Ct)
 doTopReactDict inerts work_item@(CDictCan { cc_ev = ev, cc_class = cls
                                           , cc_tyargs = xis })
   | isGiven ev   -- Never use instances for Given constraints
-  = do { try_fundep_improvement
-       ; continueWith work_item }
+  = continueWith work_item
+     -- NB: No fundeps from Givens. They have no evidence.
 
   | Just solved_ev <- lookupSolvedDict inerts dict_loc cls xis   -- Cached
   = do { setEvBindIfWanted ev (ctEvTerm solved_ev)

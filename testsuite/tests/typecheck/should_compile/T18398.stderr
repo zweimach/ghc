@@ -1,0 +1,13 @@
+TYPE SIGNATURES
+  f :: forall {p}. C Ex p => Ex -> (p -> (), p -> ())
+  meth :: forall a b. C a b => a -> b -> ()
+TYPE CONSTRUCTORS
+  class C{2} :: * -> * -> Constraint
+  data type Ex{0} :: *
+COERCION AXIOMS
+  axiom FloatFDs2.N:C :: C a b = a -> b -> ()
+DATA CONSTRUCTORS
+  MkEx :: forall a. a -> Ex
+Dependent modules: []
+Dependent packages: [base-4.14.0.0, ghc-prim-0.6.1,
+                     integer-gmp-1.0.3.0]
