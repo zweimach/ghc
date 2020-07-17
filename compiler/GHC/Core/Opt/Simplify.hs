@@ -1049,7 +1049,7 @@ simplExprF1 env (Case scrut bndr _ alts) cont
 
 simplExprF1 env (Let (Rec pairs) body) cont
   | Just (pairs', wrappers) <- tryJoinPointWWs (getInScope env) (exprType body) pairs
-  , pprTrace "simple join Rec" (ppr pairs'<+> ppr (exprType body)) True
+  -- , pprTrace "simple join Rec" (ppr pairs'<+> ppr (exprType body)) True
   = {-#SCC "simplRecJoinPoin" #-} simplRecJoinPoint env pairs' wrappers body cont
 
   | otherwise
@@ -1062,9 +1062,9 @@ simplExprF1 env (Let (NonRec bndr rhs) body) cont
     do { ty' <- simplType env ty
        ; simplExprF (extendTvSubst env bndr ty') body cont }
 
-  | Just (bndr', rhs', mb_wrap) <- tryJoinPointWW (getInScope env) (exprType body) bndr rhs
-  , pprTrace "simple join NonRec" (ppr bndr' <+> ppr (idType bndr') <+> ppr (exprType body) <+> ppr (isJoinId bndr)) True
-  = {-#SCC "simplNonRecJoinPoint" #-} simplNonRecJoinPoint env bndr' rhs' mb_wrap body cont
+  | Just (bndr', rhs', wrappers) <- tryJoinPointWW (getInScope env) (exprType body) bndr rhs
+  -- , pprTrace "simple join NonRec" (ppr bndr' <+> ppr (idType bndr') <+> ppr (exprType body) <+> ppr (isJoinId bndr)) True
+  = {-#SCC "simplNonRecJoinPoint" #-} simplNonRecJoinPoint env bndr' rhs' wrappers body cont
 
   | otherwise
   = {-#SCC "simplNonRecE" #-} simplNonRecE env bndr (rhs, env) ([], body) cont
@@ -1678,15 +1678,22 @@ type MaybeJoinCont = Maybe SimplCont
   -- Just k  => This is a join binding with continuation k
   -- See Note [Rules and unfolding for join points]
 
+preInlineJoinWrappers :: SimplEnv -> [(InId, InExpr)] -> SimplEnv
+preInlineJoinWrappers env binds
+  = foldl' (\env (b,r) -> extendIdSubst env b (mkContEx env r)) env' binds
+  where
+    env' = addNewInScopeIds env (map fst binds)
+
 simplNonRecJoinPoint
-  :: SimplEnv -> InId -> InExpr -> Maybe (InId, InExpr) -> InExpr -> SimplCont
+  :: SimplEnv -> InId -> InExpr -> [(InId, InExpr)] -> InExpr -> SimplCont
   -> SimplM (SimplFloats, OutExpr)
-simplNonRecJoinPoint env bndr rhs mb_wrap body cont
+simplNonRecJoinPoint env bndr rhs wrappers body cont
   | ASSERT( isJoinId bndr ) True
-  , Just env' <- preInlineUnconditionally env NotTopLevel bndr rhs env
+  , ASSERT( wrappers `lengthAtMost` 1 ) True
+  , Just env1 <- preInlineUnconditionally env NotTopLevel bndr rhs env
   = do { tick (PreInlineUnconditionally bndr)
-       ; let env'' = inline_wrapper env' mb_wrap
-       ; simplExprF env'' body cont }
+       ; let env2 = preInlineJoinWrappers env1 wrappers
+       ; simplExprF env2 body cont }
 
   | otherwise
   = wrapJoinCont env cont $ \ env cont ->
@@ -1697,13 +1704,9 @@ simplNonRecJoinPoint env bndr rhs mb_wrap body cont
        ; (env1, bndr1)    <- simplNonRecJoinBndr env bndr mult res_ty
        ; (env2, bndr2)    <- addBndrRules env1 bndr bndr1 (Just cont)
        ; (floats1, env3)  <- simplJoinBind env2 cont bndr bndr2 rhs env
-       ; let env4   = inline_wrapper env3 mb_wrap
+       ; let env4   = preInlineJoinWrappers env3 wrappers
        ; (floats2, body') <- simplExprF env4 body cont
        ; return (floats1 `addFloats` floats2, body') }
-  where
-    inline_wrapper :: SimplEnv -> Maybe (InId, InExpr) -> SimplEnv
-    inline_wrapper env Nothing      = env
-    inline_wrapper env (Just (b,r)) = extendIdSubst env b (mkContEx env r)
 
 ------------------
 simplRecJoinPoint
@@ -1717,13 +1720,10 @@ simplRecJoinPoint env pairs wrappers body cont
        ; env1 <- simplRecJoinBndrs env bndrs mult res_ty
                -- NB: bndrs' don't have unfoldings or rules
                -- We add them as we go down
-       ; (floats1, env2)  <- simplRecBind env1 NotTopLevel (Just cont) pairs
-       ; let env3   = inline_wrappers env2 wrappers
+       ; let env2   = preInlineJoinWrappers env1 wrappers
+       ; (floats1, env3)  <- simplRecBind env2 NotTopLevel (Just cont) pairs
        ; (floats2, body') <- simplExprF env3 body cont
        ; return (floats1 `addFloats` floats2, body') }
-  where
-    inline_wrappers :: SimplEnv -> [(InId, InExpr)] -> SimplEnv
-    inline_wrappers = foldl' (\env (b,r) -> extendIdSubst env b (mkContEx env r))
 
 --------------------
 wrapJoinCont :: SimplEnv -> SimplCont
