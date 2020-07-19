@@ -2170,7 +2170,7 @@ mkFunBindSE arity loc fun pats_and_exprs
   where
     matches = [mkMatch (mkPrefixFunRhs (L (noAnnSrcSpan loc) fun))
                                (map (parenthesizePat appPrec) p) e
-                               (noLocA emptyLocalBinds)
+                               emptyLocalBinds
               | (p,e) <-pats_and_exprs]
 
 mkRdrFunBind :: LocatedN RdrName -> [LMatch GhcPs (LHsExpr GhcPs)]
@@ -2191,7 +2191,7 @@ mkFunBindEC arity loc fun catch_all pats_and_exprs
   where
     matches = [ mkMatch (mkPrefixFunRhs (L (noAnnSrcSpan loc) fun))
                                 (map (parenthesizePat appPrec) p) e
-                                (noLocA emptyLocalBinds)
+                                emptyLocalBinds
               | (p,e) <- pats_and_exprs ]
 
 -- | Produces a function binding. When no equations are given, it generates
@@ -2219,7 +2219,7 @@ mkRdrFunBindEC arity catch_all fun@(L loc _fun_rdr) matches
               then [mkMatch (mkPrefixFunRhs fun)
                             (replicate (arity - 1) nlWildPat ++ [z_Pat])
                             (catch_all $ nlHsCase z_Expr [])
-                            (noLocA emptyLocalBinds)]
+                            emptyLocalBinds]
               else matches
 
 -- | Produces a function binding. When there are no equations, it generates
@@ -2238,7 +2238,7 @@ mkRdrFunBindSE arity fun@(L loc fun_rdr) matches
    matches' = if null matches
               then [mkMatch (mkPrefixFunRhs fun)
                             (replicate arity nlWildPat)
-                            (error_Expr str) (noLocA emptyLocalBinds)]
+                            (error_Expr str) emptyLocalBinds]
               else matches
    str = "Void " ++ occNameString (rdrNameOcc fun_rdr)
 
