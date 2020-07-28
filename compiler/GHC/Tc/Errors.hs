@@ -524,8 +524,14 @@ This only matters in instance declarations..
 -}
 
 -- | A predicate with its arising location; used to encapsulate a constraint
--- that will give rise to a warning.
+-- that will give rise to a diagnostic.
 data ErrorItem
+-- We could perhaps use Ct here (and indeed used to do exactly that), but
+-- having a separate type gives to denote errors-in-formation gives us
+-- a nice place to do pre-processing, such as calculating ei_suppress.
+-- Perhaps some day, an ErrorItem could eventually evolve to contain
+-- the error text (or some representation of it), so we can then have all
+-- the errors together when deciding which to report.
   = EI { ei_pred     :: PredType         -- report about this
          -- The ei_pred field will never be an unboxed equality with
          -- a (casted) tyvar on the right; this is guaranteed by the solver
@@ -666,9 +672,6 @@ reportWanteds ctxt tc_lvl (WC { wc_simple = simples, wc_impl = implics
     suppress item
       | Wanted _ <- ei_flavour item
       = is_ww_fundep_item item
-{- "RAE"        || (not has_gadt_match_here &&
-            is_given_eq item (classifyPredType (ei_pred item)))
--}
       | otherwise
       = False
 
@@ -747,7 +750,7 @@ reportWanteds ctxt tc_lvl (WC { wc_simple = simples, wc_impl = implics
     is_irred _ (IrredPred {}) = True
     is_irred _ _              = False
 
-     -- See situation (2) of Note [Suppress confusing errors]
+     -- See situation (1) of Note [Suppress confusing errors]
     is_ww_fundep item _ = is_ww_fundep_item item
     is_ww_fundep_item = isWantedWantedFunDepOrigin . errorItemOrigin
 
@@ -798,7 +801,7 @@ isTyFun_maybe ty = case tcSplitTyConApp_maybe ty of
 Certain errors we might encounter are potentially confusing to users.
 If there are any other errors to report, at all, we want to suppress these.
 
-Which errors:
+Which errors (only 1 case right now):
 
 1) Errors which arise from the interaction of two Wanted fun-dep constraints.
    Example:
@@ -827,14 +830,6 @@ Which errors:
    This case applies only when both fundeps are *Wanted* fundeps; when
    both are givens, the error represents unreachable code. For
    a Given/Wanted case, see #9612.
-
-2) Errors which arise from given functional dependencies. Functional
-   dependencies have no evidence, and so they are always Wanted -- we have no
-   evidence to supply to build a Given. So we can have a Wanted that arises
-   from Givens. These can be surprising for users. However, we still must
-   report (in contrast to Note [Given errors]): the (non-existent) evidence
-   might have been used to rewrite another Wanted. If we fail to report, then
-   we get an unfilled coercion hole. This happened in typecheck/should_fail/FD1.
 
 Mechanism:
 

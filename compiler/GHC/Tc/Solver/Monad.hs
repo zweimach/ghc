@@ -1646,7 +1646,8 @@ maybeKickOut ics ct
        ; return ics' }
 
      -- See [Kick out existing binding for implicit parameter]
-  | CDictCan { cc_class = cls, cc_tyargs = [ip_name_strty, _ip_ty] } <- ct
+  | isGivenCt ct
+  , CDictCan { cc_class = cls, cc_tyargs = [ip_name_strty, _ip_ty] } <- ct
   , isIPClass cls
   , Just ip_name <- isStrLitTy ip_name_strty
      -- Would this be more efficient if we used findDictsByClass and then delDict?

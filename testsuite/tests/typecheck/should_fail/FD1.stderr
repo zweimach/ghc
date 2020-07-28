@@ -1,15 +1,10 @@
 
-FD1.hs:15:9: error:
-    • Couldn't match type ‘a’ with ‘Int -> Int’
-        arising from a functional dependency between:
-          constraint ‘E a (Int -> Int)’
-            arising from the type signature for:
-                           plus :: forall a. E a (Int -> Int) => Int -> a
-          instance ‘E a1 a1’ at FD1.hs:13:10-14
+FD1.hs:16:1: error:
+    • Couldn't match expected type ‘a’ with actual type ‘Int -> Int’
       ‘a’ is a rigid type variable bound by
         the type signature for:
           plus :: forall a. E a (Int -> Int) => Int -> a
-        at FD1.hs:15:9-38
-    • In the ambiguity check for ‘plus’
-      To defer the ambiguity check to use sites, enable AllowAmbiguousTypes
-      In the type signature: plus :: (E a (Int -> Int)) => Int -> a
+        at FD1.hs:15:1-38
+    • The equation(s) for ‘plus’ have two value arguments,
+        but its type ‘Int -> a’ has only one
+    • Relevant bindings include plus :: Int -> a (bound at FD1.hs:16:1)

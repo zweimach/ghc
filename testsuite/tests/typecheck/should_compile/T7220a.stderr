@@ -1,14 +1,22 @@
 
 T7220a.hs:17:6: error:
-    • Could not deduce (C a b)
-      from the context: (C a0 b, TF b ~ Y)
-        bound by a type expected by the context:
-                   forall b. (C a0 b, TF b ~ Y) => b
+    • Couldn't match type ‘a0’ with ‘a’
+        arising from a functional dependency between constraints:
+          ‘C a b’
+            arising from a type expected by the context:
+                           forall b. (C a b, TF b ~ Y) => b at T7220a.hs:17:6-44
+          ‘C a0 b’
+            arising from a type expected by the context:
+                           forall b. (C a0 b, TF b ~ Y) => b at T7220a.hs:17:6-44
+        ‘a0’ is untouchable
+          inside the constraints: (C a0 b, TF b ~ Y)
+          bound by a type expected by the context:
+                     forall b. (C a0 b, TF b ~ Y) => b
+          at T7220a.hs:17:6-44
+      ‘a’ is a rigid type variable bound by
+        the type signature for:
+          f :: forall a. (forall b. (C a b, TF b ~ Y) => b) -> X
         at T7220a.hs:17:6-44
-      Possible fix:
-        add (C a b) to the context of
-          a type expected by the context:
-            forall b. (C a0 b, TF b ~ Y) => b
     • In the ambiguity check for ‘f’
       To defer the ambiguity check to use sites, enable AllowAmbiguousTypes
       In the type signature: f :: (forall b. (C a b, TF b ~ Y) => b) -> X

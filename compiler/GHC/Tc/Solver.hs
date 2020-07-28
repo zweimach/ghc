@@ -1063,9 +1063,8 @@ decideMonoTyVars infer_mode name_taus psigs candidates
 
        ; tc_lvl <- TcM.getTcLevel
        ; let psig_tys = mkTyVarTys psig_qtvs ++ psig_theta
-             all_tys  = candidates ++ psig_tys ++ taus
 
-             co_vars = coVarsOfTypes all_tys
+             co_vars = coVarsOfTypes (psig_tys ++ taus)
              co_var_tvs = closeOverKinds co_vars
                -- The co_var_tvs are tvs mentioned in the types of covars or
                -- coercion holes. We can't quantify over these covars, so we
@@ -1074,7 +1073,7 @@ decideMonoTyVars infer_mode name_taus psigs candidates
                --       quantify over k either!  Hence closeOverKinds
 
              mono_tvs0 = filterVarSet (not . isQuantifiableTv tc_lvl) $
-                         tyCoVarsOfTypes all_tys
+                         tyCoVarsOfTypes candidates
                -- We need to grab all the non-quantifiable tyvars in the
                -- types so that we can grow this set to find other
                -- non-quantifiable tyvars. This can happen with something
@@ -1093,21 +1092,14 @@ decideMonoTyVars infer_mode name_taus psigs candidates
                -- (that's mono_tvs0) and the set of covars, closed over kinds.
                -- Given this set of variables we know we will not quantify,
                -- we want to find any other variables that are determined by this
-               -- set, by functional dependencies or equalities. But we
-               -- want to look at only those constraints which we are unlikely
-               -- to quantify over, in the end. (If we quantify over the constraint
-               -- itself, then there is no need to avoid quantifying over its
-               -- variables.) This final determination is done by
-               -- pickQuantifiablePreds, but it needs to know the set of
-               -- quantified variables first. So we make an approximation here:
-               -- we guess that we will not quantify over equalities, but will
-               -- quantify over everything else.
+               -- set, by functional dependencies or equalities. We thus use
+               -- oclose to find all further variables determined by this root
+               -- set.
 
-             eq_constraints = filter isEqPrimPred candidates
-             mono_tvs2 = oclose eq_constraints mono_tvs1
+             mono_tvs2 = oclose candidates mono_tvs1
 
              constrained_tvs = filterVarSet (isQuantifiableTv tc_lvl) $
-                               (oclose eq_constraints (tyCoVarsOfTypes no_quant)
+                               (oclose candidates (tyCoVarsOfTypes no_quant)
                                 `minusVarSet` mono_tvs2)
                                `delVarSetList` psig_qtvs
              -- constrained_tvs: the tyvars that we are not going to
