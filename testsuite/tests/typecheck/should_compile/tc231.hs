@@ -9,6 +9,8 @@
 
 -- Note the quantification over 'b', which was previously
 -- omitted; see Note [Important subtlety in oclose] in GHC.Tc.Instance.FunDeps
+-- (Note removed in ecddaca17dccbe1d0b56220d838fce8bc4b97884, but you can
+-- find it in the history)
 
 
 module ShouldCompile where
@@ -26,4 +28,3 @@ class  Zork s a b | a -> b where
   huh :: Q s a chain ->  ST s ()
 
 foo b = huh (s b)
-

@@ -19,7 +19,7 @@ module GHC.Tc.Instance.FunDeps
    , checkInstCoverage
    , checkFunDeps
    , pprFundeps
-   , oclose
+   , instFD, oclose
    )
 where
 
@@ -555,7 +555,7 @@ oclose preds fixed_tvs
       -- implicit params don't really determine a type variable, and
       -- skipping this causes implicit params to monomorphise too many
       -- variables; see Note [Inheriting implicit parameters] in
-      -- GHC.Tc.Utils.TcType. Skipping causes typecheck/should_compile/tc219
+      -- GHC.Tc.Solver. Skipping causes typecheck/should_compile/tc219
       -- to fail.
 
     extend fixed_tvs = foldl' add fixed_tvs tv_fds

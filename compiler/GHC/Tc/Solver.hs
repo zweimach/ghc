@@ -29,7 +29,7 @@ module GHC.Tc.Solver(
 import GHC.Prelude
 
 import GHC.Data.Bag
-import GHC.Core.Class ( Class, classKey, classTyCon, classHasFds )
+import GHC.Core.Class ( Class, classKey, classTyCon, classHasFds, classTvsFds )
 import GHC.Driver.Session
 import GHC.Types.Id   ( idType )
 import GHC.Tc.Utils.Instantiate
@@ -47,8 +47,9 @@ import GHC.Tc.Utils.TcMType   as TcM
 import GHC.Tc.Utils.Monad as TcM
 import GHC.Tc.Solver.Monad  as TcS
 import GHC.Tc.Types.Constraint
-import GHC.Tc.Instance.FunDeps   ( oclose )
+import GHC.Tc.Instance.FunDeps   ( oclose, instFD )
 import GHC.Core.Predicate
+import GHC.Core.TyCon
 import GHC.Tc.Types.Origin
 import GHC.Tc.Utils.TcType
 import GHC.Core.Type
@@ -67,7 +68,7 @@ import Control.Monad
 import Data.Foldable      ( toList )
 import Data.List          ( partition )
 import Data.List.NonEmpty ( NonEmpty(..) )
-import GHC.Data.Maybe     ( isJust )
+import GHC.Data.Maybe     ( isJust, mapMaybe )
 
 {-
 *********************************************************************************
@@ -987,6 +988,58 @@ If the monomorphism restriction does not apply, then we quantify as follows:
   qtvs. We have to zonk the constraints first, so they "see" the
   freshly created skolems.
 
+Note [Lift equality constraints when quantifying]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+We can't quantify over a constraint (t1 ~# t2) because that isn't a
+predicate type; see Note [Types for coercions, predicates, and evidence]
+in GHC.Core.TyCo.Rep.
+
+So we have to 'lift' it to (t1 ~ t2).  Similarly (~R#) must be lifted
+to Coercible.
+
+This tiresome lifting is the reason that pick_me (in
+pickQuantifiablePreds) returns a Maybe rather than a Bool.
+
+Note [Inheriting implicit parameters]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Consider this:
+
+        f x = (x::Int) + ?y
+
+where f is *not* a top-level binding.
+From the RHS of f we'll get the constraint (?y::Int).
+There are two types we might infer for f:
+
+        f :: Int -> Int
+
+(so we get ?y from the context of f's definition), or
+
+        f :: (?y::Int) => Int -> Int
+
+At first you might think the first was better, because then
+?y behaves like a free variable of the definition, rather than
+having to be passed at each call site.  But of course, the WHOLE
+IDEA is that ?y should be passed at each call site (that's what
+dynamic binding means) so we'd better infer the second.
+
+BOTTOM LINE: when *inferring types* you must quantify over implicit
+parameters, *even if* they don't mention the bound type variables.
+Reason: because implicit parameters, uniquely, have local instance
+declarations. See pickQuantifiablePreds.
+
+Note [Quantifying over equality constraints]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Should we quantify over an equality constraint (s ~ t)?  In general, we don't.
+Doing so may simply postpone a type error from the function definition site to
+its call site.  (At worst, imagine (Int ~ Bool)).
+
+However, consider this
+         forall a. (F [a] ~ Int) => blah
+Should we quantify over the (F [a] ~ Int).  Perhaps yes, because at the call
+site we will know 'a', and perhaps we have instance  F [Bool] = Int.
+So we *do* quantify over a type-family equality where the arguments mention
+the quantified variables.
+
 -}
 
 decideQuantification
@@ -1162,6 +1215,21 @@ decideMonoTyVars infer_mode name_taus psigs candidates
                     , text (if isSingleton name_taus then "it" else "them")
                     , text "a type signature"])
 
+{- "RAE"
+-------------------
+growMonoTyVars :: [PredType]   -- candidates
+               -> TyVarSet     -- original mono vars
+               -> TyVarSet     -- all mono vars
+-- given the candidates and a seed set of mono tyvars, grows the
+-- set of mono tyvars. The expanded set includes all tyvars that are
+-- determined by the seeds, or transitively by other tyvars determined
+-- by the seeds. However, there is a catch: we must use only predicates
+-- that we will not, in the end, want to quantify over. Because we
+-- don't quantify over equalities, this set initially includes just
+-- equalities, but we also include any non-equalities whose free variables
+-- are all mono (as these will not be quantified over).
+-}
+
 -------------------
 defaultTyVarsAndSimplify :: TcLevel
                          -> TyCoVarSet
@@ -1261,6 +1329,81 @@ decideQuantifiedTyVars name_taus psigs candidates
        ; quantifyTyVars dvs_plus }
 
 ------------------
+-- | When inferring types, should we quantify over a given predicate?
+-- Generally true of classes; generally false of equality constraints.
+-- Equality constraints that mention quantified type variables and
+-- implicit variables complicate the story. See Notes
+-- [Inheriting implicit parameters] and [Quantifying over equality constraints]
+pickQuantifiablePreds
+  :: TyVarSet           -- Quantifying over these
+  -> TcThetaType        -- Proposed constraints to quantify
+  -> TcThetaType        -- A subset that we can actually quantify
+-- This function decides whether a particular constraint should be
+-- quantified over, given the type variables that are being quantified
+pickQuantifiablePreds qtvs theta
+  = let flex_ctxt = True in  -- Quantify over non-tyvar constraints, even without
+                             -- -XFlexibleContexts: see #10608, #10351
+         -- flex_ctxt <- xoptM Opt_FlexibleContexts
+    mapMaybe (pick_me flex_ctxt) theta
+  where
+    pick_me flex_ctxt pred
+      = case classifyPredType pred of
+
+          ClassPred cls tys
+            | Just {} <- isCallStackPred cls tys
+              -- NEVER infer a CallStack constraint.  Otherwise we let
+              -- the constraints bubble up to be solved from the outer
+              -- context, or be defaulted when we reach the top-level.
+              -- See Note [Overview of implicit CallStacks] in GHC.Tc.Types.Evidence
+            -> Nothing
+
+            | isIPClass cls
+            -> Just pred -- See note [Inheriting implicit parameters]
+
+            | pick_cls_pred flex_ctxt cls tys
+            -> Just pred
+
+          EqPred eq_rel ty1 ty2
+            | quantify_equality eq_rel ty1 ty2
+            , Just (cls, tys) <- boxEqPred eq_rel ty1 ty2
+              -- boxEqPred: See Note [Lift equality constraints when quantifying]
+            , pick_cls_pred flex_ctxt cls tys
+            -> Just (mkClassPred cls tys)
+
+          IrredPred ty
+            | tyCoVarsOfType ty `intersectsVarSet` qtvs
+            -> Just pred
+
+          _ -> Nothing
+
+
+    pick_cls_pred flex_ctxt cls tys
+      = tyCoVarsOfTypes tys `intersectsVarSet` qtvs
+        && (checkValidClsArgs flex_ctxt cls tys)
+           -- Only quantify over predicates that checkValidType
+           -- will pass!  See #10351.
+        && (no_fixed_dependencies cls tys)
+
+    no_fixed_dependencies cls tys
+      = and [ qtvs `intersectsVarSet` tyCoVarsOfTypes fd_lhs_tys
+            | fd <- cls_fds
+            , let (fd_lhs_tys, _) = instFD fd cls_tvs tys ]
+      where
+        (cls_tvs, cls_fds) = classTvsFds cls
+
+
+    -- See Note [Quantifying over equality constraints]
+    quantify_equality NomEq  ty1 ty2 = quant_fun ty1 || quant_fun ty2
+    quantify_equality ReprEq _   _   = True
+
+    quant_fun ty
+      = case tcSplitTyConApp_maybe ty of
+          Just (tc, tys) | isTypeFamilyTyCon tc
+                         -> tyCoVarsOfTypes tys `intersectsVarSet` qtvs
+          _ -> False
+
+
+------------------
 growThetaTyVars :: ThetaType -> TyCoVarSet -> TyCoVarSet
 -- See Note [Growing the tau-tvs using constraints]
 growThetaTyVars theta tcvs
@@ -1269,7 +1412,7 @@ growThetaTyVars theta tcvs
   where
     seed_tcvs = tcvs `unionVarSet` tyCoVarsOfTypes ips
     (ips, non_ips) = partition isIPPred theta
-                         -- See Note [Inheriting implicit parameters] in GHC.Tc.Utils.TcType
+                         -- See Note [Inheriting implicit parameters]
 
     mk_next :: VarSet -> VarSet -- Maps current set to newly-grown ones
     mk_next so_far = foldr (grow_one so_far) emptyVarSet non_ips

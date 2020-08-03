@@ -309,7 +309,7 @@ and is not implicitly instantiated.
 So in mkProvEvidence we lift (a ~# b) to (a ~ b).  Tiresome, and
 marginally less efficient, if the builder/martcher are not inlined.
 
-See also Note [Lift equality constraints when quantifying] in GHC.Tc.Utils.TcType
+See also Note [Lift equality constraints when quantifying] in GHC.Tc.Solver
 
 Note [Coercions that escape]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
