@@ -115,7 +115,7 @@ The :extension:`TemplateHaskellQuotes` extension is considered safe under
       -- monad used to build the representation are propagated when using nested
       -- splices.
       f :: (Quote m, C m) => m Exp
-      f = [| 5 | ]
+      f = [| 5 |]
 
       -- f is used in a nested splice so the constraint on f, namely C, is propagated
       -- to a constraint on the whole representation.
@@ -769,5 +769,3 @@ Run "main" and here is your output:
     $ ./main
     3
     1
-
-
