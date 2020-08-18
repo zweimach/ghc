@@ -553,19 +553,19 @@ is_fam_decl decl = Right decl
 
 is_tyfam_inst :: LHsDecl GhcPs -> Either (LTyFamInstDecl GhcPs) (LHsDecl GhcPs)
 is_tyfam_inst (L loc (Hs.InstD _ (TyFamInstD { tfid_inst = d })))
-  = Left (L (locA loc) d)
+  = Left (L loc d)
 is_tyfam_inst decl
   = Right decl
 
 is_datafam_inst :: LHsDecl GhcPs
                 -> Either (LDataFamInstDecl GhcPs) (LHsDecl GhcPs)
 is_datafam_inst (L loc (Hs.InstD  _ (DataFamInstD { dfid_inst = d })))
-  = Left (L (locA loc) d)
+  = Left (L loc d)
 is_datafam_inst decl
   = Right decl
 
 is_sig :: LHsDecl GhcPs -> Either (LSig GhcPs) (LHsDecl GhcPs)
-is_sig (L loc (Hs.SigD _ sig)) = Left (L (locA loc) sig)
+is_sig (L loc (Hs.SigD _ sig)) = Left (L loc sig)
 is_sig decl                    = Right decl
 
 is_bind :: LHsDecl GhcPs -> Either (LHsBind GhcPs) (LHsDecl GhcPs)
@@ -618,14 +618,14 @@ cvtConstr (ForallC tvs ctxt con)
     add_forall :: [LHsTyVarBndr Hs.Specificity GhcPs] -> LHsContext GhcPs
                -> ConDecl GhcPs -> ConDecl GhcPs
     add_forall tvs' cxt' con@(ConDeclGADT { con_qvars = qvars, con_mb_cxt = cxt })
-      = con { con_forall = noLoc $ not (null all_tvs)
+      = con { con_forall = not (null all_tvs)
             , con_qvars  = all_tvs
             , con_mb_cxt = add_cxt cxt' cxt }
       where
         all_tvs = tvs' ++ qvars
 
     add_forall tvs' cxt' con@(ConDeclH98 { con_ex_tvs = ex_tvs, con_mb_cxt = cxt })
-      = con { con_forall = noLoc $ not (null all_tvs)
+      = con { con_forall = not (null all_tvs)
             , con_ex_tvs = all_tvs
             , con_mb_cxt = add_cxt cxt' cxt }
       where
@@ -654,7 +654,7 @@ mk_gadt_decl :: [LocatedN RdrName] -> HsConDeclDetails GhcPs -> LHsType GhcPs
 mk_gadt_decl names args res_ty
   = ConDeclGADT { con_g_ext  = noAnn
                 , con_names  = names
-                , con_forall = noLoc False
+                , con_forall = False
                 , con_qvars  = []
                 , con_mb_cxt = Nothing
                 , con_args   = args
@@ -1290,7 +1290,7 @@ cvtPat pat = wrapLA (cvtp pat)
 cvtp :: TH.Pat -> CvtM (Hs.Pat GhcPs)
 cvtp (TH.LitP l)
   | overloadedLit l    = do { l' <- cvtOverLit l
-                            ; return (mkNPat (noLoc l') Nothing) }
+                            ; return (mkNPat (noLoc l') Nothing noAnn) }
                                   -- Not right for negative patterns;
                                   -- need to think about that!
   | otherwise          = do { l' <- cvtLit l; return $ Hs.LitPat noExtField l' }
