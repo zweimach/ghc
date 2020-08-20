@@ -1247,9 +1247,15 @@ primop  NewSmallArrayOp "newSmallArray#" GenPrimOp
    out_of_line = True
    has_side_effects = True
 
+primop ArrayOfOp "arrayOf#" GenPrimOp
+   o -> Array# b
+   {arrayOf# :: (# a, .., a #) -> Array# a}
+   with
+   has_side_effects = True
+
 primop SmallArrayOfOp "smallArrayOf#" GenPrimOp
    o -> SmallArray# b
-   {smallArrayOf# :: (# a, .., a #) -> Array# a}
+   {smallArrayOf# :: (# a, .., a #) -> SmallArray# a}
    with
    has_side_effects = True
 

@@ -1,5 +1,6 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 #if __GLASGOW_HASKELL__ <= 808
 -- GHC 8.10 deprecates this flag, but GHC 8.8 needs it
@@ -58,7 +59,6 @@ import Data.Bits ((.&.), bit)
 import Control.Monad (liftM, when, unless)
 
 import GHC.Types.CostCentre (dontCareCCS)
-import GHC.StgToCmm.Closure
 
 ------------------------------------------------------------------------
 --      Primitive operations and foreign calls
@@ -244,27 +244,9 @@ emitPrimOp dflags = \case
         (replicate (fromIntegral n) init)
     _ -> PrimopCmmEmit_External
 
-  op@SmallArrayOfOp -> \elems -> PrimopCmmEmit_IntoRegs $ \[res] -> do
-    let n = length elems
-    case allStatic elems of
-      Just known -> do
-        u <- newUnique
-        let lbl = mkUnliftedDataLabel u op
-        emitDataCon lbl (smallArrayStaticInfoTable n) dontCareCCS known
-        emit $ mkAssign (CmmLocal res) (CmmLit $ CmmLabel lbl)
-      Nothing -> doNewArrayOp
-        res
-        (smallArrPtrsRep (fromIntegral n))
-        mkSMAP_FROZEN_DIRTY_infoLabel
-        [ ( mkIntExpr platform n
-          , fixedHdrSize dflags + oFFSET_StgSmallMutArrPtrs_ptrs dflags ) ]
-        elems
-      where
-        -- todo: comment
-        allStatic = foldr step (Just [])
+  op@ArrayOfOp -> doArrayOfOp dflags op
 
-        step (CmmLit l) (Just acc) = Just (l : acc) -- c.f. XXX getLit
-        step _ _ = Nothing
+  op@SmallArrayOfOp -> doArrayOfOp dflags op
 
   CopySmallArrayOp -> \case
     [src, src_off, dst, dst_off, (CmmLit (CmmInt n _))] ->
@@ -2576,6 +2558,61 @@ doNewArrayOp res_r rep info payload inits = do
     emit (catAGraphs initialization)
 
     emit $ mkAssign (CmmLocal res_r) (CmmReg arr)
+
+doArrayOfOp :: DynFlags -> PrimOp -> [CmmExpr] -> PrimopCmmEmit
+doArrayOfOp dflags op = \elems -> PrimopCmmEmit_IntoRegs $ \[res] -> do
+    let
+      n :: Int
+      n = length elems
+
+      platform :: Platform
+      platform = targetPlatform dflags
+
+      infoTbl :: CmmInfoTable
+      infoTbl = CmmInfoTable
+          { cit_lbl  = lbl
+          , cit_rep  = rep
+          , cit_prof = NoProfilingInfo
+          , cit_srt  = Nothing
+          , cit_clo  = Nothing }
+
+      lbl :: CLabel
+      rep :: SMRep
+      hdr :: [(CmmExpr, ByteOff)]
+      (lbl, rep, hdr) = case op of
+        ArrayOfOp ->
+          ( mkMAP_FROZEN_DIRTY_infoLabel
+          , arrPtrsRep dflags (fromIntegral n)
+          , [ ( mkIntExpr platform n
+              , fixedHdrSize dflags + oFFSET_StgMutArrPtrs_ptrs dflags )
+            , ( mkIntExpr platform (nonHdrSizeW (arrPtrsRep dflags n))
+              , fixedHdrSize dflags + oFFSET_StgMutArrPtrs_size dflags )
+            ]
+          )
+        SmallArrayOfOp ->
+          ( mkSMAP_FROZEN_DIRTY_infoLabel
+          , smallArrPtrsRep (fromIntegral n)
+          , [ ( mkIntExpr platform n
+              , fixedHdrSize dflags + oFFSET_StgSmallMutArrPtrs_ptrs dflags
+              )
+            ]
+          )
+        _ -> error "Expected one of: ArrayOfOp, SmallArrayOfOp"
+
+    if all isStatic elems
+      then do
+        u <- newUnique
+        let staticLbl = mkUnliftedDataLabel u op
+        emitDataCon staticLbl infoTbl dontCareCCS (map unsafeUnwrapLit elems)
+        emit $ mkAssign (CmmLocal res) (CmmLit $ CmmLabel staticLbl)
+      else doNewArrayOp res rep lbl hdr elems
+
+isStatic :: CmmExpr -> Bool
+isStatic = \case CmmLit{} -> True; _ -> False
+
+unsafeUnwrapLit :: CmmExpr -> CmmLit
+unsafeUnwrapLit (CmmLit i) = i
+unsafeUnwrapLit _ = error "Expected CmmLit"
 
 -- ----------------------------------------------------------------------------
 -- Copying pointer arrays
