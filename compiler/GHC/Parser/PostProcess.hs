@@ -19,6 +19,7 @@
 {-# OPTIONS_GHC -Wno-incomplete-record-updates #-}
 
 module GHC.Parser.PostProcess (
+        mkApp,  mkGet, mkVar, mkFieldUpdater, mkProj, isGet, applyFieldUpdates, -- RecordDot
         mkHsOpApp,
         mkHsIntegral, mkHsFractional, mkHsIsString,
         mkHsDo, mkSpliceDecl,
@@ -31,7 +32,7 @@ module GHC.Parser.PostProcess (
         mkFamDecl, mkLHsSigType,
         mkInlinePragma,
         mkPatSynMatchGroup,
-        mkRecConstrOrUpdate, -- HsExp -> [HsFieldUpdate] -> P HsExp
+        mkRecConstrOrUpdate,
         mkTyClD, mkInstD,
         mkRdrRecordCon, mkRdrRecordUpd,
         setRdrNameSpace,
@@ -1441,6 +1442,7 @@ class b ~ (Body b) GhcPs => DisambECP b where
   mkHsSplicePV :: Located (HsSplice GhcPs) -> PV (Located b)
   -- | Disambiguate "f { a = b, ... }" syntax (record construction and record updates)
   mkHsRecordPV ::
+    Bool -> -- Is RecordDotSyntax in effect?
     SrcSpan ->
     SrcSpan ->
     Located b ->
@@ -1462,7 +1464,6 @@ class b ~ (Body b) GhcPs => DisambECP b where
   mkSumOrTuplePV :: SrcSpan -> Boxity -> SumOrTuple b -> PV (Located b)
   -- | Validate infixexp LHS to reject unwanted {-# SCC ... #-} pragmas
   rejectPragmaPV :: Located b -> PV ()
-
 
 {- Note [UndecidableSuperClasses for associated types]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1545,7 +1546,7 @@ instance DisambECP (HsCmd GhcPs) where
   mkHsExplicitListPV l xs = cmdFail l $
     brackets (fsep (punctuate comma (map ppr xs)))
   mkHsSplicePV (L l sp) = cmdFail l (ppr sp)
-  mkHsRecordPV l _ a (fbinds, ddLoc) = cmdFail l $
+  mkHsRecordPV _ l _ a (fbinds, ddLoc) = cmdFail l $
     ppr a <+> ppr (mk_rec_fields fbinds ddLoc)
   mkHsNegAppPV l a = cmdFail l (text "-" <> ppr a)
   mkHsSectionR_PV l op c = cmdFail l $
@@ -1604,8 +1605,8 @@ instance DisambECP (HsExpr GhcPs) where
   mkHsTySigPV l a sig = return $ L l (ExprWithTySig noExtField a (mkLHsSigWcType sig))
   mkHsExplicitListPV l xs = return $ L l (ExplicitList noExtField Nothing xs)
   mkHsSplicePV sp = return $ mapLoc (HsSpliceE noExtField) sp
-  mkHsRecordPV l lrec a (fbinds, ddLoc) = do
-    r <- mkRecConstrOrUpdate a lrec (fbinds, ddLoc)
+  mkHsRecordPV dot l lrec a (fbinds, ddLoc) = do
+    r <- mkRecConstrOrUpdate dot a lrec (fbinds, ddLoc)
     checkRecordSyntax (L l r)
   mkHsNegAppPV l a = return $ L l (NegApp noExtField a noSyntaxExpr)
   mkHsSectionR_PV l op e = return $ L l (SectionR noExtField op e)
@@ -1692,7 +1693,7 @@ instance DisambECP (PatBuilder GhcPs) where
     ps <- traverse checkLPat xs
     return (L l (PatBuilderPat (ListPat noExtField ps)))
   mkHsSplicePV (L l sp) = return $ L l (PatBuilderPat (SplicePat noExtField sp))
-  mkHsRecordPV l _ a (fbinds, ddLoc) = do
+  mkHsRecordPV _ l _ a (fbinds, ddLoc) = do
     r <- mkPatRec a (mk_rec_fields fbinds ddLoc)
     checkRecordSyntax (L l r)
   mkHsNegAppPV l (L lp p) = do
@@ -2331,23 +2332,26 @@ checkPrecP (L l (_,i)) (L _ ol)
                                    , getRdrName unrestrictedFunTyCon ]
 
 mkRecConstrOrUpdate
-        :: LHsExpr GhcPs
+        :: Bool
+        -> LHsExpr GhcPs
         -> SrcSpan
         -> ([LHsRecField GhcPs (LHsExpr GhcPs)], Maybe SrcSpan)
         -> PV (HsExpr GhcPs)
 
-mkRecConstrOrUpdate (L l (HsVar _ (L _ c))) _ (fs,dd)
+mkRecConstrOrUpdate _ (L l (HsVar _ (L _ c))) _ (fs,dd)
   | isRdrDataCon c
   = return (mkRdrRecordCon (L l c) (mk_rec_fields fs dd))
-mkRecConstrOrUpdate exp _ (fs,dd)
+mkRecConstrOrUpdate dot exp _ (fs,dd)
   | Just dd_loc <- dd = addFatalError dd_loc (text "You cannot use `..' in a record update")
-  | otherwise = return (mkRdrRecordUpd exp (map (fmap mk_rec_upd_field) fs))
+  | otherwise = return (mkRdrRecordUpd dot exp (map (fmap mk_rec_upd_field) fs))
 
-mkRdrRecordUpd :: LHsExpr GhcPs -> [LHsRecUpdField GhcPs] -> HsExpr GhcPs
-mkRdrRecordUpd exp flds
-  = RecordUpd { rupd_ext  = noExtField
-              , rupd_expr = exp
-              , rupd_flds = flds }
+mkRdrRecordUpd :: Bool -> LHsExpr GhcPs -> [LHsRecUpdField GhcPs] -> HsExpr GhcPs
+mkRdrRecordUpd dot exp flds
+  -- If RecordDotSyntax is in effect produce a set_field expression.
+  | dot = unLoc $ foldl' mkSetField exp flds
+  | otherwise = RecordUpd { rupd_ext  = noExtField
+                          , rupd_expr = exp
+                          , rupd_flds = flds }
 
 mkRdrRecordCon :: Located RdrName -> HsRecordBinds GhcPs -> HsExpr GhcPs
 mkRdrRecordCon con flds
@@ -2885,3 +2889,105 @@ starSym False = "*"
 forallSym :: Bool -> String
 forallSym True = "∀"
 forallSym False = "forall"
+
+-----------------------------------------
+-- Bits and pieces for RecordDotSyntax.
+
+mkParen :: LHsExpr GhcPs -> LHsExpr GhcPs
+mkParen = noLoc . HsPar noExtField
+
+mkVar :: String -> LHsExpr GhcPs
+mkVar = noLoc . HsVar noExtField . noLoc . mkRdrUnqual . mkVarOcc
+
+mkApp :: LHsExpr GhcPs -> LHsExpr GhcPs -> LHsExpr GhcPs
+mkApp x = noLoc . HsApp noExtField x
+
+mkOpApp :: LHsExpr GhcPs -> LHsExpr GhcPs -> LHsExpr GhcPs -> LHsExpr GhcPs
+mkOpApp x op = noLoc . OpApp noExtField x op
+
+mkAppType :: LHsExpr GhcPs -> GenLocated SrcSpan (HsType (NoGhcTc GhcPs)) -> LHsExpr GhcPs
+mkAppType expr = noLoc . HsAppType noExtField expr . HsWC noExtField
+
+mkSelector :: FastString -> LHsType GhcPs
+mkSelector = noLoc . HsTyLit noExtField . HsStrTy NoSourceText
+
+get_field, set_field :: LHsExpr GhcPs
+get_field = mkVar "getField"
+set_field = mkVar "setField"
+
+-- Test if the expression is a 'getField @"..."' expression.
+isGet :: LHsExpr GhcPs -> Bool
+isGet (L _ (HsAppType _ (L _ (HsVar _ (L _ name))) _)) = occNameString (rdrNameOcc name) == "getField"
+isGet _ = False
+
+zPat :: LPat GhcPs
+zVar, circ :: LHsExpr GhcPs
+zPat = noLoc $ VarPat noExtField (noLoc $ mkRdrUnqual (mkVarOcc "z"))
+zVar = noLoc $ HsVar  noExtField (noLoc $ mkRdrUnqual (mkVarOcc "z"))
+circ = noLoc $ HsVar  noExtField (noLoc $ mkRdrUnqual (mkVarOcc "."))
+
+-- mkProj rhs fIELD calculates a projection.
+-- e.g. .x = mkProj Nothing x = \z -> z.x = \z -> (getField @fIELD x)
+--      .x.y = mkProj Just(.x) y = (.y) . (.x) = (\z -> z.y) . (\z -> z.x)
+mkProj :: Maybe (LHsExpr GhcPs) -> FastString -> LHsExpr GhcPs
+mkProj rhs fIELD =
+  let body = mkGet zVar fIELD
+      grhs = noLoc $ GRHS noExtField [] body
+      ghrss = GRHSs noExtField [grhs] (noLoc (EmptyLocalBinds noExtField))
+      m = noLoc $ Match {m_ext=noExtField, m_ctxt=LambdaExpr, m_pats=[zPat], m_grhss=ghrss}
+      lhs = mkParen (noLoc $ HsLam noExtField MG {mg_ext=noExtField, mg_alts=noLoc [m], mg_origin=Generated}) in
+    maybe lhs (mkParen . mkOpApp lhs circ) rhs
+
+-- mkGet arg fIELD calcuates a get_field @fIELD arg expression.
+-- e.g. z.x = mkGet z x = get_field @x z
+mkGet :: LHsExpr GhcPs -> FastString -> LHsExpr GhcPs
+mkGet arg fIELD = head $ mkGet' [arg] fIELD
+mkGet' :: [LHsExpr GhcPs] -> FastString -> [LHsExpr GhcPs]
+mkGet' l@(r : _) fIELD = get_field `mkAppType` mkSelector fIELD `mkApp` mkParen r : l
+mkGet' [] _ = panic "mkGet' : The impossible has happened!"
+
+-- mkSet a fIELD b calculates a set_field @fIELD expression.
+-- e.g mkSet a fIELD b = set_field @"fIELD" a b (read as "set field 'fIELD' on a to b").
+mkSet :: LHsExpr GhcPs -> FastString -> LHsExpr GhcPs -> LHsExpr GhcPs
+mkSet a fIELD b = set_field `mkAppType` mkSelector fIELD `mkApp` a `mkApp` b
+
+-- mkFieldUpdater calculates functions representing dot notation record updates.
+mkFieldUpdater :: [FastString] -> LHsExpr GhcPs -> (LHsExpr GhcPs -> LHsExpr GhcPs)
+mkFieldUpdater -- e.g {foo.bar.baz.quux = 43}
+  fIELDS -- [foo, bar, baz, quux]
+  arg -- This is 'texp' (43 in the example).
+  = let {
+      ; final = last fIELDS  -- quux
+      ; fields = init fIELDS   -- [foo, bar, baz]
+      ; getters = \a -> foldl' mkGet' [a] fields  -- Ordered from deep to shallow.
+          -- [getField@"baz"(getField@"bar"(getField@"foo" a), getField@"bar"(getField@"foo" a), getField@"foo" a, a]
+      ; zips = \a -> (final, head (getters a)) : zip (reverse fields) (tail (getters a)) -- Ordered from deep to shallow.
+          -- [("quux", getField@"baz"(getField@"bar"(getField@"foo" a)), ("baz", getField@"bar"(getField@"foo" a)), ("bar", getField@"foo" a), ("foo", a)]
+      }
+    in \a -> foldl' mkSet' arg (zips a)
+          -- setField@"foo" (a) (setField@"bar" (getField @"foo" (a))(setField@"baz" (getField @"bar" (getField @"foo" (a)))(setField@"quux" (getField @"baz" (getField @"bar" (getField @"foo" (a))))(quux))))
+    where
+      mkSet' :: LHsExpr GhcPs -> (FastString, LHsExpr GhcPs) -> LHsExpr GhcPs
+      mkSet' acc (fIELD, g) = mkSet (mkParen g) fIELD (mkParen acc)
+
+-- Called from mkRdrRecordUpd.
+mkSetField :: LHsExpr GhcPs -> LHsRecUpdField GhcPs -> LHsExpr GhcPs
+mkSetField e (L _ (HsRecField occ arg _)) = mkSet e (fsLit $ field occ) (val arg)
+  where
+    val :: LHsExpr GhcPs -> LHsExpr GhcPs
+    val arg = if isPun arg then mkVar $ field occ else arg
+
+    isPun :: LHsExpr GhcPs -> Bool
+    isPun = \case
+      L _ (HsVar _ (L _ p)) -> p == pun_RDR
+      _ -> False
+
+    field :: Located (AmbiguousFieldOcc GhcPs) -> String
+    field = \case
+        L _ (Ambiguous _ (L _ lbl)) ->  occNameString . rdrNameOcc $ lbl
+        L _ (Unambiguous _ (L _ lbl)) -> occNameString . rdrNameOcc $ lbl
+        _ -> "" -- Extension ctor.
+
+applyFieldUpdates :: LHsExpr GhcPs -> [LHsExpr GhcPs -> LHsExpr GhcPs] -> P (LHsExpr GhcPs)
+applyFieldUpdates a updates = return $ foldl' apply a updates
+  where apply r update  = update r

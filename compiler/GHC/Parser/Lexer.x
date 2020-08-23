@@ -618,6 +618,19 @@ $tab          { warnTab }
 --            |               |   ordinary operator or type operator,
 --            |               |   e.g.  xs ~ 3, (~ x), Int ~ Bool
 --  ----------+---------------+------------------------------------------
+--    .       |  prefix       | ITproj True
+--            |               |   field projection,
+--            |               |   e.g.  .x
+--            |  tight infix  | ITproj False
+--            |               |   field projection,
+--            |               |   e.g. r.x
+--            |  suffix       | ITdot
+--            |               |   function composition,
+--            |               |   e.g. f. g
+--            |  loose infix  | ITdot
+--            |               |   function composition,
+--            |               |   e.g.  f . g
+--  ----------+---------------+------------------------------------------
 --    $  $$   |  prefix       | ITdollar, ITdollardollar
 --            |               |   untyped or typed Template Haskell splice,
 --            |               |   e.g.  $(f x), $$(f x), $$"str"
@@ -779,6 +792,7 @@ data Token
   | ITtypeApp  -- Prefix (@) only, e.g. f @t
   | ITstar              IsUnicodeSyntax
   | ITdot
+  | ITproj Bool -- RecordDotSyntax
 
   | ITbiglam                    -- GHC-extension symbols
 
@@ -1585,6 +1599,9 @@ varsym_prefix = sym $ \exts s ->
      | s == fsLit "-"   -- Only when LexicalNegation is on, otherwise we get ITminus and
                         -- don't hit this code path. See Note [Minus tokens]
      -> return ITprefixminus
+     | RecordDotSyntaxBit `xtest` exts, s == fsLit "."
+     -> return (ITproj True) -- e.g. '(.x)'
+     | s == fsLit "." -> return ITdot
      | s == fsLit "!" -> return ITbang
      | s == fsLit "~" -> return ITtilde
      | otherwise -> return (ITvarsym s)
@@ -1594,17 +1611,28 @@ varsym_suffix :: Action
 varsym_suffix = sym $ \_ s ->
   if | s == fsLit "@"
      -> failMsgP "Suffix occurrence of @. For an as-pattern, remove the leading whitespace."
+     | s == fsLit "."
+     -> return ITdot
      | otherwise -> return (ITvarsym s)
 
 -- See Note [Whitespace-sensitive operator parsing]
 varsym_tight_infix :: Action
-varsym_tight_infix = sym $ \_ s ->
-  if | s == fsLit "@" -> return ITat
+varsym_tight_infix = sym $ \exts s ->
+  if | s == fsLit "@"
+     -> return ITat
+     | RecordDotSyntaxBit `xtest` exts, s == fsLit "."
+     -> return (ITproj False)
+     | s == fsLit "."
+     -> return ITdot
      | otherwise -> return (ITvarsym s)
 
 -- See Note [Whitespace-sensitive operator parsing]
 varsym_loose_infix :: Action
-varsym_loose_infix = sym (\_ s -> return $ ITvarsym s)
+varsym_loose_infix = sym $ \_ s ->
+  if | s == fsLit "."
+     -> return ITdot
+     | otherwise
+     -> return $ ITvarsym s
 
 consym :: Action
 consym = sym (\_exts s -> return $ ITconsym s)
@@ -1612,8 +1640,13 @@ consym = sym (\_exts s -> return $ ITconsym s)
 sym :: (ExtsBitmap -> FastString -> P Token) -> Action
 sym con span buf len =
   case lookupUFM reservedSymsFM fs of
-    Just (keyword, NormalSyntax, 0) ->
-      return $ L span keyword
+    Just (keyword, NormalSyntax, 0) -> do
+      exts <- getExts
+      if fs == fsLit "." &&
+         exts .&. (xbit RecordDotSyntaxBit) /= 0 &&
+         xtest RecordDotSyntaxBit exts
+      then L span <$!> con exts fs  -- Process by varsym_*.
+      else return $ L span keyword
     Just (keyword, NormalSyntax, i) -> do
       exts <- getExts
       if exts .&. i /= 0
@@ -2619,6 +2652,8 @@ data ExtBits
   | ImportQualifiedPostBit
   | LinearTypesBit
   | NoLexicalNegationBit   -- See Note [Why not LexicalNegationBit]
+  | RecordPunsBit
+  | RecordDotSyntaxBit
 
   -- Flags that are updated once parsing starts
   | InRulePragBit
@@ -2709,6 +2744,8 @@ mkParserFlags' warningFlags extensionFlags homeUnitId
       .|. ImportQualifiedPostBit      `xoptBit` LangExt.ImportQualifiedPost
       .|. LinearTypesBit              `xoptBit` LangExt.LinearTypes
       .|. NoLexicalNegationBit     `xoptNotBit` LangExt.LexicalNegation -- See Note [Why not LexicalNegationBit]
+      .|. RecordPunsBit          `xoptBit` LangExt.RecordPuns
+      .|. RecordDotSyntaxBit          `xoptBit` LangExt.RecordDotSyntax
     optBits =
           HaddockBit        `setBitIf` isHaddock
       .|. RawTokenStreamBit `setBitIf` rawTokStream
