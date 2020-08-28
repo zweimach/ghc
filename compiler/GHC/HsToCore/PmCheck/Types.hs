@@ -36,8 +36,8 @@ module GHC.HsToCore.PmCheck.Types (
         setIndirectSDIE, setEntrySDIE, traverseSDIE,
 
         -- * The pattern match oracle
-        BotInfo(..), VarInfo(..), TmState(..), TyState(..), Delta(..),
-        Deltas(..), initDeltas, liftDeltasM
+        BotInfo(..), VarInfo(..), TmState(..), TyState(..), Nabla(..),
+        Nablas(..), initNablas, liftNablasM
     ) where
 
 #include "HsVersions.h"
@@ -598,35 +598,35 @@ initTyState = TySt emptyBag
 
 -- | An inert set of canonical (i.e. mutually compatible) term and type
 -- constraints.
-data Delta = MkDelta { delta_ty_st :: TyState    -- Type oracle; things like a~Int
-                     , delta_tm_st :: TmState }  -- Term oracle; things like x~Nothing
+data Nabla = MkNabla { nabla_ty_st :: TyState    -- Type oracle; things like a~Int
+                     , nabla_tm_st :: TmState }  -- Term oracle; things like x~Nothing
 
--- | An initial delta that is always satisfiable
-initDelta :: Delta
-initDelta = MkDelta initTyState initTmState
+-- | An initial nabla that is always satisfiable
+initNabla :: Nabla
+initNabla = MkNabla initTyState initTmState
 
-instance Outputable Delta where
-  ppr delta = hang (text "Delta") 2 $ vcat [
+instance Outputable Nabla where
+  ppr nabla = hang (text "Nabla") 2 $ vcat [
       -- intentionally formatted this way enable the dev to comment in only
       -- the info she needs
-      ppr (delta_tm_st delta),
-      ppr (delta_ty_st delta)
+      ppr (nabla_tm_st nabla),
+      ppr (nabla_ty_st nabla)
     ]
 
--- | A disjunctive bag of 'Delta's, representing a refinement type.
-newtype Deltas = MkDeltas (Bag Delta)
+-- | A disjunctive bag of 'Nabla's, representing a refinement type.
+newtype Nablas = MkNablas (Bag Nabla)
 
-initDeltas :: Deltas
-initDeltas = MkDeltas (unitBag initDelta)
+initNablas :: Nablas
+initNablas = MkNablas (unitBag initNabla)
 
-instance Outputable Deltas where
-  ppr (MkDeltas deltas) = ppr deltas
+instance Outputable Nablas where
+  ppr (MkNablas nablas) = ppr nablas
 
-instance Semigroup Deltas where
-  MkDeltas l <> MkDeltas r = MkDeltas (l `unionBags` r)
+instance Semigroup Nablas where
+  MkNablas l <> MkNablas r = MkNablas (l `unionBags` r)
 
-instance Monoid Deltas where
-  mempty = MkDeltas emptyBag
+instance Monoid Nablas where
+  mempty = MkNablas emptyBag
 
-liftDeltasM :: Monad m => (Delta -> m (Maybe Delta)) -> Deltas -> m Deltas
-liftDeltasM f (MkDeltas ds) = MkDeltas . catBagMaybes <$> (traverse f ds)
+liftNablasM :: Monad m => (Nabla -> m (Maybe Nabla)) -> Nablas -> m Nablas
+liftNablasM f (MkNablas ds) = MkNablas . catBagMaybes <$> (traverse f ds)
