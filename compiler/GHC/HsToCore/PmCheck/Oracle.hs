@@ -1759,8 +1759,12 @@ addCoreCt nabla x e = do
       pm_alt_con_app x (PmAltConLike (RealDataCon dc)) ex_tvs arg_ids
 
     -- | Adds a literal constraint, i.e. @x ~ 42@.
+    -- Also we assume that literal expressions won't diverge, so this
+    -- will add a @x ~/ ⊥@ constraint.
     pm_lit :: Id -> PmLit -> StateT Nabla (MaybeT DsM) ()
-    pm_lit x lit = pm_alt_con_app x (PmAltLit lit) [] []
+    pm_lit x lit = do
+      modifyT $ \nabla -> addNotBotCt nabla x
+      pm_alt_con_app x (PmAltLit lit) [] []
 
     -- | Adds the given constructor application as a solution for @x@.
     pm_alt_con_app :: Id -> PmAltCon -> [TyVar] -> [Id] -> StateT Nabla (MaybeT DsM) ()
