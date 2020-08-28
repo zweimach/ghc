@@ -23,7 +23,6 @@ module GHC.HsToCore.PmCheck.Oracle (
         pattern PmNotBotCt,
 
         addPmCts,           -- Add a constraint to the oracle.
-        canDiverge,         -- Try to add the term equality x ~ ⊥
         provideEvidence
     ) where
 
@@ -740,13 +739,13 @@ TyCon, so tc_rep = tc_fam afterwards.
 -- | Check whether adding a constraint @x ~ BOT@ to 'Nabla' succeeds.
 canDiverge :: Nabla -> Id -> Bool
 canDiverge MkNabla{ nabla_tm_st = ts } x
-  -- See Note [Divergence of Newtype matches]
+  -- See Note [Coverage checking Newtype matches]
   | (_, VI _ _ _ bot _) <- lookupVarInfoNT ts x
   = bot /= IsNotBot
 
-{- Note [Divergence of Newtype matches]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Newtypes behave rather strangely when compared to ordinary DataCons. In a
+{- Note [Coverage checking Newtype matches]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Newtypes have quite peculiar match semantics compared to ordinary DataCons. In a
 pattern-match, they behave like a irrefutable (lazy) match, but for inhabitation
 testing purposes (e.g. at construction sites), they behave rather like a DataCon
 with a *strict* field, because they don't contribute their own bottom and are
@@ -901,6 +900,8 @@ addBotCt nabla@MkNabla{ nabla_tm_st = TmSt env reps } x = do
 -- that leads to a contradiction.
 -- See Note [TmState invariants].
 addNotConCt :: Nabla -> Id -> PmAltCon -> MaybeT DsM Nabla
+addNotConCt _ _ (PmAltConLike (RealDataCon dc))
+  | isNewDataCon dc = mzero -- (4) in Note [Coverage checking Newtype matches]
 addNotConCt nabla@MkNabla{ nabla_tm_st = ts@(TmSt env reps) } x nalt = do
   let vi@(VI _ pos neg _ pm) = lookupVarInfo ts x
   -- 1. Bail out quickly when nalt contradicts a solution
@@ -991,7 +992,7 @@ addNotBotCt nabla@MkNabla{ nabla_tm_st = TmSt env reps } x = do
   case bot of
     IsBot    -> mzero      -- There was x ~ ⊥. Contradiction!
     IsNotBot -> pure nabla -- There already is x /~ ⊥. Nothing left to do
-    MaybeBot -> do            -- We add x /~ ⊥ and test if x is still inhabited
+    MaybeBot -> do         -- We add x /~ ⊥ and test if x is still inhabited
       vi <- MaybeT $ ensureInhabited nabla vi{ vi_bot = IsNotBot }
       pure nabla{ nabla_tm_st = TmSt (setEntrySDIE env y vi) reps}
 

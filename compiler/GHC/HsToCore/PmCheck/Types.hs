@@ -230,7 +230,7 @@ pmAltConType (PmAltConLike con) arg_tys  = conLikeResTy con arg_tys
 -- | Is a match on this constructor forcing the match variable?
 -- True of data constructors, literals and pattern synonyms (#17357), but not of
 -- newtypes.
--- See Note [Divergence of Newtype matches] in "GHC.HsToCore.PmCheck.Oracle".
+-- See Note [Coverage checking Newtype matches] in "GHC.HsToCore.PmCheck.Oracle".
 isPmAltConMatchStrict :: PmAltCon -> Bool
 isPmAltConMatchStrict PmAltLit{}                      = True
 isPmAltConMatchStrict (PmAltConLike PatSynCon{})      = True -- #17357
@@ -596,8 +596,9 @@ instance Outputable TyState where
 initTyState :: TyState
 initTyState = TySt emptyBag
 
--- | An inert set of canonical (i.e. mutually compatible) term and type
--- constraints.
+-- | A normalised refinement type, comprised of an inert set of canonical (i.e.
+-- mutually compatible) term and type constraints that form the refinement
+-- type's predicate.
 data Nabla = MkNabla { nabla_ty_st :: TyState    -- Type oracle; things like a~Int
                      , nabla_tm_st :: TmState }  -- Term oracle; things like x~Nothing
 
