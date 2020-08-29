@@ -467,6 +467,32 @@ stg_cloneSmallMutableArrayzh ( gcptr src, W_ offset, W_ n )
     cloneSmallArray(stg_SMALL_MUT_ARR_PTRS_DIRTY_info, src, offset, n)
 }
 
+stg_insertSmallArrayzh( gcptr src, W_ idx, gcptr elemt )
+{
+    W_ words, size;
+    gcptr dst, dst_p, src_p, src_p_2;
+
+    again: MAYBE_GC(again);
+
+    size = StgSmallMutArrPtrs_ptrs(src);
+
+    words = BYTES_TO_WDS(SIZEOF_StgSmallMutArrPtrs) + size;
+    ("ptr" dst) = ccall allocate(MyCapability() "ptr", words);
+    TICK_ALLOC_PRIM(SIZEOF_StgSmallMutArrPtrs, WDS(size), 0);
+
+    SET_HDR(dst, stg_SMALL_MUT_ARR_PTRS_FROZEN_CLEAN_info, CCCS);
+    StgSmallMutArrPtrs_ptrs(dst) = size;
+
+    dst_p = dst + SIZEOF_StgSmallMutArrPtrs;
+    src_p = src + SIZEOF_StgSmallMutArrPtrs;
+    prim %memcpy(dst_p, src_p, WDS(idx), SIZEOF_W);
+    src_p_2 = src_p + idx;
+    src_p_2 = elemt; // doesn't accept src_p[idx]?
+    prim %memcpy(dst_p + idx, src_p_2 + 1, WDS(size - idx), SIZEOF_W);
+
+    return (dst);
+}
+
 // We have to escape the "z" in the name.
 stg_freezzeSmallArrayzh ( gcptr src, W_ offset, W_ n )
 {

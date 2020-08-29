@@ -1404,6 +1404,14 @@ primop  CloneSmallArrayOp "cloneSmallArray#" GenPrimOp
   has_side_effects = True
   can_fail         = True
 
+primop InsertSmallArrayOp "insertSmallArray#" GenPrimOp
+  SmallArray# a -> Int# -> a -> SmallArray# a
+  {TODO}
+  with
+  out_of_line      = True
+  has_side_effects = True
+  can_fail         = True
+
 primop  CloneSmallMutableArrayOp "cloneSmallMutableArray#" GenPrimOp
   SmallMutableArray# s a -> Int# -> Int# -> State# s -> (# State# s, SmallMutableArray# s a #)
   {Given a source array, an offset into the source array, and a number
